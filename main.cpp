@@ -893,16 +893,11 @@ int main(int, char**)
                 saved_palette_init = false;
             }
 
-            static ImVec4 backup_color(1.0f, 0.0f, 0.0f, 1.0f);
-
             // Picker mode combo (Hue Bar / Hue Wheel)
             const char* picker_items[] = { "Hue Bar", "Hue Wheel" };
             ImGui::Combo("Mode", &xterm_picker_mode, picker_items, IM_ARRAYSIZE(picker_items));
 
             ImGui::Separator();
-
-            // Foreground/background preview + selection
-            ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
 
             // Layout: picker on the left, side preview + palette on the right.
             ImGui::BeginGroup();
@@ -927,25 +922,8 @@ int main(int, char**)
             ImGui::SameLine();
 
             ImGui::BeginGroup(); // Lock X position
-            ImGui::Text("Current");
-            ImVec4 current_color = (active_fb == 0) ? fg_color : bg_color;
-            ImGui::ColorButton("##current", current_color,
-                               ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_AlphaPreviewHalf,
-                               ImVec2(60, 40));
-            ImGui::Text("Previous");
-            if (ImGui::ColorButton("##previous", backup_color,
-                                   ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_AlphaPreviewHalf,
-                                   ImVec2(60, 40)))
-            {
-                if (active_fb == 0)
-                    fg_color = backup_color;
-                else
-                    bg_color = backup_color;
-            }
-
-            if (value_changed)
-                backup_color = before_edit;
-
+            ImGui::Text("Foreground / Background");
+            ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
             ImGui::Separator();
             ImGui::Text("Palette");
             for (int n = 0; n < IM_ARRAYSIZE(saved_palette); n++)

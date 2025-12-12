@@ -584,17 +584,19 @@ bool XtermForegroundBackgroundWidget(const char* label,
 
     ImVec2 pos = GetCursorScreenPos();
 
-    // Background square (bottom-left)
-    ImVec2 bg_min = ImVec2(pos.x, pos.y + offset);
-    ImVec2 bg_max = ImVec2(bg_min.x + sz, bg_min.y + sz);
-
-    // Foreground square (top-right)
-    ImVec2 fg_min = ImVec2(pos.x + offset, pos.y);
-    ImVec2 fg_max = ImVec2(fg_min.x + sz, fg_min.y + sz);
-
-    // Reserve space for both squares (no swap button area here).
+    // Reserve space for both squares.
     ImVec2 total_size = ImVec2(sz + offset + pad, sz + offset + pad);
     InvisibleButton(label, total_size);
+    // Layout cursor after the reserved region (for subsequent widgets).
+    ImVec2 cursor_after = GetCursorScreenPos();
+
+    // Foreground square (top-left)
+    ImVec2 fg_min = ImVec2(pos.x, pos.y);
+    ImVec2 fg_max = ImVec2(fg_min.x + sz, fg_min.y + sz);
+
+    // Background square (bottom-right, diagonally offset)
+    ImVec2 bg_min = ImVec2(pos.x + offset, pos.y + offset);
+    ImVec2 bg_max = ImVec2(bg_min.x + sz, bg_min.y + sz);
 
     // Background square (bottom layer)
     ImU32 bg_col = ToCol32Xterm(background);
@@ -672,6 +674,9 @@ bool XtermForegroundBackgroundWidget(const char* label,
         ImVec2(c.x + r * 1.1f, c.y - r * 0.1f),
         ImVec2(c.x + r * 0.4f, c.y - r * 0.1f),
         arrow_col);
+
+    // Restore cursor to end of reserved area so following widgets don't overlap.
+    SetCursorScreenPos(cursor_after);
 
     return changed;
 }
