@@ -8,7 +8,8 @@ EXE       = utf8-art-editor
 IMGUI_DIR = references/imgui
 BUILD_DIR = build
 
-SOURCES  = main.cpp
+SOURCES  = main.cpp \
+           canvas.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
@@ -21,6 +22,8 @@ OBJS     = $(addprefix $(BUILD_DIR)/, $(addsuffix .o, $(basename $(notdir $(SOUR
 
 CXXFLAGS ?= -std=c++20
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
+# Enable 32-bit ImWchar in Dear ImGui so Unscii glyphs above U+FFFF render correctly.
+CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
 # SDL3 + Vulkan flags provided by the Nix dev shell (see flake.nix)

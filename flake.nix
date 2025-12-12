@@ -22,6 +22,7 @@
           vulkan-loader
           shaderc
           imgui
+          nlohmann_json
         ];
       in
       rec {
