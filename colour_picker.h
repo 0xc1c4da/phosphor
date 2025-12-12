@@ -9,8 +9,12 @@ namespace ImGui
 // - HueBar: SV square + vertical hue bar (+ optional alpha bar).
 // - HueWheel: Hue wheel + SV triangle (+ optional alpha bar).
 
-bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha = true);
-bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha = true);
+bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4],
+                                  bool show_alpha = true,
+                                  bool* out_used_right_click = nullptr);
+bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4],
+                                    bool show_alpha = true,
+                                    bool* out_used_right_click = nullptr);
 
 // Composite foreground/background widget:
 // - Shows two overlaid xterm-quantized color squares (foreground on top of background).

@@ -152,7 +152,7 @@ static void RenderArrowsForVerticalBar(ImDrawList* draw_list, ImVec2 pos, ImVec2
 
 // Hue-bar variant: SV square + vertical hue bar + optional alpha bar.
 // Returns true when col[] changed by user interaction.
-bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha)
+bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha, bool* out_used_right_click)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -169,10 +169,11 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     float H = 0.0f, S = 0.0f, V = 0.0f;
     ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
 
-    const float width = CalcItemWidth();
+    const float width     = CalcItemWidth();
     const float square_sz = GetFrameHeight();
-    float sv_picker_size = width * 0.65f;
-    float bars_width = square_sz; // hue/alpha bars
+    float       bars_width = square_sz; // hue/alpha bars
+    float       total_bars = bars_width + style.ItemInnerSpacing.x;
+    float       sv_picker_size = ImMax(1.0f, width - total_bars);
 
     ImVec2 picker_pos = window->DC.CursorPos;
     float bar0_pos_x = picker_pos.x + sv_picker_size + style.ItemInnerSpacing.x;
@@ -183,7 +184,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     // --- SV square interaction ---
     {
         SetCursorScreenPos(picker_pos);
-        InvisibleButton("sv", ImVec2(sv_picker_size, sv_picker_size));
+        InvisibleButton("sv", ImVec2(sv_picker_size, sv_picker_size),
+                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         if (IsItemActive())
         {
             ImVec2 p = io.MousePos;
@@ -198,7 +200,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     // --- Hue bar interaction ---
     {
         SetCursorScreenPos(ImVec2(bar0_pos_x, picker_pos.y));
-        InvisibleButton("hue", ImVec2(bars_width, sv_picker_size));
+        InvisibleButton("hue", ImVec2(bars_width, sv_picker_size),
+                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         if (IsItemActive())
         {
             float h = (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
@@ -211,7 +214,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     if (show_alpha)
     {
         SetCursorScreenPos(ImVec2(bar1_pos_x, picker_pos.y));
-        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size));
+        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size),
+                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         if (IsItemActive())
         {
             float a = 1.0f - (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
@@ -222,6 +226,13 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
     // --- Convert HSV back to RGB for storage ---
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
+
+    // Report which mouse button was used for the interaction that changed the color.
+    if (value_changed && out_used_right_click)
+    {
+        *out_used_right_click = io.MouseDown[ImGuiMouseButton_Right] ||
+                                io.MouseClicked[ImGuiMouseButton_Right];
+    }
 
     // --- Rendering: discrete SV square ---
     ImDrawList* draw_list = window->DrawList;
@@ -325,7 +336,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 }
 
 // Hue-wheel variant: hue ring + SV triangle + optional alpha bar.
-bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha)
+bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha, bool* out_used_right_click)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -343,9 +354,9 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
 
     const float width = CalcItemWidth();
-    float sv_picker_size = width * 0.75f;
-    float square_sz = GetFrameHeight();
-    float bars_width = square_sz;
+    float square_sz   = GetFrameHeight();
+    float bars_width  = square_sz;
+    float sv_picker_size = ImMax(1.0f, width - bars_width - g.Style.ItemInnerSpacing.x);
 
     ImVec2 picker_pos = window->DC.CursorPos;
 
@@ -366,7 +377,8 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     {
         ImVec2 region_size(sv_picker_size + style.ItemInnerSpacing.x + bars_width, sv_picker_size);
         SetCursorScreenPos(picker_pos);
-        InvisibleButton("hsv", region_size);
+        InvisibleButton("hsv", region_size,
+                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
 
         if (IsItemActive())
         {
@@ -412,7 +424,8 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     if (show_alpha)
     {
         SetCursorScreenPos(ImVec2(bar_pos_x, picker_pos.y));
-        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size));
+        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size),
+                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         if (IsItemActive())
         {
             float a = 1.0f - (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
@@ -423,6 +436,13 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
 
     // Convert back HSV -> RGB
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
+
+    // Report which mouse button was used for the interaction that changed the color.
+    if (value_changed && out_used_right_click)
+    {
+        *out_used_right_click = io.MouseDown[ImGuiMouseButton_Right] ||
+                                io.MouseClicked[ImGuiMouseButton_Right];
+    }
 
     ImDrawList* draw_list = window->DrawList;
 

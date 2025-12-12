@@ -17,6 +17,10 @@
 #include <filesystem>
 #include <cstring>          // std::memcpy
 #include <csignal>          // std::signal, std::sig_atomic_t
+#include <fstream>          // std::ifstream
+#include <algorithm>        // std::min
+
+#include <nlohmann/json.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>  // Image loading (PNG/JPG/GIF/BMP/...)
@@ -52,6 +56,111 @@ static void HandleInterruptSignal(int signal)
 {
     if (signal == SIGINT)
         g_InterruptRequested = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Palette loading from assets/colours.json (nlohmann_json)
+// ---------------------------------------------------------------------------
+
+struct ColourPaletteDef
+{
+    std::string      title;
+    std::vector<ImVec4> colors;
+};
+
+static bool HexToImVec4(const std::string& hex, ImVec4& out)
+{
+    std::string s = hex;
+    if (!s.empty() && s[0] == '#')
+        s.erase(0, 1);
+    if (s.size() != 6 && s.size() != 8)
+        return false;
+
+    auto to_u8 = [](const std::string& sub) -> int
+    {
+        return static_cast<int>(std::strtoul(sub.c_str(), nullptr, 16));
+    };
+
+    int r = to_u8(s.substr(0, 2));
+    int g = to_u8(s.substr(2, 2));
+    int b = to_u8(s.substr(4, 2));
+    int a = 255;
+    if (s.size() == 8)
+        a = to_u8(s.substr(6, 2));
+
+    out.x = r / 255.0f;
+    out.y = g / 255.0f;
+    out.z = b / 255.0f;
+    out.w = a / 255.0f;
+    return true;
+}
+
+static bool LoadColourPalettesFromJson(const char* path,
+                                       std::vector<ColourPaletteDef>& out,
+                                       std::string& error)
+{
+    using nlohmann::json;
+
+    std::ifstream f(path);
+    if (!f)
+    {
+        error = std::string("Failed to open ") + path;
+        return false;
+    }
+
+    json j;
+    try
+    {
+        f >> j;
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+
+    if (!j.is_array())
+    {
+        error = "Expected top-level JSON array in colours.json";
+        return false;
+    }
+
+    out.clear();
+    for (const auto& item : j)
+    {
+        if (!item.is_object())
+            continue;
+
+        ColourPaletteDef def;
+        if (auto it = item.find("title"); it != item.end() && it->is_string())
+            def.title = it->get<std::string>();
+        else
+            continue;
+
+        if (auto it = item.find("colors"); it != item.end() && it->is_array())
+        {
+            for (const auto& c : *it)
+            {
+                if (!c.is_string())
+                    continue;
+                ImVec4 col;
+                if (HexToImVec4(c.get<std::string>(), col))
+                    def.colors.push_back(col);
+            }
+        }
+
+        if (!def.colors.empty())
+            out.push_back(std::move(def));
+    }
+
+    if (out.empty())
+    {
+        error = "No valid palettes found in colours.json";
+        return false;
+    }
+
+    error.clear();
+    return true;
 }
 
 static void check_vk_result(VkResult err)
@@ -876,87 +985,205 @@ int main(int, char**)
         {
             ImGui::Begin("Xterm-256 Color Picker", &show_color_picker_window, ImGuiWindowFlags_None);
 
-            // Generate a default palette. The palette will persist and can be edited.
-            static bool   saved_palette_init = true;
-            static ImVec4 saved_palette[32] = {};
-            if (saved_palette_init)
+            // Load palettes from assets/colours.json (with a default HSV fallback).
+            static bool                         palettes_loaded    = false;
+            static std::vector<ColourPaletteDef> palettes;
+            static std::string                  palettes_error;
+            static int                          selected_palette   = 0;
+            static int                          last_palette_index = -1;
+            static std::vector<ImVec4>          saved_palette;
+
+            if (!palettes_loaded)
             {
-                for (int n = 0; n < IM_ARRAYSIZE(saved_palette); n++)
+                LoadColourPalettesFromJson("assets/colours.json", palettes, palettes_error);
+                palettes_loaded = true;
+
+                // Fallback if loading failed or file empty: single default HSV palette.
+                if (!palettes_error.empty() || palettes.empty())
                 {
-                    float h = n / 31.0f;
-                    ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f,
-                                                saved_palette[n].x,
-                                                saved_palette[n].y,
-                                                saved_palette[n].z);
-                    saved_palette[n].w = 1.0f;
+                    ColourPaletteDef def;
+                    def.title = "Default HSV";
+                    for (int n = 0; n < 32; ++n)
+                    {
+                        ImVec4 c;
+                        float h = n / 31.0f;
+                        ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f, c.x, c.y, c.z);
+                        c.w = 1.0f;
+                        def.colors.push_back(c);
+                    }
+                    palettes.clear();
+                    palettes.push_back(std::move(def));
+                    palettes_error.clear();
+                    selected_palette = 0;
                 }
-                saved_palette_init = false;
             }
 
-            // Picker mode combo (Hue Bar / Hue Wheel)
-            const char* picker_items[] = { "Hue Bar", "Hue Wheel" };
-            ImGui::Combo("Mode", &xterm_picker_mode, picker_items, IM_ARRAYSIZE(picker_items));
+            if (!palettes_error.empty())
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "Palette load error: %s", palettes_error.c_str());
+            }
+
+            // Foreground / Background selector at the top (centered).
+            {
+                float sz     = ImGui::GetFrameHeight() * 2.0f;
+                float offset = sz * 0.35f;
+                float pad    = 2.0f;
+                float widget_width = sz + offset + pad;
+
+                float avail = ImGui::GetContentRegionAvail().x;
+                float indent = (avail > widget_width) ? (avail - widget_width) * 0.5f : 0.0f;
+
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
+                ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
+            }
 
             ImGui::Separator();
 
-            // Layout: picker on the left, side preview + palette on the right.
+            // Picker mode combo (Hue Bar / Hue Wheel) and picker UI
+            const char* picker_items[] = { "Hue Bar", "Hue Wheel" };
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::Combo("##Mode", &xterm_picker_mode, picker_items, IM_ARRAYSIZE(picker_items));
+
+            ImGui::Separator();
+
             ImGui::BeginGroup();
-            ImVec4& active_col = (active_fb == 0) ? fg_color : bg_color;
-            ImVec4  before_edit = active_col;
-            float   picker_col[4] = { active_col.x, active_col.y, active_col.z, active_col.w };
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImVec4& primary_col   = (active_fb == 0) ? fg_color : bg_color;
+            ImVec4& secondary_col = (active_fb == 0) ? bg_color : fg_color;
+            float   picker_col[4] = { primary_col.x, primary_col.y, primary_col.z, primary_col.w };
             bool    value_changed = false;
+            bool    used_right = false;
             if (xterm_picker_mode == 0)
-                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false, &used_right);
             else
-                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false, &used_right);
 
             if (value_changed)
             {
-                active_col.x = picker_col[0];
-                active_col.y = picker_col[1];
-                active_col.z = picker_col[2];
-                active_col.w = picker_col[3];
+                ImVec4& dst = used_right ? secondary_col : primary_col;
+                dst.x = picker_col[0];
+                dst.y = picker_col[1];
+                dst.z = picker_col[2];
+                dst.w = picker_col[3];
             }
             ImGui::EndGroup();
 
-            ImGui::SameLine();
-
-            ImGui::BeginGroup(); // Lock X position
-            ImGui::Text("Foreground / Background");
-            ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
             ImGui::Separator();
-            ImGui::Text("Palette");
-            for (int n = 0; n < IM_ARRAYSIZE(saved_palette); n++)
+
+            // Palette selection combo
+            {
+                std::vector<const char*> names;
+                names.reserve(palettes.size());
+                for (const auto& p : palettes)
+                    names.push_back(p.title.c_str());
+
+                if (!names.empty())
+                {
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::Combo("##Palette", &selected_palette, names.data(), (int)names.size());
+                }
+            }
+
+            // Rebuild working palette when selection changes.
+            if (selected_palette != last_palette_index && !palettes.empty())
+            {
+                saved_palette = palettes[selected_palette].colors;
+                last_palette_index = selected_palette;
+            }
+
+            ImGui::BeginGroup();
+
+            const ImGuiStyle& style = ImGui::GetStyle();
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            const int count = (int)saved_palette.size();
+
+            // Adaptive grid: pick columns and button size so the palette fits in the
+            // available region, maximizing button size while respecting width/height.
+            int   best_cols = 1;
+            float best_size = 0.0f;
+
+            if (count > 0 && avail.x > 0.0f)
+            {
+                for (int cols = 1; cols <= count; ++cols)
+                {
+                    float total_spacing_x = style.ItemSpacing.x * (cols - 1);
+                    float width_limit = (avail.x - total_spacing_x) / (float)cols;
+                    if (width_limit <= 0.0f)
+                        break;
+
+                    int rows = (count + cols - 1) / cols;
+
+                    float button_size = width_limit;
+                    if (avail.y > 0.0f)
+                    {
+                        float total_spacing_y = style.ItemSpacing.y * (rows - 1);
+                        float height_limit = (avail.y - total_spacing_y) / (float)rows;
+                        if (height_limit <= 0.0f)
+                            continue;
+                        // Use the smaller of width/height limits so we fit in both directions.
+                        button_size = std::min(width_limit, height_limit);
+                    }
+
+                    if (button_size > best_size)
+                    {
+                        best_size = button_size;
+                        best_cols = cols;
+                    }
+                }
+
+                if (best_size <= 0.0f)
+                {
+                    best_cols = 1;
+                    best_size = style.FramePadding.y * 2.0f + 8.0f; // minimal fallback
+                }
+            }
+
+            const int cols = (count > 0) ? best_cols : 1;
+            ImVec2 button_size(best_size, best_size);
+
+            ImVec4& pal_primary   = (active_fb == 0) ? fg_color : bg_color;
+            ImVec4& pal_secondary = (active_fb == 0) ? bg_color : fg_color;
+
+            for (int n = 0; n < count; n++)
             {
                 ImGui::PushID(n);
-                if ((n % 8) != 0)
-                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.y);
+                if (n % cols != 0)
+                    ImGui::SameLine(0.0f, style.ItemSpacing.y);
 
                 ImGuiColorEditFlags palette_button_flags =
                     ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoTooltip;
-                if (ImGui::ColorButton("##palette", saved_palette[n],
-                                       palette_button_flags, ImVec2(20, 20)))
+                bool left_clicked = ImGui::ColorButton("##palette", saved_palette[n],
+                                                       palette_button_flags, button_size);
+                if (left_clicked)
                 {
-                    ImVec4& dst = (active_fb == 0) ? fg_color : bg_color;
-                    dst.x = saved_palette[n].x;
-                    dst.y = saved_palette[n].y;
-                    dst.z = saved_palette[n].z;
+                    pal_primary.x = saved_palette[n].x;
+                    pal_primary.y = saved_palette[n].y;
+                    pal_primary.z = saved_palette[n].z;
                 }
 
-                // Allow user to drop colors into each palette entry.
-                if (ImGui::BeginDragDropTarget())
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
                 {
-                    if (const ImGuiPayload* payload =
-                            ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F))
-                        memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 3);
-                    if (const ImGuiPayload* payload =
-                            ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F))
-                        memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 4);
-                    ImGui::EndDragDropTarget();
+                    pal_secondary.x = saved_palette[n].x;
+                    pal_secondary.y = saved_palette[n].y;
+                    pal_secondary.z = saved_palette[n].z;
                 }
+
+                // // Allow user to drop colors into each palette entry.
+                // if (ImGui::BeginDragDropTarget())
+                // {
+                //     if (const ImGuiPayload* payload =
+                //             ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F))
+                //         memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 3);
+                //     if (const ImGuiPayload* payload =
+                //             ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F))
+                //         memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 4);
+                //     ImGui::EndDragDropTarget();
+                // }
 
                 ImGui::PopID();
             }
+
             ImGui::EndGroup();
 
             ImGui::End();
