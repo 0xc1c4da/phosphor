@@ -271,13 +271,11 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
     }
 }
 
-void AnsiCanvas::DrawCells(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h)
+void AnsiCanvas::DrawCells(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h, float font_size)
 {
     if (!draw_list)
         return;
 
-    ImGuiIO& io = ImGui::GetIO();
-    (void)io;
     ImFont* font = ImGui::GetFont();
     if (!font)
         return;
@@ -313,7 +311,7 @@ void AnsiCanvas::DrawCells(ImDrawList* draw_list, const ImVec2& origin, float ce
         // Slightly inset the text to avoid touching cell borders visually.
         ImVec2 text_pos(cell_min.x, cell_min.y);
 
-        draw_list->AddText(font, ImGui::GetFontSize(), text_pos,
+        draw_list->AddText(font, font_size, text_pos,
                            ImGui::GetColorU32(ImGuiCol_Text),
                            buf, nullptr);
     }
@@ -324,15 +322,43 @@ void AnsiCanvas::Render(const char* id)
     if (m_columns <= 0)
         m_columns = 80;
 
-    ImGuiIO& io = ImGui::GetIO();
-    (void)io;
     ImFont* font = ImGui::GetFont();
     if (!font)
         return;
 
-    const float cell_h = ImGui::GetFontSize();
-    // Approximate width using a representative glyph. Unscii is monospaced.
-    const float cell_w = font->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, 0.0f, "M", "M" + 1).x;
+    // Base cell size from the current font (Unscii is monospaced).
+    const float base_font_size = ImGui::GetFontSize();
+    const float base_cell_w = font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
+
+    // Auto-scale the canvas horizontally to fit the current window width,
+    // keeping the logical column count constant.
+    float font_size = base_font_size;
+    float cell_w    = base_cell_w;
+    float cell_h    = base_font_size;
+    const float needed_width   = base_cell_w * static_cast<float>(m_columns);
+    const float available_width = ImGui::GetContentRegionAvail().x;
+    if (needed_width > 0.0f && available_width > 0.0f)
+    {
+        float scale = available_width / needed_width;
+        // Optionally clamp scale to avoid extreme sizes.
+        const float min_scale = 0.25f;
+        const float max_scale = 4.0f;
+        if (scale < min_scale) scale = min_scale;
+        if (scale > max_scale) scale = max_scale;
+
+        // Snap scale so that cell sizes land on pixel boundaries to avoid gaps/overlaps.
+        // We quantize horizontally, then derive a refined scale from that.
+        float snapped_cell_w = std::floor(base_cell_w * scale + 0.5f);
+        if (snapped_cell_w < 1.0f)
+            snapped_cell_w = 1.0f;
+        float snapped_scale = snapped_cell_w / base_cell_w;
+
+        font_size = base_font_size * snapped_scale;
+        cell_w    = snapped_cell_w;
+        cell_h    = std::floor(base_font_size * snapped_scale + 0.5f);
+        if (cell_h < 1.0f)
+            cell_h = 1.0f;
+    }
 
     const int row_count = GetRowCount();
     ImVec2 canvas_size(cell_w * m_columns,
@@ -342,6 +368,9 @@ void AnsiCanvas::Render(const char* id)
     ImGui::InvisibleButton(id, canvas_size);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 origin = ImGui::GetItemRectMin();
+    // Snap drawing origin to whole pixels to reduce rendering artifacts between cells.
+    origin.x = std::floor(origin.x);
+    origin.y = std::floor(origin.y);
 
     // Mouse interaction is tied to this "item".
     HandleMouseInteraction(origin, cell_w, cell_h);
@@ -354,7 +383,7 @@ void AnsiCanvas::Render(const char* id)
     HandleKeyboardNavigation();
 
     // Draw all cells.
-    DrawCells(draw_list, origin, cell_w, cell_h);
+    DrawCells(draw_list, origin, cell_w, cell_h, font_size);
 }
 
 

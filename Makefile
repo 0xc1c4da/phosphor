@@ -9,7 +9,8 @@ IMGUI_DIR = references/imgui
 BUILD_DIR = build
 
 SOURCES  = main.cpp \
-           canvas.cpp
+           canvas.cpp \
+           colour_picker.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
@@ -26,9 +27,9 @@ CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
-# SDL3 + Vulkan flags provided by the Nix dev shell (see flake.nix)
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan) -ldl
+# SDL3 + Vulkan + Chafa + nlohmann_json flags provided by the Nix dev shell (see flake.nix)
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa) -ldl
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

@@ -14,7 +14,14 @@
 #include <string.h>         // strcmp
 #include <vector>
 #include <string>
+#include <filesystem>
+#include <cstring>          // std::memcpy
+#include <csignal>          // std::signal, std::sig_atomic_t
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>  // Image loading (PNG/JPG/GIF/BMP/...)
+
+#include "colour_picker.h"
 #include "canvas.h"
 
 // Vulkan debug
@@ -37,6 +44,15 @@ static VkDescriptorPool         g_DescriptorPool = VK_NULL_HANDLE;
 static ImGui_ImplVulkanH_Window g_MainWindowData;
 static uint32_t                 g_MinImageCount = 2;
 static bool                     g_SwapChainRebuild = false;
+
+// Set when we receive SIGINT (Ctrl+C) so the main loop can exit cleanly.
+static volatile std::sig_atomic_t g_InterruptRequested = 0;
+
+static void HandleInterruptSignal(int signal)
+{
+    if (signal == SIGINT)
+        g_InterruptRequested = 1;
+}
 
 static void check_vk_result(VkResult err)
 {
@@ -361,9 +377,172 @@ struct CanvasWindow
     AnsiCanvas canvas;
 };
 
+// Simple representation of an imported image window.
+struct ImageWindow
+{
+    bool        open   = true;
+    int         id     = 0;
+    std::string path;          // Original file path (for future ANSI conversion with chafa)
+
+    // Raw pixel data owned by us: RGBA8, row-major, width * height * 4 bytes.
+    int                       width  = 0;
+    int                       height = 0;
+    std::vector<unsigned char> pixels; // 4 bytes per pixel: R, G, B, A
+};
+
+// Load an image from disk into a RGBA8 buffer using stb_image:
+//   - supports common formats (PNG, JPG, BMP, GIF, etc.)
+//   - keeps design independent of Vulkan textures so we can later:
+//       * feed the RGBA buffer into chafa for ANSI conversion
+//       * optionally add a Vulkan texture path without changing higher-level UI code.
+static bool LoadImageAsRgba32(const std::string& path,
+                              int& out_width,
+                              int& out_height,
+                              std::vector<unsigned char>& out_pixels)
+{
+    int w = 0;
+    int h = 0;
+    int channels_in_file = 0;
+
+    // Force 4 channels so we always get RGBA8.
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &channels_in_file, 4);
+    if (!data)
+    {
+        std::fprintf(stderr, "Import Image: failed to load '%s': %s\n",
+                     path.c_str(), stbi_failure_reason());
+        return false;
+    }
+
+    if (w <= 0 || h <= 0)
+    {
+        stbi_image_free(data);
+        return false;
+    }
+
+    out_width  = w;
+    out_height = h;
+
+    const size_t pixel_bytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
+    out_pixels.resize(pixel_bytes);
+    std::memcpy(out_pixels.data(), data, pixel_bytes);
+
+    stbi_image_free(data);
+    return true;
+}
+
+// Render an ImageWindow's pixels scaled to fit the current ImGui window content region.
+// We deliberately keep this renderer agnostic of Vulkan textures by drawing a coarse
+// grid of colored rectangles that approximates the image. This is sufficient for a
+// preview and keeps the RGBA buffer directly reusable for chafa-based ANSI conversion.
+static void RenderImageWindowContents(const ImageWindow& image)
+{
+    if (image.width <= 0 || image.height <= 0 || image.pixels.empty())
+    {
+        ImGui::TextUnformatted("No image data.");
+        return;
+    }
+
+    const int img_w = image.width;
+    const int img_h = image.height;
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (avail.x <= 0.0f || avail.y <= 0.0f)
+        return;
+
+    float scale = std::min(avail.x / static_cast<float>(img_w),
+                           avail.y / static_cast<float>(img_h));
+    if (scale <= 0.0f)
+        return;
+
+    float draw_w = static_cast<float>(img_w) * scale;
+    float draw_h = static_cast<float>(img_h) * scale;
+
+    // Limit the grid resolution so we don't draw millions of rectangles for large images.
+    const int max_grid_dim = 160;
+    int grid_w = img_w;
+    int grid_h = img_h;
+    if (grid_w > max_grid_dim || grid_h > max_grid_dim)
+    {
+        if (img_w >= img_h)
+        {
+            grid_w = max_grid_dim;
+            grid_h = std::max(1, static_cast<int>(static_cast<float>(img_h) *
+                                                  (static_cast<float>(grid_w) / img_w)));
+        }
+        else
+        {
+            grid_h = max_grid_dim;
+            grid_w = std::max(1, static_cast<int>(static_cast<float>(img_w) *
+                                                  (static_cast<float>(grid_h) / img_h)));
+        }
+    }
+
+    // Reserve an interactive region for future context menu / drag handling.
+    ImGui::InvisibleButton("image_canvas", ImVec2(draw_w, draw_h));
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 origin = ImGui::GetItemRectMin();
+
+    // Right-click context menu hook for future "Convert to ANSI" action.
+    if (ImGui::BeginPopupContextItem("image_canvas_context"))
+    {
+        // For now, just stub out the menu item so the UI contract is in place.
+        if (ImGui::MenuItem("Convert to ANSI (not implemented yet)", nullptr, false, false))
+        {
+            // Placeholder: in a subsequent step we will:
+            //  - run chafa on image.path or image.pixels
+            //  - create a new CanvasWindow with the resulting ANSI data.
+        }
+        ImGui::EndPopup();
+    }
+
+    // Draw the scaled image as a coarse grid of filled rectangles.
+    const float cell_w = draw_w / static_cast<float>(grid_w);
+    const float cell_h = draw_h / static_cast<float>(grid_h);
+
+    for (int gy = 0; gy < grid_h; ++gy)
+    {
+        float y0 = origin.y + gy * cell_h;
+        float y1 = y0 + cell_h;
+
+        // Sample source Y in original image space.
+        int src_y = static_cast<int>((static_cast<float>(gy) + 0.5f) *
+                                     (static_cast<float>(img_h) / grid_h));
+        if (src_y < 0) src_y = 0;
+        if (src_y >= img_h) src_y = img_h - 1;
+
+        for (int gx = 0; gx < grid_w; ++gx)
+        {
+            float x0 = origin.x + gx * cell_w;
+            float x1 = x0 + cell_w;
+
+            int src_x = static_cast<int>((static_cast<float>(gx) + 0.5f) *
+                                         (static_cast<float>(img_w) / grid_w));
+            if (src_x < 0) src_x = 0;
+            if (src_x >= img_w) src_x = img_w - 1;
+
+            const size_t base = (static_cast<size_t>(src_y) * static_cast<size_t>(img_w) +
+                                 static_cast<size_t>(src_x)) * 4u;
+            if (base + 3 >= image.pixels.size())
+                continue;
+
+            unsigned char r = image.pixels[base + 0];
+            unsigned char g = image.pixels[base + 1];
+            unsigned char b = image.pixels[base + 2];
+            unsigned char a = image.pixels[base + 3];
+
+            ImU32 col = IM_COL32(r, g, b, a);
+            draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+        }
+    }
+}
+
 // Main code
 int main(int, char**)
 {
+    // Arrange for Ctrl+C in the terminal to request a graceful shutdown instead
+    // of abruptly killing the process (which can upset Vulkan/SDL).
+    std::signal(SIGINT, HandleInterruptSignal);
+
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
@@ -456,15 +635,38 @@ int main(int, char**)
     // Our state
     bool show_demo_window = false;
     ImVec4 clear_color = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
+    bool   show_color_picker_window = true;
+
+    // Shared color state for the xterm-256 color pickers.
+    ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    ImVec4 bg_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
+    int    active_fb = 0;          // 0 = foreground, 1 = background
+    int    xterm_picker_mode = 0;  // 0 = Hue Bar, 1 = Hue Wheel
 
     // Canvas state
     std::vector<CanvasWindow> canvases;
     int next_canvas_id = 1;
 
+    // Image state
+    std::vector<ImageWindow> images;
+    int next_image_id = 1;
+
+    // Import Image dialog state
+    bool show_import_image_popup = false;
+    std::string import_error;
+    namespace fs = std::filesystem;
+    fs::path current_import_dir = fs::current_path();
+    std::string selected_import_name;
+
     // Main loop
     bool done = false;
     while (!done)
     {
+        // If Ctrl+C was pressed in the terminal, break out of the render loop
+        // and run the normal shutdown path below.
+        if (g_InterruptRequested)
+            break;
+
         // Poll and handle events
         SDL_Event event;
         while (SDL_PollEvent(&event))
@@ -523,6 +725,15 @@ int main(int, char**)
                     canvases.push_back(canvas_window);
                 }
 
+                if (ImGui::MenuItem("Import Image..."))
+                {
+                    // Open our in-app file picker. We keep this entirely in ImGui so it works
+                    // cross-platform and doesn't depend on external dialog libraries.
+                    show_import_image_popup = true;
+                    import_error.clear();
+                    selected_import_name.clear();
+                }
+
                 if (ImGui::MenuItem("Quit"))
                 {
                     done = true;
@@ -533,9 +744,245 @@ int main(int, char**)
             ImGui::EndMainMenuBar();
         }
 
+        // Import Image modal dialog
+        if (show_import_image_popup)
+        {
+            ImGui::OpenPopup("Import Image");
+            show_import_image_popup = false;
+        }
+        if (ImGui::BeginPopupModal("Import Image", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextWrapped("Choose an image file to import.\n"
+                               "Images are loaded via stb_image into an RGBA buffer, "
+                               "which we can later feed into chafa for ANSI conversion.");
+
+            ImGui::Separator();
+            ImGui::Text("Directory: %s", current_import_dir.string().c_str());
+
+            ImVec2 list_size(600.0f, 300.0f);
+            if (ImGui::BeginChild("import_file_list", list_size, true, ImGuiWindowFlags_HorizontalScrollbar))
+            {
+                // ".." entry to go up one directory
+                if (current_import_dir.has_parent_path())
+                {
+                    if (ImGui::Selectable("..", false))
+                    {
+                        current_import_dir = current_import_dir.parent_path();
+                        selected_import_name.clear();
+                    }
+                }
+
+                // Enumerate directory entries
+                try
+                {
+                    for (const auto& entry : fs::directory_iterator(current_import_dir))
+                    {
+                        const fs::path& p = entry.path();
+                        std::string name = p.filename().string();
+                        if (name.empty())
+                            continue;
+
+                        if (entry.is_directory())
+                        {
+                            std::string label = "[dir] " + name + "/";
+                            if (ImGui::Selectable(label.c_str(), false))
+                            {
+                                current_import_dir = p;
+                                selected_import_name.clear();
+                            }
+                        }
+                        else if (entry.is_regular_file())
+                        {
+                            // Basic filter for common image extensions; SDL currently only
+                            // loads BMP here, but we keep the UI future-proof.
+                            std::string ext = p.extension().string();
+                            for (auto& c : ext)
+                                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+                            bool looks_like_image =
+                                (ext == ".bmp" || ext == ".png" ||
+                                 ext == ".jpg" || ext == ".jpeg" ||
+                                 ext == ".gif");
+                            if (!looks_like_image)
+                                continue;
+
+                            bool selected = (name == selected_import_name);
+                            if (ImGui::Selectable(name.c_str(), selected))
+                            {
+                                selected_import_name = name;
+                            }
+                        }
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    import_error = e.what();
+                }
+
+                ImGui::EndChild();
+            }
+
+            if (!import_error.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", import_error.c_str());
+            }
+
+            ImGui::Separator();
+            bool can_open = !selected_import_name.empty();
+            if (!can_open)
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Open"))
+            {
+                fs::path full_path = current_import_dir / selected_import_name;
+                ImageWindow img;
+                img.id = next_image_id++;
+                img.path = full_path.string();
+
+                int w = 0, h = 0;
+                std::vector<unsigned char> rgba;
+                if (!LoadImageAsRgba32(img.path, w, h, rgba))
+                {
+                    import_error = "Failed to load image.";
+                }
+                else
+                {
+                    img.width = w;
+                    img.height = h;
+                    img.pixels = std::move(rgba);
+                    img.open = true;
+                    images.push_back(std::move(img));
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            if (!can_open)
+                ImGui::EndDisabled();
+
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
         // Optional: keep the ImGui demo available for reference
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
+
+        // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
+        if (show_color_picker_window)
+        {
+            ImGui::Begin("Xterm-256 Color Picker", &show_color_picker_window, ImGuiWindowFlags_None);
+
+            // Generate a default palette. The palette will persist and can be edited.
+            static bool   saved_palette_init = true;
+            static ImVec4 saved_palette[32] = {};
+            if (saved_palette_init)
+            {
+                for (int n = 0; n < IM_ARRAYSIZE(saved_palette); n++)
+                {
+                    float h = n / 31.0f;
+                    ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f,
+                                                saved_palette[n].x,
+                                                saved_palette[n].y,
+                                                saved_palette[n].z);
+                    saved_palette[n].w = 1.0f;
+                }
+                saved_palette_init = false;
+            }
+
+            static ImVec4 backup_color(1.0f, 0.0f, 0.0f, 1.0f);
+
+            // Picker mode combo (Hue Bar / Hue Wheel)
+            const char* picker_items[] = { "Hue Bar", "Hue Wheel" };
+            ImGui::Combo("Mode", &xterm_picker_mode, picker_items, IM_ARRAYSIZE(picker_items));
+
+            ImGui::Separator();
+
+            // Foreground/background preview + selection
+            ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
+
+            // Layout: picker on the left, side preview + palette on the right.
+            ImGui::BeginGroup();
+            ImVec4& active_col = (active_fb == 0) ? fg_color : bg_color;
+            ImVec4  before_edit = active_col;
+            float   picker_col[4] = { active_col.x, active_col.y, active_col.z, active_col.w };
+            bool    value_changed = false;
+            if (xterm_picker_mode == 0)
+                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false);
+            else
+                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false);
+
+            if (value_changed)
+            {
+                active_col.x = picker_col[0];
+                active_col.y = picker_col[1];
+                active_col.z = picker_col[2];
+                active_col.w = picker_col[3];
+            }
+            ImGui::EndGroup();
+
+            ImGui::SameLine();
+
+            ImGui::BeginGroup(); // Lock X position
+            ImGui::Text("Current");
+            ImVec4 current_color = (active_fb == 0) ? fg_color : bg_color;
+            ImGui::ColorButton("##current", current_color,
+                               ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_AlphaPreviewHalf,
+                               ImVec2(60, 40));
+            ImGui::Text("Previous");
+            if (ImGui::ColorButton("##previous", backup_color,
+                                   ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_AlphaPreviewHalf,
+                                   ImVec2(60, 40)))
+            {
+                if (active_fb == 0)
+                    fg_color = backup_color;
+                else
+                    bg_color = backup_color;
+            }
+
+            if (value_changed)
+                backup_color = before_edit;
+
+            ImGui::Separator();
+            ImGui::Text("Palette");
+            for (int n = 0; n < IM_ARRAYSIZE(saved_palette); n++)
+            {
+                ImGui::PushID(n);
+                if ((n % 8) != 0)
+                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.y);
+
+                ImGuiColorEditFlags palette_button_flags =
+                    ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoTooltip;
+                if (ImGui::ColorButton("##palette", saved_palette[n],
+                                       palette_button_flags, ImVec2(20, 20)))
+                {
+                    ImVec4& dst = (active_fb == 0) ? fg_color : bg_color;
+                    dst.x = saved_palette[n].x;
+                    dst.y = saved_palette[n].y;
+                    dst.z = saved_palette[n].z;
+                }
+
+                // Allow user to drop colors into each palette entry.
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload =
+                            ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_3F))
+                        memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 3);
+                    if (const ImGuiPayload* payload =
+                            ImGui::AcceptDragDropPayload(IMGUI_PAYLOAD_TYPE_COLOR_4F))
+                        memcpy((float*)&saved_palette[n], payload->Data, sizeof(float) * 4);
+                    ImGui::EndDragDropTarget();
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndGroup();
+
+            ImGui::End();
+        }
 
         // Render each canvas window:
         //  - Draggable/movable
@@ -560,6 +1007,28 @@ int main(int, char**)
             ImGui::End();
         }
 
+        // Render each imported image window:
+        for (size_t i = 0; i < images.size(); ++i)
+        {
+            ImageWindow& img = images[i];
+            if (!img.open)
+                continue;
+
+            std::string title = "Image " + std::to_string(img.id) +
+                                "##image" + std::to_string(img.id);
+
+            ImGui::Begin(title.c_str(), &img.open, ImGuiWindowFlags_None);
+
+            // Display basic metadata and then the scalable preview.
+            ImGui::Text("Path: %s", img.path.c_str());
+            ImGui::Text("Size: %dx%d", img.width, img.height);
+            ImGui::Separator();
+
+            RenderImageWindowContents(img);
+
+            ImGui::End();
+        }
+
         // Rendering
         ImGui::Render();
         ImDrawData* draw_data = ImGui::GetDrawData();
@@ -577,8 +1046,12 @@ int main(int, char**)
     }
 
     // Cleanup
+    // During a Ctrl+C shutdown the Vulkan device might already be in a bad
+    // state; don't abort the whole process just because vkDeviceWaitIdle()
+    // reports a non-success here.
     err = vkDeviceWaitIdle(g_Device);
-    check_vk_result(err);
+    if (err != VK_SUCCESS)
+        fprintf(stderr, "[vulkan] vkDeviceWaitIdle during shutdown: VkResult = %d (ignored)\n", err);
     ImGui_ImplVulkan_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

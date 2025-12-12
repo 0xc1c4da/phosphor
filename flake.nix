@@ -23,6 +23,9 @@
           shaderc
           imgui
           nlohmann_json
+          chafa
+          stb
+          glib
         ];
       in
       rec {

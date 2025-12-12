@@ -3,3 +3,5 @@ build/
 utf8-art-editor
 *.ini
 *.ans
+*.jpg
+*.png

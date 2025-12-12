@@ -49,7 +49,7 @@ private:
     int  GetRowCount() const;
     void HandleKeyboardNavigation();
     void HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h);
-    void DrawCells(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h);
+    void DrawCells(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h, float font_size);
 };
 
 
