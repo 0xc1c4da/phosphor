@@ -30,6 +30,7 @@
 #include "character_picker.h"
 #include "character_palette.h"
 #include "layer_manager.h"
+#include "ansl_editor.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -751,6 +752,7 @@ int main(int, char**)
     bool   show_character_picker_window = true;
     bool   show_character_palette_window = true;
     bool   show_layer_manager_window = true;
+    bool   show_ansl_editor_window = true;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -770,6 +772,9 @@ int main(int, char**)
 
     // Layer manager state
     LayerManager layer_manager;
+
+    // ANSL editor state
+    AnslEditor ansl_editor;
 
     // Image state
     std::vector<ImageWindow> images;
@@ -872,6 +877,7 @@ int main(int, char**)
                 ImGui::MenuItem("Unicode Character Picker", nullptr, &show_character_picker_window);
                 ImGui::MenuItem("Character Palette", nullptr, &show_character_palette_window);
                 ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
+                ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1285,6 +1291,14 @@ int main(int, char**)
                 refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
             }
             layer_manager.Render("Layer Manager", &show_layer_manager_window, refs);
+        }
+
+        // ANSL Editor window
+        if (show_ansl_editor_window)
+        {
+            ImGui::Begin("ANSL Editor", &show_ansl_editor_window, ImGuiWindowFlags_None);
+            ansl_editor.Render("ansl_editor", ImGuiInputTextFlags_AllowTabInput);
+            ImGui::End();
         }
 
         // Render each imported image window:

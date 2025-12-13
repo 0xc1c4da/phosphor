@@ -15,8 +15,11 @@
         };
 
         devShellPackages = with pkgs; [
+          gnumake
           pkg-config
           gcc
+          nodejs
+          esbuild
           sdl3
           vulkan-headers
           vulkan-loader
@@ -30,8 +33,8 @@
           icu67.dev
         ];
       in
-      rec {
-        devShell = pkgs.mkShell {
+      {
+        devShells.default = pkgs.mkShell {
           buildInputs = devShellPackages;
 
           shellHook = ''

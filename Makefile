@@ -12,8 +12,9 @@ SOURCES  = main.cpp \
            canvas.cpp \
            colour_picker.cpp \
            character_picker.cpp \
-		   character_palette.cpp \
-		   layer_manager.cpp
+           character_palette.cpp \
+           layer_manager.cpp \
+           ansl_editor.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
