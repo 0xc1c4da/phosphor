@@ -1093,9 +1093,18 @@ int main(int, char**)
 
             ImGui::BeginGroup();
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImVec4& primary_col   = (active_fb == 0) ? fg_color : bg_color;
-            ImVec4& secondary_col = (active_fb == 0) ? bg_color : fg_color;
-            float   picker_col[4] = { primary_col.x, primary_col.y, primary_col.z, primary_col.w };
+            // Keep the picker reticle showing the last-edited color (left edits active, right edits the other),
+            // so right-click doesn't "snap back" to the last left-click position next frame.
+            static int picker_preview_fb = 0;      // 0 = fg, 1 = bg
+            static int last_active_fb_seen = 0;    // track focus changes
+            if (active_fb != last_active_fb_seen)
+            {
+                picker_preview_fb = active_fb;
+                last_active_fb_seen = active_fb;
+            }
+
+            ImVec4& preview_col = (picker_preview_fb == 0) ? fg_color : bg_color;
+            float   picker_col[4] = { preview_col.x, preview_col.y, preview_col.z, preview_col.w };
             bool    value_changed = false;
             bool    used_right = false;
             if (xterm_picker_mode == 0)
@@ -1105,7 +1114,9 @@ int main(int, char**)
 
             if (value_changed)
             {
-                ImVec4& dst = used_right ? secondary_col : primary_col;
+                int dst_fb = used_right ? (1 - active_fb) : active_fb;
+                picker_preview_fb = dst_fb;
+                ImVec4& dst = (dst_fb == 0) ? fg_color : bg_color;
                 dst.x = picker_col[0];
                 dst.y = picker_col[1];
                 dst.z = picker_col[2];
