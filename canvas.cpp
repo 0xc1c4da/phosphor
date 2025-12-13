@@ -123,6 +123,94 @@ AnsiCanvas::AnsiCanvas(int columns)
 {
 }
 
+void AnsiCanvas::ApplyTypedCodepoint(char32_t cp)
+{
+    EnsureDocument();
+
+    // Normalize common whitespace/control inputs.
+    if (cp == U'\t')
+        cp = U' ';
+
+    // Enter -> new line.
+    if (cp == U'\n' || cp == U'\r')
+    {
+        m_cursor_row++;
+        m_cursor_col = 0;
+        EnsureRows(m_cursor_row + 1);
+        return;
+    }
+
+    // Ignore other control chars.
+    if (cp < 0x20)
+        return;
+
+    SetActiveCell(m_cursor_row, m_cursor_col, cp);
+
+    // Advance cursor.
+    m_cursor_col++;
+    if (m_cursor_col >= m_columns)
+    {
+        m_cursor_col = 0;
+        m_cursor_row++;
+        EnsureRows(m_cursor_row + 1);
+    }
+}
+
+int AnsiCanvas::TextInputCallback(ImGuiInputTextCallbackData* data)
+{
+    if (!data || data->EventFlag != ImGuiInputTextFlags_CallbackCharFilter)
+        return 0;
+
+    AnsiCanvas* self = static_cast<AnsiCanvas*>(data->UserData);
+    if (!self)
+        return 0;
+
+    const char32_t cp = static_cast<char32_t>(data->EventChar);
+    self->ApplyTypedCodepoint(cp);
+
+    // We applied the character to the canvas; don't let InputText mutate its own buffer.
+    return 1;
+}
+
+void AnsiCanvas::HandleCharInputWidget(const char* id)
+{
+    if (!id)
+        return;
+
+    // SDL3 backend only emits text input events when ImGui indicates it wants text input.
+    // The most robust way to do that is to keep a focused InputText widget.
+    // We render it "invisible" and use a char-filter callback to apply typed characters
+    // directly into the canvas cells.
+    std::string input_id = std::string(id) + "##_text_input";
+
+    // Tiny dummy buffer. All characters are filtered out by the callback, so it stays empty.
+    static char dummy[2] = { 0, 0 };
+
+    // Make the widget visually invisible but still interactive.
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    ImGui::SetNextItemWidth(1.0f);
+
+    ImGuiInputTextFlags flags =
+        ImGuiInputTextFlags_CallbackCharFilter |
+        ImGuiInputTextFlags_NoUndoRedo |
+        ImGuiInputTextFlags_AlwaysOverwrite |
+        ImGuiInputTextFlags_AllowTabInput |
+        ImGuiInputTextFlags_EnterReturnsTrue;
+
+    // Keep keyboard focus on this widget while the canvas is focused.
+    // (When the user clicks elsewhere, we drop m_has_focus, so we stop stealing focus.)
+    if (m_has_focus && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        ImGui::SetKeyboardFocusHere();
+
+    ImGui::InputText(input_id.c_str(), dummy, IM_ARRAYSIZE(dummy), flags, &AnsiCanvas::TextInputCallback, this);
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
 int AnsiCanvas::GetLayerCount() const
 {
     return static_cast<int>(m_layers.size());
@@ -462,7 +550,6 @@ void AnsiCanvas::HandleTextInput()
 
     EnsureDocument();
 
-    ImGuiIO& io = ImGui::GetIO();
     // Editing keys (independent of text input queue).
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace))
     {
@@ -481,42 +568,14 @@ void AnsiCanvas::HandleTextInput()
         SetActiveCell(m_cursor_row, m_cursor_col, U' ');
     }
 
-    // Process queued typed characters.
-    for (int n = 0; n < io.InputQueueCharacters.Size; ++n)
+    // Enter -> new line (handled as a key press so it works even when the backend
+    // doesn't emit a text event for it).
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
     {
-        char32_t cp = static_cast<char32_t>(io.InputQueueCharacters[n]);
-
-        // Enter -> new line.
-        if (cp == U'\n' || cp == U'\r')
-        {
-            m_cursor_row++;
-            m_cursor_col = 0;
-            EnsureRows(m_cursor_row + 1);
-            continue;
-        }
-
-        // Tab -> space (for now).
-        if (cp == U'\t')
-            cp = U' ';
-
-        // Ignore other control chars.
-        if (cp < 0x20)
-            continue;
-
-        SetActiveCell(m_cursor_row, m_cursor_col, cp);
-
-        // Advance cursor.
-        m_cursor_col++;
-        if (m_cursor_col >= m_columns)
-        {
-            m_cursor_col = 0;
-            m_cursor_row++;
-            EnsureRows(m_cursor_row + 1);
-        }
+        m_cursor_row++;
+        m_cursor_col = 0;
+        EnsureRows(m_cursor_row + 1);
     }
-
-    // Clear queue so we don't re-apply next frame.
-    io.InputQueueCharacters.resize(0);
 }
 
 void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h)
@@ -651,6 +710,10 @@ void AnsiCanvas::Render(const char* id)
         ImGui::EndChild();
         return;
     }
+
+    // Hidden input widget to reliably receive UTF-8 text events from SDL3.
+    // We place it early in the child so typed input can grow rows before we compute canvas_size.
+    HandleCharInputWidget(id);
 
     // Restore fit-to-width behavior: keep logical column count fixed, scale cells
     // so the grid fits the available width of the child.

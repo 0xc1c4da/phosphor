@@ -20,6 +20,7 @@
 // Forward declarations from Dear ImGui
 struct ImVec2;
 struct ImDrawList;
+struct ImGuiInputTextCallbackData;
 
 class AnsiCanvas
 {
@@ -89,6 +90,9 @@ private:
 
     void HandleKeyboardNavigation();
     void HandleTextInput();
+    void HandleCharInputWidget(const char* id);
+    void ApplyTypedCodepoint(char32_t cp);
+    static int TextInputCallback(ImGuiInputTextCallbackData* data);
     void HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h);
     void DrawVisibleCells(ImDrawList* draw_list,
                           const ImVec2& origin,
