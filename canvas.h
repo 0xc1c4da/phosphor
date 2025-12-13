@@ -31,6 +31,7 @@ public:
     // Rows are dynamic and grow as needed ("infinite rows").
     void SetColumns(int columns);
     int  GetColumns() const { return m_columns; }
+    int  GetRows() const { return m_rows; } // allocated rows (>= 1)
 
     // ---------------------------------------------------------------------
     // Layers (foundation)
@@ -59,6 +60,36 @@ public:
     // `id` must be unique within the window (used for ImGui item id).
     void Render(const char* id);
 
+    // ---------------------------------------------------------------------
+    // Public layer editing API (used by tools/scripts)
+    // ---------------------------------------------------------------------
+    // Ensures at least `rows_needed` rows are allocated.
+    void EnsureRowsPublic(int rows_needed) { EnsureRows(rows_needed); }
+
+    // Get/set a cell in a specific layer. `row` may extend the document (rows grow on demand).
+    // Returns false if `layer_index` is invalid.
+    bool     SetLayerCell(int layer_index, int row, int col, char32_t cp);
+    char32_t GetLayerCell(int layer_index, int row, int col) const;
+
+    // Fill an entire layer with `cp` (default: space).
+    // Returns false if `layer_index` is invalid.
+    bool ClearLayer(int layer_index, char32_t cp = U' ');
+
+    // ---------------------------------------------------------------------
+    // Pointer state (for tools/scripts)
+    // ---------------------------------------------------------------------
+    // Returns current hovered cell (x=col, y=row) and button state.
+    // If the canvas isn't hovered, returns false and leaves outputs unchanged.
+    bool GetPointerCell(int& out_x,
+                        int& out_y,
+                        bool& out_pressed,
+                        int& out_px,
+                        int& out_py,
+                        bool& out_ppressed) const;
+
+    // Latest rendered cell aspect ratio (cell_w / cell_h). Defaults to 1.
+    float GetLastCellAspect() const { return m_last_cell_aspect; }
+
 private:
     struct Layer
     {
@@ -79,6 +110,17 @@ private:
 
     // Whether this canvas currently has keyboard focus.
     bool m_has_focus = false;
+
+    // Last known pointer cell (updated during Render()).
+    bool m_pointer_valid = false;
+    int  m_pointer_col = 0;
+    int  m_pointer_row = 0;
+    bool m_pointer_pressed = false;
+    int  m_pointer_pcol = 0;
+    int  m_pointer_prow = 0;
+    bool m_pointer_ppressed = false;
+
+    float m_last_cell_aspect = 1.0f;
 
     // Internal helpers
     void EnsureDocument();

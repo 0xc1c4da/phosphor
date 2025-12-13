@@ -489,6 +489,50 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
         layer.cells[idx] = cp;
 }
 
+bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.cells.size())
+        layer.cells[idx] = cp;
+    return true;
+}
+
+char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
+{
+    if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
+        return U' ';
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return U' ';
+    if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
+        return U' ';
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = CellIndex(row, col);
+    if (idx >= layer.cells.size())
+        return U' ';
+    return layer.cells[idx];
+}
+
+bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    Layer& layer = m_layers[(size_t)layer_index];
+    std::fill(layer.cells.begin(), layer.cells.end(), cp);
+    return true;
+}
+
 void AnsiCanvas::HandleKeyboardNavigation()
 {
     if (!m_has_focus)
@@ -584,7 +628,39 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
 
     ImGuiIO& io = ImGui::GetIO();
     if (!ImGui::IsItemHovered())
+    {
+        m_pointer_valid = false;
         return;
+    }
+
+    // Update pointer state (hover cell + pressed state) every frame.
+    {
+        ImVec2 local(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
+        if (local.x >= 0.0f && local.y >= 0.0f)
+        {
+            int col = static_cast<int>(local.x / cell_w);
+            int row = static_cast<int>(local.y / cell_h);
+
+            if (col < 0) col = 0;
+            if (col >= m_columns) col = m_columns - 1;
+            if (row < 0) row = 0;
+
+            EnsureRows(row + 1);
+
+            m_pointer_pcol = m_pointer_col;
+            m_pointer_prow = m_pointer_row;
+            m_pointer_ppressed = m_pointer_pressed;
+
+            m_pointer_col = col;
+            m_pointer_row = row;
+            m_pointer_pressed = io.MouseDown[ImGuiMouseButton_Left];
+            m_pointer_valid = true;
+        }
+        else
+        {
+            m_pointer_valid = false;
+        }
+    }
 
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
@@ -604,6 +680,24 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
         m_cursor_col = col;
         m_has_focus = true;
     }
+}
+
+bool AnsiCanvas::GetPointerCell(int& out_x,
+                                int& out_y,
+                                bool& out_pressed,
+                                int& out_px,
+                                int& out_py,
+                                bool& out_ppressed) const
+{
+    if (!m_pointer_valid)
+        return false;
+    out_x = m_pointer_col;
+    out_y = m_pointer_row;
+    out_pressed = m_pointer_pressed;
+    out_px = m_pointer_pcol;
+    out_py = m_pointer_prow;
+    out_ppressed = m_pointer_ppressed;
+    return true;
 }
 
 void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
@@ -745,6 +839,12 @@ void AnsiCanvas::Render(const char* id)
         if (scaled_cell_h < 1.0f)
             scaled_cell_h = 1.0f;
     }
+
+    // Expose last aspect for tools/scripts.
+    if (scaled_cell_h > 0.0f)
+        m_last_cell_aspect = scaled_cell_w / scaled_cell_h;
+    else
+        m_last_cell_aspect = 1.0f;
 
     // IMPORTANT: handle keyboard input before computing canvas_size, because input can
     // grow the document (rows). If we grow after creating the item, ImGui's scroll range

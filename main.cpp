@@ -31,6 +31,7 @@
 #include "character_palette.h"
 #include "layer_manager.h"
 #include "ansl_editor.h"
+#include "ansl_script_engine.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -775,6 +776,13 @@ int main(int, char**)
 
     // ANSL editor state
     AnslEditor ansl_editor;
+    AnslScriptEngine ansl_engine;
+    {
+        std::string err;
+        // Load assets/ansl.js once. (Built by `make -C ansl`.)
+        if (!ansl_engine.Init("assets", err))
+            fprintf(stderr, "[ansl] init failed: %s\n", err.c_str());
+    }
 
     // Image state
     std::vector<ImageWindow> images;
@@ -1297,7 +1305,15 @@ int main(int, char**)
         if (show_ansl_editor_window)
         {
             ImGui::Begin("ANSL Editor", &show_ansl_editor_window, ImGuiWindowFlags_None);
-            ansl_editor.Render("ansl_editor", ImGuiInputTextFlags_AllowTabInput);
+            std::vector<LayerManagerCanvasRef> refs;
+            refs.reserve(canvases.size());
+            for (auto& c : canvases)
+            {
+                if (!c.open)
+                    continue;
+                refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
+            }
+            ansl_editor.Render("ansl_editor", refs, ansl_engine, ImGuiInputTextFlags_AllowTabInput);
             ImGui::End();
         }
 
