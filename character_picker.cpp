@@ -83,6 +83,40 @@ static int CeilDivInt(int a, int b)
 
 } // namespace
 
+void CharacterPicker::MarkSelectionChanged()
+{
+    selection_changed_ = true;
+}
+
+bool CharacterPicker::TakeSelectionChanged(uint32_t& out_cp)
+{
+    if (!selection_changed_)
+        return false;
+    selection_changed_ = false;
+    out_cp = selected_cp_;
+    return true;
+}
+
+void CharacterPicker::JumpToCodePoint(uint32_t cp)
+{
+    if (!IsScalarValue(cp))
+        return;
+
+    // Clear search so the view is deterministic (plane/block based).
+    ClearSearch();
+
+    block_index_ = 0;
+    subpage_index_ = static_cast<int>(cp / 0x10000u);
+    subpage_index_ = std::clamp(subpage_index_, 0, 16);
+    SyncRangeFromSelection();
+
+    selected_cp_ = cp;
+    ClampSelectionToCurrentView();
+    confusables_for_cp_ = 0xFFFFFFFFu;
+    scroll_to_selected_ = true;
+    MarkSelectionChanged();
+}
+
 // -------------------- ICU helpers --------------------
 
 bool CharacterPicker::IsScalarValue(uint32_t cp)
@@ -150,10 +184,244 @@ std::vector<std::string> CharacterPicker::TokenizeUpperASCII(const std::string& 
     return toks;
 }
 
+// -------------------- omit/visibility helpers --------------------
+
+void CharacterPicker::InitDefaultOmitRanges()
+{
+    // Known missing-glyph spans for Unscii (Unicode 13).
+    // Add more here as you discover them; ranges are inclusive.
+    omit_ranges_.clear();
+    AddOmitRange(0x0000u, 0x0010u);
+    AddOmitRange(0x0870u, 0x0890u);
+    AddOmitRange(0x08C0u, 0x08C0u);
+    AddOmitRange(0x1AC0u, 0x1AF0u);
+    AddOmitRange(0x2450u, 0x2450u);
+    AddOmitRange(0x2E50u, 0x2E70u);
+    AddOmitRange(0x9FF0u, 0x9FF0u);
+    AddOmitRange(0xE390u, 0xE3A0u);
+    AddOmitRange(0xE400u, 0xE460u);
+    AddOmitRange(0xE4D0u, 0xE5B0u);
+    AddOmitRange(0xE5E0u, 0xE620u);
+    AddOmitRange(0xE6D0u, 0xE6E0u);
+    AddOmitRange(0xEB40u, 0xEBF0u);
+    AddOmitRange(0xECE0u, 0xECF0u);
+    AddOmitRange(0xED40u, 0xF4B0u);
+    AddOmitRange(0xFAE0u, 0xFAF0u);
+    AddOmitRange(0xFD40u, 0xFD40u);
+    AddOmitRange(0xFFF0u, 0xFFF0u);
+
+    NormalizeOmitRanges();
+}
+
+void CharacterPicker::AddOmitRange(uint32_t start_inclusive, uint32_t end_inclusive)
+{
+    if (end_inclusive < start_inclusive)
+        std::swap(start_inclusive, end_inclusive);
+    omit_ranges_.push_back(OmitRange{start_inclusive, end_inclusive});
+    omit_revision_++;
+}
+
+void CharacterPicker::NormalizeOmitRanges()
+{
+    if (omit_ranges_.empty())
+        return;
+
+    std::sort(omit_ranges_.begin(), omit_ranges_.end(),
+              [](const OmitRange& a, const OmitRange& b)
+              {
+                  if (a.start != b.start) return a.start < b.start;
+                  return a.end < b.end;
+              });
+
+    std::vector<OmitRange> merged;
+    merged.reserve(omit_ranges_.size());
+    OmitRange cur = omit_ranges_.front();
+
+    for (size_t i = 1; i < omit_ranges_.size(); ++i)
+    {
+        const OmitRange& r = omit_ranges_[i];
+        if (r.start <= cur.end + 1u)
+        {
+            cur.end = std::max(cur.end, r.end);
+        }
+        else
+        {
+            merged.push_back(cur);
+            cur = r;
+        }
+    }
+    merged.push_back(cur);
+    omit_ranges_ = std::move(merged);
+}
+
+bool CharacterPicker::IsOmitted(uint32_t cp) const
+{
+    if (omit_ranges_.empty())
+        return false;
+
+    // Binary search for the last range with start <= cp, then check if cp <= end.
+    size_t lo = 0;
+    size_t hi = omit_ranges_.size();
+    while (lo < hi)
+    {
+        const size_t mid = lo + (hi - lo) / 2;
+        if (omit_ranges_[mid].start <= cp)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (lo == 0)
+        return false;
+    const OmitRange& r = omit_ranges_[lo - 1];
+    return (cp >= r.start && cp <= r.end);
+}
+
+bool CharacterPicker::IsRangeFullyOmitted(uint32_t start, uint32_t end) const
+{
+    if (end < start)
+        return true;
+    if (omit_ranges_.empty())
+        return false;
+
+    uint32_t cur = start;
+    for (const auto& r : omit_ranges_)
+    {
+        if (r.end < cur)
+            continue;
+        if (r.start > cur)
+            return false; // gap
+        // r.start <= cur <= r.end
+        if (r.end >= end)
+            return true;
+        cur = r.end + 1u;
+        if (cur == 0) // wrapped
+            return true;
+    }
+    return false;
+}
+
+bool CharacterPicker::HasGlyph(const ImFont* font, uint32_t cp)
+{
+    if (!font)
+        return true; // best-effort: if no font, don't hide anything here
+    if (!IsScalarValue(cp))
+        return false;
+
+    // Dear ImGui commonly uses 16-bit ImWchar unless IMGUI_USE_WCHAR32 is enabled.
+    if (sizeof(ImWchar) == 2 && cp > 0xFFFFu)
+        return false;
+
+    // IMPORTANT: do not force-load/bake glyphs here (doing so in big loops can explode atlas size
+    // and cause Vulkan allocator failures). Use non-loading presence checks only.
+
+    // Fast path: if glyph already loaded for current baked font, it's definitely drawable.
+    if (ImFontBaked* baked = ImGui::GetFontBaked())
+        if (baked->IsGlyphLoaded(static_cast<ImWchar>(cp)))
+            return true;
+
+    // Presence check in font sources (non-const in 1.91.4 but logically a query).
+    return const_cast<ImFont*>(font)->IsGlyphInFont(static_cast<ImWchar>(cp));
+}
+
+std::optional<uint32_t> CharacterPicker::FirstVisibleInRange(uint32_t start, uint32_t end, const ImFont* font) const
+{
+    if (end < start)
+        return std::nullopt;
+    for (uint32_t cp = start;; ++cp)
+    {
+        if (!IsScalarValue(cp))
+        {
+            if (cp == end)
+                break;
+            continue;
+        }
+        if (IsOmitted(cp))
+        {
+            if (cp == end)
+                break;
+            continue;
+        }
+        return cp;
+        // unreachable
+    }
+    return std::nullopt;
+}
+
+void CharacterPicker::RebuildVisibleCache(uint32_t view_start, uint32_t view_end, const ImFont* font)
+{
+    if (visible_cache_start_ == view_start &&
+        visible_cache_end_ == view_end &&
+        visible_cache_font_ == font &&
+        visible_cache_omit_revision_ == omit_revision_)
+    {
+        return;
+    }
+
+    visible_cache_start_ = view_start;
+    visible_cache_end_ = view_end;
+    visible_cache_font_ = font;
+    visible_cache_omit_revision_ = omit_revision_;
+
+    visible_cps_cache_.clear();
+    if (view_end < view_start)
+        return;
+
+    for (uint32_t cp = view_start;; ++cp)
+    {
+        if (!IsScalarValue(cp))
+        {
+            if (cp == view_end)
+                break;
+            continue;
+        }
+        if (IsOmitted(cp))
+        {
+            if (cp == view_end)
+                break;
+            continue;
+        }
+        visible_cps_cache_.push_back(cp);
+
+        if (cp == view_end)
+            break;
+    }
+}
+
+void CharacterPicker::RebuildAvailablePlanes(const ImFont* font)
+{
+    if (plane_cache_font_ == font && plane_cache_omit_revision_ == omit_revision_)
+        return;
+
+    plane_cache_font_ = font;
+    plane_cache_omit_revision_ = omit_revision_;
+
+    available_planes_.clear();
+    available_planes_.reserve(17);
+
+    // Requirement: hide planes only when the omit ranges cover the *entire* plane.
+    // Don't scan plane contents or query glyphs here (can be extremely expensive).
+    for (int p = 0; p <= 16; ++p)
+    {
+        const uint32_t ps = static_cast<uint32_t>(p) * 0x10000u;
+        const uint32_t pe = std::min(ps + 0xFFFFu, 0x10FFFFu);
+        if (!IsRangeFullyOmitted(ps, pe))
+            available_planes_.push_back(p);
+    }
+
+    // Ensure we always have something selectable to avoid weird UI states.
+    if (available_planes_.empty())
+        available_planes_.push_back(0);
+
+    const int cur_plane = std::clamp(subpage_index_, 0, 16);
+    if (std::find(available_planes_.begin(), available_planes_.end(), cur_plane) == available_planes_.end())
+        subpage_index_ = available_planes_.front();
+}
+
 // -------------------- blocks --------------------
 
 CharacterPicker::CharacterPicker()
 {
+    InitDefaultOmitRanges();
     EnsureBlocksLoaded();
     SyncRangeFromSelection();
 }
@@ -246,6 +514,36 @@ void CharacterPicker::ClampSelectionToCurrentView()
         selected_cp_ = range_start_;
     if (selected_cp_ > range_end_)
         selected_cp_ = range_end_;
+
+    // Avoid landing on omitted codepoints.
+    if (IsOmitted(selected_cp_))
+    {
+        // Prefer scanning forward, then backward.
+        for (uint32_t cp = selected_cp_;; ++cp)
+        {
+            if (cp > range_end_)
+                break;
+            if (IsScalarValue(cp) && !IsOmitted(cp))
+            {
+                selected_cp_ = cp;
+                return;
+            }
+            if (cp == range_end_)
+                break;
+        }
+        for (uint32_t cp = selected_cp_;; --cp)
+        {
+            if (cp < range_start_)
+                break;
+            if (IsScalarValue(cp) && !IsOmitted(cp))
+            {
+                selected_cp_ = cp;
+                return;
+            }
+            if (cp == range_start_)
+                break;
+        }
+    }
 }
 
 // -------------------- search --------------------
@@ -314,7 +612,10 @@ void CharacterPicker::PerformSearch()
     search_active_ = !search_results_.empty();
     search_dirty_ = false;
     if (search_active_)
+    {
         selected_cp_ = search_results_.front().cp;
+        MarkSelectionChanged();
+    }
 }
 
 void CharacterPicker::ClearSearch()
@@ -344,7 +645,7 @@ std::vector<uint32_t> CharacterPicker::FilteredSearchCpsForCurrentBlock() const
 
     for (const auto& r : search_results_)
     {
-        if (r.cp >= block_start && r.cp <= block_end)
+        if (r.cp >= block_start && r.cp <= block_end && !IsOmitted(r.cp))
             cps.push_back(r.cp);
     }
     return cps;
@@ -366,6 +667,10 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
 {
     if (!IsScalarValue(base_cp))
         return;
+    if (IsOmitted(base_cp))
+        return;
+
+    const ImFont* font = ImGui::GetFont();
 
     auto sc = MakeSpoofChecker();
     if (!sc)
@@ -397,10 +702,14 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
             UnicodeString sk = SkeletonOf(sc.get(), s);
             if (sk == target_skel)
             {
-                confusable_cps_.push_back(static_cast<uint32_t>(cp));
-                printed++;
-                if (printed >= limit)
-                    return;
+                const uint32_t ucp = static_cast<uint32_t>(cp);
+                if (!IsOmitted(ucp))
+                {
+                    confusable_cps_.push_back(ucp);
+                    printed++;
+                    if (printed >= limit)
+                        return;
+                }
             }
         }
     }
@@ -411,6 +720,7 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
 bool CharacterPicker::Render(const char* window_title, bool* p_open)
 {
     EnsureBlocksLoaded();
+    RebuildAvailablePlanes(ImGui::GetFont());
 
     if (!ImGui::Begin(window_title, p_open, ImGuiWindowFlags_NoSavedSettings))
     {
@@ -445,9 +755,11 @@ void CharacterPicker::RenderTopBar()
             if (ImGui::Selectable("All Unicode (by Plane)", sel_all))
             {
                 block_index_ = 0;
+                RebuildAvailablePlanes(ImGui::GetFont());
                 subpage_index_ = std::clamp(subpage_index_, 0, 16);
                 SyncRangeFromSelection();
                 ClampSelectionToCurrentView();
+                MarkSelectionChanged();
             }
             if (sel_all)
                 ImGui::SetItemDefaultFocus();
@@ -463,6 +775,7 @@ void CharacterPicker::RenderTopBar()
                     subpage_index_ = 0;
                     SyncRangeFromSelection();
                     ClampSelectionToCurrentView();
+                    MarkSelectionChanged();
                 }
                 if (sel)
                     ImGui::SetItemDefaultFocus();
@@ -508,7 +821,8 @@ void CharacterPicker::RenderTopBar()
         }
         else if (block_index_ == 0)
         {
-            // Planes 0..16
+            // Planes 0..16, but hide planes with no visible glyphs in the current font.
+            RebuildAvailablePlanes(ImGui::GetFont());
             const int plane = std::clamp(subpage_index_, 0, 16);
             std::string preview = "Plane " + std::to_string(plane) + "  (" +
                                   CodePointHex(static_cast<uint32_t>(plane) * 0x10000u) + ".." +
@@ -517,7 +831,7 @@ void CharacterPicker::RenderTopBar()
             ImGui::SetNextItemWidth(260.0f);
             if (ImGui::BeginCombo("Subpage", preview.c_str()))
             {
-                for (int p = 0; p <= 16; ++p)
+                for (int p : available_planes_)
                 {
                     const uint32_t ps = static_cast<uint32_t>(p) * 0x10000u;
                     const uint32_t pe = std::min(ps + 0xFFFFu, 0x10FFFFu);
@@ -530,6 +844,7 @@ void CharacterPicker::RenderTopBar()
                         SyncRangeFromSelection();
                         ClampSelectionToCurrentView();
                         scroll_to_selected_ = true;
+                        MarkSelectionChanged();
                     }
                     if (sel)
                         ImGui::SetItemDefaultFocus();
@@ -563,9 +878,14 @@ void CharacterPicker::RenderTopBar()
                     if (ImGui::Selectable(label.c_str(), sel))
                     {
                         subpage_index_ = p;
-                        selected_cp_ = s;
+                        const ImFont* font = ImGui::GetFont();
+                        if (auto first = FirstVisibleInRange(s, e, font))
+                            selected_cp_ = *first;
+                        else
+                            selected_cp_ = s; // fallback; will be clamped later
                         confusables_for_cp_ = 0xFFFFFFFFu;
                         scroll_to_selected_ = true;
+                        MarkSelectionChanged();
                     }
                     if (sel)
                         ImGui::SetItemDefaultFocus();
@@ -607,6 +927,7 @@ void CharacterPicker::RenderTopBar()
             subpage_index_ = 0;
             SyncRangeFromSelection();
             ClampSelectionToCurrentView();
+            MarkSelectionChanged();
         }
     }
 }
@@ -625,15 +946,28 @@ void CharacterPicker::RenderGridAndSidePanel()
     if (search_active_)
     {
         auto cps = FilteredSearchCpsForCurrentBlock();
+        if (!cps.empty() && std::find(cps.begin(), cps.end(), selected_cp_) == cps.end())
+            selected_cp_ = cps.front();
         RenderGrid(0, 0, &cps);
         HandleGridKeyboardNavigation(0, 0, &cps);
     }
     else
     {
+        const ImFont* font = ImGui::GetFont();
         SyncRangeFromSelection();
-        ClampSelectionToCurrentView();
-        RenderGrid(range_start_, range_end_, nullptr);
-        HandleGridKeyboardNavigation(range_start_, range_end_, nullptr);
+        RebuildVisibleCache(range_start_, range_end_, font);
+        if (!visible_cps_cache_.empty())
+        {
+            if (std::find(visible_cps_cache_.begin(), visible_cps_cache_.end(), selected_cp_) == visible_cps_cache_.end())
+                selected_cp_ = visible_cps_cache_.front();
+            RenderGrid(0, 0, &visible_cps_cache_);
+            HandleGridKeyboardNavigation(0, 0, &visible_cps_cache_);
+        }
+        else
+        {
+            // No visible glyphs in this view.
+            ImGui::TextDisabled("No drawable glyphs in this range.");
+        }
     }
 
     ImGui::EndChild();
@@ -706,6 +1040,7 @@ void CharacterPicker::RenderGridAndSidePanel()
                         subpage_index_ = static_cast<int>(cp / 0x10000u);
                         SyncRangeFromSelection();
                     }
+                    MarkSelectionChanged();
                 }
             }
         }
@@ -762,7 +1097,7 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
             }
             const uint32_t base = view_start + static_cast<uint32_t>(r) * static_cast<uint32_t>(kCols);
             const uint32_t cp = base + static_cast<uint32_t>(c);
-            if (cp < view_start || cp > view_end || !IsScalarValue(cp))
+            if (cp < view_start || cp > view_end || !IsScalarValue(cp) || IsOmitted(cp))
                 return std::nullopt;
             return cp;
         };
@@ -816,6 +1151,7 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
                     {
                         selected_cp_ = cp;
                         confusables_for_cp_ = 0xFFFFFFFFu;
+                        MarkSelectionChanged();
                     }
                     ImGui::PopStyleVar();
 
@@ -862,6 +1198,7 @@ void CharacterPicker::HandleGridKeyboardNavigation(uint32_t view_start, uint32_t
             return;
         selected_cp_ = (*explicit_cps)[static_cast<size_t>(idx)];
         confusables_for_cp_ = 0xFFFFFFFFu;
+        MarkSelectionChanged();
     };
 
     auto find_index = [&]() -> int
@@ -901,16 +1238,34 @@ void CharacterPicker::HandleGridKeyboardNavigation(uint32_t view_start, uint32_t
 
     // Range view navigation: step within the full range (table will scroll).
     uint32_t cp = selected_cp_;
-    if (left && cp > view_start)  cp -= 1;
-    if (right && cp < view_end)  cp += 1;
-    if (up && cp >= view_start + kCols)   cp -= kCols;
-    if (down && cp + kCols <= view_end)   cp += kCols;
+    auto step_non_omitted = [&](int delta) -> uint32_t
+    {
+        int64_t cur = static_cast<int64_t>(cp);
+        const int64_t lo = static_cast<int64_t>(view_start);
+        const int64_t hi = static_cast<int64_t>(view_end);
+        for (int tries = 0; tries < 4096; ++tries)
+        {
+            cur += delta;
+            if (cur < lo) return static_cast<uint32_t>(view_start);
+            if (cur > hi) return static_cast<uint32_t>(view_end);
+            const uint32_t u = static_cast<uint32_t>(cur);
+            if (IsScalarValue(u) && !IsOmitted(u))
+                return u;
+        }
+        return cp;
+    };
+
+    if (left && cp > view_start)  cp = step_non_omitted(-1);
+    if (right && cp < view_end)  cp = step_non_omitted(+1);
+    if (up && cp >= view_start + kCols)   cp = step_non_omitted(-kCols);
+    if (down && cp + kCols <= view_end)   cp = step_non_omitted(+kCols);
 
     if (cp != selected_cp_)
     {
         selected_cp_ = cp;
         confusables_for_cp_ = 0xFFFFFFFFu;
         scroll_to_selected_ = true;
+        MarkSelectionChanged();
     }
 }
 

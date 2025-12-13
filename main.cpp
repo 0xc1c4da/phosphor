@@ -28,6 +28,7 @@
 #include "colour_picker.h"
 #include "canvas.h"
 #include "character_picker.h"
+#include "character_palette.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -746,7 +747,8 @@ int main(int, char**)
     bool show_demo_window = false;
     ImVec4 clear_color = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
     bool   show_color_picker_window = true;
-    bool   show_character_picker_window = false;
+    bool   show_character_picker_window = true;
+    bool   show_character_palette_window = true;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -760,6 +762,9 @@ int main(int, char**)
 
     // Character picker state
     CharacterPicker character_picker;
+
+    // Character palette state
+    CharacterPalette character_palette;
 
     // Image state
     std::vector<ImageWindow> images;
@@ -860,6 +865,7 @@ int main(int, char**)
             {
                 ImGui::MenuItem("Xterm-256 Color Picker", nullptr, &show_color_picker_window);
                 ImGui::MenuItem("Unicode Character Picker", nullptr, &show_character_picker_window);
+                ImGui::MenuItem("Character Palette", nullptr, &show_character_palette_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -996,6 +1002,26 @@ int main(int, char**)
         if (show_character_picker_window)
         {
             character_picker.Render("Unicode Character Picker", &show_character_picker_window);
+        }
+
+        // If the picker selection changed, update the palette's selected cell (replace or select).
+        {
+            uint32_t cp = 0;
+            if (character_picker.TakeSelectionChanged(cp))
+                character_palette.OnPickerSelectedCodePoint(cp);
+        }
+
+        // Character Palette window (loads assets/palettes.json via nlohmann_json)
+        if (show_character_palette_window)
+        {
+            character_palette.Render("Character Palette", &show_character_palette_window);
+        }
+
+        // If the user clicked a glyph in the palette, navigate the picker to it.
+        {
+            uint32_t cp = 0;
+            if (character_palette.TakeUserSelectionChanged(cp))
+                character_picker.JumpToCodePoint(cp);
         }
 
         // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.

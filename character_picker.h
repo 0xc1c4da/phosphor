@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,12 @@ public:
     // Get the currently selected code point (Unicode scalar where possible).
     uint32_t SelectedCodePoint() const { return selected_cp_; }
 
+    // Programmatically navigate the picker to a codepoint (updates plane selection, scrolls into view).
+    void JumpToCodePoint(uint32_t cp);
+
+    // Returns true if selection changed since last call, and outputs the current selection.
+    bool TakeSelectionChanged(uint32_t& out_cp);
+
     // Small ICU-backed helpers (useful for tooltips/callbacks).
     static std::string BlockNameFor(uint32_t cp);
 
@@ -53,6 +60,12 @@ private:
         std::string name;       // ICU long property value name
     };
 
+    struct OmitRange
+    {
+        uint32_t start = 0;
+        uint32_t end   = 0; // inclusive
+    };
+
 private:
     // ---------- ICU helpers ----------
     static bool IsScalarValue(uint32_t cp);
@@ -61,6 +74,19 @@ private:
     static std::string CharName(uint32_t cp);
 
     static std::vector<std::string> TokenizeUpperASCII(const std::string& q);
+
+    // ---------- omit/visibility helpers ----------
+    void InitDefaultOmitRanges();
+    void AddOmitRange(uint32_t start_inclusive, uint32_t end_inclusive);
+    void NormalizeOmitRanges();
+    bool IsOmitted(uint32_t cp) const;
+    bool IsRangeFullyOmitted(uint32_t start, uint32_t end) const;
+
+    static bool HasGlyph(const ImFont* font, uint32_t cp);
+    std::optional<uint32_t> FirstVisibleInRange(uint32_t start, uint32_t end, const ImFont* font) const;
+
+    void RebuildVisibleCache(uint32_t view_start, uint32_t view_end, const ImFont* font);
+    void RebuildAvailablePlanes(const ImFont* font);
 
     // ---------- model/state ----------
     void EnsureBlocksLoaded();
@@ -102,6 +128,23 @@ private:
     // Selected code point
     uint32_t selected_cp_ = 0x0041; // 'A' default
     bool scroll_to_selected_ = false;
+    bool selection_changed_ = false;
+
+    // Omitted ranges (e.g. known missing glyph spans for the current font)
+    std::vector<OmitRange> omit_ranges_;
+    int omit_revision_ = 0;
+
+    // Cached visible codepoints for the current view (range or plane/block page)
+    uint32_t visible_cache_start_ = 0;
+    uint32_t visible_cache_end_ = 0;
+    const ImFont* visible_cache_font_ = nullptr;
+    int visible_cache_omit_revision_ = -1;
+    std::vector<uint32_t> visible_cps_cache_;
+
+    // Available planes for "All Unicode (by Plane)" dropdown (hide empty planes)
+    const ImFont* plane_cache_font_ = nullptr;
+    int plane_cache_omit_revision_ = -1;
+    std::vector<int> available_planes_; // values 0..16
 
     // Search state
     std::string search_query_;
@@ -114,6 +157,9 @@ private:
     uint32_t confusables_for_cp_ = 0xFFFFFFFFu;
     int confusables_limit_ = 64;
     std::vector<uint32_t> confusable_cps_;
+
+private:
+    void MarkSelectionChanged();
 };
 
 
