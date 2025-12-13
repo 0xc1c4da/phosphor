@@ -10,10 +10,10 @@ namespace ImGui
 // - HueWheel: Hue wheel + SV triangle (+ optional alpha bar).
 
 bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4],
-                                  bool show_alpha = true,
+                                  bool show_alpha = false,
                                   bool* out_used_right_click = nullptr);
 bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4],
-                                    bool show_alpha = true,
+                                    bool show_alpha = false,
                                     bool* out_used_right_click = nullptr);
 
 // Composite foreground/background widget:

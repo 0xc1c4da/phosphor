@@ -1,6 +1,7 @@
 #include "ansl_script_engine.h"
 
 #include "canvas.h"
+#include "xterm256_palette.h"
 
 extern "C"
 {
@@ -183,7 +184,28 @@ static int l_layer_set(lua_State* L)
     const int x = (int)luaL_checkinteger(L, 2);
     const int y = (int)luaL_checkinteger(L, 3);
     const char32_t cp = LuaCharArg(L, 4);
-    b->canvas->SetLayerCell(b->layer_index, y, x, cp);
+
+    // Optional fg/bg: xterm-256 indices (0..255). nil means "unset".
+    AnsiCanvas::Color32 fg = 0;
+    AnsiCanvas::Color32 bg = 0;
+    const int nargs = lua_gettop(L);
+    if (nargs >= 5 && !lua_isnil(L, 5))
+    {
+        const int idx = (int)luaL_checkinteger(L, 5);
+        if (idx >= 0 && idx <= 255)
+            fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
+    }
+    if (nargs >= 6 && !lua_isnil(L, 6))
+    {
+        const int idx = (int)luaL_checkinteger(L, 6);
+        if (idx >= 0 && idx <= 255)
+            bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
+    }
+
+    if (fg != 0 || bg != 0)
+        b->canvas->SetLayerCell(b->layer_index, y, x, cp, fg, bg);
+    else
+        b->canvas->SetLayerCell(b->layer_index, y, x, cp);
     return 0;
 }
 
@@ -320,11 +342,11 @@ extern "C" int luaopen_ansl(lua_State* L);
 
 static bool EnsureAnslModule(lua_State* L, std::string& error)
 {
-    // require('ansl') and also publish global ANSL for convenience (JS-style).
+    // require('ansl') and also publish global `ansl` for convenience.
     // LuaJIT (Lua 5.1) does not provide luaL_requiref, so we do the equivalent:
     // - register package.preload["ansl"] = luaopen_ansl
     // - call require("ansl")
-    // - assign global ANSL = returned module table
+    // - assign global ansl = returned module table
     lua_getglobal(L, "package");
     if (!lua_istable(L, -1))
                         {
@@ -358,7 +380,7 @@ static bool EnsureAnslModule(lua_State* L, std::string& error)
 
     // stack: ansl_module
     lua_pushvalue(L, -1);
-    lua_setglobal(L, "ANSL");
+    lua_setglobal(L, "ansl");
     lua_pop(L, 1);
     error.clear();
     return true;
@@ -413,7 +435,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     }
     luaL_openlibs(impl_->L);
 
-    // Register native ANSL library as require('ansl') and global ANSL.
+    // Register native ansl library as require('ansl') and global `ansl`.
     if (!EnsureAnslModule(impl_->L, error))
         return false;
 
@@ -560,6 +582,10 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_pushinteger(L, frame_ctx.rows);  lua_setfield(L, -2, "rows");
     lua_pushinteger(L, frame_ctx.frame); lua_setfield(L, -2, "frame");
     lua_pushnumber(L, frame_ctx.time);   lua_setfield(L, -2, "time");
+    if (frame_ctx.fg >= 0) { lua_pushinteger(L, frame_ctx.fg); lua_setfield(L, -2, "fg"); }
+    else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
+    if (frame_ctx.bg >= 0) { lua_pushinteger(L, frame_ctx.bg); lua_setfield(L, -2, "bg"); }
+    else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
 
     lua_getfield(L, -1, "metrics");
     if (lua_istable(L, -1))

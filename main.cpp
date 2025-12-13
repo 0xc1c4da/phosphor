@@ -32,6 +32,7 @@
 #include "layer_manager.h"
 #include "ansl_editor.h"
 #include "ansl_script_engine.h"
+#include "xterm256_palette.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -1313,7 +1314,17 @@ int main(int, char**)
                     continue;
                 refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
             }
-            ansl_editor.Render("ansl_editor", refs, ansl_engine, ImGuiInputTextFlags_AllowTabInput);
+            auto to_idx = [](const ImVec4& c) -> int {
+                const int r = (int)std::lround(c.x * 255.0f);
+                const int g = (int)std::lround(c.y * 255.0f);
+                const int b = (int)std::lround(c.z * 255.0f);
+                return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
+                                             (std::uint8_t)std::clamp(g, 0, 255),
+                                             (std::uint8_t)std::clamp(b, 0, 255));
+            };
+            const int fg_idx = to_idx(fg_color);
+            const int bg_idx = to_idx(bg_color);
+            ansl_editor.Render("ansl_editor", refs, ansl_engine, fg_idx, bg_idx, ImGuiInputTextFlags_AllowTabInput);
             ImGui::End();
         }
 

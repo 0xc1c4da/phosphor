@@ -6,96 +6,24 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "colour_picker.h"
+#include "xterm256_palette.h"
 
 #include <cmath>
 #include <cfloat>
 
-// ------------------------------------------------------------
-// Xterm-256 palette generation and helpers
-// ------------------------------------------------------------
-
-static bool   g_Xterm256Initialized = false;
-static ImVec4 g_Xterm256[256];
-
-static void InitXterm256Palette()
+static inline ImU32 ToCol32XtermRgb(const ImVec4& c_in, float alpha_mul = 1.0f)
 {
-    if (g_Xterm256Initialized)
-        return;
-
-    g_Xterm256Initialized = true;
-
-    auto set_rgb = [](int idx, int r, int g, int b)
-    {
-        g_Xterm256[idx] = ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, 1.0f);
-    };
-
-    // 0–15: standard ANSI colors
-    set_rgb(0, 0, 0, 0);
-    set_rgb(1, 205, 0, 0);
-    set_rgb(2, 0, 205, 0);
-    set_rgb(3, 205, 205, 0);
-    set_rgb(4, 0, 0, 238);
-    set_rgb(5, 205, 0, 205);
-    set_rgb(6, 0, 205, 205);
-    set_rgb(7, 229, 229, 229);
-    set_rgb(8, 127, 127, 127);
-    set_rgb(9, 255, 0, 0);
-    set_rgb(10, 0, 255, 0);
-    set_rgb(11, 255, 255, 0);
-    set_rgb(12, 92, 92, 255);
-    set_rgb(13, 255, 0, 255);
-    set_rgb(14, 0, 255, 255);
-    set_rgb(15, 255, 255, 255);
-
-    // 16–231: 6x6x6 color cube
-    static const int level[6] = { 0, 95, 135, 175, 215, 255 };
-    for (int i = 16; i <= 231; ++i)
-    {
-        int idx = i - 16;
-        int r = idx / 36;
-        int g = (idx % 36) / 6;
-        int b = idx % 6;
-        set_rgb(i, level[r], level[g], level[b]);
-    }
-
-    // 232–255: grayscale ramp
-    for (int i = 232; i <= 255; ++i)
-    {
-        int shade = 8 + (i - 232) * 10;
-        set_rgb(i, shade, shade, shade);
-    }
-}
-
-static int FindNearestXtermIndex(const ImVec4& c)
-{
-    InitXterm256Palette();
-
-    int   best_idx  = 0;
-    float best_dist = FLT_MAX;
-
-    for (int i = 0; i < 256; ++i)
-    {
-        const ImVec4& p = g_Xterm256[i];
-        float dr = c.x - p.x;
-        float dg = c.y - p.y;
-        float db = c.z - p.z;
-        float dist = dr * dr + dg * dg + db * db;
-        if (dist < best_dist)
-        {
-            best_dist = dist;
-            best_idx  = i;
-        }
-    }
-    return best_idx;
-}
-
-static ImU32 ToCol32Xterm(const ImVec4& c_in)
-{
-    InitXterm256Palette();
-    int idx = FindNearestXtermIndex(c_in);
-    ImVec4 p = g_Xterm256[idx];
-    p.w = c_in.w; // keep original alpha
-    return ImGui::GetColorU32(p);
+    // Editor colors are RGB-only. We still allow ImGui style alpha to fade UI.
+    const float a = ImGui::GetStyle().Alpha * alpha_mul;
+    const int r = (int)std::lround(c_in.x * 255.0f);
+    const int g = (int)std::lround(c_in.y * 255.0f);
+    const int b = (int)std::lround(c_in.z * 255.0f);
+    const int idx = xterm256::NearestIndex((std::uint8_t)ImClamp(r, 0, 255),
+                                          (std::uint8_t)ImClamp(g, 0, 255),
+                                          (std::uint8_t)ImClamp(b, 0, 255));
+    const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
+    const int ai = (int)ImClamp(a * 255.0f, 0.0f, 255.0f);
+    return IM_COL32(rgb.r, rgb.g, rgb.b, ai);
 }
 
 // ------------------------------------------------------------
@@ -177,7 +105,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
     ImVec2 picker_pos = window->DC.CursorPos;
     float bar0_pos_x = picker_pos.x + sv_picker_size + style.ItemInnerSpacing.x;
-    float bar1_pos_x = bar0_pos_x + bars_width + style.ItemInnerSpacing.x;
+    // float bar1_pos_x = bar0_pos_x + bars_width + style.ItemInnerSpacing.x; // (alpha disabled)
 
     bool value_changed = false;
 
@@ -210,19 +138,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
         }
     }
 
-    // --- Alpha bar interaction (optional) ---
-    if (show_alpha)
-    {
-        SetCursorScreenPos(ImVec2(bar1_pos_x, picker_pos.y));
-        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size),
-                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        if (IsItemActive())
-        {
-            float a = 1.0f - (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
-            col[3] = Clamp01(a);
-            value_changed = true;
-        }
-    }
+    // Alpha is intentionally not part of our editor model; keep optional UI disabled by default.
+    (void)show_alpha;
 
     // --- Convert HSV back to RGB for storage ---
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
@@ -256,8 +173,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            c.w = col[3] * style.Alpha;
-            ImU32 col32 = ToCol32Xterm(c);
+            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
     }
@@ -281,8 +197,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
         ImVec4 c;
         ColorConvertHSVtoRGB(h0, 1.0f, 1.0f, c.x, c.y, c.z);
-        c.w = style.Alpha;
-        ImU32 col32 = ToCol32Xterm(c);
+        ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
         draw_list->AddRectFilled(ImVec2(bar0_pos_x, y0), ImVec2(bar0_pos_x + bars_width, y1), col32);
     }
     float hue_line_y = picker_pos.y + Clamp01(H) * sv_picker_size;
@@ -294,36 +209,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
                                    bars_width + 2.0f,
                                    style.Alpha);
 
-    // --- Rendering: discrete Alpha bar ---
-    if (show_alpha)
-    {
-        ImRect bar1_bb(bar1_pos_x, picker_pos.y,
-                       bar1_pos_x + bars_width, picker_pos.y + sv_picker_size);
-        RenderColorRectWithAlphaCheckerboard(draw_list, bar1_bb.Min, bar1_bb.Max,
-                                             0, bar1_bb.GetWidth() / 2.0f, ImVec2(0.0f, 0.0f));
-
-        const int alpha_steps = 32;
-        for (int i = 0; i < alpha_steps; ++i)
-        {
-            float a0 = 1.0f - (float)i / (float)alpha_steps;
-            float y0 = picker_pos.y + sv_picker_size * ((float)i / (float)alpha_steps);
-            float y1 = picker_pos.y + sv_picker_size * ((float)(i + 1) / (float)alpha_steps);
-
-            ImVec4 c(col[0], col[1], col[2], a0 * style.Alpha);
-            ImU32 col32 = ToCol32Xterm(c);
-            draw_list->AddRectFilled(ImVec2(bar1_pos_x, y0),
-                                     ImVec2(bar1_pos_x + bars_width, y1),
-                                     col32);
-        }
-
-        float alpha_line_y = picker_pos.y + (1.0f - Clamp01(col[3])) * sv_picker_size;
-        RenderFrameBorder(bar1_bb.Min, bar1_bb.Max, 0.0f);
-        RenderArrowsForVerticalBar(draw_list,
-                                   ImVec2(bar1_pos_x - 1, alpha_line_y),
-                                   ImVec2(bars_width * 0.3f, bars_width * 0.3f),
-                                   bars_width + 2.0f,
-                                   style.Alpha);
-    }
+    // No alpha bar.
 
     ImGuiContext& g_ctx = *GImGui;
     PopID();
@@ -419,20 +305,10 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
         }
     }
 
-    // --- Alpha bar interaction (same as HueBar variant) ---
+    // Alpha is intentionally not part of our editor model; keep optional UI disabled by default.
     float bar_pos_x = picker_pos.x + sv_picker_size + style.ItemInnerSpacing.x;
-    if (show_alpha)
-    {
-        SetCursorScreenPos(ImVec2(bar_pos_x, picker_pos.y));
-        InvisibleButton("alpha", ImVec2(bars_width, sv_picker_size),
-                        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        if (IsItemActive())
-        {
-            float a = 1.0f - (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
-            col[3] = Clamp01(a);
-            value_changed = true;
-        }
-    }
+    (void)bar_pos_x;
+    (void)show_alpha;
 
     // Convert back HSV -> RGB
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
@@ -472,8 +348,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
             ImVec4 c;
             float h_sample = am / (2.0f * IM_PI);
             ColorConvertHSVtoRGB(h_sample, 1.0f, 1.0f, c.x, c.y, c.z);
-            c.w = style.Alpha;
-            ImU32 col32 = ToCol32Xterm(c);
+            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
 
             draw_list->AddQuadFilled(ImVec2(x00, y00), ImVec2(x01, y01),
                                      ImVec2(x11, y11), ImVec2(x10, y10), col32);
@@ -517,8 +392,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            c.w = col[3] * style.Alpha;
-            ImU32 col32 = ToCol32Xterm(c);
+            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
 
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
@@ -541,36 +415,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
         draw_list->AddCircle(p_local, r * 1.6f, GetColorU32(ImVec4(1, 1, 1, 1)), 0, 1.0f);
     }
 
-    // --- Alpha bar rendering ---
-    if (show_alpha)
-    {
-        ImRect bar_bb(bar_pos_x, picker_pos.y,
-                      bar_pos_x + bars_width, picker_pos.y + sv_picker_size);
-        RenderColorRectWithAlphaCheckerboard(draw_list, bar_bb.Min, bar_bb.Max,
-                                             0, bar_bb.GetWidth() / 2.0f, ImVec2(0.0f, 0.0f));
-
-        const int alpha_steps = 32;
-        for (int i = 0; i < alpha_steps; ++i)
-        {
-            float a0 = 1.0f - (float)i / (float)alpha_steps;
-            float y0 = picker_pos.y + sv_picker_size * ((float)i / (float)alpha_steps);
-            float y1 = picker_pos.y + sv_picker_size * ((float)(i + 1) / (float)alpha_steps);
-
-            ImVec4 c(col[0], col[1], col[2], a0 * style.Alpha);
-            ImU32 col32 = ToCol32Xterm(c);
-            draw_list->AddRectFilled(ImVec2(bar_pos_x, y0),
-                                     ImVec2(bar_pos_x + bars_width, y1),
-                                     col32);
-        }
-
-        float alpha_line_y = picker_pos.y + (1.0f - Clamp01(col[3])) * sv_picker_size;
-        RenderFrameBorder(bar_bb.Min, bar_bb.Max, 0.0f);
-        RenderArrowsForVerticalBar(draw_list,
-                                   ImVec2(bar_pos_x - 1, alpha_line_y),
-                                   ImVec2(bars_width * 0.3f, bars_width * 0.3f),
-                                   bars_width + 2.0f,
-                                   style.Alpha);
-    }
+    // No alpha bar.
 
     ImGuiContext& g_ctx2 = *GImGui;
     PopID();
@@ -619,14 +464,14 @@ bool XtermForegroundBackgroundWidget(const char* label,
     ImVec2 bg_max = ImVec2(bg_min.x + sz, bg_min.y + sz);
 
     // Background square (bottom layer)
-    ImU32 bg_col = ToCol32Xterm(background);
+    ImU32 bg_col = ToCol32XtermRgb(background, 1.0f);
     draw_list->AddRectFilled(bg_min, bg_max, bg_col, style.FrameRounding);
     draw_list->AddRect(bg_min, bg_max,
                        GetColorU32(ImVec4(1,1,1,1)),
                        style.FrameRounding, 0, 1.5f);
 
     // Foreground square (same size, overlapping top-right)
-    ImU32 fg_col = ToCol32Xterm(foreground);
+    ImU32 fg_col = ToCol32XtermRgb(foreground, 1.0f);
     draw_list->AddRectFilled(fg_min, fg_max, fg_col, style.FrameRounding);
     draw_list->AddRect(fg_min, fg_max,
                        GetColorU32(ImVec4(0,0,0,1)),

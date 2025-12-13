@@ -148,6 +148,142 @@ inline std::string encode(char32_t cp)
 }
 } // namespace utf8
 
+// Text helpers used by native hosts (LuaJIT, etc).
+// These operate on UTF-8 input and count "width" in Unicode codepoints (not terminal column width).
+namespace text
+{
+struct MeasureResult
+{
+    int numLines = 0;
+    int maxWidth = 0;
+};
+
+inline MeasureResult measure_utf8(const char* s, size_t len)
+{
+    MeasureResult r;
+    if (!s || len == 0)
+        return r;
+
+    std::vector<char32_t> cps;
+    utf8::decode_to_codepoints(s, len, cps);
+    if (cps.empty())
+        return r;
+
+    int lineWidth = 0;
+    r.numLines = 1;
+    for (char32_t cp : cps)
+    {
+        if (cp == U'\n')
+        {
+            r.maxWidth = std::max(r.maxWidth, lineWidth);
+            lineWidth = 0;
+            r.numLines++;
+        }
+        else
+        {
+            lineWidth++;
+            r.maxWidth = std::max(r.maxWidth, lineWidth);
+        }
+    }
+    return r;
+}
+
+struct WrapResult
+{
+    std::string text;
+    int numLines = 0;
+    int maxWidth = 0;
+};
+
+// Wraps at spaces without breaking "words". Multiple spaces are preserved as single spaces
+// between wrapped words (mirroring the original JS behavior which splits on ' ').
+inline WrapResult wrap_utf8(const char* s, size_t len, int width)
+{
+    WrapResult out;
+    if (!s || len == 0)
+        return out;
+
+    if (width <= 0)
+    {
+        out.text.assign(s, s + len);
+        const auto m = measure_utf8(s, len);
+        out.numLines = m.numLines;
+        out.maxWidth = m.maxWidth;
+        return out;
+    }
+
+    std::vector<char32_t> cps;
+    utf8::decode_to_codepoints(s, len, cps);
+
+    auto flush_word = [&](std::u32string& word, std::u32string& line, std::u32string& acc) {
+        if (word.empty())
+            return;
+        if (line.empty())
+        {
+            line = word;
+        }
+        else
+        {
+            // try add " " + word
+            if ((int)line.size() + 1 + (int)word.size() <= width)
+            {
+                line.push_back(U' ');
+                line.append(word);
+            }
+            else
+            {
+                acc.append(line);
+                acc.push_back(U'\n');
+                line = word;
+            }
+        }
+        word.clear();
+    };
+
+    std::u32string acc;
+    std::u32string line;
+    std::u32string word;
+
+    for (char32_t cp : cps)
+    {
+        if (cp == U'\n')
+        {
+            flush_word(word, line, acc);
+            acc.append(line);
+            acc.push_back(U'\n');
+            line.clear();
+            word.clear();
+        }
+        else if (cp == U' ')
+        {
+            flush_word(word, line, acc);
+        }
+        else
+        {
+            word.push_back(cp);
+        }
+    }
+    flush_word(word, line, acc);
+    acc.append(line);
+
+    // Remove trailing newline if input didn't end with one.
+    // The JS impl always appends '\n' after each paragraph and then slices the last one off.
+    // Here we keep exactly what was accumulated; measure determines line counts.
+
+    // Encode
+    std::string encoded;
+    encoded.reserve(len + 16);
+    for (char32_t cp : acc)
+        encoded += utf8::encode(cp);
+
+    out.text = std::move(encoded);
+    const auto m = measure_utf8(out.text.c_str(), out.text.size());
+    out.numLines = m.numLines;
+    out.maxWidth = m.maxWidth;
+    return out;
+}
+} // namespace text
+
 namespace num
 {
 inline double map(double v, double inA, double inB, double outA, double outB)

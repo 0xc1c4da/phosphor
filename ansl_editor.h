@@ -27,6 +27,8 @@ public:
     void Render(const char* id,
                 const std::vector<LayerManagerCanvasRef>& canvases,
                 AnslScriptEngine& engine,
+                int current_fg_xterm = -1,
+                int current_bg_xterm = -1,
                 ImGuiInputTextFlags flags = 0);
 
 private:

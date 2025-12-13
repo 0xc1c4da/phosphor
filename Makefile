@@ -11,6 +11,7 @@ BUILD_DIR = build
 SOURCES  = main.cpp \
            canvas.cpp \
            colour_picker.cpp \
+           xterm256_palette.cpp \
            character_picker.cpp \
            character_palette.cpp \
            layer_manager.cpp \

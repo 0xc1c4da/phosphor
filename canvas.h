@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,11 @@ struct ImGuiInputTextCallbackData;
 class AnsiCanvas
 {
 public:
+    // 32-bit packed RGBA color (compatible with Dear ImGui's ImU32 / IM_COL32()).
+    // Convention in this codebase:
+    //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
+    using Color32 = std::uint32_t;
+
     explicit AnsiCanvas(int columns = 80);
 
     // Set the fixed number of columns in the grid.
@@ -69,7 +75,12 @@ public:
     // Get/set a cell in a specific layer. `row` may extend the document (rows grow on demand).
     // Returns false if `layer_index` is invalid.
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp);
+    // Sets glyph + optional foreground/background colors for the cell.
+    // Pass 0 for fg/bg to leave them "unset" (default fg / transparent bg).
+    bool     SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg);
     char32_t GetLayerCell(int layer_index, int row, int col) const;
+    // Returns false if `layer_index` is invalid or out of bounds.
+    bool     GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const;
 
     // Fill an entire layer with `cp` (default: space).
     // Returns false if `layer_index` is invalid.
@@ -96,6 +107,8 @@ private:
         std::string           name;
         bool                  visible = true;
         std::vector<char32_t> cells; // size == rows * columns
+        std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
+        std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
     };
 
     int m_columns = 80;
@@ -127,8 +140,17 @@ private:
     void EnsureRows(int rows_needed);
     size_t CellIndex(int row, int col) const;
 
-    char32_t GetCompositeCell(int row, int col) const;
-    void     SetActiveCell(int row, int col, char32_t cp);
+    struct CompositeCell
+    {
+        char32_t cp = U' ';
+        Color32  fg = 0;
+        Color32  bg = 0;
+    };
+
+    CompositeCell GetCompositeCell(int row, int col) const;
+    void          SetActiveCell(int row, int col, char32_t cp);
+    void          SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg);
+    void          ClearActiveCellStyle(int row, int col);
 
     void HandleKeyboardNavigation();
     void HandleTextInput();

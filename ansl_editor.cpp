@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "canvas.h"
+#include "xterm256_palette.h"
 
 #include <algorithm>
 #include <cmath>
@@ -55,19 +56,28 @@ AnslEditor::AnslEditor()
     {
         text_ =
             "-- Define a global render(ctx, layer) function.\\n"
-            "-- ctx = { cols, rows, frame, time, metrics={aspect=...}, cursor={x,y,pressed,p={...}} }\\n"
-            "-- Modules are available as ANSL.modules.* (num, sdf, vec2, vec3, color, buffer, drawbox, string).\\n"
+            "-- ctx = { cols, rows, frame, time, fg, bg, metrics={aspect=...}, cursor={x,y,pressed,p={...}} }\\n"
+            "-- Modules are available as `ansl.*` (num, sdf, vec2, vec3, color, buffer, drawbox, string).\\n"
+            "-- Tip: you can also do `local ansl = require('ansl')` if you prefer not to use globals.\\n"
             "-- layer supports:\\n"
-            "--   layer:set(x, y, cpOrString)\\n"
+            "--   layer:set(x, y, cpOrString, fg?, bg?)   -- fg/bg are xterm-256 indices (0..255) or nil\\n"
             "--   layer:get(x, y) -> glyph string\\n"
             "--   layer:clear(cpOrString?)\\n"
             "--   layer:setRow(y, utf8String)\\n"
+            "\\n"
+            "-- Colors are xterm-256 indices (no alpha). Helpers:\\n"
+            "--   ansl.color.rgb(r,g,b) -> idx\\n"
+            "--   ansl.color.hex('#RRGGBB') -> idx\\n"
+            "--   ansl.color.ansi16.red -> 1, etc\\n"
+            "-- ctx.fg / ctx.bg expose the editor's current FG/BG selection when available.\\n"
             "\\n"
             "function render(ctx, layer)\\n"
             "  -- Example: moving dot\\n"
             "  local x = (ctx.frame %% ctx.cols)\\n"
             "  local y = math.floor((ctx.frame / 2) %% ctx.rows)\\n"
-            "  layer:set(x, y, '@')\\n"
+            "  local fg = ctx.fg or ansl.color.ansi16.bright_white\\n"
+            "  local bg = ctx.bg -- nil means unset\\n"
+            "  layer:set(x, y, '@', fg, bg)\\n"
             "end\\n";
     }
 }
@@ -75,6 +85,8 @@ AnslEditor::AnslEditor()
 void AnslEditor::Render(const char* id,
                         const std::vector<LayerManagerCanvasRef>& canvases,
                         AnslScriptEngine& engine,
+                        int current_fg_xterm,
+                        int current_bg_xterm,
                         ImGuiInputTextFlags flags)
 {
     if (!id)
@@ -221,6 +233,8 @@ void AnslEditor::Render(const char* id,
             fctx.frame = script_frame_;
             fctx.time = ImGui::GetTime() * 1000.0;
             fctx.metrics_aspect = canvas->GetLastCellAspect();
+            fctx.fg = current_fg_xterm;
+            fctx.bg = current_bg_xterm;
 
             int cx = 0, cy = 0, cpx = 0, cpy = 0;
             bool pressed = false, ppressed = false;

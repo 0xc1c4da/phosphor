@@ -21,6 +21,12 @@ struct AnslFrameContext
     int  cursor_px = 0;
     int  cursor_py = 0;
     bool cursor_ppressed = false;
+
+    // Script defaults (xterm-256 indices). -1 means "unset".
+    // These are not yet used by the host shim, but are exposed so scripts can
+    // pick up the editor's current FG/BG selection without guessing.
+    int fg = -1;
+    int bg = -1;
 };
 
 // Minimal LuaJIT-based scripting engine for ANSL-style layer manipulation.
@@ -46,7 +52,7 @@ public:
     AnslScriptEngine(const AnslScriptEngine&) = delete;
     AnslScriptEngine& operator=(const AnslScriptEngine&) = delete;
 
-    // Initializes the Lua state and registers the host `ansl` module (also published as global `ANSL`).
+    // Initializes the Lua state and registers the host `ansl` module (also published as global `ansl`).
     bool Init(const std::string& assets_dir, std::string& error);
 
     // Compiles/evaluates user script and caches the `render` function.

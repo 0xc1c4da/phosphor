@@ -242,7 +242,10 @@ int AnsiCanvas::AddLayer(const std::string& name)
     Layer layer;
     layer.name = name.empty() ? ("Layer " + std::to_string((int)m_layers.size() + 1)) : name;
     layer.visible = true;
-    layer.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+    const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+    layer.cells.assign(count, U' ');
+    layer.fg.assign(count, 0);
+    layer.bg.assign(count, 0);
 
     m_layers.push_back(std::move(layer));
     m_active_layer = static_cast<int>(m_layers.size()) - 1;
@@ -299,7 +302,12 @@ void AnsiCanvas::SetColumns(int columns)
     for (Layer& layer : m_layers)
     {
         std::vector<char32_t> new_cells;
+        std::vector<Color32>  new_fg;
+        std::vector<Color32>  new_bg;
+
         new_cells.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), U' ');
+        new_fg.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), 0);
+        new_bg.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), 0);
 
         const int copy_cols = std::min(old_cols, m_columns);
         for (int r = 0; r < old_rows; ++r)
@@ -310,10 +318,16 @@ void AnsiCanvas::SetColumns(int columns)
                 const size_t dst = static_cast<size_t>(r) * static_cast<size_t>(m_columns) + static_cast<size_t>(c);
                 if (src < layer.cells.size() && dst < new_cells.size())
                     new_cells[dst] = layer.cells[src];
+                if (src < layer.fg.size() && dst < new_fg.size())
+                    new_fg[dst] = layer.fg[src];
+                if (src < layer.bg.size() && dst < new_bg.size())
+                    new_bg[dst] = layer.bg[src];
             }
         }
 
         layer.cells = std::move(new_cells);
+        layer.fg    = std::move(new_fg);
+        layer.bg    = std::move(new_bg);
     }
 
     // Clamp cursor to new width.
@@ -340,7 +354,12 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
     // Reset document to a single empty row.
     m_rows = 1;
     for (Layer& layer : m_layers)
-        layer.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+    {
+        const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+        layer.cells.assign(count, U' ');
+        layer.fg.assign(count, 0);
+        layer.bg.assign(count, 0);
+    }
 
     std::vector<char32_t> cps;
     DecodeUtf8(bytes, cps);
@@ -407,7 +426,10 @@ void AnsiCanvas::EnsureDocument()
         Layer base;
         base.name = "Base";
         base.visible = true;
-        base.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+        const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+        base.cells.assign(count, U' ');
+        base.fg.assign(count, 0);
+        base.bg.assign(count, 0);
         m_layers.push_back(std::move(base));
         m_active_layer = 0;
     }
@@ -418,6 +440,10 @@ void AnsiCanvas::EnsureDocument()
     {
         if (layer.cells.size() != need)
             layer.cells.resize(need, U' ');
+        if (layer.fg.size() != need)
+            layer.fg.resize(need, 0);
+        if (layer.bg.size() != need)
+            layer.bg.resize(need, 0);
     }
 
     if (m_active_layer < 0)
@@ -438,7 +464,11 @@ void AnsiCanvas::EnsureRows(int rows_needed)
     m_rows = rows_needed;
     const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
     for (Layer& layer : m_layers)
+    {
         layer.cells.resize(need, U' ');
+        layer.fg.resize(need, 0);
+        layer.bg.resize(need, 0);
+    }
 }
 
 size_t AnsiCanvas::CellIndex(int row, int col) const
@@ -449,15 +479,35 @@ size_t AnsiCanvas::CellIndex(int row, int col) const
     return static_cast<size_t>(row) * static_cast<size_t>(m_columns) + static_cast<size_t>(col);
 }
 
-char32_t AnsiCanvas::GetCompositeCell(int row, int col) const
+AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
 {
+    CompositeCell out;
     if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
-        return U' ';
+        return out;
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
-        return U' ';
+        return out;
 
     const size_t idx = CellIndex(row, col);
-    // Topmost visible non-space wins; treat space as transparent.
+
+    // Background: topmost visible non-zero background wins (space remains "transparent"
+    // for glyph compositing, but background can be colored independently).
+    for (int i = (int)m_layers.size() - 1; i >= 0; --i)
+    {
+        const Layer& layer = m_layers[(size_t)i];
+        if (!layer.visible)
+            continue;
+        if (idx >= layer.bg.size())
+            continue;
+        const Color32 bg = layer.bg[idx];
+        if (bg != 0)
+        {
+            out.bg = bg;
+            break;
+        }
+    }
+
+    // Glyph + foreground: topmost visible non-space glyph wins. Foreground color is
+    // taken from the same layer if present; otherwise it falls back to theme default.
     for (int i = (int)m_layers.size() - 1; i >= 0; --i)
     {
         const Layer& layer = m_layers[(size_t)i];
@@ -465,11 +515,16 @@ char32_t AnsiCanvas::GetCompositeCell(int row, int col) const
             continue;
         if (idx >= layer.cells.size())
             continue;
-        char32_t cp = layer.cells[idx];
-        if (cp != U' ')
-            return cp;
+        const char32_t cp = layer.cells[idx];
+        if (cp == U' ')
+            continue;
+        out.cp = cp;
+        if (idx < layer.fg.size())
+            out.fg = layer.fg[idx];
+        break;
     }
-    return U' ';
+
+    return out;
 }
 
 void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
@@ -487,6 +542,46 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
     const size_t idx = CellIndex(row, col);
     if (idx < layer.cells.size())
         layer.cells[idx] = cp;
+}
+
+void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg)
+{
+    EnsureDocument();
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+
+    if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
+        return;
+
+    Layer& layer = m_layers[(size_t)m_active_layer];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.cells.size())
+        layer.cells[idx] = cp;
+    if (idx < layer.fg.size())
+        layer.fg[idx] = fg;
+    if (idx < layer.bg.size())
+        layer.bg[idx] = bg;
+}
+
+void AnsiCanvas::ClearActiveCellStyle(int row, int col)
+{
+    EnsureDocument();
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+
+    if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
+        return;
+
+    Layer& layer = m_layers[(size_t)m_active_layer];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.fg.size())
+        layer.fg[idx] = 0;
+    if (idx < layer.bg.size())
+        layer.bg[idx] = 0;
 }
 
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
@@ -507,6 +602,28 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
     return true;
 }
 
+bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.cells.size())
+        layer.cells[idx] = cp;
+    if (idx < layer.fg.size())
+        layer.fg[idx] = fg;
+    if (idx < layer.bg.size())
+        layer.bg[idx] = bg;
+    return true;
+}
+
 char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
 {
     if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
@@ -523,6 +640,27 @@ char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
     return layer.cells[idx];
 }
 
+bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const
+{
+    out_fg = 0;
+    out_bg = 0;
+
+    if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
+        return false;
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
+        return false;
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = CellIndex(row, col);
+    if (idx >= layer.fg.size() || idx >= layer.bg.size())
+        return false;
+    out_fg = layer.fg[idx];
+    out_bg = layer.bg[idx];
+    return true;
+}
+
 bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
 {
     EnsureDocument();
@@ -530,6 +668,8 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
         return false;
     Layer& layer = m_layers[(size_t)layer_index];
     std::fill(layer.cells.begin(), layer.cells.end(), cp);
+    std::fill(layer.fg.begin(), layer.fg.end(), 0);
+    std::fill(layer.bg.begin(), layer.bg.end(), 0);
     return true;
 }
 
@@ -606,10 +746,12 @@ void AnsiCanvas::HandleTextInput()
             m_cursor_col = m_columns - 1;
         }
         SetActiveCell(m_cursor_row, m_cursor_col, U' ');
+        ClearActiveCellStyle(m_cursor_row, m_cursor_col);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Delete))
     {
         SetActiveCell(m_cursor_row, m_cursor_col, U' ');
+        ClearActiveCellStyle(m_cursor_row, m_cursor_col);
     }
 
     // Enter -> new line (handled as a key press so it works even when the backend
@@ -748,6 +890,14 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             ImVec2 cell_max(cell_min.x + cell_w,
                             cell_min.y + cell_h);
 
+            CompositeCell cell = GetCompositeCell(row, col);
+
+            // Background fill (if set).
+            if (cell.bg != 0)
+            {
+                draw_list->AddRectFilled(cell_min, cell_max, (ImU32)cell.bg);
+            }
+
             // Cursor highlight.
             if (row == m_cursor_row && col == m_cursor_col)
             {
@@ -755,15 +905,16 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 draw_list->AddRectFilled(cell_min, cell_max, cursor_col);
             }
 
-            char32_t cp = GetCompositeCell(row, col);
+            const char32_t cp = cell.cp;
             if (cp == U' ')
-                continue; // drawing spaces is unnecessary for now
+                continue; // spaces are only meaningful if they have a bg (drawn above)
 
             char buf[5] = {0, 0, 0, 0, 0};
             EncodeUtf8(cp, buf);
             ImVec2 text_pos(cell_min.x, cell_min.y);
+            const ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : ImGui::GetColorU32(ImGuiCol_Text);
             draw_list->AddText(font, font_size, text_pos,
-                               ImGui::GetColorU32(ImGuiCol_Text),
+                               fg_col,
                                buf, nullptr);
         }
     }
