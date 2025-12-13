@@ -32,6 +32,7 @@
           glib
           quickjs
           icu67.dev
+          luajit
         ];
       in
       {

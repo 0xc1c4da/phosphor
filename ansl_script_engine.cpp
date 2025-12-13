@@ -69,6 +69,69 @@ static char32_t DecodeFirstUtf8Codepoint(const char* s, size_t len)
     return cp;
 }
 
+static void DecodeUtf8ToCodepoints(const char* s, size_t len, std::vector<char32_t>& out)
+{
+    out.clear();
+    if (!s || len == 0)
+        return;
+    const unsigned char* data = reinterpret_cast<const unsigned char*>(s);
+    size_t i = 0;
+    while (i < len)
+    {
+        unsigned char c = data[i];
+        char32_t cp = 0;
+        size_t remaining = 0;
+        if ((c & 0x80) == 0)
+        {
+            cp = c;
+            remaining = 0;
+        }
+        else if ((c & 0xE0) == 0xC0)
+        {
+            cp = c & 0x1F;
+            remaining = 1;
+        }
+        else if ((c & 0xF0) == 0xE0)
+        {
+            cp = c & 0x0F;
+            remaining = 2;
+        }
+        else if ((c & 0xF8) == 0xF0)
+        {
+            cp = c & 0x07;
+            remaining = 3;
+        }
+        else
+        {
+            ++i;
+            continue;
+        }
+
+        if (i + remaining >= len)
+            break;
+
+        bool malformed = false;
+        for (size_t j = 0; j < remaining; ++j)
+        {
+            unsigned char cc = data[i + 1 + j];
+            if ((cc & 0xC0) != 0x80)
+            {
+                malformed = true;
+                break;
+            }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (malformed)
+        {
+            ++i;
+            continue;
+        }
+
+        i += 1 + remaining;
+        out.push_back(cp);
+    }
+}
+
 static char32_t JsCharArg(JSContext* ctx, JSValueConst v)
 {
     if (JS_IsNumber(v))
@@ -187,6 +250,38 @@ static JSValue LayerClear(JSContext* ctx, JSValueConst this_val, int argc, JSVal
     return JS_UNDEFINED;
 }
 
+static JSValue LayerSetRow(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv)
+{
+    auto* binding = static_cast<LayerBinding*>(JS_GetOpaque2(ctx, this_val, g_layer_class_id));
+    if (!binding || !binding->canvas)
+        return ThrowError(ctx, "Invalid layer binding");
+    if (argc < 2)
+        return ThrowTypeError(ctx, "layer.setRow(y, utf8String) expects 2 args");
+
+    int32_t y = 0;
+    if (JS_ToInt32(ctx, &y, argv[0]) != 0)
+        return ThrowTypeError(ctx, "y must be an integer");
+    if (y < 0) y = 0;
+
+    size_t len = 0;
+    const char* cstr = JS_ToCStringLen(ctx, &len, argv[1]);
+    if (!cstr)
+        return ThrowTypeError(ctx, "row must be a string");
+
+    std::vector<char32_t> cps;
+    DecodeUtf8ToCodepoints(cstr, len, cps);
+    JS_FreeCString(ctx, cstr);
+
+    const int cols = binding->canvas->GetColumns();
+    binding->canvas->EnsureRowsPublic(y + 1);
+    for (int x = 0; x < cols; ++x)
+    {
+        char32_t cp = (x < (int)cps.size()) ? cps[(size_t)x] : U' ';
+        binding->canvas->SetLayerCell(binding->layer_index, y, x, cp);
+    }
+    return JS_UNDEFINED;
+}
+
 static JSValue JsPrint(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv)
 {
     (void)this_val;
@@ -232,6 +327,7 @@ static JSValue NewLayerObject(JSContext* ctx, AnsiCanvas* canvas, int layer_inde
     JS_SetPropertyStr(ctx, obj, "set", JS_NewCFunction(ctx, LayerSet, "set", 3));
     JS_SetPropertyStr(ctx, obj, "get", JS_NewCFunction(ctx, LayerGet, "get", 2));
     JS_SetPropertyStr(ctx, obj, "clear", JS_NewCFunction(ctx, LayerClear, "clear", 1));
+    JS_SetPropertyStr(ctx, obj, "setRow", JS_NewCFunction(ctx, LayerSetRow, "setRow", 2));
     return obj;
 }
 
@@ -595,11 +691,14 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
                 "  const cols = ctx.cols|0;\n"
                 "  const rows = ctx.rows|0;\n"
                 "  for (let y = 0; y < rows; y++) {\n"
+                "    const arr = new Array(cols);\n"
                 "    for (let x = 0; x < cols; x++) {\n"
                 "      const idx = x + y * cols;\n"
                 "      const out = globalThis.main({x, y, index: idx}, ctx, ctx.cursor || null, null);\n"
-                "      layer.set(x, y, out);\n"
+                "      arr[x] = (typeof out === 'string' ? out : String(out));\n"
                 "    }\n"
+                "    if (typeof layer.setRow === 'function') layer.setRow(y, arr.join(''));\n"
+                "    else for (let x = 0; x < cols; x++) layer.set(x, y, arr[x] || ' ');\n"
                 "  }\n"
                 "};\n";
             JSValue shim_r = JS_Eval(impl_->ctx, shim, std::strlen(shim), "<ansl_shim>", JS_EVAL_TYPE_GLOBAL);

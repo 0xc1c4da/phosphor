@@ -27,7 +27,7 @@ SOURCES += $(IMGUI_DIR)/backends/imgui_impl_sdl3.cpp \
 
 OBJS     = $(addprefix $(BUILD_DIR)/, $(addsuffix .o, $(basename $(notdir $(SOURCES)))))
 
-CXXFLAGS ?= -std=c++20
+CXXFLAGS ?= -std=c++20 -O3
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 # Enable 32-bit ImWchar in Dear ImGui so Unscii glyphs above U+FFFF render correctly.
 CXXFLAGS += -DIMGUI_USE_WCHAR32
