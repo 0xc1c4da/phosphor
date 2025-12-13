@@ -1,6 +1,7 @@
 #include "ansl_script_engine.h"
 
 #include "canvas.h"
+#include "ansl_quickjs_bindings.h"
 
 #if __has_include(<quickjs/quickjs.h>)
 #include <quickjs/quickjs.h>
@@ -606,20 +607,9 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     JS_SetPropertyStr(impl_->ctx, global, "console", console);
     JS_FreeValue(impl_->ctx, global);
 
-    // Load assets/ansl.js (IIFE bundle that defines global ANSL).
-    const std::string ansl_path = assets_dir + "/ansl.js";
-    std::string src;
-    if (!ReadFileToString(ansl_path, src, error))
+    // Register native ANSL library (port of ansl/src/index.js DOM-free subset).
+    if (!RegisterAnslNativeQuickJS(impl_->ctx, error))
         return false;
-
-    JSValue r = JS_Eval(impl_->ctx, src.c_str(), src.size(), ansl_path.c_str(), JS_EVAL_TYPE_GLOBAL);
-    if (JS_IsException(r))
-    {
-        JS_FreeValue(impl_->ctx, r);
-        error = FormatException(impl_->ctx);
-        return false;
-    }
-    JS_FreeValue(impl_->ctx, r);
 
     impl_->initialized = true;
     error.clear();

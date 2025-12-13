@@ -40,7 +40,7 @@ public:
     AnslScriptEngine(const AnslScriptEngine&) = delete;
     AnslScriptEngine& operator=(const AnslScriptEngine&) = delete;
 
-    // Loads `assets_dir/ansl.js` and initializes builtins like console.log.
+// Initializes builtins like console.log and registers the host `ANSL` library.
     bool Init(const std::string& assets_dir, std::string& error);
 
     // Compiles/evaluates user script and caches the `render` function.
