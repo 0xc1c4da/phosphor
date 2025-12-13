@@ -1,6 +1,7 @@
 #include "canvas.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -9,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <locale>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -48,44 +50,17 @@ static int EncodeUtf8(char32_t cp, char out[5])
     }
 }
 
-AnsiCanvas::AnsiCanvas(int columns)
-    : m_columns(columns > 0 ? columns : 80)
+// Utility: decode UTF-8 bytes into Unicode codepoints.
+// We keep this intentionally simple for now:
+//  - malformed sequences are skipped
+//  - no overlong/surrogate validation yet (fine for editor bootstrap)
+static void DecodeUtf8(const std::string& bytes, std::vector<char32_t>& out_codepoints)
 {
-}
+    out_codepoints.clear();
 
-void AnsiCanvas::SetColumns(int columns)
-{
-    if (columns <= 0)
-        return;
-    m_columns = columns;
-    // Cursor index remains valid; row/column mapping will change implicitly.
-}
-
-bool AnsiCanvas::LoadFromFile(const std::string& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-    {
-        std::fprintf(stderr, "AnsiCanvas: failed to open '%s'\n", path.c_str());
-        return false;
-    }
-
-    std::string bytes((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-
-    // Decode UTF-8 into UTF-32 manually so we can work per codepoint.
-    // While decoding, collect logical lines and track the maximum column width.
-    // After decoding, flatten all lines into a single cell stream, padding
-    // shorter lines with spaces so every row has the same column count.
     const unsigned char* data = reinterpret_cast<const unsigned char*>(bytes.data());
     const size_t len = bytes.size();
     size_t i = 0;
-
-    std::vector<std::u32string> lines;
-    std::u32string current_line;
-    int max_line_columns = 0;
-    bool last_was_cr = false;
-
     while (i < len)
     {
         unsigned char c = data[i];
@@ -114,7 +89,6 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
         }
         else
         {
-            // Invalid leading byte, skip.
             ++i;
             continue;
         }
@@ -133,7 +107,6 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
             }
             cp = (cp << 6) | (cc & 0x3F);
         }
-
         if (malformed)
         {
             ++i;
@@ -141,108 +114,414 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
         }
 
         i += 1 + remaining;
+        out_codepoints.push_back(cp);
+    }
+}
 
-        // Normalize CRLF: treat "\r\n" as a single newline.
-        if (cp == U'\n' || cp == U'\r')
+AnsiCanvas::AnsiCanvas(int columns)
+    : m_columns(columns > 0 ? columns : 80)
+{
+}
+
+int AnsiCanvas::GetLayerCount() const
+{
+    return static_cast<int>(m_layers.size());
+}
+
+int AnsiCanvas::GetActiveLayerIndex() const
+{
+    return m_active_layer;
+}
+
+std::string AnsiCanvas::GetLayerName(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return {};
+    return m_layers[static_cast<size_t>(index)].name;
+}
+
+bool AnsiCanvas::IsLayerVisible(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return false;
+    return m_layers[static_cast<size_t>(index)].visible;
+}
+
+int AnsiCanvas::AddLayer(const std::string& name)
+{
+    EnsureDocument();
+
+    Layer layer;
+    layer.name = name.empty() ? ("Layer " + std::to_string((int)m_layers.size() + 1)) : name;
+    layer.visible = true;
+    layer.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+
+    m_layers.push_back(std::move(layer));
+    m_active_layer = static_cast<int>(m_layers.size()) - 1;
+    return m_active_layer;
+}
+
+bool AnsiCanvas::RemoveLayer(int index)
+{
+    EnsureDocument();
+    if (m_layers.size() <= 1)
+        return false; // must keep at least one layer
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return false;
+
+    m_layers.erase(m_layers.begin() + index);
+    if (m_active_layer >= static_cast<int>(m_layers.size()))
+        m_active_layer = static_cast<int>(m_layers.size()) - 1;
+    if (m_active_layer < 0)
+        m_active_layer = 0;
+    return true;
+}
+
+bool AnsiCanvas::SetActiveLayerIndex(int index)
+{
+    EnsureDocument();
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return false;
+    m_active_layer = index;
+    return true;
+}
+
+bool AnsiCanvas::SetLayerVisible(int index, bool visible)
+{
+    EnsureDocument();
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return false;
+    m_layers[static_cast<size_t>(index)].visible = visible;
+    return true;
+}
+
+void AnsiCanvas::SetColumns(int columns)
+{
+    if (columns <= 0)
+        return;
+    EnsureDocument();
+
+    if (columns == m_columns)
+        return;
+
+    const int old_cols = m_columns;
+    const int old_rows = m_rows;
+    m_columns = columns;
+
+    for (Layer& layer : m_layers)
+    {
+        std::vector<char32_t> new_cells;
+        new_cells.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), U' ');
+
+        const int copy_cols = std::min(old_cols, m_columns);
+        for (int r = 0; r < old_rows; ++r)
         {
-            if (cp == U'\n' && last_was_cr)
+            for (int c = 0; c < copy_cols; ++c)
+            {
+                const size_t src = static_cast<size_t>(r) * static_cast<size_t>(old_cols) + static_cast<size_t>(c);
+                const size_t dst = static_cast<size_t>(r) * static_cast<size_t>(m_columns) + static_cast<size_t>(c);
+                if (src < layer.cells.size() && dst < new_cells.size())
+                    new_cells[dst] = layer.cells[src];
+            }
+        }
+
+        layer.cells = std::move(new_cells);
+    }
+
+    // Clamp cursor to new width.
+    if (m_cursor_col >= m_columns)
+        m_cursor_col = m_columns - 1;
+    if (m_cursor_col < 0)
+        m_cursor_col = 0;
+}
+
+bool AnsiCanvas::LoadFromFile(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+    {
+        std::fprintf(stderr, "AnsiCanvas: failed to open '%s'\n", path.c_str());
+        return false;
+    }
+
+    std::string bytes((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+
+    EnsureDocument();
+
+    // Reset document to a single empty row.
+    m_rows = 1;
+    for (Layer& layer : m_layers)
+        layer.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+
+    std::vector<char32_t> cps;
+    DecodeUtf8(bytes, cps);
+
+    int row = 0;
+    int col = 0;
+    bool last_was_cr = false;
+
+    for (char32_t cp : cps)
+    {
+        // Normalize CRLF.
+        if (cp == U'\r')
+        {
+            last_was_cr = true;
+            row++;
+            col = 0;
+            EnsureRows(row + 1);
+            continue;
+        }
+        if (cp == U'\n')
+        {
+            if (last_was_cr)
             {
                 last_was_cr = false;
                 continue;
             }
-
-            if ((int)current_line.size() > max_line_columns)
-                max_line_columns = static_cast<int>(current_line.size());
-            lines.push_back(current_line);
-            current_line.clear();
-            last_was_cr = (cp == U'\r');
+            row++;
+            col = 0;
+            EnsureRows(row + 1);
             continue;
         }
-
         last_was_cr = false;
-        current_line.push_back(cp);
-    }
 
-    // Account for last line if file doesn't end with a newline.
-    if (!current_line.empty() || lines.empty())
-    {
-        if ((int)current_line.size() > max_line_columns)
-            max_line_columns = static_cast<int>(current_line.size());
-        lines.push_back(current_line);
-    }
+        // Filter control chars for now (ANSI parsing will come later).
+        if (cp == U'\t')
+            cp = U' ';
+        if (cp < 0x20)
+            continue;
 
-    if (max_line_columns > 0)
-        SetColumns(max_line_columns);
-
-    // Flatten lines into a single padded cell stream.
-    m_cells.clear();
-    if (!lines.empty() && max_line_columns > 0)
-    {
-        for (const std::u32string& line : lines)
+        SetActiveCell(row, col, cp);
+        col++;
+        if (col >= m_columns)
         {
-            m_cells.insert(m_cells.end(), line.begin(), line.end());
-            const int pad = max_line_columns - static_cast<int>(line.size());
-            if (pad > 0)
-                m_cells.insert(m_cells.end(), static_cast<size_t>(pad), U' ');
+            row++;
+            col = 0;
+            EnsureRows(row + 1);
         }
     }
 
-    m_cursor_index = 0;
-    if (!m_cells.empty())
-        m_cursor_index = 0;
-
+    m_cursor_row = 0;
+    m_cursor_col = 0;
     return true;
 }
 
-int AnsiCanvas::GetRowCount() const
+void AnsiCanvas::EnsureDocument()
 {
-    if (m_cells.empty())
-        return 1;
-    return (static_cast<int>(m_cells.size()) + m_columns - 1) / m_columns;
+    if (m_columns <= 0)
+        m_columns = 80;
+    if (m_rows <= 0)
+        m_rows = 1;
+
+    if (m_layers.empty())
+    {
+        Layer base;
+        base.name = "Base";
+        base.visible = true;
+        base.cells.assign(static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns), U' ');
+        m_layers.push_back(std::move(base));
+        m_active_layer = 0;
+    }
+
+    // Ensure every layer has the correct cell count.
+    const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+    for (Layer& layer : m_layers)
+    {
+        if (layer.cells.size() != need)
+            layer.cells.resize(need, U' ');
+    }
+
+    if (m_active_layer < 0)
+        m_active_layer = 0;
+    if (m_active_layer >= (int)m_layers.size())
+        m_active_layer = (int)m_layers.size() - 1;
+}
+
+void AnsiCanvas::EnsureRows(int rows_needed)
+{
+    if (rows_needed <= 0)
+        rows_needed = 1;
+
+    EnsureDocument();
+    if (rows_needed <= m_rows)
+        return;
+
+    m_rows = rows_needed;
+    const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+    for (Layer& layer : m_layers)
+        layer.cells.resize(need, U' ');
+}
+
+size_t AnsiCanvas::CellIndex(int row, int col) const
+{
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    return static_cast<size_t>(row) * static_cast<size_t>(m_columns) + static_cast<size_t>(col);
+}
+
+char32_t AnsiCanvas::GetCompositeCell(int row, int col) const
+{
+    if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
+        return U' ';
+    if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
+        return U' ';
+
+    const size_t idx = CellIndex(row, col);
+    // Topmost visible non-space wins; treat space as transparent.
+    for (int i = (int)m_layers.size() - 1; i >= 0; --i)
+    {
+        const Layer& layer = m_layers[(size_t)i];
+        if (!layer.visible)
+            continue;
+        if (idx >= layer.cells.size())
+            continue;
+        char32_t cp = layer.cells[idx];
+        if (cp != U' ')
+            return cp;
+    }
+    return U' ';
+}
+
+void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
+{
+    EnsureDocument();
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+
+    if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
+        return;
+
+    Layer& layer = m_layers[(size_t)m_active_layer];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.cells.size())
+        layer.cells[idx] = cp;
 }
 
 void AnsiCanvas::HandleKeyboardNavigation()
 {
-    if (!m_has_focus || m_cells.empty())
+    if (!m_has_focus)
         return;
 
-    ImGuiIO& io = ImGui::GetIO();
-    int max_index = static_cast<int>(m_cells.size()) - 1;
+    EnsureDocument();
 
+    // Arrow navigation behaves like a classic fixed-width editor:
+    //  - left at col 0 goes to previous row's last col (if possible)
+    //  - right at last col goes to next row's col 0 (growing rows on demand)
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
     {
-        if (m_cursor_index > 0)
-            m_cursor_index--;
+        if (m_cursor_col > 0)
+            m_cursor_col--;
+        else if (m_cursor_row > 0)
+        {
+            m_cursor_row--;
+            m_cursor_col = m_columns - 1;
+        }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
     {
-        if (m_cursor_index < max_index)
-            m_cursor_index++;
+        if (m_cursor_col < m_columns - 1)
+            m_cursor_col++;
+        else
+        {
+            m_cursor_row++;
+            m_cursor_col = 0;
+            EnsureRows(m_cursor_row + 1);
+        }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
     {
-        if (m_cursor_index >= m_columns)
-            m_cursor_index -= m_columns;
+        if (m_cursor_row > 0)
+            m_cursor_row--;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
     {
-        if (m_cursor_index + m_columns <= max_index)
-            m_cursor_index += m_columns;
+        m_cursor_row++;
+        EnsureRows(m_cursor_row + 1);
     }
 
-    // Clamp just in case.
-    if (m_cursor_index < 0)
-        m_cursor_index = 0;
-    if (m_cursor_index > max_index)
-        m_cursor_index = max_index;
+    // Home/End: move within the current row.
+    if (ImGui::IsKeyPressed(ImGuiKey_Home))
+        m_cursor_col = 0;
+    if (ImGui::IsKeyPressed(ImGuiKey_End))
+        m_cursor_col = m_columns - 1;
 
-    (void)io; // io currently unused but likely to be useful later (modifiers, etc.).
+    // Clamp.
+    if (m_cursor_row < 0) m_cursor_row = 0;
+    if (m_cursor_col < 0) m_cursor_col = 0;
+    if (m_cursor_col >= m_columns) m_cursor_col = m_columns - 1;
+}
+
+void AnsiCanvas::HandleTextInput()
+{
+    if (!m_has_focus)
+        return;
+
+    EnsureDocument();
+
+    ImGuiIO& io = ImGui::GetIO();
+    // Editing keys (independent of text input queue).
+    if (ImGui::IsKeyPressed(ImGuiKey_Backspace))
+    {
+        // Move left then clear.
+        if (m_cursor_col > 0)
+            m_cursor_col--;
+        else if (m_cursor_row > 0)
+        {
+            m_cursor_row--;
+            m_cursor_col = m_columns - 1;
+        }
+        SetActiveCell(m_cursor_row, m_cursor_col, U' ');
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete))
+    {
+        SetActiveCell(m_cursor_row, m_cursor_col, U' ');
+    }
+
+    // Process queued typed characters.
+    for (int n = 0; n < io.InputQueueCharacters.Size; ++n)
+    {
+        char32_t cp = static_cast<char32_t>(io.InputQueueCharacters[n]);
+
+        // Enter -> new line.
+        if (cp == U'\n' || cp == U'\r')
+        {
+            m_cursor_row++;
+            m_cursor_col = 0;
+            EnsureRows(m_cursor_row + 1);
+            continue;
+        }
+
+        // Tab -> space (for now).
+        if (cp == U'\t')
+            cp = U' ';
+
+        // Ignore other control chars.
+        if (cp < 0x20)
+            continue;
+
+        SetActiveCell(m_cursor_row, m_cursor_col, cp);
+
+        // Advance cursor.
+        m_cursor_col++;
+        if (m_cursor_col >= m_columns)
+        {
+            m_cursor_col = 0;
+            m_cursor_row++;
+            EnsureRows(m_cursor_row + 1);
+        }
+    }
+
+    // Clear queue so we don't re-apply next frame.
+    io.InputQueueCharacters.resize(0);
 }
 
 void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h)
 {
-    if (m_cells.empty())
-        return;
+    EnsureDocument();
 
     ImGuiIO& io = ImGui::GetIO();
     if (!ImGui::IsItemHovered())
@@ -261,17 +540,18 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
         if (col >= m_columns) col = m_columns - 1;
         if (row < 0) row = 0;
 
-        int index = row * m_columns + col;
-        int max_index = static_cast<int>(m_cells.size()) - 1;
-        if (index > max_index)
-            index = max_index;
-
-        m_cursor_index = index;
+        EnsureRows(row + 1);
+        m_cursor_row = row;
+        m_cursor_col = col;
         m_has_focus = true;
     }
 }
 
-void AnsiCanvas::DrawCells(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h, float font_size)
+void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
+                                  const ImVec2& origin,
+                                  float cell_w,
+                                  float cell_h,
+                                  float font_size)
 {
     if (!draw_list)
         return;
@@ -280,110 +560,185 @@ void AnsiCanvas::DrawCells(ImDrawList* draw_list, const ImVec2& origin, float ce
     if (!font)
         return;
 
-    const int row_count = GetRowCount();
-    const int total_cells = row_count * m_columns;
+    EnsureDocument();
 
-    for (int index = 0; index < total_cells; ++index)
+    const int rows = m_rows;
+    if (rows <= 0 || m_columns <= 0)
+        return;
+
+    // Compute visible cell range based on ImGui's actual clipping rectangle.
+    // Using GetWindowContentRegionMin/Max is tempting but becomes subtly wrong under
+    // child scrolling + scrollbars; InnerClipRect is what the renderer really clips to.
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (!window)
+        return;
+    const ImRect clip_rect = window->InnerClipRect;
+    const ImVec2 clip_min(clip_rect.Min.x, clip_rect.Min.y);
+    const ImVec2 clip_max(clip_rect.Max.x, clip_rect.Max.y);
+
+    int start_row = static_cast<int>(std::floor((clip_min.y - origin.y) / cell_h));
+    int end_row   = static_cast<int>(std::ceil ((clip_max.y - origin.y) / cell_h));
+    int start_col = static_cast<int>(std::floor((clip_min.x - origin.x) / cell_w));
+    int end_col   = static_cast<int>(std::ceil ((clip_max.x - origin.x) / cell_w));
+
+    if (start_row < 0) start_row = 0;
+    if (start_col < 0) start_col = 0;
+    if (end_row > rows) end_row = rows;
+    if (end_col > m_columns) end_col = m_columns;
+
+    for (int row = start_row; row < end_row; ++row)
     {
-        int row = index / m_columns;
-        int col = index % m_columns;
-
-        ImVec2 cell_min(origin.x + col * cell_w,
-                        origin.y + row * cell_h);
-        ImVec2 cell_max(cell_min.x + cell_w,
-                        cell_min.y + cell_h);
-
-        // Highlight the cursor cell.
-        if (index == m_cursor_index)
+        for (int col = start_col; col < end_col; ++col)
         {
-            ImU32 cursor_col = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
-            draw_list->AddRectFilled(cell_min, cell_max, cursor_col);
+            ImVec2 cell_min(origin.x + col * cell_w,
+                            origin.y + row * cell_h);
+            ImVec2 cell_max(cell_min.x + cell_w,
+                            cell_min.y + cell_h);
+
+            // Cursor highlight.
+            if (row == m_cursor_row && col == m_cursor_col)
+            {
+                ImU32 cursor_col = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
+                draw_list->AddRectFilled(cell_min, cell_max, cursor_col);
+            }
+
+            char32_t cp = GetCompositeCell(row, col);
+            if (cp == U' ')
+                continue; // drawing spaces is unnecessary for now
+
+            char buf[5] = {0, 0, 0, 0, 0};
+            EncodeUtf8(cp, buf);
+            ImVec2 text_pos(cell_min.x, cell_min.y);
+            draw_list->AddText(font, font_size, text_pos,
+                               ImGui::GetColorU32(ImGuiCol_Text),
+                               buf, nullptr);
         }
-
-        if (index >= static_cast<int>(m_cells.size()))
-            continue; // beyond loaded content; treat as empty cell
-
-        char32_t cp = m_cells[static_cast<size_t>(index)];
-        char buf[5] = {0, 0, 0, 0, 0};
-        int bytes = EncodeUtf8(cp, buf);
-        (void)bytes;
-
-        // Slightly inset the text to avoid touching cell borders visually.
-        ImVec2 text_pos(cell_min.x, cell_min.y);
-
-        draw_list->AddText(font, font_size, text_pos,
-                           ImGui::GetColorU32(ImGuiCol_Text),
-                           buf, nullptr);
     }
 }
 
 void AnsiCanvas::Render(const char* id)
 {
-    if (m_columns <= 0)
-        m_columns = 80;
+    if (!id)
+        return;
 
     ImFont* font = ImGui::GetFont();
     if (!font)
         return;
 
-    // Base cell size from the current font (Unscii is monospaced).
-    const float base_font_size = ImGui::GetFontSize();
-    const float base_cell_w = font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
+    EnsureDocument();
 
-    // Auto-scale the canvas horizontally to fit the current window width,
-    // keeping the logical column count constant.
-    float font_size = base_font_size;
-    float cell_w    = base_cell_w;
-    float cell_h    = base_font_size;
-    const float needed_width   = base_cell_w * static_cast<float>(m_columns);
+    // Base cell size from the current font (Unscii is monospaced).
+    // We intentionally *do not auto-scale to window width* so the grid remains stable.
+    const float font_size = ImGui::GetFontSize();
+    const float cell_w = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
+    const float cell_h = font_size;
+
+    // Quick status line (foundation for future toolbars).
+    ImGui::Text("Cols: %d  Rows: %d  Cursor: (%d, %d)%s",
+                m_columns, m_rows, m_cursor_row, m_cursor_col,
+                m_has_focus ? "  [editing]" : "");
+
+    // Layer GUI lives in the LayerManager component (see layer_manager.*).
+
+    // Scrollable region: fixed-width canvas, "infinite" rows (grown on demand).
+    std::string child_id = std::string(id) + "##_scroll";
+    ImGuiWindowFlags child_flags =
+        ImGuiWindowFlags_HorizontalScrollbar |
+        ImGuiWindowFlags_NoNavInputs |
+        ImGuiWindowFlags_NoNavFocus;
+    if (!ImGui::BeginChild(child_id.c_str(), ImVec2(0, 0), true, child_flags))
+    {
+        ImGui::EndChild();
+        return;
+    }
+
+    // Restore fit-to-width behavior: keep logical column count fixed, scale cells
+    // so the grid fits the available width of the child.
+    const float base_font_size = font_size;
+    const float base_cell_w    = cell_w;
+
+    float scaled_font_size = base_font_size;
+    float scaled_cell_w    = base_cell_w;
+    float scaled_cell_h    = cell_h;
+
+    const float needed_width    = base_cell_w * static_cast<float>(m_columns);
     const float available_width = ImGui::GetContentRegionAvail().x;
     if (needed_width > 0.0f && available_width > 0.0f)
     {
         float scale = available_width / needed_width;
-        // Optionally clamp scale to avoid extreme sizes.
         const float min_scale = 0.25f;
         const float max_scale = 4.0f;
         if (scale < min_scale) scale = min_scale;
         if (scale > max_scale) scale = max_scale;
 
-        // Snap scale so that cell sizes land on pixel boundaries to avoid gaps/overlaps.
-        // We quantize horizontally, then derive a refined scale from that.
         float snapped_cell_w = std::floor(base_cell_w * scale + 0.5f);
         if (snapped_cell_w < 1.0f)
             snapped_cell_w = 1.0f;
         float snapped_scale = snapped_cell_w / base_cell_w;
 
-        font_size = base_font_size * snapped_scale;
-        cell_w    = snapped_cell_w;
-        cell_h    = std::floor(base_font_size * snapped_scale + 0.5f);
-        if (cell_h < 1.0f)
-            cell_h = 1.0f;
+        scaled_font_size = base_font_size * snapped_scale;
+        scaled_cell_w    = snapped_cell_w;
+        scaled_cell_h    = std::floor(base_font_size * snapped_scale + 0.5f);
+        if (scaled_cell_h < 1.0f)
+            scaled_cell_h = 1.0f;
     }
 
-    const int row_count = GetRowCount();
-    ImVec2 canvas_size(cell_w * m_columns,
-                       cell_h * row_count);
+    // IMPORTANT: handle keyboard input before computing canvas_size, because input can
+    // grow the document (rows). If we grow after creating the item, ImGui's scroll range
+    // won't include the new rows until the next frame, and the cursor can disappear.
+    if (m_has_focus)
+    {
+        HandleKeyboardNavigation();
+        HandleTextInput();
+    }
 
-    // Create an invisible interactive region; we'll draw into it manually.
-    ImGui::InvisibleButton(id, canvas_size);
+    // Always keep the document large enough to contain the cursor.
+    EnsureRows(m_cursor_row + 1);
+
+    ImVec2 canvas_size(scaled_cell_w * static_cast<float>(m_columns),
+                       scaled_cell_h * static_cast<float>(m_rows));
+
+    ImGui::InvisibleButton(id, canvas_size, ImGuiButtonFlags_MouseButtonLeft);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 origin = ImGui::GetItemRectMin();
-    // Snap drawing origin to whole pixels to reduce rendering artifacts between cells.
     origin.x = std::floor(origin.x);
     origin.y = std::floor(origin.y);
 
-    // Mouse interaction is tied to this "item".
-    HandleMouseInteraction(origin, cell_w, cell_h);
-
-    // Canvas gets keyboard focus if clicked and the window is focused.
-    if (!ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    // Focus rules: click inside to focus, click outside (in same window) to defocus.
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        m_has_focus = true;
+    else if (!ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         m_has_focus = false;
 
-    // Navigation with arrow keys when focused.
-    HandleKeyboardNavigation();
+    HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
 
-    // Draw all cells.
-    DrawCells(draw_list, origin, cell_w, cell_h, font_size);
+    // Keep cursor visible when navigating.
+    if (m_has_focus)
+    {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const ImRect clip_rect = window ? window->InnerClipRect : ImRect(0, 0, 0, 0);
+        const float view_w = clip_rect.GetWidth();
+        const float view_h = clip_rect.GetHeight();
+
+        const float scroll_x = ImGui::GetScrollX();
+        const float scroll_y = ImGui::GetScrollY();
+
+        const float cursor_x0 = static_cast<float>(m_cursor_col) * scaled_cell_w;
+        const float cursor_x1 = cursor_x0 + scaled_cell_w;
+        const float cursor_y0 = static_cast<float>(m_cursor_row) * scaled_cell_h;
+        const float cursor_y1 = cursor_y0 + scaled_cell_h;
+
+        if (cursor_x0 < scroll_x)
+            ImGui::SetScrollX(cursor_x0);
+        else if (cursor_x1 > scroll_x + view_w)
+            ImGui::SetScrollX(cursor_x1 - view_w);
+
+        if (cursor_y0 < scroll_y)
+            ImGui::SetScrollY(cursor_y0);
+        else if (cursor_y1 > scroll_y + view_h)
+            ImGui::SetScrollY(cursor_y1 - view_h);
+    }
+
+    DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+    ImGui::EndChild();
 }
-
-

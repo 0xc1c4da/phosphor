@@ -29,6 +29,7 @@
 #include "canvas.h"
 #include "character_picker.h"
 #include "character_palette.h"
+#include "layer_manager.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -749,6 +750,7 @@ int main(int, char**)
     bool   show_color_picker_window = true;
     bool   show_character_picker_window = true;
     bool   show_character_palette_window = true;
+    bool   show_layer_manager_window = true;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -765,6 +767,9 @@ int main(int, char**)
 
     // Character palette state
     CharacterPalette character_palette;
+
+    // Layer manager state
+    LayerManager layer_manager;
 
     // Image state
     std::vector<ImageWindow> images;
@@ -866,6 +871,7 @@ int main(int, char**)
                 ImGui::MenuItem("Xterm-256 Color Picker", nullptr, &show_color_picker_window);
                 ImGui::MenuItem("Unicode Character Picker", nullptr, &show_character_picker_window);
                 ImGui::MenuItem("Character Palette", nullptr, &show_character_palette_window);
+                ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1265,6 +1271,20 @@ int main(int, char**)
             canvas.canvas.Render(id_buf);
 
             ImGui::End();
+        }
+
+        // Layer Manager window (targets one of the open canvases)
+        if (show_layer_manager_window)
+        {
+            std::vector<LayerManagerCanvasRef> refs;
+            refs.reserve(canvases.size());
+            for (auto& c : canvases)
+            {
+                if (!c.open)
+                    continue;
+                refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
+            }
+            layer_manager.Render("Layer Manager", &show_layer_manager_window, refs);
         }
 
         // Render each imported image window:
