@@ -10,12 +10,14 @@ BUILD_DIR = build
 
 SOURCES  = main.cpp \
            canvas.cpp \
-           colour_picker.cpp
+           colour_picker.cpp \
+           character_picker.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
            $(IMGUI_DIR)/imgui_tables.cpp \
            $(IMGUI_DIR)/imgui_widgets.cpp
+SOURCES += $(IMGUI_DIR)/misc/cpp/imgui_stdlib.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_sdl3.cpp \
            $(IMGUI_DIR)/backends/imgui_impl_vulkan.cpp
 
@@ -27,9 +29,10 @@ CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
-# SDL3 + Vulkan + Chafa + nlohmann_json flags provided by the Nix dev shell (see flake.nix)
+# SDL3 + Vulkan + Chafa + nlohmann_json flags provided by the Nix dev shell (see flake.nix).
+# QuickJS and ICU67 headers and libraries are also made available via the dev shell.
 CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa) -ldl
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n) -lquickjs -ldl
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -41,6 +44,10 @@ $(BUILD_DIR)/%.o: $(IMGUI_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(IMGUI_DIR)/backends/%.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# imgui_stdlib lives under misc/cpp, but OBJS uses notdir(), so we need an explicit rule.
+$(BUILD_DIR)/imgui_stdlib.o: $(IMGUI_DIR)/misc/cpp/imgui_stdlib.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 all: $(EXE)

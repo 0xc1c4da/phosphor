@@ -27,6 +27,7 @@
 
 #include "colour_picker.h"
 #include "canvas.h"
+#include "character_picker.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -745,6 +746,7 @@ int main(int, char**)
     bool show_demo_window = false;
     ImVec4 clear_color = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
     bool   show_color_picker_window = true;
+    bool   show_character_picker_window = false;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -755,6 +757,9 @@ int main(int, char**)
     // Canvas state
     std::vector<CanvasWindow> canvases;
     int next_canvas_id = 1;
+
+    // Character picker state
+    CharacterPicker character_picker;
 
     // Image state
     std::vector<ImageWindow> images;
@@ -848,6 +853,13 @@ int main(int, char**)
                     done = true;
                 }
 
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Window"))
+            {
+                ImGui::MenuItem("Xterm-256 Color Picker", nullptr, &show_color_picker_window);
+                ImGui::MenuItem("Unicode Character Picker", nullptr, &show_character_picker_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -979,6 +991,12 @@ int main(int, char**)
         // Optional: keep the ImGui demo available for reference
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
+
+        // Unicode Character Picker window (ICU67 / Unicode 13)
+        if (show_character_picker_window)
+        {
+            character_picker.Render("Unicode Character Picker", &show_character_picker_window);
+        }
 
         // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
         if (show_color_picker_window)
