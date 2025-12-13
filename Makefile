@@ -16,7 +16,6 @@ SOURCES  = main.cpp \
            layer_manager.cpp \
            ansl_editor.cpp \
            ansl_script_engine.cpp \
-           ansl_quickjs_bindings.cpp \
            ansl_luajit.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
@@ -36,22 +35,9 @@ CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
 # SDL3 + Vulkan + Chafa + nlohmann_json flags provided by the Nix dev shell (see flake.nix).
-# QuickJS and ICU67 headers and libraries are also made available via the dev shell.
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json)
-CXXFLAGS += $(shell pkg-config --cflags luajit)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n) -lquickjs -ldl
-LIBS     += $(shell pkg-config --libs luajit)
-
-LUAJIT_CFLAGS = $(shell pkg-config --cflags luajit)
-LUAJIT_LIBS   = $(shell pkg-config --libs luajit)
-
-ANSLLUA_PIC_OBJ = $(BUILD_DIR)/ansl_luajit.pic.o
-
-$(ANSLLUA_PIC_OBJ): ansl_luajit.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(LUAJIT_CFLAGS) -fPIC -c -o $@ $<
-
-ansl.so: $(ANSLLUA_PIC_OBJ)
-	$(CXX) -shared -o $@ $^ $(LUAJIT_LIBS)
+# LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit) -ldl
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -78,5 +64,4 @@ $(EXE): $(OBJS)
 clean:
 	rm -f $(EXE)
 	rm -rf $(BUILD_DIR)
-	rm -f ansl.so
 

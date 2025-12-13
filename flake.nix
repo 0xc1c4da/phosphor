@@ -30,7 +30,6 @@
           chafa
           stb
           glib
-          quickjs
           icu67.dev
           luajit
         ];
@@ -41,8 +40,6 @@
 
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath devShellPackages}:$LD_LIBRARY_PATH
-            export NIX_LDFLAGS="-L${pkgs.quickjs}/lib/quickjs $NIX_LDFLAGS"
-            export NIX_CFLAGS_COMPILE="-I${pkgs.quickjs}/include -I${pkgs.quickjs}/include/quickjs $NIX_CFLAGS_COMPILE"
           '';
         };
       }

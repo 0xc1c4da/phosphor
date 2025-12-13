@@ -473,6 +473,28 @@ static void SetFuncs(lua_State* L, const luaL_Reg* regs)
 {
     luaL_setfuncs(L, regs, 0);
 }
+
+// -------- string (minimal) --------
+static int l_string_utf8chars(lua_State* L)
+{
+    size_t len = 0;
+    const char* s = luaL_checklstring(L, 1, &len);
+    std::vector<char32_t> cps;
+    ansl::utf8::decode_to_codepoints(s, len, cps);
+    lua_createtable(L, (int)cps.size(), 0);
+    for (size_t i = 0; i < cps.size(); ++i)
+    {
+        const std::string ch = ansl::utf8::encode(cps[i]);
+        lua_pushlstring(L, ch.data(), ch.size());
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static const luaL_Reg string_fns[] = {
+    {"utf8chars", l_string_utf8chars},
+    {nullptr, nullptr},
+};
 } // namespace
 
 extern "C" int luaopen_ansl(lua_State* L)
@@ -575,7 +597,10 @@ extern "C" int luaopen_ansl(lua_State* L)
     // stubs
     lua_createtable(L, 0, 0); lua_setfield(L, -2, "buffer");
     lua_createtable(L, 0, 0); lua_setfield(L, -2, "drawbox");
-    lua_createtable(L, 0, 0); lua_setfield(L, -2, "string");
+    // string (minimal, plus UTF-8 helpers for LuaJIT)
+    lua_createtable(L, 0, 0);
+    SetFuncs(L, string_fns);
+    lua_setfield(L, -2, "string");
 
     lua_setfield(L, -2, "modules");
 

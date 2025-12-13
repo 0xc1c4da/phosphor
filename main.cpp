@@ -779,7 +779,7 @@ int main(int, char**)
     AnslScriptEngine ansl_engine;
     {
         std::string err;
-        // Load assets/ansl.js once. (Built by `make -C ansl`.)
+        // Initialize the embedded LuaJIT scripting engine and register the native `ansl` module.
         if (!ansl_engine.Init("assets", err))
             fprintf(stderr, "[ansl] init failed: %s\n", err.c_str());
     }

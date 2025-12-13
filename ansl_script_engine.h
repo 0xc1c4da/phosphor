@@ -23,14 +23,20 @@ struct AnslFrameContext
     bool cursor_ppressed = false;
 };
 
-// Minimal QuickJS-based scripting engine for ANSL-style layer manipulation.
+// Minimal LuaJIT-based scripting engine for ANSL-style layer manipulation.
 //
-// Conventions for user scripts (evaluated as global script, not a module):
-// - Define a global function: `function render(ctx, layer) { ... }`
-//   where `ctx` is {cols, rows, frame, time} and `layer` provides:
-//     - layer.set(x, y, cpOrString)
-//     - layer.get(x, y) -> string (single glyph)
-//     - layer.clear(cpOrString?)
+// Conventions for user scripts:
+// - Define a global function: `function render(ctx, layer) ... end`
+//   where `ctx` is {cols, rows, frame, time, metrics={aspect=...}, cursor={...}}
+//   and `layer` is a userdata supporting:
+//     - layer:set(x, y, cpOrString)
+//     - layer:get(x, y) -> string (single glyph)
+//     - layer:clear(cpOrString?)
+//     - layer:setRow(y, utf8String)
+//
+// Classic ANSL compatibility:
+// - If `render` is missing but global `main(coord, context, cursor, buffer)` exists,
+//   the host will generate a default render() that runs main per cell and calls setRow().
 class AnslScriptEngine
 {
 public:
@@ -40,7 +46,7 @@ public:
     AnslScriptEngine(const AnslScriptEngine&) = delete;
     AnslScriptEngine& operator=(const AnslScriptEngine&) = delete;
 
-// Initializes builtins like console.log and registers the host `ANSL` library.
+    // Initializes the Lua state and registers the host `ansl` module (also published as global `ANSL`).
     bool Init(const std::string& assets_dir, std::string& error);
 
     // Compiles/evaluates user script and caches the `render` function.

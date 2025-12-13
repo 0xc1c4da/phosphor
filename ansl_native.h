@@ -1,7 +1,11 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace ansl
 {
@@ -17,6 +21,132 @@ struct Vec3
     double y = 0.0;
     double z = 0.0;
 };
+
+// Minimal UTF-8 helpers for hosts (LuaJIT, etc). These are intentionally permissive:
+// malformed sequences are skipped or replaced with U+0020 ' ' to keep rendering robust.
+namespace utf8
+{
+inline char32_t decode_first(const char* s, size_t len)
+{
+    if (!s || len == 0)
+        return U' ';
+
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(s);
+    unsigned char c = p[0];
+    if ((c & 0x80) == 0)
+        return static_cast<char32_t>(c);
+
+    size_t remaining = 0;
+    char32_t cp = 0;
+    if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; remaining = 1; }
+    else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; remaining = 2; }
+    else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; remaining = 3; }
+    else return U' ';
+
+    if (remaining >= len)
+        return U' ';
+    for (size_t i = 0; i < remaining; ++i)
+    {
+        unsigned char cc = p[1 + i];
+        if ((cc & 0xC0) != 0x80)
+            return U' ';
+        cp = (cp << 6) | (cc & 0x3F);
+    }
+    return cp;
+}
+
+inline void decode_to_codepoints(const char* s, size_t len, std::vector<char32_t>& out)
+{
+    out.clear();
+    if (!s || len == 0)
+        return;
+    const unsigned char* data = reinterpret_cast<const unsigned char*>(s);
+    size_t i = 0;
+    while (i < len)
+    {
+        unsigned char c = data[i];
+        char32_t cp = 0;
+        size_t remaining = 0;
+        if ((c & 0x80) == 0)
+        {
+            cp = c;
+            remaining = 0;
+        }
+        else if ((c & 0xE0) == 0xC0)
+        {
+            cp = c & 0x1F;
+            remaining = 1;
+        }
+        else if ((c & 0xF0) == 0xE0)
+        {
+            cp = c & 0x0F;
+            remaining = 2;
+        }
+        else if ((c & 0xF8) == 0xF0)
+        {
+            cp = c & 0x07;
+            remaining = 3;
+        }
+        else
+        {
+            ++i;
+            continue;
+        }
+
+        if (i + remaining >= len)
+            break;
+
+        bool malformed = false;
+        for (size_t j = 0; j < remaining; ++j)
+        {
+            unsigned char cc = data[i + 1 + j];
+            if ((cc & 0xC0) != 0x80)
+            {
+                malformed = true;
+                break;
+            }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (malformed)
+        {
+            ++i;
+            continue;
+        }
+
+        i += 1 + remaining;
+        out.push_back(cp);
+    }
+}
+
+inline std::string encode(char32_t cp)
+{
+    char out[5] = {0, 0, 0, 0, 0};
+    int n = 0;
+    if (cp <= 0x7F) { out[0] = (char)cp; n = 1; }
+    else if (cp <= 0x7FF)
+    {
+        out[0] = (char)(0xC0 | ((cp >> 6) & 0x1F));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        n = 2;
+    }
+    else if (cp <= 0xFFFF)
+    {
+        out[0] = (char)(0xE0 | ((cp >> 12) & 0x0F));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        n = 3;
+    }
+    else
+    {
+        out[0] = (char)(0xF0 | ((cp >> 18) & 0x07));
+        out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (cp & 0x3F));
+        n = 4;
+    }
+    return std::string(out, out + n);
+}
+} // namespace utf8
 
 namespace num
 {

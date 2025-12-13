@@ -54,21 +54,21 @@ AnslEditor::AnslEditor()
     if (text_.empty())
     {
         text_ =
-            "/* Define a global render(ctx, layer) function.\\n"
-            " * ctx = { cols, rows, frame, time }\\n"
-            " * Compatibility: classic ANSL snippets with `export` and `import {..} from '/src/modules/..'` are supported.\\n"
-            " * You can also access modules via ANSL.modules.* (num, sdf, vec2, vec3, color, buffer, drawbox, string).\\n"
-            " * layer.set(x, y, cpOrString)\\n"
-            " * layer.get(x, y) -> glyph string\\n"
-            " * layer.clear(cpOrString?)\\n"
-            " */\\n"
+            "-- Define a global render(ctx, layer) function.\\n"
+            "-- ctx = { cols, rows, frame, time, metrics={aspect=...}, cursor={x,y,pressed,p={...}} }\\n"
+            "-- Modules are available as ANSL.modules.* (num, sdf, vec2, vec3, color, buffer, drawbox, string).\\n"
+            "-- layer supports:\\n"
+            "--   layer:set(x, y, cpOrString)\\n"
+            "--   layer:get(x, y) -> glyph string\\n"
+            "--   layer:clear(cpOrString?)\\n"
+            "--   layer:setRow(y, utf8String)\\n"
             "\\n"
-            "function render(ctx, layer) {\\n"
-            "  // Example: moving dot\\n"
-            "  const x = (ctx.frame % ctx.cols);\\n"
-            "  const y = Math.floor((ctx.frame / 2) % ctx.rows);\\n"
-            "  layer.set(x, y, '@');\\n"
-            "}\\n";
+            "function render(ctx, layer)\\n"
+            "  -- Example: moving dot\\n"
+            "  local x = (ctx.frame %% ctx.cols)\\n"
+            "  local y = math.floor((ctx.frame / 2) %% ctx.rows)\\n"
+            "  layer:set(x, y, '@')\\n"
+            "end\\n";
     }
 }
 
