@@ -20,7 +20,13 @@ public:
 
     std::string&       Text() { return text_; }
     const std::string& Text() const { return text_; }
-    void SetText(std::string text) { text_ = std::move(text); }
+    void SetText(std::string text)
+    {
+        text_ = std::move(text);
+        // Keep behavior consistent whether edits come from typing or programmatic loads:
+        // the next UI tick should recompile and re-apply script settings (fps/once/background).
+        needs_recompile_ = true;
+    }
 
     // Render the component. `id` must be unique within the current ImGui window.
     // `flags` are passed through to ImGui::InputTextMultiline.
@@ -48,6 +54,9 @@ private:
     double fps_window_start_ = 0.0;
     int    fps_window_frames_ = 0;
     int    script_frame_ = 0;
+    bool   pending_run_once_ = false;
+    bool   script_once_ = false;
+    bool   script_once_ran_ = false;
 
     // Engine state
     bool        needs_recompile_ = true;

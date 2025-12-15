@@ -673,6 +673,24 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
     return true;
 }
 
+bool AnsiCanvas::FillLayer(int layer_index,
+                           std::optional<char32_t> cp,
+                           std::optional<Color32> fg,
+                           std::optional<Color32> bg)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    Layer& layer = m_layers[(size_t)layer_index];
+    if (cp.has_value())
+        std::fill(layer.cells.begin(), layer.cells.end(), *cp);
+    if (fg.has_value())
+        std::fill(layer.fg.begin(), layer.fg.end(), *fg);
+    if (bg.has_value())
+        std::fill(layer.bg.begin(), layer.bg.end(), *bg);
+    return true;
+}
+
 void AnsiCanvas::HandleKeyboardNavigation()
 {
     if (!m_has_focus)

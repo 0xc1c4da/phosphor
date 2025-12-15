@@ -29,6 +29,28 @@ struct AnslFrameContext
     int bg = -1;
 };
 
+// Script-provided settings (optional).
+// Lua-side convention (preferred):
+//   settings = { fps = 60, once = false, fg = "#ffffff", bg = "#000000" }
+// Colors can be:
+// - xterm-256 index (0..255), or
+// - "#RRGGBB"/"RRGGBB" string (mapped to nearest xterm-256).
+struct AnslScriptSettings
+{
+    bool has_fps = false;
+    int  fps = 30; // valid if has_fps
+
+    // If true, the host should run the script once (static frame) rather than continuously.
+    bool once = false;
+
+    // Optional layer foreground/background fill to apply by the host.
+    // Stored as xterm-256 indices (0..255).
+    bool has_foreground = false;
+    int  foreground_xterm = 0;
+    bool has_background = false;
+    int  background_xterm = 0;
+};
+
 // Minimal LuaJIT-based scripting engine for ANSL-style layer manipulation.
 //
 // Conventions for user scripts:
@@ -66,6 +88,7 @@ public:
                   std::string& error);
 
     bool HasRenderFunction() const;
+    AnslScriptSettings GetSettings() const;
 
 private:
     struct Impl;

@@ -12,11 +12,16 @@ extern "C"
 
 #include <cstdio>
 #include <cstring>
+#include <cctype>
+#include <algorithm>
 #include <vector>
 #include <string>
 
 namespace
 {
+// Forward declaration (used by layer bindings before the definition below).
+static bool ParseHexColorToXtermIndex(const std::string& s, int& out_idx);
+
 static char32_t DecodeFirstUtf8Codepoint(const char* s, size_t len)
 {
     if (!s || len == 0)
@@ -233,6 +238,84 @@ static int l_layer_clear(lua_State* L)
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2))
         fill = LuaCharArg(L, 2);
     b->canvas->ClearLayer(b->layer_index, fill);
+
+    // Optional fg/bg can be passed explicitly:
+    //   layer:clear(cpOrString?, fg?, bg?)
+    // Where fg/bg are xterm-256 indices or "#RRGGBB".
+    // If fg/bg are omitted, we fall back to global `settings.fg`/`settings.bg` if present.
+    std::optional<AnsiCanvas::Color32> fg;
+    std::optional<AnsiCanvas::Color32> bg;
+
+    auto parseColorValueAt = [&](int idx, std::optional<AnsiCanvas::Color32>& out) -> void {
+        if (lua_gettop(L) < idx || lua_isnil(L, idx))
+            return;
+        int xidx = -1;
+        if (lua_isnumber(L, idx))
+        {
+            xidx = std::clamp((int)lua_tointeger(L, idx), 0, 255);
+        }
+        else if (lua_isstring(L, idx))
+        {
+            size_t len = 0;
+            const char* s = lua_tolstring(L, idx, &len);
+            int parsed = 0;
+            if (s && ParseHexColorToXtermIndex(std::string(s, s + len), parsed))
+                xidx = std::clamp(parsed, 0, 255);
+        }
+        if (xidx >= 0)
+            out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+    };
+
+    parseColorValueAt(3, fg);
+    parseColorValueAt(4, bg);
+
+    // If fg/bg weren't provided, try settings = { fg=..., bg=... }.
+    if (!fg.has_value() && !bg.has_value())
+    {
+        lua_getglobal(L, "settings");
+        if (lua_istable(L, -1))
+        {
+            auto parseSettingField = [&](const char* const* keys, std::optional<AnsiCanvas::Color32>& out) -> void {
+                for (int i = 0; keys[i] != nullptr; ++i)
+                {
+                    lua_getfield(L, -1, keys[i]);
+                    if (lua_isnil(L, -1) || (lua_isboolean(L, -1) && lua_toboolean(L, -1) == 0))
+                    {
+                        lua_pop(L, 1);
+                        continue;
+                    }
+                    int xidx = -1;
+                    if (lua_isnumber(L, -1))
+                    {
+                        xidx = std::clamp((int)lua_tointeger(L, -1), 0, 255);
+                    }
+                    else if (lua_isstring(L, -1))
+                    {
+                        size_t len = 0;
+                        const char* s = lua_tolstring(L, -1, &len);
+                        int parsed = 0;
+                        if (s && ParseHexColorToXtermIndex(std::string(s, s + len), parsed))
+                            xidx = std::clamp(parsed, 0, 255);
+                    }
+                    lua_pop(L, 1);
+                    if (xidx >= 0)
+                    {
+                        out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+                        return;
+                    }
+                }
+            };
+
+            const char* fg_keys[] = {"fg", "foreground", "foregroundColor", nullptr};
+            const char* bg_keys[] = {"bg", "background", "backgroundColor", nullptr};
+            parseSettingField(fg_keys, fg);
+            parseSettingField(bg_keys, bg);
+        }
+        lua_pop(L, 1); // settings or non-table
+    }
+
+    if (fg.has_value() || bg.has_value())
+        b->canvas->FillLayer(b->layer_index, std::nullopt, fg, bg);
     return 0;
 }
 
@@ -385,6 +468,118 @@ static bool EnsureAnslModule(lua_State* L, std::string& error)
     error.clear();
     return true;
 }
+
+static bool ParseHexColorToXtermIndex(const std::string& s, int& out_idx)
+{
+    // Accept "#RRGGBB" or "RRGGBB".
+    std::string str = s;
+    if (!str.empty() && str[0] == '#')
+        str.erase(0, 1);
+    if (str.size() != 6)
+        return false;
+    for (char ch : str)
+    {
+        if (!std::isxdigit((unsigned char)ch))
+            return false;
+    }
+
+    auto byte = [&](int off) -> int {
+        return (int)std::strtoul(str.substr((size_t)off, 2).c_str(), nullptr, 16);
+    };
+    const int r = std::clamp(byte(0), 0, 255);
+    const int g = std::clamp(byte(2), 0, 255);
+    const int b = std::clamp(byte(4), 0, 255);
+    out_idx = xterm256::NearestIndex((std::uint8_t)r, (std::uint8_t)g, (std::uint8_t)b);
+    return true;
+}
+
+static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
+{
+    out = AnslScriptSettings{};
+
+    lua_getglobal(L, "settings");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        return;
+    }
+
+    // fps
+    lua_getfield(L, -1, "fps");
+    if (lua_isnumber(L, -1))
+    {
+        int fps = (int)lua_tointeger(L, -1);
+        fps = std::clamp(fps, 1, 240);
+        out.has_fps = true;
+        out.fps = fps;
+    }
+    lua_pop(L, 1);
+
+    // once
+    lua_getfield(L, -1, "once");
+    if (!lua_isnil(L, -1))
+        out.once = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+
+    auto parse_color_field = [&](const char* const* keys, int& out_idx) -> bool
+    {
+        for (const char* k = *keys; k; ++keys, k = *keys)
+        {
+            lua_getfield(L, -1, k);
+            if (lua_isnil(L, -1) || (lua_isboolean(L, -1) && lua_toboolean(L, -1) == 0))
+            {
+                lua_pop(L, 1);
+                continue;
+            }
+
+            if (lua_isnumber(L, -1))
+            {
+                int idx = (int)lua_tointeger(L, -1);
+                out_idx = std::clamp(idx, 0, 255);
+                lua_pop(L, 1);
+                return true;
+            }
+
+            if (lua_isstring(L, -1))
+            {
+                size_t len = 0;
+                const char* s = lua_tolstring(L, -1, &len);
+                int idx = 0;
+                if (s && ParseHexColorToXtermIndex(std::string(s, s + len), idx))
+                {
+                    out_idx = std::clamp(idx, 0, 255);
+                    lua_pop(L, 1);
+                    return true;
+                }
+            }
+
+            lua_pop(L, 1);
+        }
+        return false;
+    };
+
+    // Foreground: fg / foreground (preferred) + some aliases.
+    // - number: xterm-256 index (0..255)
+    // - string: "#RRGGBB" or "RRGGBB" (converted to nearest xterm-256)
+    const char* fg_keys[] = {"fg", "foreground", "foregroundColor", nullptr};
+    int fg_idx = 0;
+    if (parse_color_field(fg_keys, fg_idx))
+    {
+        out.has_foreground = true;
+        out.foreground_xterm = fg_idx;
+    }
+
+    // Background: bg / background (preferred) + some aliases.
+    const char* bg_keys[] = {"bg", "background", "backgroundColor", nullptr};
+    int bg_idx = 0;
+    if (parse_color_field(bg_keys, bg_idx))
+    {
+        out.has_background = true;
+        out.background_xterm = bg_idx;
+    }
+
+    lua_pop(L, 1); // settings table
+}
 } // namespace
 
 struct AnslScriptEngine::Impl
@@ -394,6 +589,7 @@ struct AnslScriptEngine::Impl
     int ctx_ref = LUA_NOREF; // reusable ctx table (with nested metrics/cursor/p tables)
     std::string last_source;
     bool initialized = false;
+    AnslScriptSettings settings;
 };
 
 AnslScriptEngine::AnslScriptEngine()
@@ -461,6 +657,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     impl_->ctx_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
 
     impl_->initialized = true;
+    impl_->settings = AnslScriptSettings{};
     error.clear();
     return true;
 }
@@ -477,6 +674,7 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
         return true;
 
     impl_->last_source = source;
+    impl_->settings = AnslScriptSettings{};
     if (impl_->render_ref != LUA_NOREF)
     {
         luaL_unref(impl_->L, LUA_REGISTRYINDEX, impl_->render_ref);
@@ -546,6 +744,9 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
         return false;
     }
     impl_->render_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
+
+    // Read global `settings` table (optional).
+    ReadScriptSettings(impl_->L, impl_->settings);
     error.clear();
     return true;
 }
@@ -568,7 +769,19 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     }
 
     if (clear_layer_first)
+    {
         canvas.ClearLayer(layer_index, U' ');
+        // If the script requested a fg/bg fill, apply it after clearing.
+        // This keeps defaults stable even when "Clear layer each frame" is enabled.
+        std::optional<AnsiCanvas::Color32> fg;
+        std::optional<AnsiCanvas::Color32> bg;
+        if (impl_->settings.has_foreground)
+            fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(impl_->settings.foreground_xterm);
+        if (impl_->settings.has_background)
+            bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(impl_->settings.background_xterm);
+        if (fg.has_value() || bg.has_value())
+            canvas.FillLayer(layer_index, std::nullopt, fg, bg);
+    }
 
     lua_State* L = impl_->L;
     lua_settop(L, 0);
@@ -628,6 +841,13 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
 bool AnslScriptEngine::HasRenderFunction() const
 {
     return impl_ && impl_->initialized && impl_->render_ref != LUA_NOREF;
+}
+
+AnslScriptSettings AnslScriptEngine::GetSettings() const
+{
+    if (!impl_ || !impl_->initialized)
+        return AnslScriptSettings{};
+    return impl_->settings;
 }
 
 

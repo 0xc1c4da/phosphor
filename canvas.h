@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,14 @@ public:
     // Fill an entire layer with `cp` (default: space).
     // Returns false if `layer_index` is invalid.
     bool ClearLayer(int layer_index, char32_t cp = U' ');
+
+    // General-purpose layer fill helper.
+    // Any field set to std::nullopt is left unchanged.
+    // Note: `Color32` value 0 still means "unset" (theme default / transparent bg).
+    bool FillLayer(int layer_index,
+                   std::optional<char32_t> cp,
+                   std::optional<Color32> fg,
+                   std::optional<Color32> bg);
 
     // ---------------------------------------------------------------------
     // Pointer state (for tools/scripts)

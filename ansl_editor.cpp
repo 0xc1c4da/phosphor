@@ -94,17 +94,33 @@ void AnslEditor::Render(const char* id,
 
     ImGui::PushID(id);
 
-    // Top row: Play/Pause toggle.
-    if (ImGui::Button(playing_ ? "Pause" : "Play"))
+    // Top row: playback.
+    // - Continuous scripts: Play/Pause toggle.
+    // - `settings.once = true`: treat as Run Once (no toggling state).
+    const char* play_label = script_once_ ? "Run Once" : (playing_ ? "Pause" : "Play");
+    bool request_play = false;
+    bool request_pause = false;
+    bool request_run_once = false;
+    if (ImGui::Button(play_label))
     {
-        playing_ = !playing_;
-        // Re-sync timing on resume so we don't "jump" a huge dt after being paused.
-        if (playing_)
-            last_tick_time_ = 0.0;
+        if (script_once_)
+        {
+            request_run_once = true;
+        }
+        else
+        {
+            if (playing_)
+                request_pause = true;
+            else
+                request_play = true;
+        }
     }
 
     ImGui::SameLine();
-    ImGui::TextUnformatted(playing_ ? "Playing" : "Paused");
+    if (script_once_)
+        ImGui::TextUnformatted(script_once_ran_ ? "Once (ran)" : "Once");
+    else
+        ImGui::TextUnformatted(playing_ ? "Playing" : "Paused");
 
     ImGui::Separator();
 
@@ -165,28 +181,131 @@ void AnslEditor::Render(const char* id,
         ImGui::SameLine();
         bool run_once_clicked = ImGui::Button("Run Once");
 
-        if (compile_clicked)
-            needs_recompile_ = true;
-
-        if (needs_recompile_)
+        // ---- Compilation + settings application (single source of truth) ----
+        auto ResetPlaybackState = [&]()
         {
+            script_frame_ = 0;
+            script_once_ran_ = false;
+            pending_run_once_ = false;
+            last_tick_time_ = 0.0;
+            accumulator_ = 0.0;
+            fps_window_start_ = 0.0;
+            fps_window_frames_ = 0;
+            measured_script_fps_ = 0.0;
+        };
+
+        auto ApplyScriptSettings = [&](AnsiCanvas* c)
+        {
+            const AnslScriptSettings s = engine.GetSettings();
+            script_once_ = s.once;
+            if (s.has_fps)
+                target_fps_ = s.fps;
+            if (script_once_)
+                playing_ = false;
+
+            // One-shot fg/bg fill (also re-applied per-frame on clear in the engine).
+            if (c && (s.has_foreground || s.has_background))
+            {
+                std::optional<AnsiCanvas::Color32> fg;
+                std::optional<AnsiCanvas::Color32> bg;
+                if (s.has_foreground)
+                    fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.foreground_xterm);
+                if (s.has_background)
+                    bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.background_xterm);
+                c->FillLayer(target_layer_index_, std::nullopt, fg, bg);
+            }
+        };
+
+        auto EnsureCompiled = [&](bool for_execution) -> bool
+        {
+            if (compile_clicked)
+                needs_recompile_ = true;
+
+            // If we are about to execute and nothing has been compiled yet, force a compile.
+            if (for_execution && !engine.HasRenderFunction())
+                needs_recompile_ = true;
+
+            if (!needs_recompile_)
+                return engine.HasRenderFunction();
+
             std::string err;
             if (!engine.CompileUserScript(text_, err))
             {
                 last_error_ = err;
+                playing_ = false;
+                return false;
             }
-            else
-            {
-                last_error_.clear();
-                needs_recompile_ = false;
-            }
-        }
+
+            last_error_.clear();
+            needs_recompile_ = false;
+            ResetPlaybackState();
+            ApplyScriptSettings(canvas);
+            return true;
+        };
 
         // Decide whether to run this frame (Run Once bypasses the limiter).
         bool should_run = false;
+
+        // Normalize execution requests from both top-row and Run Once button.
         if (run_once_clicked)
+            request_run_once = true;
+
+        // If any request could trigger execution, compile first and apply settings (fps/once/background).
+        const bool wants_execution = request_play || request_run_once || (compile_clicked && script_once_);
+        if (wants_execution)
+        {
+            if (!EnsureCompiled(/*for_execution=*/true))
+            {
+                // Compile failed; don't attempt to run.
+                request_play = request_pause = request_run_once = false;
+            }
+        }
+        else
+        {
+            // Still honor explicit Compile even if it won't execute.
+            if (compile_clicked)
+                (void)EnsureCompiled(/*for_execution=*/false);
+        }
+
+        // Apply requested state transitions *after* compilation/settings so fps/once are current.
+        if (request_pause)
+        {
+            playing_ = false;
+        }
+        else if (request_play)
+        {
+            // Play in once-mode is nonsensical; treat as run once.
+            if (script_once_)
+            {
+                request_run_once = true;
+            }
+            else
+            {
+                playing_ = true;
+                last_tick_time_ = 0.0; // re-sync timing on resume
+            }
+        }
+
+        if (request_run_once)
+        {
+            playing_ = false;
+            script_frame_ = 0;
+            script_once_ran_ = false;
+            pending_run_once_ = true;
+        }
+
+        // Compile button behavior for once scripts: compile + run one frame.
+        if (compile_clicked && script_once_ && !script_once_ran_)
+            pending_run_once_ = true;
+
+        // Once scripts stop after the first executed tick.
+        if (script_once_ && script_once_ran_)
+            playing_ = false;
+
+        if (pending_run_once_)
         {
             should_run = true;
+            pending_run_once_ = false;
         }
         else if (playing_)
         {
@@ -255,6 +374,8 @@ void AnslEditor::Render(const char* id,
             // Count only executed script frames.
             fps_window_frames_++;
             script_frame_++;
+            if (script_once_)
+                script_once_ran_ = true;
         }
 
         if (!last_error_.empty())
