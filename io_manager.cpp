@@ -1,5 +1,7 @@
 #include "io_manager.h"
 
+#include "ansi_importer.h"
+
 #include "imgui.h"
 
 #include <nlohmann/json.hpp>
@@ -555,7 +557,7 @@ void IoManager::OpenDialog(DialogKind kind)
             m_dialog.is_save = false;
             break;
         case DialogKind::ImportAnsi:
-            m_dialog.title = "Import (stub)";
+            m_dialog.title = "Import ANSI";
             m_dialog.ok_label = "Open";
             m_dialog.is_save = false;
             break;
@@ -778,7 +780,6 @@ void IoManager::RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks
         }
         else if (m_dialog.kind == DialogKind::ImportAnsi)
         {
-            // Stub: treat as "open UTF-8 text into a new canvas" using the existing LoadFromFile path.
             if (!cb.create_canvas)
             {
                 m_dialog.error = "Internal error: create_canvas callback not set.";
@@ -786,15 +787,15 @@ void IoManager::RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks
             else
             {
                 AnsiCanvas imported;
-                imported.SetColumns(80);
-                if (!imported.LoadFromFile(full.string()))
+                std::string ierr;
+                if (!ansi_importer::ImportAnsiFileToCanvas(full.string(), imported, ierr))
                 {
-                    m_dialog.error = "Failed to import file.";
+                    m_dialog.error = ierr.empty() ? "Failed to import ANSI file." : ierr;
                 }
                 else
                 {
                     cb.create_canvas(std::move(imported));
-                    m_last_status = "Imported file (stub).";
+                    m_last_status = "Imported ANSI file.";
                     ImGui::CloseCurrentPopup();
                     m_dialog.kind = DialogKind::None;
                 }

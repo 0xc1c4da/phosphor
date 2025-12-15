@@ -38,6 +38,7 @@
 #include "ansl_params_ui.h"
 #include "xterm256_palette.h"
 #include "io_manager.h"
+#include "image_to_chafa_dialog.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -554,7 +555,7 @@ static bool LoadImageAsRgba32(const std::string& path,
 // We deliberately keep this renderer agnostic of Vulkan textures by drawing a coarse
 // grid of colored rectangles that approximates the image. This is sufficient for a
 // preview and keeps the RGBA buffer directly reusable for chafa-based ANSI conversion.
-static void RenderImageWindowContents(const ImageWindow& image)
+static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDialog& dialog)
 {
     if (image.width <= 0 || image.height <= 0 || image.pixels.empty())
     {
@@ -605,12 +606,15 @@ static void RenderImageWindowContents(const ImageWindow& image)
     // Right-click context menu hook for future "Convert to ANSI" action.
     if (ImGui::BeginPopupContextItem("image_canvas_context"))
     {
-        // For now, just stub out the menu item so the UI contract is in place.
-        if (ImGui::MenuItem("Convert to ANSI (not implemented yet)", nullptr, false, false))
+        if (ImGui::MenuItem("Convert to ANSI..."))
         {
-            // Placeholder: in a subsequent step we will:
-            //  - run chafa on image.path or image.pixels
-            //  - create a new CanvasWindow with the resulting ANSI data.
+            ImageToChafaDialog::ImageRgba src;
+            src.label = image.path;
+            src.width = image.width;
+            src.height = image.height;
+            src.rowstride = image.width * 4;
+            src.pixels.assign(image.pixels.begin(), image.pixels.end());
+            dialog.Open(std::move(src));
         }
         ImGui::EndPopup();
     }
@@ -828,6 +832,9 @@ int main(int, char**)
     // Image state
     std::vector<ImageWindow> images;
     int next_image_id = 1;
+
+    // Image -> ANSI (Chafa) conversion dialog
+    ImageToChafaDialog image_to_chafa_dialog;
 
     // Import Image dialog state
     bool show_import_image_popup = false;
@@ -1633,9 +1640,24 @@ int main(int, char**)
             ImGui::Text("Size: %dx%d", img.width, img.height);
             ImGui::Separator();
 
-            RenderImageWindowContents(img);
+            RenderImageWindowContents(img, image_to_chafa_dialog);
 
             ImGui::End();
+        }
+
+        // Chafa conversion dialog (may create a new canvas on accept).
+        image_to_chafa_dialog.Render();
+        {
+            AnsiCanvas converted;
+            if (image_to_chafa_dialog.TakeAccepted(converted))
+            {
+                CanvasWindow canvas_window;
+                canvas_window.open = true;
+                canvas_window.id = next_canvas_id++;
+                canvas_window.canvas = std::move(converted);
+                canvases.push_back(std::move(canvas_window));
+                last_active_canvas_id = canvases.back().id;
+            }
         }
 
         // Rendering
