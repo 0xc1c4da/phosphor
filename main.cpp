@@ -35,6 +35,7 @@
 #include "ansl_script_engine.h"
 #include "ansl_native.h"
 #include "tool_palette.h"
+#include "ansl_params_ui.h"
 #include "xterm256_palette.h"
 
 // Vulkan debug
@@ -1351,6 +1352,18 @@ int main(int, char**)
             {
                 ImGui::Begin("Tools Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", tools_error.c_str());
+                ImGui::End();
+            }
+
+            // Tool parameters UI (settings.params -> ctx.params)
+            if (tool_engine.HasParams())
+            {
+                ImGui::Begin("Tool Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                const ToolSpec* t = tool_palette.GetActiveTool();
+                if (t)
+                    ImGui::Text("%s", t->label.c_str());
+                ImGui::Separator();
+                (void)RenderAnslParamsUI("tool_params", tool_engine);
                 ImGui::End();
             }
         }

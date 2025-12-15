@@ -18,6 +18,7 @@ SOURCES  = main.cpp \
            ansl_editor.cpp \
            ansl_script_engine.cpp \
            ansl_luajit.cpp \
+           ansl_params_ui.cpp \
            tool_palette.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \

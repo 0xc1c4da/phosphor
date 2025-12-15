@@ -2,9 +2,46 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 class AnsiCanvas;
+
+enum class AnslParamType
+{
+    Bool,
+    Int,
+    Float,
+    Enum,
+};
+
+struct AnslParamSpec
+{
+    std::string key;   // lua identifier under ctx.params.<key>
+    std::string label; // human-friendly label for UI (optional)
+    AnslParamType type = AnslParamType::Bool;
+
+    // Int/Float ranges (optional; if min==max, UI may choose a simple input widget).
+    int   int_min = 0;
+    int   int_max = 0;
+    int   int_step = 1;
+    float float_min = 0.0f;
+    float float_max = 0.0f;
+    float float_step = 0.1f;
+
+    // Enum items: list of string options.
+    std::vector<std::string> enum_items;
+};
+
+// Current (host-managed) value for a script parameter.
+struct AnslParamValue
+{
+    AnslParamType type = AnslParamType::Bool;
+    bool          b = false;
+    int           i = 0;
+    float         f = 0.0f;
+    std::string   s; // enum current value (string)
+};
 
 struct AnslFrameContext
 {
@@ -136,6 +173,23 @@ public:
 
     bool HasRenderFunction() const;
     AnslScriptSettings GetSettings() const;
+
+    // ---------------------------------------------------------------------
+    // Parameters (settings.params -> ctx.params)
+    // ---------------------------------------------------------------------
+    bool HasParams() const;
+    const std::vector<AnslParamSpec>& GetParamSpecs() const;
+    bool GetParamBool(const std::string& key, bool& out) const;
+    bool GetParamInt(const std::string& key, int& out) const;
+    bool GetParamFloat(const std::string& key, float& out) const;
+    bool GetParamEnum(const std::string& key, std::string& out) const;
+
+    bool SetParamBool(const std::string& key, bool v);
+    bool SetParamInt(const std::string& key, int v);
+    bool SetParamFloat(const std::string& key, float v);
+    bool SetParamEnum(const std::string& key, std::string v);
+
+    void ResetParamsToDefaults();
 
 private:
     struct Impl;

@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "canvas.h"
 #include "xterm256_palette.h"
+#include "ansl_params_ui.h"
 
 #include <algorithm>
 #include <cmath>
@@ -383,6 +384,14 @@ void AnslEditor::Render(const char* id,
             script_frame_++;
             if (script_once_)
                 script_once_ran_ = true;
+        }
+
+        // Script parameters UI (settings.params -> ctx.params)
+        if (engine.HasParams())
+        {
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+                (void)RenderAnslParamsUI("script_params", engine);
         }
 
         if (!last_error_.empty())

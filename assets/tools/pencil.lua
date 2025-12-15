@@ -1,4 +1,15 @@
-settings = { icon = "🖉", label = "Pencil" }
+settings = {
+  icon = "🖉",
+  label = "Pencil",
+
+  -- Tool parameters (host renders UI; values are available under ctx.params.*)
+  params = {
+    size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
+    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "half", "block", "shade" }, default = "char" },
+    useFg = { type = "bool", label = "Use FG", default = true },
+    useBg = { type = "bool", label = "Use BG", default = true },
+  },
+}
 
 local function clamp(v, a, b)
   if v < a then return a end
@@ -8,15 +19,105 @@ end
 
 local function paint(ctx, layer, x, y)
   if not ctx or not layer then return end
-  local ch = ctx.brush
-  if type(ch) ~= "string" or #ch == 0 then ch = " " end
+  local p = ctx.params or {}
+
+  local cols = tonumber(ctx.cols) or 0
+  if cols <= 0 then return end
+  if x < 0 or x >= cols then return end
+  if y < 0 then return end
+
+  local size = tonumber(p.size) or 1
+  if size < 1 then size = 1 end
+  if size > 100 then size = 100 end
+  local r = math.floor(size / 2)
+
+  local mode = p.mode
+  if type(mode) ~= "string" then mode = "char" end
+
+  local useFg = (p.useFg ~= false)
+  local useBg = (p.useBg ~= false)
 
   local fg = ctx.fg
-  if type(fg) ~= "number" then fg = nil end
+  if not useFg or type(fg) ~= "number" then fg = nil end
   local bg = ctx.bg
-  if type(bg) ~= "number" then bg = nil end
+  if not useBg or type(bg) ~= "number" then bg = nil end
 
-  layer:set(x, y, ch, fg, bg)
+  local cursor = ctx.cursor or {}
+  local secondary = cursor.right == true
+
+  -- Right-click: swap fg/bg for non-shade modes (icy-draw style).
+  if secondary and mode ~= "shade" and fg ~= nil and bg ~= nil then
+    fg, bg = bg, fg
+  end
+
+  -- Shade stepping (match IcyDraw brush semantics):
+  -- - ramp is: ░ -> ▒ -> ▓ -> █
+  -- - primary click "tones up"
+  -- - right click "tones down" (falls back to space below ░)
+  local function shade_step(ch, down)
+    local ramp = { "░", "▒", "▓", "█" }
+
+    if down then
+      if ch == ramp[1] then
+        return " "
+      end
+      for i = #ramp, 2, -1 do
+        if ch == ramp[i] then
+          return ramp[i - 1]
+        end
+      end
+      return " "
+    end
+
+    -- tone up
+    if ch == ramp[#ramp] then
+      return ramp[#ramp]
+    end
+    for i = 1, #ramp - 1 do
+      if ch == ramp[i] then
+        return ramp[i + 1]
+      end
+    end
+    return ramp[1]
+  end
+
+  local function paint_cell(px, py)
+    if px < 0 or px >= cols then return end
+    if py < 0 then return end
+
+    local ch
+    if mode == "shade" then
+      local cur = layer:get(px, py)
+      if type(cur) ~= "string" or #cur == 0 then cur = " " end
+      ch = shade_step(cur, secondary)
+    elseif mode == "block" then
+      ch = "█"
+    elseif mode == "half" then
+      ch = secondary and "▄" or "▀"
+    elseif mode == "colorize" then
+      -- Preserve glyph, only modify fg/bg.
+      if fg == nil and bg == nil then
+        return -- truly "colorize only": nothing to do if no colors are enabled
+      end
+      ch = layer:get(px, py)
+      if type(ch) ~= "string" or #ch == 0 then ch = " " end
+    else
+      ch = ctx.brush
+      if type(ch) ~= "string" or #ch == 0 then ch = " " end
+    end
+
+    if fg == nil and bg == nil then
+      layer:set(px, py, ch)
+    else
+      layer:set(px, py, ch, fg, bg)
+    end
+  end
+
+  for dy = -r, r do
+    for dx = -r, r do
+      paint_cell(x + dx, y + dy)
+    end
+  end
 end
 
 function render(ctx, layer)
@@ -37,10 +138,25 @@ function render(ctx, layer)
   -- Phase 1: mouse drag painting (left click+hold).
   if phase == 1 then
     local cursor = ctx.cursor
-    if type(cursor) == "table" and cursor.valid and cursor.left then
-      caret.x = clamp(tonumber(cursor.x) or caret.x, 0, cols - 1)
-      caret.y = math.max(0, tonumber(cursor.y) or caret.y)
-      paint(ctx, layer, caret.x, caret.y)
+    if type(cursor) == "table" and cursor.valid and (cursor.left or cursor.right) then
+      local px = tonumber(cursor.p and cursor.p.x) or tonumber(cursor.x) or caret.x
+      local py = tonumber(cursor.p and cursor.p.y) or tonumber(cursor.y) or caret.y
+      local prev_left = (cursor.p and cursor.p.left) == true
+      local prev_right = (cursor.p and cursor.p.right) == true
+
+      -- IMPORTANT: tools are executed every UI frame while dragging.
+      -- To avoid "shade" instantly ramping to █ while the cursor sits still,
+      -- only paint when:
+      -- - we entered a new cell, or
+      -- - the button transitioned from up->down (press edge)
+      local moved_cell = (tonumber(cursor.x) ~= px) or (tonumber(cursor.y) ~= py)
+      local pressed_edge = (cursor.left and not prev_left) or (cursor.right and not prev_right)
+
+      if moved_cell or pressed_edge then
+        caret.x = clamp(tonumber(cursor.x) or caret.x, 0, cols - 1)
+        caret.y = math.max(0, tonumber(cursor.y) or caret.y)
+        paint(ctx, layer, caret.x, caret.y)
+      end
     end
     return
   end

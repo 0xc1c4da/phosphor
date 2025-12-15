@@ -14,6 +14,8 @@ extern "C"
 #include <cstring>
 #include <cctype>
 #include <algorithm>
+#include <cmath>
+#include <unordered_map>
 #include <vector>
 #include <string>
 
@@ -593,6 +595,231 @@ static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
 
     lua_pop(L, 1); // settings table
 }
+
+static bool LuaIsStringField(lua_State* L, int idx, const char* field, std::string& out)
+{
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, field);
+    if (!lua_isstring(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    size_t len = 0;
+    const char* s = lua_tolstring(L, -1, &len);
+    out.assign(s ? s : "", s ? (s + len) : "");
+    lua_pop(L, 1);
+    return true;
+}
+
+static bool LuaIsNumberField(lua_State* L, int idx, const char* field, lua_Number& out)
+{
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, field);
+    if (!lua_isnumber(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return true;
+}
+
+static bool LuaIsBoolField(lua_State* L, int idx, const char* field, bool& out)
+{
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, field);
+    if (!lua_isboolean(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    return true;
+}
+
+// LuaJIT (Lua 5.1) compatibility: lua_rawlen exists only in Lua 5.2+.
+static size_t LuaRawLen(lua_State* L, int idx)
+{
+    return (size_t)lua_objlen(L, idx);
+}
+
+static bool ReadScriptParams(lua_State* L,
+                             std::vector<AnslParamSpec>& out_specs,
+                             std::unordered_map<std::string, AnslParamValue>& out_defaults,
+                             std::string& error)
+{
+    out_specs.clear();
+    out_defaults.clear();
+    error.clear();
+
+    lua_getglobal(L, "settings");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        return true; // no settings: ok
+    }
+
+    lua_getfield(L, -1, "params");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 2); // params + settings
+        return true; // no params: ok
+    }
+
+    // Iterate settings.params = { key = {type=..., default=..., ...}, ... }
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0)
+    {
+        // stack: settings, params, key, val
+        if (!lua_isstring(L, -2) || !lua_istable(L, -1))
+        {
+            lua_pop(L, 1); // pop val, keep key
+            continue;
+        }
+
+        size_t klen = 0;
+        const char* k = lua_tolstring(L, -2, &klen);
+        const std::string key = std::string(k ? k : "", k ? (k + klen) : (k ? k : ""));
+        if (key.empty())
+        {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        AnslParamSpec spec;
+        spec.key = key;
+
+        // label (optional)
+        (void)LuaIsStringField(L, -1, "label", spec.label);
+
+        // type (required)
+        std::string type_s;
+        if (!LuaIsStringField(L, -1, "type", type_s))
+        {
+            error = "settings.params." + key + ": missing string field 'type'";
+            lua_pop(L, 2); // val + key
+            lua_pop(L, 2); // params + settings
+            return false;
+        }
+
+        auto type_lower = [](std::string s) {
+            for (char& c : s) c = (char)std::tolower((unsigned char)c);
+            return s;
+        };
+        type_s = type_lower(type_s);
+
+        AnslParamValue def;
+        if (type_s == "bool" || type_s == "boolean")
+        {
+            spec.type = AnslParamType::Bool;
+            def.type = AnslParamType::Bool;
+            bool dv = false;
+            (void)LuaIsBoolField(L, -1, "default", dv);
+            def.b = dv;
+        }
+        else if (type_s == "int" || type_s == "integer")
+        {
+            spec.type = AnslParamType::Int;
+            def.type = AnslParamType::Int;
+
+            lua_Number n = 0;
+            if (LuaIsNumberField(L, -1, "min", n)) spec.int_min = (int)std::llround(n);
+            if (LuaIsNumberField(L, -1, "max", n)) spec.int_max = (int)std::llround(n);
+            if (LuaIsNumberField(L, -1, "step", n)) spec.int_step = std::max(1, (int)std::llround(n));
+
+            int dv = 0;
+            if (LuaIsNumberField(L, -1, "default", n)) dv = (int)std::llround(n);
+            def.i = dv;
+        }
+        else if (type_s == "float" || type_s == "number")
+        {
+            spec.type = AnslParamType::Float;
+            def.type = AnslParamType::Float;
+
+            lua_Number n = 0;
+            if (LuaIsNumberField(L, -1, "min", n)) spec.float_min = (float)n;
+            if (LuaIsNumberField(L, -1, "max", n)) spec.float_max = (float)n;
+            if (LuaIsNumberField(L, -1, "step", n)) spec.float_step = (float)n;
+
+            float dv = 0.0f;
+            if (LuaIsNumberField(L, -1, "default", n)) dv = (float)n;
+            def.f = dv;
+        }
+        else if (type_s == "enum")
+        {
+            spec.type = AnslParamType::Enum;
+            def.type = AnslParamType::Enum;
+
+            lua_getfield(L, -1, "items");
+            if (!lua_istable(L, -1))
+            {
+                lua_pop(L, 1);
+                error = "settings.params." + key + ": enum requires table field 'items'";
+                lua_pop(L, 2); // val + key
+                lua_pop(L, 2); // params + settings
+                return false;
+            }
+            const int items_idx = lua_gettop(L);
+            const int n_items = (int)LuaRawLen(L, items_idx);
+            spec.enum_items.clear();
+            spec.enum_items.reserve(std::max(0, n_items));
+            for (int i = 1; i <= n_items; ++i)
+            {
+                lua_rawgeti(L, items_idx, i);
+                if (lua_isstring(L, -1))
+                {
+                    size_t len = 0;
+                    const char* s = lua_tolstring(L, -1, &len);
+                    if (s && len > 0)
+                        spec.enum_items.emplace_back(s, s + len);
+                }
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1); // items
+
+            if (spec.enum_items.empty())
+            {
+                error = "settings.params." + key + ": enum 'items' must contain at least one string";
+                lua_pop(L, 2); // val + key
+                lua_pop(L, 2); // params + settings
+                return false;
+            }
+
+            std::string dv;
+            if (LuaIsStringField(L, -1, "default", dv) && !dv.empty())
+                def.s = dv;
+            else
+                def.s = spec.enum_items.front();
+        }
+        else
+        {
+            error = "settings.params." + key + ": unknown type '" + type_s + "'";
+            lua_pop(L, 2); // val + key
+            lua_pop(L, 2); // params + settings
+            return false;
+        }
+
+        out_defaults[key] = def;
+        out_specs.push_back(std::move(spec));
+
+        lua_pop(L, 1); // pop val, keep key for lua_next
+    }
+
+    // stable order so UI doesn't jump around
+    std::sort(out_specs.begin(), out_specs.end(), [](const AnslParamSpec& a, const AnslParamSpec& b) {
+        if (a.label != b.label) return a.label < b.label;
+        return a.key < b.key;
+    });
+
+    lua_pop(L, 2); // params + settings
+    return true;
+}
 } // namespace
 
 struct AnslScriptEngine::Impl
@@ -600,9 +827,14 @@ struct AnslScriptEngine::Impl
     lua_State* L = nullptr;
     int render_ref = LUA_NOREF;
     int ctx_ref = LUA_NOREF; // reusable ctx table (with nested metrics/cursor/p tables)
+    int params_ref = LUA_NOREF; // reusable ctx.params table
     std::string last_source;
     bool initialized = false;
     AnslScriptSettings settings;
+
+    std::vector<AnslParamSpec> params;
+    std::unordered_map<std::string, AnslParamValue> param_values;
+    std::unordered_map<std::string, AnslParamValue> param_defaults;
 };
 
 AnslScriptEngine::AnslScriptEngine()
@@ -621,6 +853,8 @@ AnslScriptEngine::~AnslScriptEngine()
             luaL_unref(impl_->L, LUA_REGISTRYINDEX, impl_->render_ref);
         if (impl_->ctx_ref != LUA_NOREF)
             luaL_unref(impl_->L, LUA_REGISTRYINDEX, impl_->ctx_ref);
+        if (impl_->params_ref != LUA_NOREF)
+            luaL_unref(impl_->L, LUA_REGISTRYINDEX, impl_->params_ref);
         lua_close(impl_->L);
     }
 
@@ -695,6 +929,12 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "enter");
     lua_setfield(impl_->L, -2, "keys"); // ctx.keys = keys
 
+    // params table (reused): ctx.params = {}
+    lua_newtable(impl_->L); // params
+    impl_->params_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX); // pops params
+    lua_rawgeti(impl_->L, LUA_REGISTRYINDEX, impl_->params_ref);
+    lua_setfield(impl_->L, -2, "params"); // ctx.params = params
+
     // Tool brush defaults
     lua_pushliteral(impl_->L, " ");
     lua_setfield(impl_->L, -2, "brush");
@@ -705,6 +945,9 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
 
     impl_->initialized = true;
     impl_->settings = AnslScriptSettings{};
+    impl_->params.clear();
+    impl_->param_values.clear();
+    impl_->param_defaults.clear();
     error.clear();
     return true;
 }
@@ -722,6 +965,8 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
 
     impl_->last_source = source;
     impl_->settings = AnslScriptSettings{};
+    impl_->params.clear();
+    impl_->param_defaults.clear();
     if (impl_->render_ref != LUA_NOREF)
     {
         luaL_unref(impl_->L, LUA_REGISTRYINDEX, impl_->render_ref);
@@ -838,6 +1083,39 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
 
     // Read global `settings` table (optional).
     ReadScriptSettings(impl_->L, impl_->settings);
+
+    // Read settings.params (optional) -> host-managed params -> ctx.params.
+    {
+        std::vector<AnslParamSpec> specs;
+        std::unordered_map<std::string, AnslParamValue> defaults;
+        std::string perr;
+        if (!ReadScriptParams(impl_->L, specs, defaults, perr))
+        {
+            error = perr;
+            return false;
+        }
+
+        // Preserve compatible previous values when possible; otherwise use defaults.
+        std::unordered_map<std::string, AnslParamValue> new_values;
+        for (const auto& s : specs)
+        {
+            auto def_it = defaults.find(s.key);
+            if (def_it == defaults.end())
+                continue;
+            const AnslParamValue& def = def_it->second;
+
+            auto old_it = impl_->param_values.find(s.key);
+            if (old_it != impl_->param_values.end() && old_it->second.type == def.type)
+                new_values[s.key] = old_it->second;
+            else
+                new_values[s.key] = def;
+        }
+
+        impl_->params = std::move(specs);
+        impl_->param_defaults = std::move(defaults);
+        impl_->param_values = std::move(new_values);
+    }
+
     error.clear();
     return true;
 }
@@ -901,6 +1179,28 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_setfield(L, -2, "brush");
     lua_pushinteger(L, (lua_Integer)frame_ctx.brush_cp);
     lua_setfield(L, -2, "brushCp");
+
+    // params table: sync host values into ctx.params.* each frame
+    if (impl_->params_ref != LUA_NOREF && !impl_->params.empty())
+    {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->params_ref); // params
+        for (const auto& s : impl_->params)
+        {
+            auto it = impl_->param_values.find(s.key);
+            if (it == impl_->param_values.end())
+                continue;
+            const AnslParamValue& v = it->second;
+            switch (v.type)
+            {
+                case AnslParamType::Bool:  lua_pushboolean(L, v.b ? 1 : 0); break;
+                case AnslParamType::Int:   lua_pushinteger(L, (lua_Integer)v.i); break;
+                case AnslParamType::Float: lua_pushnumber(L, (lua_Number)v.f); break;
+                case AnslParamType::Enum:  lua_pushlstring(L, v.s.c_str(), v.s.size()); break;
+            }
+            lua_setfield(L, -2, s.key.c_str());
+        }
+        lua_pop(L, 1); // params
+    }
 
     lua_getfield(L, -1, "metrics");
     if (lua_istable(L, -1))
@@ -1011,6 +1311,114 @@ AnslScriptSettings AnslScriptEngine::GetSettings() const
     if (!impl_ || !impl_->initialized)
         return AnslScriptSettings{};
     return impl_->settings;
+}
+
+bool AnslScriptEngine::HasParams() const
+{
+    return impl_ && impl_->initialized && !impl_->params.empty();
+}
+
+const std::vector<AnslParamSpec>& AnslScriptEngine::GetParamSpecs() const
+{
+    static const std::vector<AnslParamSpec> empty;
+    if (!impl_ || !impl_->initialized)
+        return empty;
+    return impl_->params;
+}
+
+bool AnslScriptEngine::GetParamBool(const std::string& key, bool& out) const
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Bool)
+        return false;
+    out = it->second.b;
+    return true;
+}
+
+bool AnslScriptEngine::GetParamInt(const std::string& key, int& out) const
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Int)
+        return false;
+    out = it->second.i;
+    return true;
+}
+
+bool AnslScriptEngine::GetParamFloat(const std::string& key, float& out) const
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Float)
+        return false;
+    out = it->second.f;
+    return true;
+}
+
+bool AnslScriptEngine::GetParamEnum(const std::string& key, std::string& out) const
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Enum)
+        return false;
+    out = it->second.s;
+    return true;
+}
+
+bool AnslScriptEngine::SetParamBool(const std::string& key, bool v)
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Bool)
+        return false;
+    it->second.b = v;
+    return true;
+}
+
+bool AnslScriptEngine::SetParamInt(const std::string& key, int v)
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Int)
+        return false;
+    it->second.i = v;
+    return true;
+}
+
+bool AnslScriptEngine::SetParamFloat(const std::string& key, float v)
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Float)
+        return false;
+    it->second.f = v;
+    return true;
+}
+
+bool AnslScriptEngine::SetParamEnum(const std::string& key, std::string v)
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Enum)
+        return false;
+    it->second.s = std::move(v);
+    return true;
+}
+
+void AnslScriptEngine::ResetParamsToDefaults()
+{
+    if (!impl_ || !impl_->initialized)
+        return;
+    impl_->param_values = impl_->param_defaults;
 }
 
 
