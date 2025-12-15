@@ -182,6 +182,12 @@ static int l_num_mod(lua_State* L)
     return 1;
 }
 
+static int l_num_mod_glsl(lua_State* L)
+{
+    lua_pushnumber(L, ansl::num::mod_glsl(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
 // -------- vec2 (subset) --------
 static int l_vec2_vec2(lua_State* L)
 {
@@ -398,6 +404,36 @@ static int l_vec3_length(lua_State* L)
     return 1;
 }
 
+static int l_vec3_lengthSq(lua_State* L)
+{
+    lua_pushnumber(L, ansl::vec3::lengthSq(LuaCheckVec3(L, 1)));
+    return 1;
+}
+
+static int l_vec3_norm(lua_State* L)
+{
+    LuaReturnVec3(L, ansl::vec3::norm(LuaCheckVec3(L, 1)), 2);
+    return 1;
+}
+
+static int l_vec3_abs(lua_State* L)
+{
+    LuaReturnVec3(L, ansl::vec3::abs(LuaCheckVec3(L, 1)), 2);
+    return 1;
+}
+
+static int l_vec3_max(lua_State* L)
+{
+    LuaReturnVec3(L, ansl::vec3::max(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2)), 3);
+    return 1;
+}
+
+static int l_vec3_min(lua_State* L)
+{
+    LuaReturnVec3(L, ansl::vec3::min(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2)), 3);
+    return 1;
+}
+
 // -------- sdf --------
 static int l_sdf_sdCircle(lua_State* L)
 {
@@ -442,6 +478,319 @@ static int l_sdf_opSmoothIntersection(lua_State* L)
     lua_pushnumber(L, ansl::sdf::opSmoothIntersection(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
     return 1;
 }
+
+// ---- sdf (hard boolean ops) ----
+static int l_sdf_opUnion(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::opUnion(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int l_sdf_opIntersection(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::opIntersection(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int l_sdf_opDifference(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::opDifference(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+// ---- sdf.hg primitives ----
+static int l_sdf_fSphere(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fSphere(LuaCheckVec3(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fPlane(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fPlane(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fBoxCheap(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fBoxCheap(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fBox(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fBox(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fBox2Cheap(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fBox2Cheap(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fBox2(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fBox2(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fCorner(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fCorner(LuaCheckVec2(L, 1)));
+    return 1;
+}
+
+static int l_sdf_fBlob(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fBlob(LuaCheckVec3(L, 1)));
+    return 1;
+}
+
+static int l_sdf_fCylinder(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fCylinder(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fCapsule(lua_State* L)
+{
+    // Overload:
+    // - fCapsule(p:vec3, r:number, c:number)
+    // - fCapsule(p:vec3, a:vec3, b:vec3, r:number)
+    if (lua_gettop(L) >= 4 && lua_istable(L, 2))
+    {
+        lua_pushnumber(L, ansl::sdf::hg::fCapsule(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2), LuaCheckVec3(L, 3), luaL_checknumber(L, 4)));
+        return 1;
+    }
+    lua_pushnumber(L, ansl::sdf::hg::fCapsule(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fLineSegment(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fLineSegment(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2), LuaCheckVec3(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fTorus(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fTorus(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fCircle(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fCircle(LuaCheckVec3(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fDisc(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fDisc(LuaCheckVec3(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fHexagonCircumcircle(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fHexagonCircumcircle(LuaCheckVec3(L, 1), LuaCheckVec2(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fHexagonIncircle(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fHexagonIncircle(LuaCheckVec3(L, 1), LuaCheckVec2(L, 2)));
+    return 1;
+}
+
+static int l_sdf_fCone(lua_State* L)
+{
+    lua_pushnumber(L, ansl::sdf::hg::fCone(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fGDF(lua_State* L)
+{
+    // Overload:
+    // - fGDF(p, r, begin, end)
+    // - fGDF(p, r, e, begin, end)
+    const int n = lua_gettop(L);
+    if (n == 4)
+    {
+        lua_pushnumber(L, ansl::sdf::hg::fGDF(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), (int)luaL_checkinteger(L, 3), (int)luaL_checkinteger(L, 4)));
+        return 1;
+    }
+    lua_pushnumber(L, ansl::sdf::hg::fGDF(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), (int)luaL_checkinteger(L, 4), (int)luaL_checkinteger(L, 5)));
+    return 1;
+}
+
+static int l_sdf_fOctahedron(lua_State* L)
+{
+    const int n = lua_gettop(L);
+    if (n == 2) { lua_pushnumber(L, ansl::sdf::hg::fOctahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2))); return 1; }
+    lua_pushnumber(L, ansl::sdf::hg::fOctahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fDodecahedron(lua_State* L)
+{
+    const int n = lua_gettop(L);
+    if (n == 2) { lua_pushnumber(L, ansl::sdf::hg::fDodecahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2))); return 1; }
+    lua_pushnumber(L, ansl::sdf::hg::fDodecahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fIcosahedron(lua_State* L)
+{
+    const int n = lua_gettop(L);
+    if (n == 2) { lua_pushnumber(L, ansl::sdf::hg::fIcosahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2))); return 1; }
+    lua_pushnumber(L, ansl::sdf::hg::fIcosahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fTruncatedOctahedron(lua_State* L)
+{
+    const int n = lua_gettop(L);
+    if (n == 2) { lua_pushnumber(L, ansl::sdf::hg::fTruncatedOctahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2))); return 1; }
+    lua_pushnumber(L, ansl::sdf::hg::fTruncatedOctahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int l_sdf_fTruncatedIcosahedron(lua_State* L)
+{
+    const int n = lua_gettop(L);
+    if (n == 2) { lua_pushnumber(L, ansl::sdf::hg::fTruncatedIcosahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2))); return 1; }
+    lua_pushnumber(L, ansl::sdf::hg::fTruncatedIcosahedron(LuaCheckVec3(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3)));
+    return 1;
+}
+
+// ---- sdf.hg domain ops ----
+static int l_sdf_pR(lua_State* L)
+{
+    LuaReturnVec2(L, ansl::sdf::hg::pR(LuaCheckVec2(L, 1), luaL_checknumber(L, 2)), 3);
+    return 1;
+}
+
+static int l_sdf_pR45(lua_State* L)
+{
+    LuaReturnVec2(L, ansl::sdf::hg::pR45(LuaCheckVec2(L, 1)), 2);
+    return 1;
+}
+
+static int l_sdf_pMod1(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pMod1(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+    lua_pushnumber(L, r.p);
+    lua_pushnumber(L, r.c);
+    return 2;
+}
+
+static int l_sdf_pModMirror1(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModMirror1(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+    lua_pushnumber(L, r.p);
+    lua_pushnumber(L, r.c);
+    return 2;
+}
+
+static int l_sdf_pModSingle1(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModSingle1(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+    lua_pushnumber(L, r.p);
+    lua_pushnumber(L, r.c);
+    return 2;
+}
+
+static int l_sdf_pModInterval1(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModInterval1(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4));
+    lua_pushnumber(L, r.p);
+    lua_pushnumber(L, r.c);
+    return 2;
+}
+
+static int l_sdf_pModPolar(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModPolar(LuaCheckVec2(L, 1), luaL_checknumber(L, 2));
+    LuaReturnVec2(L, r.first, 3);
+    lua_pushnumber(L, r.second);
+    return 2;
+}
+
+static int l_sdf_pMod2(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pMod2(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2));
+    LuaReturnVec2(L, r.p, 3);
+    LuaReturnVec2(L, r.c, 4);
+    return 2;
+}
+
+static int l_sdf_pModMirror2(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModMirror2(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2));
+    LuaReturnVec2(L, r.p, 3);
+    LuaReturnVec2(L, r.c, 4);
+    return 2;
+}
+
+static int l_sdf_pModGrid2(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pModGrid2(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2));
+    LuaReturnVec2(L, r.p, 3);
+    LuaReturnVec2(L, r.c, 4);
+    return 2;
+}
+
+static int l_sdf_pMod3(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pMod3(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2));
+    LuaReturnVec3(L, r.p, 3);
+    LuaReturnVec3(L, r.c, 4);
+    return 2;
+}
+
+static int l_sdf_pMirror(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pMirror(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
+    lua_pushnumber(L, r.p);
+    lua_pushnumber(L, r.s);
+    return 2;
+}
+
+static int l_sdf_pMirrorOctant(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pMirrorOctant(LuaCheckVec2(L, 1), LuaCheckVec2(L, 2));
+    LuaReturnVec2(L, r.p, 3);
+    LuaReturnVec2(L, r.s, 4);
+    return 2;
+}
+
+static int l_sdf_pReflect(lua_State* L)
+{
+    const auto r = ansl::sdf::hg::pReflect(LuaCheckVec3(L, 1), LuaCheckVec3(L, 2), luaL_checknumber(L, 3));
+    LuaReturnVec3(L, r.p, 4);
+    lua_pushnumber(L, r.s);
+    return 2;
+}
+
+// ---- sdf.hg object combination operators ----
+static int l_sdf_fOpUnionChamfer(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpUnionChamfer(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpIntersectionChamfer(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpIntersectionChamfer(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpDifferenceChamfer(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpDifferenceChamfer(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpUnionRound(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpUnionRound(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpIntersectionRound(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpIntersectionRound(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpDifferenceRound(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpDifferenceRound(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpUnionColumns(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpUnionColumns(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpDifferenceColumns(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpDifferenceColumns(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpIntersectionColumns(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpIntersectionColumns(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpUnionStairs(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpUnionStairs(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpIntersectionStairs(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpIntersectionStairs(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpDifferenceStairs(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpDifferenceStairs(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpUnionSoft(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpUnionSoft(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpPipe(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpPipe(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpEngrave(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpEngrave(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3))); return 1; }
+static int l_sdf_fOpGroove(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpGroove(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
+static int l_sdf_fOpTongue(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpTongue(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
 
 // -------- color (xterm-256 index API) --------
 // Lua-idiomatic contract for the editor:
@@ -1346,6 +1695,7 @@ extern "C" int luaopen_ansl(lua_State* L)
         {"smoothstep", l_num_smoothstep},
         {"smootherstep", l_num_smootherstep},
         {"mod", l_num_mod},
+        {"mod_glsl", l_num_mod_glsl},
         {nullptr, nullptr},
     };
     SetFuncs(L, num_fns);
@@ -1400,6 +1750,11 @@ extern "C" int luaopen_ansl(lua_State* L)
         {"divN", [](lua_State* L) -> int { LuaReturnVec3(L, ansl::vec3::divN(LuaCheckVec3(L, 1), luaL_checknumber(L, 2)), 3); return 1; }},
         {"dot", l_vec3_dot},
         {"length", l_vec3_length},
+        {"lengthSq", l_vec3_lengthSq},
+        {"norm", l_vec3_norm},
+        {"abs", l_vec3_abs},
+        {"max", l_vec3_max},
+        {"min", l_vec3_min},
         {nullptr, nullptr},
     };
     SetFuncs(L, vec3_fns);
@@ -1414,6 +1769,69 @@ extern "C" int luaopen_ansl(lua_State* L)
         {"opSmoothUnion", l_sdf_opSmoothUnion},
         {"opSmoothSubtraction", l_sdf_opSmoothSubtraction},
         {"opSmoothIntersection", l_sdf_opSmoothIntersection},
+        {"opUnion", l_sdf_opUnion},
+        {"opIntersection", l_sdf_opIntersection},
+        {"opDifference", l_sdf_opDifference},
+
+        // hg primitives (2D + 3D)
+        {"fSphere", l_sdf_fSphere},
+        {"fPlane", l_sdf_fPlane},
+        {"fBoxCheap", l_sdf_fBoxCheap},
+        {"fBox", l_sdf_fBox},
+        {"fBox2Cheap", l_sdf_fBox2Cheap},
+        {"fBox2", l_sdf_fBox2},
+        {"fCorner", l_sdf_fCorner},
+        {"fBlob", l_sdf_fBlob},
+        {"fCylinder", l_sdf_fCylinder},
+        {"fCapsule", l_sdf_fCapsule},
+        {"fLineSegment", l_sdf_fLineSegment},
+        {"fTorus", l_sdf_fTorus},
+        {"fCircle", l_sdf_fCircle},
+        {"fDisc", l_sdf_fDisc},
+        {"fHexagonCircumcircle", l_sdf_fHexagonCircumcircle},
+        {"fHexagonIncircle", l_sdf_fHexagonIncircle},
+        {"fCone", l_sdf_fCone},
+        {"fGDF", l_sdf_fGDF},
+        {"fOctahedron", l_sdf_fOctahedron},
+        {"fDodecahedron", l_sdf_fDodecahedron},
+        {"fIcosahedron", l_sdf_fIcosahedron},
+        {"fTruncatedOctahedron", l_sdf_fTruncatedOctahedron},
+        {"fTruncatedIcosahedron", l_sdf_fTruncatedIcosahedron},
+
+        // hg domain ops (inout-style => return (p', cell/sign))
+        {"pR", l_sdf_pR},
+        {"pR45", l_sdf_pR45},
+        {"pMod1", l_sdf_pMod1},
+        {"pModMirror1", l_sdf_pModMirror1},
+        {"pModSingle1", l_sdf_pModSingle1},
+        {"pModInterval1", l_sdf_pModInterval1},
+        {"pModPolar", l_sdf_pModPolar},
+        {"pMod2", l_sdf_pMod2},
+        {"pModMirror2", l_sdf_pModMirror2},
+        {"pModGrid2", l_sdf_pModGrid2},
+        {"pMod3", l_sdf_pMod3},
+        {"pMirror", l_sdf_pMirror},
+        {"pMirrorOctant", l_sdf_pMirrorOctant},
+        {"pReflect", l_sdf_pReflect},
+
+        // hg object combination operators
+        {"fOpUnionChamfer", l_sdf_fOpUnionChamfer},
+        {"fOpIntersectionChamfer", l_sdf_fOpIntersectionChamfer},
+        {"fOpDifferenceChamfer", l_sdf_fOpDifferenceChamfer},
+        {"fOpUnionRound", l_sdf_fOpUnionRound},
+        {"fOpIntersectionRound", l_sdf_fOpIntersectionRound},
+        {"fOpDifferenceRound", l_sdf_fOpDifferenceRound},
+        {"fOpUnionColumns", l_sdf_fOpUnionColumns},
+        {"fOpDifferenceColumns", l_sdf_fOpDifferenceColumns},
+        {"fOpIntersectionColumns", l_sdf_fOpIntersectionColumns},
+        {"fOpUnionStairs", l_sdf_fOpUnionStairs},
+        {"fOpIntersectionStairs", l_sdf_fOpIntersectionStairs},
+        {"fOpDifferenceStairs", l_sdf_fOpDifferenceStairs},
+        {"fOpUnionSoft", l_sdf_fOpUnionSoft},
+        {"fOpPipe", l_sdf_fOpPipe},
+        {"fOpEngrave", l_sdf_fOpEngrave},
+        {"fOpGroove", l_sdf_fOpGroove},
+        {"fOpTongue", l_sdf_fOpTongue},
         {nullptr, nullptr},
     };
     SetFuncs(L, sdf_fns);

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include <string>
@@ -24,6 +25,14 @@ struct Vec3
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
+};
+
+struct Vec4
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    double w = 0.0;
 };
 
 // Minimal UTF-8 helpers for hosts (LuaJIT, etc). These are intentionally permissive:
@@ -340,6 +349,14 @@ inline double mod(double a, double b)
 {
     return std::fmod(a, b);
 }
+
+// GLSL-style mod: x - y * floor(x / y). This differs from fmod for negative x.
+inline double mod_glsl(double x, double y)
+{
+    if (y == 0.0)
+        return 0.0;
+    return x - y * std::floor(x / y);
+}
 } // namespace num
 
 namespace vec2
@@ -408,6 +425,17 @@ inline Vec3 mulN(const Vec3& a, double k) { return {a.x * k, a.y * k, a.z * k}; 
 inline Vec3 divN(const Vec3& a, double k) { return {a.x / k, a.y / k, a.z / k}; }
 inline double dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 inline double length(const Vec3& a) { return std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
+inline double lengthSq(const Vec3& a) { return a.x * a.x + a.y * a.y + a.z * a.z; }
+inline Vec3 abs(const Vec3& a) { return {std::abs(a.x), std::abs(a.y), std::abs(a.z)}; }
+inline Vec3 max(const Vec3& a, const Vec3& b) { return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)}; }
+inline Vec3 min(const Vec3& a, const Vec3& b) { return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)}; }
+inline Vec3 norm(const Vec3& a)
+{
+    const double l = length(a);
+    if (l > 0.00001)
+        return {a.x / l, a.y / l, a.z / l};
+    return {0.0, 0.0, 0.0};
+}
 } // namespace vec3
 
 namespace sdf
@@ -450,6 +478,504 @@ inline double opSmoothIntersection(double d1, double d2, double k)
     const double h = num::clamp(0.5 - 0.5 * (d2 - d1) / k, 0.0, 1.0);
     return num::mix(d2, d1, h) + k * h * (1.0 - h);
 }
+
+// ---- Boolean operators (hard) ----
+inline double opUnion(double a, double b) { return std::min(a, b); }
+inline double opIntersection(double a, double b) { return std::max(a, b); }
+inline double opDifference(double a, double b) { return std::max(a, -b); }
+
+// ---- HG_SDF construction kit (ported from references/hg_sdf.glsl) ----
+namespace hg
+{
+// Constants: keep as doubles; PHI is numeric to avoid constexpr sqrt portability issues.
+constexpr double PI = 3.14159265;
+constexpr double TAU = 2.0 * PI;
+constexpr double PHI = 1.6180339887498948482;
+
+inline double saturate(double x) { return num::clamp(x, 0.0, 1.0); }
+inline double sgn(double x) { return (x < 0.0) ? -1.0 : 1.0; } // never returns 0
+inline Vec2 sgn(const Vec2& v) { return {(v.x < 0.0) ? -1.0 : 1.0, (v.y < 0.0) ? -1.0 : 1.0}; }
+
+inline double square(double x) { return x * x; }
+inline Vec2 square(const Vec2& x) { return {x.x * x.x, x.y * x.y}; }
+inline Vec3 square(const Vec3& x) { return {x.x * x.x, x.y * x.y, x.z * x.z}; }
+inline double lengthSqr(const Vec3& x) { return vec3::dot(x, x); }
+
+inline double vmax(const Vec2& v) { return std::max(v.x, v.y); }
+inline double vmax(const Vec3& v) { return std::max(std::max(v.x, v.y), v.z); }
+inline double vmax(const Vec4& v) { return std::max(std::max(v.x, v.y), std::max(v.z, v.w)); }
+inline double vmin(const Vec2& v) { return std::min(v.x, v.y); }
+inline double vmin(const Vec3& v) { return std::min(std::min(v.x, v.y), v.z); }
+inline double vmin(const Vec4& v) { return std::min(std::min(v.x, v.y), std::min(v.z, v.w)); }
+
+inline Vec2 v2(double x, double y) { return {x, y}; }
+inline Vec3 v3(double x, double y, double z) { return {x, y, z}; }
+
+inline Vec2 v2_max(const Vec2& a, const Vec2& b) { return {std::max(a.x, b.x), std::max(a.y, b.y)}; }
+inline Vec2 v2_min(const Vec2& a, const Vec2& b) { return {std::min(a.x, b.x), std::min(a.y, b.y)}; }
+
+inline Vec2 normalize(const Vec2& a) { return vec2::norm(a); }
+inline Vec3 normalize(const Vec3& a) { return vec3::norm(a); }
+
+// ---- Primitive distance functions ----
+inline double fSphere(const Vec3& p, double r) { return vec3::length(p) - r; }
+inline double fPlane(const Vec3& p, const Vec3& n, double distanceFromOrigin) { return vec3::dot(p, n) + distanceFromOrigin; }
+
+inline double fBoxCheap(const Vec3& p, const Vec3& b) { return vmax(vec3::sub(vec3::abs(p), b)); }
+inline double fBox(const Vec3& p, const Vec3& b)
+{
+    const Vec3 d = vec3::sub(vec3::abs(p), b);
+    const Vec3 d0 = {std::max(d.x, 0.0), std::max(d.y, 0.0), std::max(d.z, 0.0)};
+    const Vec3 d1 = {std::min(d.x, 0.0), std::min(d.y, 0.0), std::min(d.z, 0.0)};
+    return vec3::length(d0) + vmax(d1);
+}
+
+inline double fBox2Cheap(const Vec2& p, const Vec2& b) { return vmax(vec2::sub(vec2::abs(p), b)); }
+inline double fBox2(const Vec2& p, const Vec2& b)
+{
+    const Vec2 d = vec2::sub(vec2::abs(p), b);
+    const Vec2 d0 = {std::max(d.x, 0.0), std::max(d.y, 0.0)};
+    const Vec2 d1 = {std::min(d.x, 0.0), std::min(d.y, 0.0)};
+    return vec2::length(d0) + vmax(d1);
+}
+
+inline double fCorner(const Vec2& p)
+{
+    return vec2::length(v2_max(p, {0.0, 0.0})) + vmax(v2_min(p, {0.0, 0.0}));
+}
+
+// Not a correct distance bound (ported as-is).
+inline double fBlob(Vec3 p)
+{
+    p = vec3::abs(p);
+    auto sw_yzx = [](const Vec3& a) -> Vec3 { return {a.y, a.z, a.x}; };
+    if (p.x < std::max(p.y, p.z)) p = sw_yzx(p);
+    if (p.x < std::max(p.y, p.z)) p = sw_yzx(p);
+
+    const double b = std::max(
+        std::max(
+            std::max(vec3::dot(p, normalize(v3(1, 1, 1))),
+                     vec2::dot(v2(p.x, p.z), normalize(v2(PHI + 1, 1)))),
+            vec2::dot(v2(p.y, p.x), normalize(v2(1, PHI)))),
+        vec2::dot(v2(p.x, p.z), normalize(v2(1, PHI))));
+
+    const double l = vec3::length(p);
+    const double inner = std::sqrt(std::max(1.01 - b / l, 0.0));
+    return l - 1.5 - 0.2 * (1.5 / 2.0) * std::cos(std::min(inner * (PI / 0.25), PI));
+}
+
+inline double fCylinder(const Vec3& p, double r, double height)
+{
+    double d = vec2::length(v2(p.x, p.z)) - r;
+    d = std::max(d, std::abs(p.y) - height);
+    return d;
+}
+
+inline double fCapsule(const Vec3& p, double r, double c)
+{
+    const double a = vec2::length(v2(p.x, p.z)) - r;
+    const double b = vec3::length(v3(p.x, std::abs(p.y) - c, p.z)) - r;
+    return num::mix(a, b, num::step(c, std::abs(p.y)));
+}
+
+inline double fLineSegment(const Vec3& p, const Vec3& a, const Vec3& b)
+{
+    const Vec3 ab = vec3::sub(b, a);
+    const double t = saturate(vec3::dot(vec3::sub(p, a), ab) / vec3::dot(ab, ab));
+    return vec3::length(vec3::sub(vec3::add(vec3::mulN(ab, t), a), p));
+}
+
+inline double fCapsule(const Vec3& p, const Vec3& a, const Vec3& b, double r)
+{
+    return fLineSegment(p, a, b) - r;
+}
+
+inline double fTorus(const Vec3& p, double smallRadius, double largeRadius)
+{
+    return vec2::length(v2(vec2::length(v2(p.x, p.z)) - largeRadius, p.y)) - smallRadius;
+}
+
+inline double fCircle(const Vec3& p, double r)
+{
+    const double l = vec2::length(v2(p.x, p.z)) - r;
+    return vec2::length(v2(p.y, l));
+}
+
+inline double fDisc(const Vec3& p, double r)
+{
+    const double l = vec2::length(v2(p.x, p.z)) - r;
+    return (l < 0.0) ? std::abs(p.y) : vec2::length(v2(p.y, l));
+}
+
+inline double fHexagonCircumcircle(const Vec3& p, const Vec2& h)
+{
+    const Vec3 q = vec3::abs(p);
+    return std::max(q.y - h.y, std::max(q.x * std::sqrt(3.0) * 0.5 + q.z * 0.5, q.z) - h.x);
+}
+
+inline double fHexagonIncircle(const Vec3& p, const Vec2& h)
+{
+    return fHexagonCircumcircle(p, v2(h.x * std::sqrt(3.0) * 0.5, h.y));
+}
+
+inline double fCone(const Vec3& p, double radius, double height)
+{
+    const Vec2 q = v2(vec2::length(v2(p.x, p.z)), p.y);
+    const Vec2 tip = vec2::sub(q, v2(0.0, height));
+    const Vec2 mantleDir = normalize(v2(height, radius));
+    const double mantle = vec2::dot(tip, mantleDir);
+    double d = std::max(mantle, -q.y);
+    const double projected = vec2::dot(tip, v2(mantleDir.y, -mantleDir.x));
+
+    if ((q.y > height) && (projected < 0.0))
+        d = std::max(d, vec2::length(tip));
+
+    if ((q.x > radius) && (projected > vec2::length(v2(height, radius))))
+        d = std::max(d, vec2::length(vec2::sub(q, v2(radius, 0.0))));
+
+    return d;
+}
+
+// ---- GDF primitives ----
+inline const std::array<Vec3, 19>& GDFVectors()
+{
+    static const std::array<Vec3, 19> v = []() {
+        auto N = [](const Vec3& a) { return normalize(a); };
+        return std::array<Vec3, 19>{
+            N(v3(1, 0, 0)),
+            N(v3(0, 1, 0)),
+            N(v3(0, 0, 1)),
+            N(v3(1, 1, 1)),
+            N(v3(-1, 1, 1)),
+            N(v3(1, -1, 1)),
+            N(v3(1, 1, -1)),
+            N(v3(0, 1, PHI + 1)),
+            N(v3(0, -1, PHI + 1)),
+            N(v3(PHI + 1, 0, 1)),
+            N(v3(-PHI - 1, 0, 1)),
+            N(v3(1, PHI + 1, 0)),
+            N(v3(-1, PHI + 1, 0)),
+            N(v3(0, PHI, 1)),
+            N(v3(0, -PHI, 1)),
+            N(v3(1, 0, PHI)),
+            N(v3(-1, 0, PHI)),
+            N(v3(PHI, 1, 0)),
+            N(v3(-PHI, 1, 0)),
+        };
+    }();
+    return v;
+}
+
+inline double fGDF(const Vec3& p, double r, double e, int begin, int end)
+{
+    double d = 0.0;
+    const auto& vecs = GDFVectors();
+    for (int i = begin; i <= end; ++i)
+        d += std::pow(std::abs(vec3::dot(p, vecs[(size_t)i])), e);
+    return std::pow(d, 1.0 / e) - r;
+}
+
+inline double fGDF(const Vec3& p, double r, int begin, int end)
+{
+    double d = 0.0;
+    const auto& vecs = GDFVectors();
+    for (int i = begin; i <= end; ++i)
+        d = std::max(d, std::abs(vec3::dot(p, vecs[(size_t)i])));
+    return d - r;
+}
+
+inline double fOctahedron(const Vec3& p, double r, double e) { return fGDF(p, r, e, 3, 6); }
+inline double fDodecahedron(const Vec3& p, double r, double e) { return fGDF(p, r, e, 13, 18); }
+inline double fIcosahedron(const Vec3& p, double r, double e) { return fGDF(p, r, e, 3, 12); }
+inline double fTruncatedOctahedron(const Vec3& p, double r, double e) { return fGDF(p, r, e, 0, 6); }
+inline double fTruncatedIcosahedron(const Vec3& p, double r, double e) { return fGDF(p, r, e, 3, 18); }
+inline double fOctahedron(const Vec3& p, double r) { return fGDF(p, r, 3, 6); }
+inline double fDodecahedron(const Vec3& p, double r) { return fGDF(p, r, 13, 18); }
+inline double fIcosahedron(const Vec3& p, double r) { return fGDF(p, r, 3, 12); }
+inline double fTruncatedOctahedron(const Vec3& p, double r) { return fGDF(p, r, 0, 6); }
+inline double fTruncatedIcosahedron(const Vec3& p, double r) { return fGDF(p, r, 3, 18); }
+
+// ---- Domain manipulation operators (Lua-friendly return types) ----
+struct Mod1Result { double p = 0.0; double c = 0.0; };
+struct Mod2Result { Vec2 p{}; Vec2 c{}; };
+struct Mod3Result { Vec3 p{}; Vec3 c{}; };
+struct Mirror1Result { double p = 0.0; double s = 1.0; };
+struct Mirror2Result { Vec2 p{}; Vec2 s{}; };
+struct ReflectResult { Vec3 p{}; double s = 1.0; };
+
+inline Vec2 pR(Vec2 p, double a)
+{
+    const double cs = std::cos(a);
+    const double sn = std::sin(a);
+    return {cs * p.x + sn * p.y, cs * p.y - sn * p.x};
+}
+
+inline Vec2 pR45(Vec2 p)
+{
+    const double k = std::sqrt(0.5);
+    return {(p.x + p.y) * k, (p.y - p.x) * k};
+}
+
+inline Mod1Result pMod1(double p, double size)
+{
+    const double halfsize = size * 0.5;
+    const double c = std::floor((p + halfsize) / size);
+    const double pp = num::mod_glsl(p + halfsize, size) - halfsize;
+    return {pp, c};
+}
+
+inline Mod1Result pModMirror1(double p, double size)
+{
+    const double halfsize = size * 0.5;
+    const double c = std::floor((p + halfsize) / size);
+    double pp = num::mod_glsl(p + halfsize, size) - halfsize;
+    pp *= num::mod_glsl(c, 2.0) * 2.0 - 1.0;
+    return {pp, c};
+}
+
+inline Mod1Result pModSingle1(double p, double size)
+{
+    const double halfsize = size * 0.5;
+    const double c = std::floor((p + halfsize) / size);
+    double pp = p;
+    if (p >= 0.0)
+        pp = num::mod_glsl(p + halfsize, size) - halfsize;
+    return {pp, c};
+}
+
+inline Mod1Result pModInterval1(double p, double size, double start, double stop)
+{
+    const double halfsize = size * 0.5;
+    double c = std::floor((p + halfsize) / size);
+    double pp = num::mod_glsl(p + halfsize, size) - halfsize;
+    if (c > stop)
+    {
+        pp += size * (c - stop);
+        c = stop;
+    }
+    if (c < start)
+    {
+        pp += size * (c - start);
+        c = start;
+    }
+    return {pp, c};
+}
+
+inline std::pair<Vec2, double> pModPolar(Vec2 p, double repetitions)
+{
+    const double angle = 2.0 * PI / repetitions;
+    double a = std::atan2(p.y, p.x) + angle / 2.0;
+    const double r = vec2::length(p);
+    double c = std::floor(a / angle);
+    a = num::mod_glsl(a, angle) - angle / 2.0;
+    p = {std::cos(a) * r, std::sin(a) * r};
+    if (std::abs(c) >= (repetitions / 2.0))
+        c = std::abs(c);
+    return {p, c};
+}
+
+inline Mod2Result pMod2(Vec2 p, const Vec2& size)
+{
+    const Vec2 c = {std::floor((p.x + size.x * 0.5) / size.x), std::floor((p.y + size.y * 0.5) / size.y)};
+    p.x = num::mod_glsl(p.x + size.x * 0.5, size.x) - size.x * 0.5;
+    p.y = num::mod_glsl(p.y + size.y * 0.5, size.y) - size.y * 0.5;
+    return {p, c};
+}
+
+inline Mod2Result pModMirror2(Vec2 p, const Vec2& size)
+{
+    const Vec2 halfsize = {size.x * 0.5, size.y * 0.5};
+    const Vec2 c = {std::floor((p.x + halfsize.x) / size.x), std::floor((p.y + halfsize.y) / size.y)};
+    p.x = num::mod_glsl(p.x + halfsize.x, size.x) - halfsize.x;
+    p.y = num::mod_glsl(p.y + halfsize.y, size.y) - halfsize.y;
+    p.x *= num::mod_glsl(c.x, 2.0) * 2.0 - 1.0;
+    p.y *= num::mod_glsl(c.y, 2.0) * 2.0 - 1.0;
+    return {p, c};
+}
+
+inline Mod2Result pModGrid2(Vec2 p, const Vec2& size)
+{
+    Vec2 c = {std::floor((p.x + size.x * 0.5) / size.x), std::floor((p.y + size.y * 0.5) / size.y)};
+    p.x = num::mod_glsl(p.x + size.x * 0.5, size.x) - size.x * 0.5;
+    p.y = num::mod_glsl(p.y + size.y * 0.5, size.y) - size.y * 0.5;
+    p.x *= num::mod_glsl(c.x, 2.0) * 2.0 - 1.0;
+    p.y *= num::mod_glsl(c.y, 2.0) * 2.0 - 1.0;
+    p = vec2::sub(p, vec2::divN(size, 2.0));
+    if (p.x > p.y)
+        std::swap(p.x, p.y);
+    c = {std::floor(c.x / 2.0), std::floor(c.y / 2.0)};
+    return {p, c};
+}
+
+inline Mod3Result pMod3(Vec3 p, const Vec3& size)
+{
+    const Vec3 c = {std::floor((p.x + size.x * 0.5) / size.x),
+                    std::floor((p.y + size.y * 0.5) / size.y),
+                    std::floor((p.z + size.z * 0.5) / size.z)};
+    p.x = num::mod_glsl(p.x + size.x * 0.5, size.x) - size.x * 0.5;
+    p.y = num::mod_glsl(p.y + size.y * 0.5, size.y) - size.y * 0.5;
+    p.z = num::mod_glsl(p.z + size.z * 0.5, size.z) - size.z * 0.5;
+    return {p, c};
+}
+
+inline Mirror1Result pMirror(double p, double dist)
+{
+    const double s = sgn(p);
+    const double pp = std::abs(p) - dist;
+    return {pp, s};
+}
+
+inline Mirror2Result pMirrorOctant(Vec2 p, const Vec2& dist)
+{
+    const Vec2 s = sgn(p);
+    const auto mx = pMirror(p.x, dist.x);
+    const auto my = pMirror(p.y, dist.y);
+    p.x = mx.p;
+    p.y = my.p;
+    if (p.y > p.x)
+        std::swap(p.x, p.y);
+    return {p, s};
+}
+
+inline ReflectResult pReflect(Vec3 p, const Vec3& planeNormal, double offset)
+{
+    const double t = vec3::dot(p, planeNormal) + offset;
+    if (t < 0.0)
+        p = vec3::sub(p, vec3::mulN(planeNormal, 2.0 * t));
+    return {p, sgn(t)};
+}
+
+// ---- Object combination operators ----
+inline double fOpUnionChamfer(double a, double b, double r)
+{
+    return std::min(std::min(a, b), (a - r + b) * std::sqrt(0.5));
+}
+
+inline double fOpIntersectionChamfer(double a, double b, double r)
+{
+    return std::max(std::max(a, b), (a + r + b) * std::sqrt(0.5));
+}
+
+inline double fOpDifferenceChamfer(double a, double b, double r)
+{
+    return fOpIntersectionChamfer(a, -b, r);
+}
+
+inline double fOpUnionRound(double a, double b, double r)
+{
+    const Vec2 u = v2_max(v2(r - a, r - b), v2(0.0, 0.0));
+    return std::max(r, std::min(a, b)) - vec2::length(u);
+}
+
+inline double fOpIntersectionRound(double a, double b, double r)
+{
+    const Vec2 u = v2_max(v2(r + a, r + b), v2(0.0, 0.0));
+    return std::min(-r, std::max(a, b)) + vec2::length(u);
+}
+
+inline double fOpDifferenceRound(double a, double b, double r)
+{
+    return fOpIntersectionRound(a, -b, r);
+}
+
+inline double fOpUnionColumns(double a, double b, double r, double n)
+{
+    if ((a < r) && (b < r))
+    {
+        Vec2 p = v2(a, b);
+        const double columnradius = r * std::sqrt(2.0) / ((n - 1.0) * 2.0 + std::sqrt(2.0));
+        p = pR45(p);
+        p.x -= std::sqrt(2.0) / 2.0 * r;
+        p.x += columnradius * std::sqrt(2.0);
+        if (num::mod_glsl(n, 2.0) == 1.0)
+            p.y += columnradius;
+
+        const auto m = pMod1(p.y, columnradius * 2.0);
+        p.y = m.p;
+
+        double result = vec2::length(p) - columnradius;
+        result = std::min(result, p.x);
+        result = std::min(result, a);
+        return std::min(result, b);
+    }
+    return std::min(a, b);
+}
+
+inline double fOpDifferenceColumns(double a, double b, double r, double n)
+{
+    a = -a;
+    const double m = std::min(a, b);
+    if ((a < r) && (b < r))
+    {
+        Vec2 p = v2(a, b);
+        const double columnradius = r * std::sqrt(2.0) / ((n - 1.0) * 2.0 + std::sqrt(2.0));
+        p = pR45(p);
+        p.y += columnradius;
+        p.x -= std::sqrt(2.0) / 2.0 * r;
+        p.x += -columnradius * std::sqrt(2.0) / 2.0;
+        if (num::mod_glsl(n, 2.0) == 1.0)
+            p.y += columnradius;
+
+        const auto mm = pMod1(p.y, columnradius * 2.0);
+        p.y = mm.p;
+
+        double result = -vec2::length(p) + columnradius;
+        result = std::max(result, p.x);
+        result = std::min(result, a);
+        return -std::min(result, b);
+    }
+    return -m;
+}
+
+inline double fOpIntersectionColumns(double a, double b, double r, double n)
+{
+    return fOpDifferenceColumns(a, -b, r, n);
+}
+
+inline double fOpUnionStairs(double a, double b, double r, double n)
+{
+    const double s = r / n;
+    const double u = b - r;
+    const double m = num::mod_glsl(u - a + s, 2.0 * s);
+    return std::min(std::min(a, b), 0.5 * (u + a + std::abs(m - s)));
+}
+
+inline double fOpIntersectionStairs(double a, double b, double r, double n)
+{
+    return -fOpUnionStairs(-a, -b, r, n);
+}
+
+inline double fOpDifferenceStairs(double a, double b, double r, double n)
+{
+    return -fOpUnionStairs(-a, b, r, n);
+}
+
+inline double fOpUnionSoft(double a, double b, double r)
+{
+    const double e = std::max(r - std::abs(a - b), 0.0);
+    return std::min(a, b) - e * e * 0.25 / r;
+}
+
+inline double fOpPipe(double a, double b, double r)
+{
+    return vec2::length(v2(a, b)) - r;
+}
+
+inline double fOpEngrave(double a, double b, double r)
+{
+    return std::max(a, (a + r - std::abs(b)) * std::sqrt(0.5));
+}
+
+inline double fOpGroove(double a, double b, double ra, double rb)
+{
+    return std::max(a, std::min(a + ra, rb - std::abs(b)));
+}
+
+inline double fOpTongue(double a, double b, double ra, double rb)
+{
+    return std::min(a, std::max(a - ra, std::abs(b) - rb));
+}
+} // namespace hg
 } // namespace sdf
 
 // Host-side helpers that depend on how glyphs are rasterized.
