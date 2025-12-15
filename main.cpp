@@ -19,6 +19,7 @@
 #include <csignal>          // std::signal, std::sig_atomic_t
 #include <fstream>          // std::ifstream
 #include <algorithm>        // std::min
+#include <iterator>
 
 #include <nlohmann/json.hpp>
 
@@ -32,6 +33,7 @@
 #include "layer_manager.h"
 #include "ansl_editor.h"
 #include "ansl_script_engine.h"
+#include "tool_palette.h"
 #include "xterm256_palette.h"
 
 // Vulkan debug
@@ -755,6 +757,7 @@ int main(int, char**)
     bool   show_character_palette_window = true;
     bool   show_layer_manager_window = true;
     bool   show_ansl_editor_window = true;
+    bool   show_tool_palette_window = true;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -778,11 +781,40 @@ int main(int, char**)
     // ANSL editor state
     AnslEditor ansl_editor;
     AnslScriptEngine ansl_engine;
+    AnslScriptEngine tool_engine;
     {
         std::string err;
         // Initialize the embedded LuaJIT scripting engine and register the native `ansl` module.
         if (!ansl_engine.Init("assets", err))
             fprintf(stderr, "[ansl] init failed: %s\n", err.c_str());
+    }
+    {
+        std::string err;
+        if (!tool_engine.Init("assets", err))
+            fprintf(stderr, "[tools] init failed: %s\n", err.c_str());
+    }
+
+    // Tool palette state
+    ToolPalette tool_palette;
+    std::string tools_error;
+    std::string tool_compile_error;
+    {
+        std::string err;
+        if (!tool_palette.LoadFromDirectory("assets/tools", err))
+            tools_error = err;
+    }
+    {
+        std::string tool_path;
+        if (tool_palette.TakeActiveToolChanged(tool_path))
+        {
+            std::ifstream in(tool_path, std::ios::binary);
+            const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::string err;
+            if (!tool_engine.CompileUserScript(src, err))
+                tool_compile_error = err;
+            else
+                tool_compile_error.clear();
+        }
     }
 
     // Image state
@@ -798,6 +830,7 @@ int main(int, char**)
 
     // Main loop
     bool done = false;
+    int frame_counter = 0;
     while (!done)
     {
         // If Ctrl+C was pressed in the terminal, break out of the render loop
@@ -844,6 +877,7 @@ int main(int, char**)
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        frame_counter++;
 
         // Main menu bar: File > New Canvas, Quit
         if (ImGui::BeginMainMenuBar())
@@ -887,6 +921,7 @@ int main(int, char**)
                 ImGui::MenuItem("Character Palette", nullptr, &show_character_palette_window);
                 ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
                 ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
+                ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1265,6 +1300,48 @@ int main(int, char**)
             ImGui::End();
         }
 
+        // Tool Palette window
+        if (show_tool_palette_window)
+        {
+            const bool tool_palette_changed = tool_palette.Render("Tool Palette", &show_tool_palette_window);
+            (void)tool_palette_changed;
+
+            if (tool_palette.TakeReloadRequested())
+            {
+                std::string err;
+                if (!tool_palette.LoadFromDirectory(tool_palette.GetToolsDir().empty() ? "assets/tools" : tool_palette.GetToolsDir(), err))
+                    tools_error = err;
+                else
+                    tools_error.clear();
+            }
+
+            std::string tool_path;
+            if (tool_palette.TakeActiveToolChanged(tool_path))
+            {
+                std::ifstream in(tool_path, std::ios::binary);
+                const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                std::string err;
+                if (!tool_engine.CompileUserScript(src, err))
+                    tool_compile_error = err;
+                else
+                    tool_compile_error.clear();
+            }
+
+            if (!tool_compile_error.empty())
+            {
+                ImGui::Begin("Tool Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", tool_compile_error.c_str());
+                ImGui::End();
+            }
+
+            if (!tools_error.empty())
+            {
+                ImGui::Begin("Tools Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", tools_error.c_str());
+                ImGui::End();
+            }
+        }
+
         // Render each canvas window:
         //  - Draggable/movable
         //  - Resizable
@@ -1283,7 +1360,77 @@ int main(int, char**)
             // Each canvas gets its own unique ImGui ID for the canvas component.
             char id_buf[32];
             snprintf(id_buf, sizeof(id_buf), "canvas_%d", canvas.id);
-            canvas.canvas.Render(id_buf);
+
+            // Run active tool script during canvas render (keyboard phase + mouse phase).
+            auto to_idx = [](const ImVec4& c) -> int {
+                const int r = (int)std::lround(c.x * 255.0f);
+                const int g = (int)std::lround(c.y * 255.0f);
+                const int b = (int)std::lround(c.z * 255.0f);
+                return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
+                                             (std::uint8_t)std::clamp(g, 0, 255),
+                                             (std::uint8_t)std::clamp(b, 0, 255));
+            };
+            const int fg_idx = to_idx(fg_color);
+            const int bg_idx = to_idx(bg_color);
+
+            auto tool_runner = [&](AnsiCanvas& c, int phase) {
+                if (!tool_engine.HasRenderFunction())
+                    return;
+
+                AnslFrameContext ctx;
+                ctx.cols = c.GetColumns();
+                ctx.rows = c.GetRows();
+                ctx.frame = frame_counter;
+                ctx.time = ImGui::GetTime() * 1000.0; // ms
+                ctx.metrics_aspect = c.GetLastCellAspect();
+                ctx.phase = phase;
+                ctx.focused = c.HasFocus();
+                ctx.fg = fg_idx;
+                ctx.bg = bg_idx;
+                ctx.allow_caret_writeback = true;
+
+                c.GetCaretCell(ctx.caret_x, ctx.caret_y);
+
+                int cx = 0, cy = 0, px = 0, py = 0;
+                bool l = false, r = false, pl = false, pr = false;
+                ctx.cursor_valid = c.GetCursorCell(cx, cy, l, r, px, py, pl, pr);
+                ctx.cursor_x = cx;
+                ctx.cursor_y = cy;
+                ctx.cursor_left_down = l;
+                ctx.cursor_right_down = r;
+                ctx.cursor_px = px;
+                ctx.cursor_py = py;
+                ctx.cursor_prev_left_down = pl;
+                ctx.cursor_prev_right_down = pr;
+
+                std::vector<char32_t> typed;
+                if (phase == 0)
+                {
+                    // Keyboard phase consumes typed + key presses.
+                    c.TakeTypedCodepoints(typed);
+                    ctx.typed = &typed;
+
+                    const auto keys = c.TakeKeyEvents();
+                    ctx.key_left = keys.left;
+                    ctx.key_right = keys.right;
+                    ctx.key_up = keys.up;
+                    ctx.key_down = keys.down;
+                    ctx.key_home = keys.home;
+                    ctx.key_end = keys.end;
+                    ctx.key_backspace = keys.backspace;
+                    ctx.key_delete = keys.del;
+                    ctx.key_enter = keys.enter;
+                }
+
+                std::string err;
+                if (!tool_engine.RunFrame(c, c.GetActiveLayerIndex(), ctx, false, err))
+                {
+                    // Don't spam stderr every frame; stash message for UI.
+                    tool_compile_error = err;
+                }
+            };
+
+            canvas.canvas.Render(id_buf, tool_runner);
 
             ImGui::End();
         }

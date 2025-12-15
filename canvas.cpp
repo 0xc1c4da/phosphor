@@ -123,37 +123,28 @@ AnsiCanvas::AnsiCanvas(int columns)
 {
 }
 
-void AnsiCanvas::ApplyTypedCodepoint(char32_t cp)
+void AnsiCanvas::TakeTypedCodepoints(std::vector<char32_t>& out)
+{
+    out.clear();
+    out.swap(m_typed_queue);
+}
+
+AnsiCanvas::KeyEvents AnsiCanvas::TakeKeyEvents()
+{
+    KeyEvents out = m_key_events;
+    m_key_events = KeyEvents{};
+    return out;
+}
+
+void AnsiCanvas::SetCaretCell(int x, int y)
 {
     EnsureDocument();
-
-    // Normalize common whitespace/control inputs.
-    if (cp == U'\t')
-        cp = U' ';
-
-    // Enter -> new line.
-    if (cp == U'\n' || cp == U'\r')
-    {
-        m_caret_row++;
-        m_caret_col = 0;
-        EnsureRows(m_caret_row + 1);
-        return;
-    }
-
-    // Ignore other control chars.
-    if (cp < 0x20)
-        return;
-
-    SetActiveCell(m_caret_row, m_caret_col, cp);
-
-    // Advance cursor.
-    m_caret_col++;
-    if (m_caret_col >= m_columns)
-    {
-        m_caret_col = 0;
-        m_caret_row++;
-        EnsureRows(m_caret_row + 1);
-    }
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x >= m_columns) x = m_columns - 1;
+    m_caret_col = x;
+    m_caret_row = y;
+    EnsureRows(m_caret_row + 1);
 }
 
 int AnsiCanvas::TextInputCallback(ImGuiInputTextCallbackData* data)
@@ -166,7 +157,8 @@ int AnsiCanvas::TextInputCallback(ImGuiInputTextCallbackData* data)
         return 0;
 
     const char32_t cp = static_cast<char32_t>(data->EventChar);
-    self->ApplyTypedCodepoint(cp);
+    // Queue typed codepoints so the active tool (ANSL) can implement editing behavior.
+    self->m_typed_queue.push_back(cp);
 
     // We applied the character to the canvas; don't let InputText mutate its own buffer.
     return 1;
@@ -209,6 +201,24 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
 
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
+}
+
+void AnsiCanvas::CaptureKeyEvents()
+{
+    m_key_events = KeyEvents{};
+    if (!m_has_focus)
+        return;
+
+    // Match previous behavior: discrete press events.
+    m_key_events.left      = ImGui::IsKeyPressed(ImGuiKey_LeftArrow);
+    m_key_events.right     = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
+    m_key_events.up        = ImGui::IsKeyPressed(ImGuiKey_UpArrow);
+    m_key_events.down      = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
+    m_key_events.home      = ImGui::IsKeyPressed(ImGuiKey_Home);
+    m_key_events.end       = ImGui::IsKeyPressed(ImGuiKey_End);
+    m_key_events.backspace = ImGui::IsKeyPressed(ImGuiKey_Backspace);
+    m_key_events.del       = ImGui::IsKeyPressed(ImGuiKey_Delete);
+    m_key_events.enter     = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
 }
 
 int AnsiCanvas::GetLayerCount() const
@@ -661,6 +671,32 @@ bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& 
     return true;
 }
 
+void AnsiCanvas::ClearLayerCellStyleInternal(int layer_index, int row, int col)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return;
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+    EnsureRows(row + 1);
+    Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = CellIndex(row, col);
+    if (idx < layer.fg.size())
+        layer.fg[idx] = 0;
+    if (idx < layer.bg.size())
+        layer.bg[idx] = 0;
+}
+
+bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    ClearLayerCellStyleInternal(layer_index, row, col);
+    return true;
+}
+
 bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
 {
     EnsureDocument();
@@ -689,97 +725,6 @@ bool AnsiCanvas::FillLayer(int layer_index,
     if (bg.has_value())
         std::fill(layer.bg.begin(), layer.bg.end(), *bg);
     return true;
-}
-
-void AnsiCanvas::HandleKeyboardNavigation()
-{
-    if (!m_has_focus)
-        return;
-
-    EnsureDocument();
-
-    // Arrow navigation behaves like a classic fixed-width editor:
-    //  - left at col 0 goes to previous row's last col (if possible)
-    //  - right at last col goes to next row's col 0 (growing rows on demand)
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
-    {
-        if (m_caret_col > 0)
-            m_caret_col--;
-        else if (m_caret_row > 0)
-        {
-            m_caret_row--;
-            m_caret_col = m_columns - 1;
-        }
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
-    {
-        if (m_caret_col < m_columns - 1)
-            m_caret_col++;
-        else
-        {
-            m_caret_row++;
-            m_caret_col = 0;
-            EnsureRows(m_caret_row + 1);
-        }
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
-    {
-        if (m_caret_row > 0)
-            m_caret_row--;
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
-    {
-        m_caret_row++;
-        EnsureRows(m_caret_row + 1);
-    }
-
-    // Home/End: move within the current row.
-    if (ImGui::IsKeyPressed(ImGuiKey_Home))
-        m_caret_col = 0;
-    if (ImGui::IsKeyPressed(ImGuiKey_End))
-        m_caret_col = m_columns - 1;
-
-    // Clamp.
-    if (m_caret_row < 0) m_caret_row = 0;
-    if (m_caret_col < 0) m_caret_col = 0;
-    if (m_caret_col >= m_columns) m_caret_col = m_columns - 1;
-}
-
-void AnsiCanvas::HandleTextInput()
-{
-    if (!m_has_focus)
-        return;
-
-    EnsureDocument();
-
-    // Editing keys (independent of text input queue).
-    if (ImGui::IsKeyPressed(ImGuiKey_Backspace))
-    {
-        // Move left then clear.
-        if (m_caret_col > 0)
-            m_caret_col--;
-        else if (m_caret_row > 0)
-        {
-            m_caret_row--;
-            m_caret_col = m_columns - 1;
-        }
-        SetActiveCell(m_caret_row, m_caret_col, U' ');
-        ClearActiveCellStyle(m_caret_row, m_caret_col);
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete))
-    {
-        SetActiveCell(m_caret_row, m_caret_col, U' ');
-        ClearActiveCellStyle(m_caret_row, m_caret_col);
-    }
-
-    // Enter -> new line (handled as a key press so it works even when the backend
-    // doesn't emit a text event for it).
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
-    {
-        m_caret_row++;
-        m_caret_col = 0;
-        EnsureRows(m_caret_row + 1);
-    }
 }
 
 void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h)
@@ -838,15 +783,7 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
         m_cursor_right_down = right_down;
         m_cursor_valid = true;
 
-        // Update the canvas caret only when:
-        // - the user clicks inside the canvas, or
-        // - the user is dragging with a button held (item is active).
-        // This avoids mouse motion interfering with keyboard editing.
-        if (any_clicked || (active && any_down))
-        {
-            m_caret_row = row;
-            m_caret_col = col;
-        }
+        // IMPORTANT: tools/scripts decide how mouse input affects the caret.
     }
 }
 
@@ -952,6 +889,11 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
 
 void AnsiCanvas::Render(const char* id)
 {
+    Render(id, {});
+}
+
+void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& canvas, int phase)>& tool_runner)
+{
     if (!id)
         return;
 
@@ -987,7 +929,6 @@ void AnsiCanvas::Render(const char* id)
     }
 
     // Hidden input widget to reliably receive UTF-8 text events from SDL3.
-    // We place it early in the child so typed input can grow rows before we compute canvas_size.
     HandleCharInputWidget(id);
 
     // Restore fit-to-width behavior: keep logical column count fixed, scale cells
@@ -1027,16 +968,13 @@ void AnsiCanvas::Render(const char* id)
     else
         m_last_cell_aspect = 1.0f;
 
-    // IMPORTANT: handle keyboard input before computing canvas_size, because input can
-    // grow the document (rows). If we grow after creating the item, ImGui's scroll range
-    // won't include the new rows until the next frame, and the cursor can disappear.
-    if (m_has_focus)
-    {
-        HandleKeyboardNavigation();
-        HandleTextInput();
-    }
+    // Capture keyboard events and let the active tool handle them *before* we compute canvas_size,
+    // so row growth (typing/enter/wrap) updates ImGui's scroll range immediately.
+    CaptureKeyEvents();
+    if (tool_runner)
+        tool_runner(*this, 0); // keyboard phase
 
-    // Always keep the document large enough to contain the cursor.
+    // Keep document large enough for caret after tool run.
     EnsureRows(m_caret_row + 1);
 
     ImVec2 canvas_size(scaled_cell_w * static_cast<float>(m_columns),
@@ -1058,6 +996,10 @@ void AnsiCanvas::Render(const char* id)
         m_has_focus = false;
 
     HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
+
+    // Mouse phase: tools can react to cursor state for this frame.
+    if (tool_runner)
+        tool_runner(*this, 1);
 
     // Keep cursor visible when navigating.
     if (m_has_focus)

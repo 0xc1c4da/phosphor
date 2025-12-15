@@ -343,6 +343,17 @@ static int l_layer_setRow(lua_State* L)
     return 0;
 }
 
+static int l_layer_clearStyle(lua_State* L)
+{
+    LayerBinding* b = CheckLayer(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid layer binding");
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+    b->canvas->ClearLayerCellStyle(b->layer_index, y, x);
+    return 0;
+}
+
 static int l_layer_gc(lua_State* L)
 {
     LayerBinding* b = static_cast<LayerBinding*>(luaL_checkudata(L, 1, "AnsiLayer"));
@@ -370,6 +381,8 @@ static void EnsureLayerMetatable(lua_State* L)
         lua_setfield(L, -2, "clear");
         lua_pushcfunction(L, l_layer_setRow);
         lua_setfield(L, -2, "setRow");
+        lua_pushcfunction(L, l_layer_clearStyle);
+        lua_setfield(L, -2, "clearStyle");
         lua_setfield(L, -2, "__index");
     }
     lua_pop(L, 1); // metatable
@@ -636,7 +649,14 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
         return false;
 
     // Pre-create a reusable ctx table to avoid per-frame allocations/GC churn.
-    // ctx = { cols, rows, frame, time, metrics={aspect=...}, caret={x,y}, cursor={x,y,left,right,p={...}} }
+    // ctx = {
+    //   cols, rows, frame, time, fg, bg,
+    //   focused, phase,
+    //   keys={...}, typed={...},
+    //   metrics={aspect=...},
+    //   caret={x,y},
+    //   cursor={valid,x,y,left,right,p={x,y,left,right}}
+    // }
     lua_newtable(impl_->L); // ctx
     lua_newtable(impl_->L); // metrics
     lua_pushnumber(impl_->L, 1.0);
@@ -644,6 +664,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_setfield(impl_->L, -2, "metrics"); // ctx.metrics = metrics
 
     lua_newtable(impl_->L); // cursor
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "valid");
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "y");
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "left");
@@ -660,6 +681,19 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "y");
     lua_setfield(impl_->L, -2, "caret"); // ctx.caret = caret
+
+    // keys table (reused)
+    lua_newtable(impl_->L); // keys
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "left");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "right");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "up");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "down");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "home");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "end");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "backspace");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "delete");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "enter");
+    lua_setfield(impl_->L, -2, "keys"); // ctx.keys = keys
 
     impl_->ctx_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
 
@@ -846,6 +880,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_pushinteger(L, frame_ctx.rows);  lua_setfield(L, -2, "rows");
     lua_pushinteger(L, frame_ctx.frame); lua_setfield(L, -2, "frame");
     lua_pushnumber(L, frame_ctx.time);   lua_setfield(L, -2, "time");
+    lua_pushboolean(L, frame_ctx.focused ? 1 : 0); lua_setfield(L, -2, "focused");
+    lua_pushinteger(L, frame_ctx.phase); lua_setfield(L, -2, "phase");
     if (frame_ctx.fg >= 0) { lua_pushinteger(L, frame_ctx.fg); lua_setfield(L, -2, "fg"); }
     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
     if (frame_ctx.bg >= 0) { lua_pushinteger(L, frame_ctx.bg); lua_setfield(L, -2, "bg"); }
@@ -867,9 +903,40 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     }
     lua_pop(L, 1); // caret
 
+    // keys table
+    lua_getfield(L, -1, "keys");
+    if (lua_istable(L, -1))
+    {
+        lua_pushboolean(L, frame_ctx.key_left);      lua_setfield(L, -2, "left");
+        lua_pushboolean(L, frame_ctx.key_right);     lua_setfield(L, -2, "right");
+        lua_pushboolean(L, frame_ctx.key_up);        lua_setfield(L, -2, "up");
+        lua_pushboolean(L, frame_ctx.key_down);      lua_setfield(L, -2, "down");
+        lua_pushboolean(L, frame_ctx.key_home);      lua_setfield(L, -2, "home");
+        lua_pushboolean(L, frame_ctx.key_end);       lua_setfield(L, -2, "end");
+        lua_pushboolean(L, frame_ctx.key_backspace); lua_setfield(L, -2, "backspace");
+        lua_pushboolean(L, frame_ctx.key_delete);    lua_setfield(L, -2, "delete");
+        lua_pushboolean(L, frame_ctx.key_enter);     lua_setfield(L, -2, "enter");
+    }
+    lua_pop(L, 1); // keys
+
+    // typed codepoints -> ctx.typed = { "a", "中", ... }
+    lua_newtable(L);
+    if (frame_ctx.typed)
+    {
+        const auto& cps = *frame_ctx.typed;
+        for (size_t i = 0; i < cps.size(); ++i)
+        {
+            const std::string ch = EncodeCodepointUtf8(cps[i]);
+            lua_pushlstring(L, ch.data(), ch.size());
+            lua_rawseti(L, -2, (lua_Integer)i + 1);
+        }
+    }
+    lua_setfield(L, -2, "typed");
+
     lua_getfield(L, -1, "cursor");
     if (lua_istable(L, -1))
     {
+        lua_pushboolean(L, frame_ctx.cursor_valid ? 1 : 0); lua_setfield(L, -2, "valid");
         lua_pushinteger(L, frame_ctx.cursor_x); lua_setfield(L, -2, "x");
         lua_pushinteger(L, frame_ctx.cursor_y); lua_setfield(L, -2, "y");
         lua_pushboolean(L, frame_ctx.cursor_left_down); lua_setfield(L, -2, "left");
@@ -894,6 +961,26 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     // We still return the error message string.
     if (!PCallNoTraceback(L, 2, 0, error))
         return false;
+
+    // Tool support: allow scripts to write caret back via ctx.caret.{x,y}.
+    if (frame_ctx.allow_caret_writeback)
+    {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->ctx_ref);
+        lua_getfield(L, -1, "caret");
+        if (lua_istable(L, -1))
+        {
+            lua_getfield(L, -1, "x");
+            lua_getfield(L, -2, "y");
+            if (lua_isnumber(L, -2) && lua_isnumber(L, -1))
+            {
+                const int x = (int)lua_tointeger(L, -2);
+                const int y = (int)lua_tointeger(L, -1);
+                canvas.SetCaretCell(x, y);
+            }
+            lua_pop(L, 2); // x,y
+        }
+        lua_pop(L, 2); // caret, ctx
+    }
 
     error.clear();
     return true;

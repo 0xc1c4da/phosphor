@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -66,6 +67,12 @@ public:
     // Render the canvas inside the current ImGui window.
     // `id` must be unique within the window (used for ImGui item id).
     void Render(const char* id);
+    // `tool_runner` is called by the canvas during Render() to run the active tool script.
+    // The canvas will call it twice per frame:
+    //  - phase=0 (keyboard): after collecting typed+key events, before computing canvas size
+    //    (so row growth affects scroll range immediately).
+    //  - phase=1 (mouse): after the canvas InvisibleButton updates cursor state for this frame.
+    void Render(const char* id, const std::function<void(AnsiCanvas& canvas, int phase)>& tool_runner = {});
 
     // ---------------------------------------------------------------------
     // Public layer editing API (used by tools/scripts)
@@ -82,6 +89,8 @@ public:
     char32_t GetLayerCell(int layer_index, int row, int col) const;
     // Returns false if `layer_index` is invalid or out of bounds.
     bool     GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const;
+    // Clears fg/bg style for a cell (sets to 0/unset). Returns false if layer_index invalid.
+    bool     ClearLayerCellStyle(int layer_index, int row, int col);
 
     // Fill an entire layer with `cp` (default: space).
     // Returns false if `layer_index` is invalid.
@@ -100,6 +109,29 @@ public:
     // ---------------------------------------------------------------------
     // Caret = the editing caret used by keyboard operations (x=col, y=row).
     void GetCaretCell(int& out_x, int& out_y) const { out_x = m_caret_col; out_y = m_caret_row; }
+    void SetCaretCell(int x, int y);
+    bool HasFocus() const { return m_has_focus; }
+
+    // ---------------------------------------------------------------------
+    // Input events captured during Render() for tools/scripts to consume.
+    // ---------------------------------------------------------------------
+    struct KeyEvents
+    {
+        bool left = false;
+        bool right = false;
+        bool up = false;
+        bool down = false;
+        bool home = false;
+        bool end = false;
+        bool backspace = false;
+        bool del = false;
+        bool enter = false;
+    };
+
+    // Moves queued typed codepoints into `out` (clearing the internal queue).
+    void TakeTypedCodepoints(std::vector<char32_t>& out);
+    // Returns and clears the last captured key events.
+    KeyEvents TakeKeyEvents();
 
     // Cursor = the mouse cursor expressed in cell space (x=col, y=row) plus button state.
     // If the canvas isn't hovered/active, returns false.
@@ -151,6 +183,10 @@ private:
 
     float m_last_cell_aspect = 1.0f;
 
+    // Input captured from ImGui:
+    std::vector<char32_t> m_typed_queue;
+    KeyEvents             m_key_events;
+
     // Internal helpers
     void EnsureDocument();
     void EnsureRows(int rows_needed);
@@ -167,12 +203,11 @@ private:
     void          SetActiveCell(int row, int col, char32_t cp);
     void          SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg);
     void          ClearActiveCellStyle(int row, int col);
+    void          ClearLayerCellStyleInternal(int layer_index, int row, int col);
 
-    void HandleKeyboardNavigation();
-    void HandleTextInput();
     void HandleCharInputWidget(const char* id);
-    void ApplyTypedCodepoint(char32_t cp);
     static int TextInputCallback(ImGuiInputTextCallbackData* data);
+    void CaptureKeyEvents();
     void HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h);
     void DrawVisibleCells(ImDrawList* draw_list,
                           const ImVec2& origin,

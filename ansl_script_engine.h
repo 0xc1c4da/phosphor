@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 class AnsiCanvas;
 
@@ -18,6 +19,14 @@ struct AnslFrameContext
     int caret_x = 0;
     int caret_y = 0;
 
+    // Whether the canvas has keyboard focus this frame.
+    bool focused = false;
+
+    // Tool/script phase hint:
+    //  - 0 = keyboard phase (host runs tool before computing canvas size)
+    //  - 1 = mouse phase (host runs tool after updating cursor state for this frame)
+    int phase = 0;
+
     // Cursor = the mouse cursor expressed in cell space, plus button state.
     int  cursor_x = 0;
     int  cursor_y = 0;
@@ -27,12 +36,31 @@ struct AnslFrameContext
     int  cursor_py = 0;
     bool cursor_prev_left_down = false;
     bool cursor_prev_right_down = false;
+    bool cursor_valid = false;
+
+    // Typed codepoints collected from ImGui text input (UTF-32 codepoints).
+    // The host owns the vector; valid only for the duration of RunFrame().
+    const std::vector<char32_t>* typed = nullptr;
+
+    // Discrete key press events (match ImGui::IsKeyPressed semantics).
+    bool key_left = false;
+    bool key_right = false;
+    bool key_up = false;
+    bool key_down = false;
+    bool key_home = false;
+    bool key_end = false;
+    bool key_backspace = false;
+    bool key_delete = false;
+    bool key_enter = false;
 
     // Script defaults (xterm-256 indices). -1 means "unset".
     // These are not yet used by the host shim, but are exposed so scripts can
     // pick up the editor's current FG/BG selection without guessing.
     int fg = -1;
     int bg = -1;
+
+    // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
+    bool allow_caret_writeback = false;
 };
 
 // Script-provided settings (optional).

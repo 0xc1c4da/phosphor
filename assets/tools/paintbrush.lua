@@ -1,0 +1,1 @@
+settings = { icon = "🖌", label = "Paintbrush" }
