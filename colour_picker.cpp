@@ -97,6 +97,16 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     float H = 0.0f, S = 0.0f, V = 0.0f;
     ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
 
+    // Preserve hue when the color is grayscale/black (S == 0 or V == 0) because RGB->HSV
+    // yields an undefined hue in that case (usually returning H=0). Without this, dragging
+    // the hue bar while starting from white will "snap back" to red next frame.
+    ImGuiStorage* storage = GetStateStorage();
+    const ImGuiID hue_state_id = window->GetID("##last_hue");
+    if (S == 0.0f || V == 0.0f)
+        H = storage->GetFloat(hue_state_id, H);
+    else
+        storage->SetFloat(hue_state_id, H);
+
     const float width     = CalcItemWidth();
     const float square_sz = GetFrameHeight();
     float       bars_width = square_sz; // hue/alpha bars
@@ -135,6 +145,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
             float h = (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
             H = Clamp01(h);
             value_changed = true;
+            storage->SetFloat(hue_state_id, H);
         }
     }
 
@@ -142,6 +153,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     (void)show_alpha;
 
     // --- Convert HSV back to RGB for storage ---
+    if (value_changed)
+        storage->SetFloat(hue_state_id, H);
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
 
     // Report which mouse button was used for the interaction that changed the color.
@@ -239,6 +252,14 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     float H = 0.0f, S = 0.0f, V = 0.0f;
     ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
 
+    // Same hue preservation as the hue-bar picker: keep the last hue when S==0 or V==0.
+    ImGuiStorage* storage = GetStateStorage();
+    const ImGuiID hue_state_id = window->GetID("##last_hue");
+    if (S == 0.0f || V == 0.0f)
+        H = storage->GetFloat(hue_state_id, H);
+    else
+        storage->SetFloat(hue_state_id, H);
+
     const float width = CalcItemWidth();
     float square_sz   = GetFrameHeight();
     float bars_width  = square_sz;
@@ -281,6 +302,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
                     angle += 2.0f * IM_PI;
                 H = angle / (2.0f * IM_PI);
                 value_changed = true;
+                storage->SetFloat(hue_state_id, H);
             }
             else
             {
@@ -311,6 +333,8 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     (void)show_alpha;
 
     // Convert back HSV -> RGB
+    if (value_changed)
+        storage->SetFloat(hue_state_id, H);
     ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
 
     // Report which mouse button was used for the interaction that changed the color.
