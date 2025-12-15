@@ -182,6 +182,21 @@ void AnslEditor::Render(const char* id,
         ImGui::SameLine();
         bool run_once_clicked = ImGui::Button("Run Once");
 
+        // If the user starts playback or triggers Run Once, create a single undo snapshot
+        // before the script begins mutating the canvas. We intentionally do NOT track
+        // undo steps for every frame while playing.
+        bool pushed_execution_snapshot = false;
+        auto PushExecutionUndoSnapshot = [&]()
+        {
+            if (pushed_execution_snapshot)
+                return;
+            if (canvas)
+            {
+                canvas->PushUndoSnapshot();
+                pushed_execution_snapshot = true;
+            }
+        };
+
         // ---- Compilation + settings application (single source of truth) ----
         auto ResetPlaybackState = [&]()
         {
@@ -282,6 +297,8 @@ void AnslEditor::Render(const char* id,
             }
             else
             {
+                // Starting playback: snapshot the pre-script state.
+                PushExecutionUndoSnapshot();
                 playing_ = true;
                 last_tick_time_ = 0.0; // re-sync timing on resume
             }
@@ -289,6 +306,8 @@ void AnslEditor::Render(const char* id,
 
         if (request_run_once)
         {
+            // One-shot execution: snapshot the pre-script state.
+            PushExecutionUndoSnapshot();
             playing_ = false;
             script_frame_ = 0;
             script_once_ran_ = false;
@@ -297,7 +316,10 @@ void AnslEditor::Render(const char* id,
 
         // Compile button behavior for once scripts: compile + run one frame.
         if (compile_clicked && script_once_ && !script_once_ran_)
+        {
+            PushExecutionUndoSnapshot();
             pending_run_once_ = true;
+        }
 
         // Once scripts stop after the first executed tick.
         if (script_once_ && script_once_ran_)

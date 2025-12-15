@@ -71,6 +71,9 @@ public:
     bool CanRedo() const;
     bool Undo();
     bool Redo();
+    // Pushes the current document state as an undo step (clears redo).
+    // Intended for "undo boundary" actions such as starting script playback.
+    void PushUndoSnapshot();
 
     // Render the canvas inside the current ImGui window.
     // `id` must be unique within the window (used for ImGui item id).

@@ -253,6 +253,18 @@ bool AnsiCanvas::Redo()
     return true;
 }
 
+void AnsiCanvas::PushUndoSnapshot()
+{
+    if (m_undo_applying_snapshot)
+        return;
+
+    m_undo_stack.push_back(MakeSnapshot());
+    if (m_undo_stack.size() > m_undo_limit)
+        m_undo_stack.erase(m_undo_stack.begin(),
+                           m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
+    m_redo_stack.clear();
+}
+
 void AnsiCanvas::TakeTypedCodepoints(std::vector<char32_t>& out)
 {
     out.clear();
