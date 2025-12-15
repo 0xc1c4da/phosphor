@@ -1,9 +1,9 @@
 result/
 references/
 build/
-utf8-art-editor
+phosphor
 *.ini
 *.ans
 *.jpg
 *.png
-*.u8proj
+*.phos

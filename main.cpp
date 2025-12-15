@@ -1,7 +1,3 @@
-// SDL3 + Vulkan + Dear ImGui boilerplate for utf8-art-editor.
-// Based on references/imgui/examples/example_sdl3_vulkan/main.cpp,
-// customised with a File menu and "New Canvas" windows.
-
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
@@ -683,7 +679,7 @@ int main(int, char**)
                           SDL_WINDOW_HIDDEN |
                           SDL_WINDOW_HIGH_PIXEL_DENSITY);
     SDL_Window* window = SDL_CreateWindow(
-        "utf8-art-editor",
+        "Phosphor",
         (int)(1280 * main_scale),
         (int)(800  * main_scale),
         window_flags);

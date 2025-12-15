@@ -4,7 +4,7 @@
 .DEFAULT_GOAL := all
 
 CXX       ?= g++
-EXE       = utf8-art-editor
+EXE       = phosphor
 IMGUI_DIR = references/imgui
 BUILD_DIR = build
 

@@ -22,8 +22,8 @@ namespace
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-static constexpr unsigned char kU8ProjZstdMagic[4] = { 'U', '8', 'P', 'Z' };
-static constexpr std::uint32_t kU8ProjZstdVersion = 1;
+static constexpr unsigned char kPhosZstdMagic[4] = { 'U', '8', 'P', 'Z' };
+static constexpr std::uint32_t kPhosZstdVersion = 1;
 
 static void AppendU32LE(std::vector<std::uint8_t>& out, std::uint32_t v)
 {
@@ -58,13 +58,13 @@ static bool ReadU64LE(const std::vector<std::uint8_t>& in, size_t off, std::uint
     return true;
 }
 
-static bool HasU8ProjZstdHeader(const std::vector<std::uint8_t>& bytes)
+static bool HasPhosZstdHeader(const std::vector<std::uint8_t>& bytes)
 {
     return bytes.size() >= 4 &&
-           bytes[0] == kU8ProjZstdMagic[0] &&
-           bytes[1] == kU8ProjZstdMagic[1] &&
-           bytes[2] == kU8ProjZstdMagic[2] &&
-           bytes[3] == kU8ProjZstdMagic[3];
+           bytes[0] == kPhosZstdMagic[0] &&
+           bytes[1] == kPhosZstdMagic[1] &&
+           bytes[2] == kPhosZstdMagic[2] &&
+           bytes[3] == kPhosZstdMagic[3];
 }
 
 static bool ZstdCompress(const std::vector<std::uint8_t>& in,
@@ -429,8 +429,8 @@ static bool SaveProjectToFile(const std::string& path, const AnsiCanvas& canvas,
     //   ...      zstd-compressed CBOR
     std::vector<std::uint8_t> out;
     out.reserve(4 + 4 + 8 + compressed.size());
-    out.insert(out.end(), std::begin(kU8ProjZstdMagic), std::end(kU8ProjZstdMagic));
-    AppendU32LE(out, kU8ProjZstdVersion);
+    out.insert(out.end(), std::begin(kPhosZstdMagic), std::end(kPhosZstdMagic));
+    AppendU32LE(out, kPhosZstdVersion);
     AppendU64LE(out, (std::uint64_t)bytes.size());
     out.insert(out.end(), compressed.begin(), compressed.end());
 
@@ -450,7 +450,7 @@ static bool LoadProjectFromFile(const std::string& path, AnsiCanvas& out_canvas,
 
     json j;
     // New format: zstd-wrapped CBOR with U8PZ header.
-    if (HasU8ProjZstdHeader(bytes))
+    if (HasPhosZstdHeader(bytes))
     {
         std::uint32_t ver = 0;
         std::uint64_t ulen = 0;
@@ -459,7 +459,7 @@ static bool LoadProjectFromFile(const std::string& path, AnsiCanvas& out_canvas,
             err = "Invalid project header.";
             return false;
         }
-        if (ver != kU8ProjZstdVersion)
+        if (ver != kPhosZstdVersion)
         {
             err = "Unsupported project version.";
             return false;
@@ -549,7 +549,7 @@ void IoManager::OpenDialog(DialogKind kind)
             m_dialog.title = "Save Project";
             m_dialog.ok_label = "Save";
             m_dialog.is_save = true;
-            std::snprintf(m_dialog.filename_buf, sizeof(m_dialog.filename_buf), "%s", "project.u8proj");
+            std::snprintf(m_dialog.filename_buf, sizeof(m_dialog.filename_buf), "%s", "project.phos");
             break;
         case DialogKind::LoadProject:
             m_dialog.title = "Load Project";
@@ -619,7 +619,7 @@ void IoManager::RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks
     // Extensions per dialog type
     std::vector<std::string> exts;
     if (m_dialog.kind == DialogKind::SaveProject || m_dialog.kind == DialogKind::LoadProject)
-        exts = { ".u8proj", ".cbor" };
+        exts = { ".phos", ".cbor" };
     else if (m_dialog.kind == DialogKind::ImportAnsi || m_dialog.kind == DialogKind::ExportAnsi)
         exts = { ".ans", ".txt" };
 
@@ -732,7 +732,7 @@ void IoManager::RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks
         if (m_dialog.is_save && full.extension().empty())
         {
             if (m_dialog.kind == DialogKind::SaveProject)
-                full += ".u8proj";
+                full += ".phos";
             else if (m_dialog.kind == DialogKind::ExportAnsi)
                 full += ".ans";
         }
