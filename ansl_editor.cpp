@@ -62,7 +62,7 @@ AnslEditor::AnslEditor()
             "-- Tip: you can also do `local ansl = require('ansl')` if you prefer not to use globals.\\n"
             "-- layer supports:\\n"
             "--   layer:set(x, y, cpOrString, fg?, bg?)   -- fg/bg are xterm-256 indices (0..255) or nil\\n"
-            "--   layer:get(x, y) -> glyph string\\n"
+            "--   layer:get(x, y) -> ch, fg, bg           -- fg/bg are xterm-256 indices or nil when unset\\n"
             "--   layer:clear(cpOrString?)\\n"
             "--   layer:setRow(y, utf8String)\\n"
             "\\n"

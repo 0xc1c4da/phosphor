@@ -136,7 +136,9 @@ struct AnslScriptSettings
 //   where `ctx` is {cols, rows, frame, time, metrics={aspect=...}, cursor={...}}
 //   and `layer` is a userdata supporting:
 //     - layer:set(x, y, cpOrString)
-//     - layer:get(x, y) -> string (single glyph)
+//     - layer:get(x, y) -> ch, fg, bg
+//         - ch: string (single glyph)
+//         - fg/bg: xterm-256 indices (0..255) or nil when "unset"
 //     - layer:clear(cpOrString?)
 //     - layer:setRow(y, utf8String)
 //

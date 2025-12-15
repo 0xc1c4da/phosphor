@@ -227,7 +227,46 @@ static int l_layer_get(lua_State* L)
     const char32_t cp = b->canvas->GetLayerCell(b->layer_index, y, x);
     const std::string s = EncodeCodepointUtf8(cp);
     lua_pushlstring(L, s.data(), s.size());
-    return 1;
+
+    // Also return optional fg/bg as xterm-256 indices (nil means "unset").
+    // We intentionally return multiple values for backward compatibility:
+    //   local ch = layer:get(x,y)        -- old scripts still work (Lua keeps first)
+    //   local ch, fg, bg = layer:get(x,y)
+    AnsiCanvas::Color32 fg32 = 0;
+    AnsiCanvas::Color32 bg32 = 0;
+    int fg_idx = -1;
+    int bg_idx = -1;
+    if (b->canvas->GetLayerCellColors(b->layer_index, y, x, fg32, bg32))
+    {
+        // Build reverse lookup table (Color32 -> xterm index) once.
+        // All style values currently come from xterm256::Color32ForIndex(), so this is exact.
+        static const std::unordered_map<AnsiCanvas::Color32, int> kColor32ToXterm = []() {
+            std::unordered_map<AnsiCanvas::Color32, int> m;
+            m.reserve(256);
+            for (int i = 0; i <= 255; ++i)
+                m[(AnsiCanvas::Color32)xterm256::Color32ForIndex(i)] = i;
+            return m;
+        }();
+
+        if (fg32 != 0)
+        {
+            auto it = kColor32ToXterm.find(fg32);
+            if (it != kColor32ToXterm.end())
+                fg_idx = it->second;
+        }
+        if (bg32 != 0)
+        {
+            auto it = kColor32ToXterm.find(bg32);
+            if (it != kColor32ToXterm.end())
+                bg_idx = it->second;
+        }
+    }
+
+    if (fg_idx >= 0) lua_pushinteger(L, fg_idx);
+    else lua_pushnil(L);
+    if (bg_idx >= 0) lua_pushinteger(L, bg_idx);
+    else lua_pushnil(L);
+    return 3;
 }
 
 static int l_layer_clear(lua_State* L)
