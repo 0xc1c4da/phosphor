@@ -365,6 +365,24 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
         ImGuiInputTextFlags_AllowTabInput |
         ImGuiInputTextFlags_EnterReturnsTrue;
 
+    // Keep keyboard focus on this widget while the canvas is focused.
+    //
+    // SDL3 backend only emits text input events when ImGui indicates it wants text input,
+    // so we need a focused InputText to receive characters.
+    //
+    // Guard against mouse clicks so we don't steal focus from other UI widgets on the
+    // click frame (layer rename, menus, etc). The canvas focus state will be updated
+    // later in Render() based on where the click landed.
+    const bool any_click =
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    if (m_has_focus &&
+        !any_click &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
     ImGui::InputText(input_id.c_str(), dummy, IM_ARRAYSIZE(dummy), flags, &AnsiCanvas::TextInputCallback, this);
 
     ImGui::PopStyleVar(2);
