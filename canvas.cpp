@@ -923,6 +923,15 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                 m_columns, m_rows, m_caret_row, m_caret_col,
                 m_has_focus ? "  [editing]" : "");
 
+    // Hidden input widget to reliably receive UTF-8 text events from SDL3.
+    //
+    // IMPORTANT: this must NOT live inside the scrollable canvas child. If it does,
+    // forcing keyboard focus to it (SetKeyboardFocusHere) will cause ImGui to scroll
+    // the child to reveal the focused item, which feels like the canvas "jumps" to
+    // the top when you click/paint while scrolled.
+    ImGui::SameLine();
+    HandleCharInputWidget(id);
+
     // Layer GUI lives in the LayerManager component (see layer_manager.*).
 
     // Scrollable region: fixed-width canvas, "infinite" rows (grown on demand).
@@ -936,9 +945,6 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGui::EndChild();
         return;
     }
-
-    // Hidden input widget to reliably receive UTF-8 text events from SDL3.
-    HandleCharInputWidget(id);
 
     // Restore fit-to-width behavior: keep logical column count fixed, scale cells
     // so the grid fits the available width of the child.
