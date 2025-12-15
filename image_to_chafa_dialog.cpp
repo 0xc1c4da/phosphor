@@ -2,22 +2,125 @@
 
 #include "image_to_chafa_dialog.h"
 
+#include "ansi_importer.h"
+
 #include "imgui.h"
-#include "xterm256_palette.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-
+#include <cstring>
 // Chafa (C library)
 #include <chafa.h>
 
 namespace
 {
-static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
+static void DebugPrintEscapedAnsiBytes(const char* label, const std::vector<std::uint8_t>& bytes, size_t max_bytes)
 {
-    // Matches Dear ImGui's IM_COL32(R,G,B,A) packing: A in high byte, then B,G,R.
-    return 0xFF000000u | ((std::uint32_t)b << 16) | ((std::uint32_t)g << 8) | (std::uint32_t)r;
+    std::fprintf(stdout, "[chafa-debug] %s: %zu bytes\n", label ? label : "(bytes)", bytes.size());
+    const size_t n = std::min(bytes.size(), max_bytes);
+    std::fprintf(stdout, "[chafa-debug] %s (escaped, first %zu bytes):\n", label ? label : "(bytes)", n);
+    for (size_t i = 0; i < n; ++i)
+    {
+        const unsigned char c = (unsigned char)bytes[i];
+        if (c == 0x1B) { std::fputs("\\x1b", stdout); continue; }     // ESC
+        if (c == '\n') { std::fputs("\\n\n", stdout); continue; }     // newline + real newline for readability
+        if (c == '\r') { std::fputs("\\r", stdout); continue; }
+        if (c == '\t') { std::fputs("\\t", stdout); continue; }
+        if (c < 0x20 || c == 0x7F)
+        {
+            std::fprintf(stdout, "\\x%02X", (unsigned)c);
+            continue;
+        }
+        std::fputc((int)c, stdout);
+    }
+    if (bytes.size() > n)
+        std::fprintf(stdout, "\n[chafa-debug] ... truncated (%zu more bytes)\n", bytes.size() - n);
+    std::fputc('\n', stdout);
+    std::fflush(stdout);
+}
+
+static void DebugPrintCanvasStats(const char* label, const AnsiCanvas& c)
+{
+    const int rows = c.GetRows();
+    const int cols = c.GetColumns();
+    size_t non_space = 0;
+    size_t fg_set = 0;
+    size_t bg_set = 0;
+
+    for (int r = 0; r < rows; ++r)
+    {
+        for (int col = 0; col < cols; ++col)
+        {
+            AnsiCanvas::Color32 fg = 0, bg = 0;
+            const char32_t cp = c.GetLayerCell(0, r, col);
+            c.GetLayerCellColors(0, r, col, fg, bg);
+            if (cp != U' ')
+                non_space++;
+            if (fg != 0)
+                fg_set++;
+            if (bg != 0)
+                bg_set++;
+        }
+    }
+
+    std::fprintf(stdout,
+                 "[chafa-debug] %s: cols=%d rows=%d non_space=%zu fg_set=%zu bg_set=%zu\n",
+                 label ? label : "(canvas)", cols, rows, non_space, fg_set, bg_set);
+    std::fflush(stdout);
+}
+
+static void DebugPrintImageSamples(const ImageToChafaDialog::ImageRgba& src)
+{
+    auto sample = [&](int x, int y)
+    {
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (x >= src.width) x = src.width - 1;
+        if (y >= src.height) y = src.height - 1;
+        const size_t off = (size_t)y * (size_t)src.rowstride + (size_t)x * 4u;
+        if (off + 3 >= src.pixels.size())
+        {
+            std::fprintf(stdout, "[chafa-debug] sample(%d,%d): out of range\n", x, y);
+            return;
+        }
+        const unsigned r = src.pixels[off + 0];
+        const unsigned g = src.pixels[off + 1];
+        const unsigned b = src.pixels[off + 2];
+        const unsigned a = src.pixels[off + 3];
+        std::fprintf(stdout, "[chafa-debug] sample(%d,%d) RGBA=(%u,%u,%u,%u)\n", x, y, r, g, b, a);
+    };
+
+    std::fprintf(stdout, "[chafa-debug] src: w=%d h=%d rowstride=%d pixels=%zu\n",
+                 src.width, src.height, src.rowstride, src.pixels.size());
+    sample(0, 0);
+    sample(src.width / 2, src.height / 2);
+    sample(src.width - 1, src.height - 1);
+    std::fflush(stdout);
+}
+
+static void DebugPrintChafaCanvasSamples(ChafaCanvas* canvas, int w, int h)
+{
+    if (!canvas || w <= 0 || h <= 0)
+        return;
+
+    auto sample = [&](int x, int y)
+    {
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (x >= w) x = w - 1;
+        if (y >= h) y = h - 1;
+        gunichar ch = chafa_canvas_get_char_at(canvas, x, y);
+        gint fg_raw = -1, bg_raw = -1;
+        chafa_canvas_get_raw_colors_at(canvas, x, y, &fg_raw, &bg_raw);
+        std::fprintf(stdout, "[chafa-debug] canvas(%d,%d): ch=U+%04X fg_raw=%d bg_raw=%d\n",
+                     x, y, (unsigned)ch, (int)fg_raw, (int)bg_raw);
+    };
+
+    sample(0, 0);
+    sample(w / 2, h / 2);
+    sample(w - 1, h - 1);
+    std::fflush(stdout);
 }
 
 static ChafaDitherMode ToDitherMode(int ui_value)
@@ -46,12 +149,16 @@ static ChafaSymbolTags ToSymbolTags(int preset)
 {
     switch (preset)
     {
-        case 0: return CHAFA_SYMBOL_TAG_ALL;
+        // NOTE: We intentionally exclude SPACE from the symbol set for the preview.
+        // Chafa can represent pixels using "colored spaces" (foreground only), but our
+        // renderer skips drawing spaces unless they have a background fill. Excluding
+        // SPACE forces visible glyph output (blocks/braille/etc).
+        case 0: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_ALL & ~CHAFA_SYMBOL_TAG_SPACE);
         case 1: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_BLOCK | CHAFA_SYMBOL_TAG_HALF | CHAFA_SYMBOL_TAG_QUAD |
                                          CHAFA_SYMBOL_TAG_SEXTANT | CHAFA_SYMBOL_TAG_OCTANT |
-                                         CHAFA_SYMBOL_TAG_SOLID | CHAFA_SYMBOL_TAG_STIPPLE | CHAFA_SYMBOL_TAG_SPACE);
-        case 2: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_ASCII | CHAFA_SYMBOL_TAG_SPACE);
-        case 3: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_BRAILLE | CHAFA_SYMBOL_TAG_SPACE);
+                                         CHAFA_SYMBOL_TAG_SOLID | CHAFA_SYMBOL_TAG_STIPPLE);
+        case 2: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_ASCII);
+        case 3: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_BRAILLE);
         default: return CHAFA_SYMBOL_TAG_ALL;
     }
 }
@@ -73,6 +180,9 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
         out_err = "Invalid rowstride.";
         return false;
     }
+
+    if (s.debug_stdout)
+        DebugPrintImageSamples(src);
 
     // Compute output geometry.
     gint out_w = std::max(1, s.out_cols);
@@ -105,7 +215,11 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
     chafa_canvas_config_set_geometry(cfg, out_w, out_h);
     chafa_canvas_config_set_canvas_mode(cfg, ToCanvasMode(s.canvas_mode));
     chafa_canvas_config_set_preprocessing_enabled(cfg, (gboolean)(s.preprocessing ? TRUE : FALSE));
-    chafa_canvas_config_set_transparency_threshold(cfg, std::clamp(s.transparency_threshold, 0.0f, 1.0f));
+    // NOTE: Chafa's "transparency threshold" is inverted internally (it stores an opacity threshold).
+    // Passing 0.0 maps to an internal alpha threshold of 256, which makes even fully-opaque (255) pixels
+    // become transparent. Our UI semantics are: 0.0 = no extra transparency, 1.0 = everything transparent.
+    const float ui_t = std::clamp(s.transparency_threshold, 0.0f, 1.0f);
+    chafa_canvas_config_set_transparency_threshold(cfg, 1.0f - ui_t);
 
     // Dithering controls (mode + intensity).
     chafa_canvas_config_set_dither_mode(cfg, ToDitherMode(s.dither_mode));
@@ -115,8 +229,14 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
     ChafaSymbolMap* sym = chafa_symbol_map_new();
     if (sym)
     {
+        // IMPORTANT: Chafa uses a separate "fill symbol map" for choosing fill characters.
+        // If it's empty, some configurations degenerate into SPACE-only output. We keep
+        // symbol_map and fill_symbol_map in sync for predictable results.
         chafa_symbol_map_add_by_tags(sym, ToSymbolTags(s.symbol_preset));
+        // Be explicit: keep spaces available for padding, but don't allow them as a chosen symbol.
+        chafa_symbol_map_remove_by_tags(sym, CHAFA_SYMBOL_TAG_SPACE);
         chafa_canvas_config_set_symbol_map(cfg, sym);
+        chafa_canvas_config_set_fill_symbol_map(cfg, sym);
         chafa_symbol_map_unref(sym);
     }
 
@@ -137,56 +257,61 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
                                  (gint)src.height,
                                  (gint)src.rowstride);
 
-    // Build AnsiCanvas output.
-    out = AnsiCanvas((int)out_w);
-    out.EnsureRowsPublic((int)out_h);
-    out.ClearLayer(0, U' ');
+    if (s.debug_stdout)
+        DebugPrintChafaCanvasSamples(canvas, (int)out_w, (int)out_h);
 
-    const ChafaCanvasMode mode = ToCanvasMode(s.canvas_mode);
-    for (gint y = 0; y < out_h; ++y)
+    // IMPORTANT: Chafa's printable output is UTF-8 + terminal escape sequences.
+    // We intentionally run it through our ANSI importer so preview matches the "real" import path.
+    GString* gs = chafa_canvas_print(canvas, nullptr);
+    chafa_canvas_unref(canvas);
+
+    if (!gs)
     {
-        for (gint x = 0; x < out_w; ++x)
-        {
-            gunichar ch = chafa_canvas_get_char_at(canvas, x, y);
-            if (ch == 0)
-                ch = (gunichar)' ';
-
-            gint fg_raw = -1, bg_raw = -1;
-            chafa_canvas_get_raw_colors_at(canvas, x, y, &fg_raw, &bg_raw);
-
-            AnsiCanvas::Color32 fg = 0;
-            AnsiCanvas::Color32 bg = 0;
-
-            if (mode == CHAFA_CANVAS_MODE_TRUECOLOR)
-            {
-                if (fg_raw >= 0)
-                {
-                    const std::uint8_t r = (std::uint8_t)((fg_raw >> 16) & 0xFF);
-                    const std::uint8_t g = (std::uint8_t)((fg_raw >> 8) & 0xFF);
-                    const std::uint8_t b = (std::uint8_t)(fg_raw & 0xFF);
-                    fg = PackImGuiCol32(r, g, b);
-                }
-                if (bg_raw >= 0)
-                {
-                    const std::uint8_t r = (std::uint8_t)((bg_raw >> 16) & 0xFF);
-                    const std::uint8_t g = (std::uint8_t)((bg_raw >> 8) & 0xFF);
-                    const std::uint8_t b = (std::uint8_t)(bg_raw & 0xFF);
-                    bg = PackImGuiCol32(r, g, b);
-                }
-            }
-            else
-            {
-                if (fg_raw >= 0)
-                    fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(fg_raw);
-                if (bg_raw >= 0)
-                    bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(bg_raw);
-            }
-
-            out.SetLayerCell(0, (int)y, (int)x, (char32_t)ch, fg, bg);
-        }
+        out_err = "chafa_canvas_print() failed.";
+        return false;
     }
 
-    chafa_canvas_unref(canvas);
+    std::vector<std::uint8_t> bytes;
+    bytes.resize((size_t)gs->len);
+    if (gs->len > 0 && gs->str)
+        std::memcpy(bytes.data(), gs->str, (size_t)gs->len);
+
+    if (s.debug_stdout)
+    {
+        std::fprintf(stdout,
+                     "[chafa-debug] chafa_canvas_print: len=%u\n",
+                     (unsigned)gs->len);
+        if (s.debug_dump_raw_ansi)
+        {
+            std::fputs("[chafa-debug] RAW ANSI START\n", stdout);
+            if (gs->len > 0 && gs->str)
+                std::fwrite(gs->str, 1, (size_t)gs->len, stdout);
+            std::fputs("\n[chafa-debug] RAW ANSI END\n", stdout);
+        }
+        DebugPrintEscapedAnsiBytes("chafa_output", bytes, 4096);
+    }
+    g_string_free(gs, TRUE);
+
+    ansi_importer::Options opt;
+    opt.columns = (int)out_w;
+    // Force UTF-8 decoding even though the stream contains ESC sequences.
+    // Chafa's docs guarantee UTF-8 output regardless of locale.
+    opt.cp437 = false;
+    // Don't force an opaque default background for generated output.
+    opt.default_bg_unset = true;
+
+    AnsiCanvas imported;
+    std::string ierr;
+    if (!ansi_importer::ImportAnsiBytesToCanvas(bytes, imported, ierr, opt))
+    {
+        out_err = ierr.empty() ? "ANSI import failed." : ierr;
+        return false;
+    }
+
+    if (s.debug_stdout)
+        DebugPrintCanvasStats("imported_preview", imported);
+
+    out = std::move(imported);
     return true;
 }
 } // namespace
@@ -275,6 +400,14 @@ void ImageToChafaDialog::Render()
 
         changed |= ImGui::Checkbox("Preprocessing", &settings_.preprocessing);
         changed |= ImGui::SliderFloat("Transparency threshold", &settings_.transparency_threshold, 0.0f, 1.0f, "%.2f");
+
+        ImGui::Separator();
+        changed |= ImGui::Checkbox("Debug to stdout", &settings_.debug_stdout);
+        if (settings_.debug_stdout)
+        {
+            changed |= ImGui::Checkbox("Dump RAW ANSI (danger)", &settings_.debug_dump_raw_ansi);
+            ImGui::TextDisabled("Tip: keep RAW off; use escaped dump to avoid terminal garbage.");
+        }
     }
     ImGui::EndGroup();
 

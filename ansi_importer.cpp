@@ -310,7 +310,8 @@ static inline void ApplyDefaults(const Options& opt, Pen& pen)
     pen.bg_idx = 0;
 
     const AnsiCanvas::Color32 def_fg = (opt.default_fg != 0) ? opt.default_fg : ColorFromAnsi16(7);
-    const AnsiCanvas::Color32 def_bg = (opt.default_bg != 0) ? opt.default_bg : ColorFromAnsi16(0);
+    const AnsiCanvas::Color32 def_bg = opt.default_bg_unset ? 0
+                              : ((opt.default_bg != 0) ? opt.default_bg : ColorFromAnsi16(0));
     pen.fg = def_fg;
     pen.bg = def_bg;
 }
@@ -340,17 +341,12 @@ static inline bool DecodeTextUtf8(const Options& opt, const std::vector<std::uin
 }
 } // namespace
 
-bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const Options& options)
+bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
+                            AnsiCanvas& out_canvas,
+                            std::string& err,
+                            const Options& options)
 {
     err.clear();
-
-    std::string rerr;
-    const auto bytes = ReadAllBytes(path, rerr);
-    if (!rerr.empty())
-    {
-        err = rerr;
-        return false;
-    }
 
     // Prefer SAUCE columns only when caller requests "auto" columns.
     const SauceInfo sauce = ParseSauce(bytes);
@@ -473,13 +469,6 @@ bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std
 
     while (i < bytes.size() && state != State::End)
     {
-        // libansilove wraps before processing the next character.
-        if (state == State::Text && col == columns)
-        {
-            row += 1;
-            col = 0;
-        }
-
         const std::uint8_t b = bytes[i];
         if (state == State::Text)
         {
@@ -693,7 +682,8 @@ bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std
                         // Reset bg to default.
                         pen.bg_mode = Mode::Palette16;
                         pen.bg_idx = 0;
-                        pen.bg = (options.default_bg != 0) ? options.default_bg : ColorFromAnsi16(0);
+                        pen.bg = options.default_bg_unset ? 0
+                               : ((options.default_bg != 0) ? options.default_bg : ColorFromAnsi16(0));
                     }
                     else if (code >= 30 && code <= 37)
                     {
@@ -838,7 +828,22 @@ bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std
     }
 
     out_canvas = std::move(canvas);
+    (void)colMax;
     return true;
+}
+
+bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const Options& options)
+{
+    err.clear();
+
+    std::string rerr;
+    const auto bytes = ReadAllBytes(path, rerr);
+    if (!rerr.empty())
+    {
+        err = rerr;
+        return false;
+    }
+    return ImportAnsiBytesToCanvas(bytes, out_canvas, err, options);
 }
 } // namespace ansi_importer
 

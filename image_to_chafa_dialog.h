@@ -47,6 +47,10 @@ public:
 
         bool  preprocessing = true;
         float transparency_threshold = 0.0f; // 0..1
+
+        // Debugging
+        bool  debug_stdout = false;        // print conversion diagnostics to stdout on regen
+        bool  debug_dump_raw_ansi = false; // WARNING: prints raw ANSI escapes to stdout (may garble terminal)
     };
 
     // Opens the modal and takes ownership of a copy of the source pixels.
