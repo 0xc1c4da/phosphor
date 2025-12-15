@@ -32,6 +32,7 @@
           glib
           icu67.dev
           luajit
+          zstd
         ];
       in
       {

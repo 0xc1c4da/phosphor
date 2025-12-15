@@ -1159,12 +1159,22 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     origin.x = std::floor(origin.x);
     origin.y = std::floor(origin.y);
 
-    // Focus rules: click inside to focus, click outside (in same window) to defocus.
+    // Focus rules:
+    // - click inside the grid to focus
+    // - click elsewhere *within the same canvas window* to defocus
+    //
+    // IMPORTANT: don't defocus on global UI clicks (e.g. main menu bar) so menu actions
+    // like File/Save and Edit/Undo can still target the active canvas.
     const bool any_click = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     if (ImGui::IsItemHovered() && any_click)
         m_has_focus = true;
     else if (!ImGui::IsItemHovered() && any_click)
-        m_has_focus = false;
+    {
+        // Only clear focus if the click was in this window (or its child windows).
+        // If the click was outside (e.g. main menu bar, another window), keep focus.
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
+            m_has_focus = false;
+    }
 
     HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
 
@@ -1202,4 +1212,142 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
     ImGui::EndChild();
+}
+
+AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
+{
+    auto to_project_layer = [&](const Layer& l) -> ProjectLayer
+    {
+        ProjectLayer out;
+        out.name = l.name;
+        out.visible = l.visible;
+        out.cells = l.cells;
+        out.fg = l.fg;
+        out.bg = l.bg;
+        return out;
+    };
+
+    auto to_project_snapshot = [&](const Snapshot& s) -> ProjectSnapshot
+    {
+        ProjectSnapshot out;
+        out.columns = s.columns;
+        out.rows = s.rows;
+        out.active_layer = s.active_layer;
+        out.caret_row = s.caret_row;
+        out.caret_col = s.caret_col;
+        out.layers.reserve(s.layers.size());
+        for (const auto& l : s.layers)
+            out.layers.push_back(to_project_layer(l));
+        return out;
+    };
+
+    ProjectState out;
+    out.version = 1;
+    out.current = to_project_snapshot(MakeSnapshot());
+    out.undo_limit = m_undo_limit;
+
+    out.undo.reserve(m_undo_stack.size());
+    for (const auto& s : m_undo_stack)
+        out.undo.push_back(to_project_snapshot(s));
+    out.redo.reserve(m_redo_stack.size());
+    for (const auto& s : m_redo_stack)
+        out.redo.push_back(to_project_snapshot(s));
+    return out;
+}
+
+bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_error)
+{
+    out_error.clear();
+
+    auto to_internal_layer = [&](const ProjectLayer& l, Layer& out, std::string& err) -> bool
+    {
+        out.name = l.name;
+        out.visible = l.visible;
+        out.cells = l.cells;
+        out.fg = l.fg;
+        out.bg = l.bg;
+
+        if (!out.fg.empty() && out.fg.size() != out.cells.size())
+        {
+            err = "Layer fg size does not match cells size.";
+            return false;
+        }
+        if (!out.bg.empty() && out.bg.size() != out.cells.size())
+        {
+            err = "Layer bg size does not match cells size.";
+            return false;
+        }
+
+        if (out.fg.empty())
+            out.fg.assign(out.cells.size(), 0);
+        if (out.bg.empty())
+            out.bg.assign(out.cells.size(), 0);
+        return true;
+    };
+
+    auto to_internal_snapshot = [&](const ProjectSnapshot& s, Snapshot& out, std::string& err) -> bool
+    {
+        out.columns = (s.columns > 0) ? s.columns : 80;
+        out.rows = (s.rows > 0) ? s.rows : 1;
+        out.active_layer = s.active_layer;
+        out.caret_row = s.caret_row;
+        out.caret_col = s.caret_col;
+        out.layers.clear();
+        out.layers.reserve(s.layers.size());
+        for (const auto& pl : s.layers)
+        {
+            Layer l;
+            if (!to_internal_layer(pl, l, err))
+                return false;
+            out.layers.push_back(std::move(l));
+        }
+        return true;
+    };
+
+    // Convert everything up-front so we can fail without mutating `this`.
+    Snapshot current_internal;
+    if (!to_internal_snapshot(state.current, current_internal, out_error))
+        return false;
+
+    std::vector<Snapshot> undo_internal;
+    undo_internal.reserve(state.undo.size());
+    for (const auto& s : state.undo)
+    {
+        Snapshot tmp;
+        if (!to_internal_snapshot(s, tmp, out_error))
+            return false;
+        undo_internal.push_back(std::move(tmp));
+    }
+
+    std::vector<Snapshot> redo_internal;
+    redo_internal.reserve(state.redo.size());
+    for (const auto& s : state.redo)
+    {
+        Snapshot tmp;
+        if (!to_internal_snapshot(s, tmp, out_error))
+            return false;
+        redo_internal.push_back(std::move(tmp));
+    }
+
+    // Apply in one go.
+    m_has_focus = false;
+    m_typed_queue.clear();
+    m_key_events = KeyEvents{};
+    m_mouse_capture = false;
+    m_cursor_valid = false;
+
+    m_undo_capture_active = false;
+    m_undo_capture_modified = false;
+    m_undo_capture_has_snapshot = false;
+    m_undo_applying_snapshot = false;
+
+    m_undo_limit = (state.undo_limit > 0) ? state.undo_limit : 256;
+    m_undo_stack = std::move(undo_internal);
+    m_redo_stack = std::move(redo_internal);
+
+    ApplySnapshot(current_internal);
+
+    // Clamp active layer and ensure we have at least one layer even for malformed saves.
+    EnsureDocument();
+    return true;
 }

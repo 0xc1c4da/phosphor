@@ -75,6 +75,47 @@ public:
     // Intended for "undo boundary" actions such as starting script playback.
     void PushUndoSnapshot();
 
+    // ---------------------------------------------------------------------
+    // Project Save/Load (serialization support)
+    // ---------------------------------------------------------------------
+    // These structs expose the full editable state of the canvas, including
+    // layers and undo/redo history, so IO code can serialize them.
+    //
+    // Intentionally NOT included (transient UI/input state):
+    //  - focus state, mouse cursor state, typed/key queues, render metrics.
+    struct ProjectLayer
+    {
+        std::string           name;
+        bool                  visible = true;
+        std::vector<char32_t> cells; // size == rows * columns
+        std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
+        std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
+    };
+
+    struct ProjectSnapshot
+    {
+        int                     columns = 80;
+        int                     rows = 1;
+        int                     active_layer = 0;
+        int                     caret_row = 0;
+        int                     caret_col = 0;
+        std::vector<ProjectLayer> layers;
+    };
+
+    struct ProjectState
+    {
+        int                     version = 1;
+        ProjectSnapshot         current;
+        std::vector<ProjectSnapshot> undo;
+        std::vector<ProjectSnapshot> redo;
+        size_t                  undo_limit = 256;
+    };
+
+    ProjectState GetProjectState() const;
+    // Replaces the entire canvas document + undo/redo history from `state`.
+    // Returns false on validation failure and leaves the canvas unchanged.
+    bool SetProjectState(const ProjectState& state, std::string& out_error);
+
     // Render the canvas inside the current ImGui window.
     // `id` must be unique within the window (used for ImGui item id).
     void Render(const char* id);

@@ -37,6 +37,7 @@
 #include "tool_palette.h"
 #include "ansl_params_ui.h"
 #include "xterm256_palette.h"
+#include "io_manager.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -770,6 +771,7 @@ int main(int, char**)
     // Canvas state
     std::vector<CanvasWindow> canvases;
     int next_canvas_id = 1;
+    int last_active_canvas_id = -1; // canvas window focus fallback for File actions
 
     // Character picker state
     CharacterPicker character_picker;
@@ -834,6 +836,9 @@ int main(int, char**)
     fs::path current_import_dir = fs::current_path();
     std::string selected_import_name;
 
+    // File IO (projects, import/export)
+    IoManager io_manager;
+
     // Main loop
     bool done = false;
     int frame_counter = 0;
@@ -885,15 +890,43 @@ int main(int, char**)
         ImGui::NewFrame();
         frame_counter++;
 
-        // Determine which canvas should receive Edit actions (Undo/Redo).
-        // Focus is tracked by each AnsiCanvas instance.
+        // Determine which canvas should receive keyboard-only actions (Undo/Redo shortcuts).
+        // "Focused" is tracked by each AnsiCanvas instance (grid focus).
         AnsiCanvas* focused_canvas = nullptr;
         for (auto& c : canvases)
         {
             if (c.open && c.canvas.HasFocus())
             {
                 focused_canvas = &c.canvas;
+                last_active_canvas_id = c.id;
                 break;
+            }
+        }
+        // Active canvas for global actions (File menu, Edit menu items, future actions):
+        // - prefer the focused grid canvas
+        // - otherwise use the last active canvas window
+        // - otherwise fall back to the first open canvas
+        AnsiCanvas* active_canvas = focused_canvas;
+        if (!focused_canvas && last_active_canvas_id != -1)
+        {
+            for (auto& c : canvases)
+            {
+                if (c.open && c.id == last_active_canvas_id)
+                {
+                    active_canvas = &c.canvas;
+                    break;
+                }
+            }
+        }
+        if (!active_canvas)
+        {
+            for (auto& c : canvases)
+            {
+                if (c.open)
+                {
+                    active_canvas = &c.canvas;
+                    break;
+                }
             }
         }
 
@@ -913,6 +946,22 @@ int main(int, char**)
                     canvas_window.canvas.LoadFromFile("test.ans");
 
                     canvases.push_back(canvas_window);
+                    last_active_canvas_id = canvas_window.id;
+                }
+
+                // Project IO + import/export (handled by IoManager).
+                {
+                    IoManager::Callbacks cbs;
+                    cbs.create_canvas = [&](AnsiCanvas&& c)
+                    {
+                        CanvasWindow canvas_window;
+                        canvas_window.open = true;
+                        canvas_window.id = next_canvas_id++;
+                        canvas_window.canvas = std::move(c);
+                        canvases.push_back(std::move(canvas_window));
+                        last_active_canvas_id = canvas_window.id;
+                    };
+                    io_manager.RenderFileMenu(active_canvas, cbs);
                 }
 
                 if (ImGui::MenuItem("Import Image..."))
@@ -934,13 +983,14 @@ int main(int, char**)
 
             if (ImGui::BeginMenu("Edit"))
             {
-                const bool can_undo = focused_canvas && focused_canvas->CanUndo();
-                const bool can_redo = focused_canvas && focused_canvas->CanRedo();
+                // Use the active canvas so clicking the menu bar doesn't make Undo/Redo unavailable.
+                const bool can_undo = active_canvas && active_canvas->CanUndo();
+                const bool can_redo = active_canvas && active_canvas->CanRedo();
 
                 if (ImGui::MenuItem("Undo", "Ctrl+Z", false, can_undo))
-                    focused_canvas->Undo();
+                    active_canvas->Undo();
                 if (ImGui::MenuItem("Redo", "Ctrl+Y", false, can_redo))
-                    focused_canvas->Redo();
+                    active_canvas->Redo();
 
                 ImGui::EndMenu();
             }
@@ -956,6 +1006,21 @@ int main(int, char**)
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
+        }
+
+        // IoManager popups/modals (Save/Load/Import/Export).
+        {
+            IoManager::Callbacks cbs;
+            cbs.create_canvas = [&](AnsiCanvas&& c)
+            {
+                CanvasWindow canvas_window;
+                canvas_window.open = true;
+                canvas_window.id = next_canvas_id++;
+                canvas_window.canvas = std::move(c);
+                canvases.push_back(std::move(canvas_window));
+                last_active_canvas_id = canvas_window.id;
+            };
+            io_manager.RenderPopups(active_canvas, cbs);
         }
 
         // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
@@ -1426,6 +1491,10 @@ int main(int, char**)
                                 "##canvas" + std::to_string(canvas.id);
 
             ImGui::Begin(title.c_str(), &canvas.open, ImGuiWindowFlags_None);
+
+            // Track last active canvas window even if the canvas grid itself isn't focused.
+            if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+                last_active_canvas_id = canvas.id;
 
             // Each canvas gets its own unique ImGui ID for the canvas component.
             char id_buf[32];

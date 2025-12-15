@@ -19,7 +19,8 @@ SOURCES  = main.cpp \
            ansl_script_engine.cpp \
            ansl_luajit.cpp \
            ansl_params_ui.cpp \
-           tool_palette.cpp
+           tool_palette.cpp \
+           io_manager.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
@@ -37,10 +38,10 @@ CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
-# SDL3 + Vulkan + Chafa + nlohmann_json flags provided by the Nix dev shell (see flake.nix).
+# SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit) -ldl
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd) -ldl
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
