@@ -27,6 +27,14 @@ public:
 
 private:
     int selected_canvas_id_ = 0;
+    char rename_buf_[256] = {0};
+
+    // Rename popup state (kept so the modal can remain open across frames).
+    AnsiCanvas*  rename_target_canvas_ = nullptr;
+    int          rename_target_layer_index_ = -1;
+    int          rename_popup_serial_ = 0;
+    int          rename_popup_active_serial_ = 0;
+    bool         rename_popup_requested_open_ = false;
 };
 
 

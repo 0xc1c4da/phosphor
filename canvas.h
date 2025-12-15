@@ -48,6 +48,9 @@ public:
     int         GetActiveLayerIndex() const;
     std::string GetLayerName(int index) const;
     bool        IsLayerVisible(int index) const;
+    // Renames a layer. Name may be empty (treated as "(unnamed)" in UI).
+    // Captured by undo/redo and project serialization.
+    bool        SetLayerName(int index, const std::string& name);
 
     // Returns the new layer's index, or -1 on failure.
     int  AddLayer(const std::string& name);
@@ -55,6 +58,12 @@ public:
     bool RemoveLayer(int index);
     bool SetActiveLayerIndex(int index);
     bool SetLayerVisible(int index, bool visible);
+
+    // Reorder layers (changes compositing order / depth).
+    // Lower index = further back; higher index = further front (drawn on top).
+    bool MoveLayer(int from_index, int to_index);
+    bool MoveLayerUp(int index);   // toward front (index + 1)
+    bool MoveLayerDown(int index); // toward back  (index - 1)
 
     // Load content from a UTF-8 text/ANSI file.
     // Current behavior:
@@ -231,7 +240,6 @@ private:
 
     // Whether this canvas currently has keyboard focus.
     bool m_has_focus = false;
-
     // Last known mouse cursor state in cell space (updated during Render()).
     bool m_cursor_valid = false;
     int  m_cursor_col = 0;

@@ -159,15 +159,9 @@ void AnslEditor::Render(const char* id,
             target_canvas_id_ = canvases[(size_t)canvas_index].id;
 
         AnsiCanvas* canvas = canvases[(size_t)canvas_index].canvas;
-        int layer_count = canvas ? canvas->GetLayerCount() : 0;
-        if (layer_count <= 0)
-            layer_count = 1;
-
-        if (target_layer_index_ < 0) target_layer_index_ = 0;
-        if (target_layer_index_ >= layer_count) target_layer_index_ = layer_count - 1;
-
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::SliderInt("Target Layer", &target_layer_index_, 0, layer_count - 1);
+        // Always target the canvas's active ("current") layer.
+        const int active_layer = canvas ? canvas->GetActiveLayerIndex() : 0;
+        ImGui::Text("Target Layer: %d (active)", active_layer);
 
         ImGui::Checkbox("Clear layer each frame", &clear_layer_each_frame_);
 
@@ -228,7 +222,8 @@ void AnslEditor::Render(const char* id,
                     fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.foreground_xterm);
                 if (s.has_background)
                     bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.background_xterm);
-                c->FillLayer(target_layer_index_, std::nullopt, fg, bg);
+                const int layer_index = c->GetActiveLayerIndex();
+                c->FillLayer(layer_index, std::nullopt, fg, bg);
             }
         };
 
@@ -398,7 +393,8 @@ void AnslEditor::Render(const char* id,
             }
 
             std::string err;
-            if (!engine.RunFrame(*canvas, target_layer_index_, fctx, clear_layer_each_frame_, err))
+            const int layer_index = canvas->GetActiveLayerIndex();
+            if (!engine.RunFrame(*canvas, layer_index, fctx, clear_layer_each_frame_, err))
                 last_error_ = err;
 
             // Count only executed script frames.

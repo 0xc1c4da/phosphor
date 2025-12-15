@@ -38,6 +38,11 @@ CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
+# Auto-generate header dependency files so changes to .h trigger rebuilds.
+# This prevents ODR/layout mismatches (e.g. when LayerManager gains std::string members).
+DEPFLAGS = -MMD -MP
+DEPS     = $(OBJS:.o=.d)
+
 # SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
 CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd)
@@ -47,22 +52,25 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 $(BUILD_DIR)/%.o: %.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(IMGUI_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: $(IMGUI_DIR)/backends/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 # imgui_stdlib lives under misc/cpp, but OBJS uses notdir(), so we need an explicit rule.
 $(BUILD_DIR)/imgui_stdlib.o: $(IMGUI_DIR)/misc/cpp/imgui_stdlib.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 all: $(EXE)
 
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(LIBS)
+
+# Include generated dependency files if they exist.
+-include $(DEPS)
 
 .PHONY: clean
 clean:

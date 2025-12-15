@@ -3,6 +3,7 @@
 #include "canvas.h"
 #include "imgui.h"
 
+#include <cstdio>
 #include <string>
 
 void LayerManager::Render(const char* title,
@@ -41,13 +42,20 @@ void LayerManager::Render(const char* title,
         canvas_labels.push_back(s.c_str());
 
     int canvas_index = 0;
+    bool canvas_id_found = false;
     for (size_t i = 0; i < canvases.size(); ++i)
     {
         if (canvases[i].id == selected_canvas_id_)
         {
             canvas_index = static_cast<int>(i);
+            canvas_id_found = true;
             break;
         }
+    }
+    if (!canvas_id_found)
+    {
+        canvas_index = 0;
+        selected_canvas_id_ = canvases.front().id;
     }
 
     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -98,6 +106,95 @@ void LayerManager::Render(const char* title,
     bool vis = canvas->IsLayerVisible(canvas->GetActiveLayerIndex());
     if (ImGui::Checkbox("Visible", &vis))
         canvas->SetLayerVisible(canvas->GetActiveLayerIndex(), vis);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Rename..."))
+    {
+        rename_target_canvas_ = canvas;
+        rename_target_layer_index_ = canvas->GetActiveLayerIndex();
+
+        const std::string current = canvas->GetLayerName(rename_target_layer_index_);
+        std::snprintf(rename_buf_, sizeof(rename_buf_), "%s", current.c_str());
+
+        // Use a stable popup name but a unique ID scope per invocation.
+        // This avoids ID mismatches between OpenPopup() and BeginPopupModal().
+        rename_popup_serial_++;
+        rename_popup_active_serial_ = rename_popup_serial_;
+        rename_popup_requested_open_ = true;
+    }
+
+    // Open the popup when requested (must be done in the same ID scope as BeginPopupModal).
+    if (rename_popup_requested_open_)
+    {
+        ImGui::PushID(rename_popup_active_serial_);
+        ImGui::OpenPopup("Rename Layer");
+        ImGui::PopID();
+        rename_popup_requested_open_ = false;
+    }
+
+    // Always try to render the modal for the active rename serial; if it's not open, BeginPopupModal returns false.
+    ImGui::PushID(rename_popup_active_serial_);
+    if (ImGui::BeginPopupModal("Rename Layer", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        // Verify the target canvas still exists this frame (avoid dangling pointer).
+        bool target_alive = false;
+        for (const auto& c : canvases)
+        {
+            if (c.canvas == rename_target_canvas_)
+            {
+                target_alive = true;
+                break;
+            }
+        }
+
+        if (!target_alive || !rename_target_canvas_)
+        {
+            ImGui::TextUnformatted("Target canvas no longer exists.");
+        }
+        else
+        {
+            ImGui::Text("Layer %d name:", rename_target_layer_index_);
+            ImGui::SetNextItemWidth(420.0f);
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere();
+            ImGui::InputText("##rename_layer_name", rename_buf_, IM_ARRAYSIZE(rename_buf_));
+        }
+
+        if (ImGui::Button("OK"))
+        {
+            if (target_alive && rename_target_canvas_ && rename_target_layer_index_ >= 0)
+                rename_target_canvas_->SetLayerName(rename_target_layer_index_, std::string(rename_buf_));
+            rename_target_canvas_ = nullptr;
+            rename_target_layer_index_ = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            rename_target_canvas_ = nullptr;
+            rename_target_layer_index_ = -1;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+
+    // Reorder active layer within the stack.
+    const int active_layer = canvas->GetActiveLayerIndex();
+    const bool can_move_down = (active_layer > 0);
+    const bool can_move_up   = (active_layer >= 0 && active_layer < layer_count - 1);
+
+    if (!can_move_down) ImGui::BeginDisabled();
+    if (ImGui::Button("Move Down"))
+        canvas->MoveLayerDown(active_layer);
+    if (!can_move_down) ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (!can_move_up) ImGui::BeginDisabled();
+    if (ImGui::Button("Move Up"))
+        canvas->MoveLayerUp(active_layer);
+    if (!can_move_up) ImGui::EndDisabled();
 
     ImGui::Separator();
 

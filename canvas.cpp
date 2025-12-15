@@ -334,11 +334,6 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
         ImGuiInputTextFlags_AllowTabInput |
         ImGuiInputTextFlags_EnterReturnsTrue;
 
-    // Keep keyboard focus on this widget while the canvas is focused.
-    // (When the user clicks elsewhere, we drop m_has_focus, so we stop stealing focus.)
-    if (m_has_focus && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-        ImGui::SetKeyboardFocusHere();
-
     ImGui::InputText(input_id.c_str(), dummy, IM_ARRAYSIZE(dummy), flags, &AnsiCanvas::TextInputCallback, this);
 
     ImGui::PopStyleVar(2);
@@ -349,6 +344,9 @@ void AnsiCanvas::CaptureKeyEvents()
 {
     m_key_events = KeyEvents{};
     if (!m_has_focus)
+        return;
+    // If a popup/modal is open, don't interpret keys as canvas commands.
+    if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
         return;
 
     // Match previous behavior: discrete press events.
@@ -385,6 +383,16 @@ bool AnsiCanvas::IsLayerVisible(int index) const
     if (index < 0 || index >= static_cast<int>(m_layers.size()))
         return false;
     return m_layers[static_cast<size_t>(index)].visible;
+}
+
+bool AnsiCanvas::SetLayerName(int index, const std::string& name)
+{
+    EnsureDocument();
+    if (index < 0 || index >= static_cast<int>(m_layers.size()))
+        return false;
+    PrepareUndoSnapshot();
+    m_layers[static_cast<size_t>(index)].name = name;
+    return true;
 }
 
 int AnsiCanvas::AddLayer(const std::string& name)
@@ -438,6 +446,54 @@ bool AnsiCanvas::SetLayerVisible(int index, bool visible)
         return false;
     m_layers[static_cast<size_t>(index)].visible = visible;
     return true;
+}
+
+bool AnsiCanvas::MoveLayer(int from_index, int to_index)
+{
+    EnsureDocument();
+    const int n = static_cast<int>(m_layers.size());
+    if (from_index < 0 || from_index >= n)
+        return false;
+    if (to_index < 0 || to_index >= n)
+        return false;
+    if (from_index == to_index)
+        return true;
+
+    PrepareUndoSnapshot();
+
+    Layer moving = std::move(m_layers[(size_t)from_index]);
+    m_layers.erase(m_layers.begin() + from_index);
+    m_layers.insert(m_layers.begin() + to_index, std::move(moving));
+
+    // Keep active layer pointing at the same logical layer.
+    if (m_active_layer == from_index)
+        m_active_layer = to_index;
+    else if (from_index < to_index)
+    {
+        // Elements in (from_index, to_index] shift left by 1.
+        if (m_active_layer > from_index && m_active_layer <= to_index)
+            m_active_layer -= 1;
+    }
+    else // from_index > to_index
+    {
+        // Elements in [to_index, from_index) shift right by 1.
+        if (m_active_layer >= to_index && m_active_layer < from_index)
+            m_active_layer += 1;
+    }
+
+    if (m_active_layer < 0) m_active_layer = 0;
+    if (m_active_layer >= (int)m_layers.size()) m_active_layer = (int)m_layers.size() - 1;
+    return true;
+}
+
+bool AnsiCanvas::MoveLayerUp(int index)
+{
+    return MoveLayer(index, index + 1);
+}
+
+bool AnsiCanvas::MoveLayerDown(int index)
+{
+    return MoveLayer(index, index - 1);
 }
 
 void AnsiCanvas::SetColumns(int columns)

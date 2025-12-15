@@ -43,7 +43,6 @@ private:
 
     // Target selection
     int target_canvas_id_ = 0;
-    int target_layer_index_ = 0;
     bool clear_layer_each_frame_ = true;
 
     // Playback / throttling
