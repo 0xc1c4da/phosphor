@@ -1016,6 +1016,20 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
     // - function render(ctx, layer) ... end
     // or classic: function main(coord, context, cursor, buffer) ... end (host wraps)
     lua_settop(impl_->L, 0);
+
+    // IMPORTANT: The Lua state persists across compiles. If a new script does not define
+    // `settings` (or `main`/`render`), we must not accidentally keep using the old ones.
+    // Clear script-owned globals before evaluating the new chunk.
+    auto clear_global = [&](const char* name) {
+        lua_pushnil(impl_->L);
+        lua_setglobal(impl_->L, name);
+    };
+    clear_global("settings");
+    clear_global("render");
+    clear_global("main");
+    clear_global("pre");
+    clear_global("post");
+
     if (luaL_loadbuffer(impl_->L, source.c_str(), source.size(), "<ansl_editor>") != LUA_OK)
     {
         error = LuaToString(impl_->L, -1);

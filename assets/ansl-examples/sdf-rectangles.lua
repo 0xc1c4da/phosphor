@@ -2,7 +2,6 @@ local map = ansl.num.map
 local sdBox = ansl.sdf.sdBox
 local opSmoothUnion = ansl.sdf.opSmoothUnion
 
--- Split a UTF-8 string into glyph strings once at load-time (fast and reusable).
 local density = ansl.string.utf8chars("▚▀abc|/:÷×+-=?*·")
 
 local function transform(p, tx, ty, rot)

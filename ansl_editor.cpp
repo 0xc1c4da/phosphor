@@ -7,7 +7,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <utility>
+
+namespace fs = std::filesystem;
+
+static std::string ReadFileToString(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return {};
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
 
 // ImGui helper to edit std::string via InputText* with automatic resize.
 // Adapted from Dear ImGui's imgui_demo.cpp.
@@ -45,6 +59,50 @@ static bool InputTextMultilineString(const char* label,
                                      flags,
                                      InputTextCallback_Resize,
                                      str);
+}
+
+bool AnslEditor::LoadExamplesFromDirectory(std::string& error)
+{
+    examples_.clear();
+
+    fs::path dir(examples_dir_);
+    if (!fs::exists(dir) || !fs::is_directory(dir))
+    {
+        error = "Examples dir not found: " + examples_dir_;
+        return false;
+    }
+
+    std::vector<ExampleSpec> found;
+    try
+    {
+        for (const auto& entry : fs::directory_iterator(dir))
+        {
+            if (!entry.is_regular_file())
+                continue;
+            fs::path p = entry.path();
+            if (p.extension() != ".lua")
+                continue;
+
+            ExampleSpec ex;
+            ex.path = p.string();
+            ex.label = p.filename().string();
+            found.push_back(std::move(ex));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+
+    std::sort(found.begin(), found.end(), [](const ExampleSpec& a, const ExampleSpec& b) {
+        if (a.label != b.label) return a.label < b.label;
+        return a.path < b.path;
+    });
+
+    examples_ = std::move(found);
+    error.clear();
+    return !examples_.empty();
 }
 
 AnslEditor::AnslEditor()
@@ -96,32 +154,28 @@ void AnslEditor::Render(const char* id,
     ImGui::PushID(id);
 
     // Top row: playback.
-    // - Continuous scripts: Play/Pause toggle.
-    // - `settings.once = true`: treat as Run Once (no toggling state).
-    const char* play_label = script_once_ ? "Run Once" : (playing_ ? "Pause" : "Play");
+    // Always expose a stable Play/Pause button label.
+    // (Changing this label to "Run Once" caused an ImGui ID collision with the dedicated
+    // "Run Once" button below when scripts use `settings.once = true`.)
+    const char* play_label = playing_ ? "Pause" : "Play";
     bool request_play = false;
     bool request_pause = false;
     bool request_run_once = false;
     if (ImGui::Button(play_label))
     {
-        if (script_once_)
-        {
-            request_run_once = true;
-        }
+        if (playing_)
+            request_pause = true;
         else
-        {
-            if (playing_)
-                request_pause = true;
-            else
-                request_play = true;
-        }
+            request_play = true;
     }
 
     ImGui::SameLine();
+    ImGui::TextUnformatted(playing_ ? "Playing" : "Paused");
     if (script_once_)
-        ImGui::TextUnformatted(script_once_ran_ ? "Once (ran)" : "Once");
-    else
-        ImGui::TextUnformatted(playing_ ? "Playing" : "Paused");
+    {
+        ImGui::SameLine();
+        ImGui::TextUnformatted(script_once_ran_ ? "(once: ran)" : "(once)");
+    }
 
     ImGui::Separator();
 
@@ -176,6 +230,69 @@ void AnslEditor::Render(const char* id,
         ImGui::SameLine();
         bool run_once_clicked = ImGui::Button("Run Once");
 
+        // Examples dropdown.
+        ImGui::Separator();
+        if (ImGui::SmallButton("Refresh Examples"))
+        {
+            examples_loaded_ = false;
+            examples_error_.clear();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", examples_dir_.c_str());
+
+        if (!examples_loaded_)
+        {
+            std::string err;
+            if (!LoadExamplesFromDirectory(err))
+                examples_error_ = err.empty() ? ("No examples found in " + examples_dir_) : err;
+            else
+                examples_error_.clear();
+
+            // Keep selection stable if possible; otherwise reset.
+            if (selected_example_index_ >= (int)examples_.size())
+                selected_example_index_ = -1;
+
+            examples_loaded_ = true;
+        }
+
+        if (!examples_.empty())
+        {
+            std::vector<const char*> labels;
+            labels.reserve(examples_.size() + 1);
+            labels.push_back("<none>");
+            for (const auto& ex : examples_)
+                labels.push_back(ex.label.c_str());
+
+            int combo_index = selected_example_index_ + 1; // -1 -> 0 ("<none>")
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("Example", &combo_index, labels.data(), (int)labels.size()))
+            {
+                selected_example_index_ = combo_index - 1;
+                if (selected_example_index_ >= 0 && selected_example_index_ < (int)examples_.size())
+                {
+                    const std::string src = ReadFileToString(examples_[(size_t)selected_example_index_].path);
+                    if (src.empty())
+                    {
+                        last_error_ = "Failed to read example: " + examples_[(size_t)selected_example_index_].path;
+                    }
+                    else
+                    {
+                        // Overwrite editor text and stop playback (script content changed).
+                        SetText(src);
+                        last_error_.clear();
+                        playing_ = false;
+                        pending_run_once_ = false;
+                        pending_once_play_deferred_ = false;
+                        script_once_ran_ = false;
+                    }
+                }
+            }
+        }
+        else if (!examples_error_.empty())
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "%s", examples_error_.c_str());
+        }
+
         // If the user starts playback or triggers Run Once, create a single undo snapshot
         // before the script begins mutating the canvas. We intentionally do NOT track
         // undo steps for every frame while playing.
@@ -197,6 +314,7 @@ void AnslEditor::Render(const char* id,
             script_frame_ = 0;
             script_once_ran_ = false;
             pending_run_once_ = false;
+            pending_once_play_deferred_ = false;
             last_tick_time_ = 0.0;
             accumulator_ = 0.0;
             fps_window_start_ = 0.0;
@@ -278,17 +396,30 @@ void AnslEditor::Render(const char* id,
                 (void)EnsureCompiled(/*for_execution=*/false);
         }
 
+        // If we deferred a once-mode "Play" from the previous UI frame, arm the actual one-shot run now.
+        // This makes the button show "Pause" for one frame before executing and returning to "Play".
+        if (script_once_ && pending_once_play_deferred_)
+        {
+            pending_run_once_ = true;
+            pending_once_play_deferred_ = false;
+        }
+
         // Apply requested state transitions *after* compilation/settings so fps/once are current.
         if (request_pause)
         {
             playing_ = false;
+            pending_run_once_ = false;
+            pending_once_play_deferred_ = false;
         }
         else if (request_play)
         {
-            // Play in once-mode is nonsensical; treat as run once.
             if (script_once_)
             {
-                request_run_once = true;
+                // In once mode, "Play" means: briefly enter Playing, then run one tick on the next UI frame.
+                PushExecutionUndoSnapshot();
+                playing_ = true;
+                last_tick_time_ = 0.0; // re-sync timing
+                pending_once_play_deferred_ = true;
             }
             else
             {
@@ -307,6 +438,7 @@ void AnslEditor::Render(const char* id,
             script_frame_ = 0;
             script_once_ran_ = false;
             pending_run_once_ = true;
+            pending_once_play_deferred_ = false;
         }
 
         // Compile button behavior for once scripts: compile + run one frame.

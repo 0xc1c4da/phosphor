@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+// Forward-declare Dear ImGui font type so hosts can optionally use it without
+// pulling imgui.h into every translation unit including this header.
+struct ImFont;
+
 namespace ansl
 {
 struct Vec2
@@ -447,6 +451,32 @@ inline double opSmoothIntersection(double d1, double d2, double k)
     return num::mix(d2, d1, h) + k * h * (1.0 - h);
 }
 } // namespace sdf
+
+// Host-side helpers that depend on how glyphs are rasterized.
+// In the native editor, we use Dear ImGui's font atlas to estimate "brightness"
+// (ink coverage) of each glyph, analogous to the JS module `ansl/src/modules/sort.js`.
+namespace sort
+{
+// Sort a UTF-8 charset by glyph brightness (ink coverage).
+//
+// - `charset_utf8`: UTF-8 string containing the glyphs to sort.
+// - `font`: Dear ImGui font used to measure glyph coverage. If null, the host may
+//   substitute a default font (implementation-dependent).
+// - `ascending`: if true, darkest/least-ink first; otherwise brightest/most-ink first.
+//
+// Note: this sorts by Unicode codepoints (not grapheme clusters).
+std::string by_brightness_utf8(const char* charset_utf8,
+                               size_t len,
+                               const ::ImFont* font,
+                               bool ascending = false);
+
+inline std::string by_brightness_utf8(const std::string& s,
+                                      const ::ImFont* font,
+                                      bool ascending = false)
+{
+    return by_brightness_utf8(s.c_str(), s.size(), font, ascending);
+}
+} // namespace sort
 } // namespace ansl
 
 

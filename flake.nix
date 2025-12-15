@@ -19,8 +19,6 @@
           gdb
           pkg-config
           gcc
-          nodejs
-          esbuild
           sdl3
           vulkan-headers
           vulkan-loader
@@ -33,6 +31,7 @@
           icu67.dev
           luajit
           zstd
+          libnoise
         ];
       in
       {
@@ -41,6 +40,10 @@
 
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath devShellPackages}:$LD_LIBRARY_PATH
+
+            # Provide libnoise
+            export LIBNOISE_CFLAGS="-I${pkgs.libnoise}/include"
+            export LIBNOISE_LIBS="-L${pkgs.libnoise}/lib -lnoise-static -lnoiseutils-static"
           '';
         };
       }

@@ -1,16 +1,8 @@
-// Simple ANSI/Unicode canvas component for utf8-art-editor.
+// ANSI/Unicode canvas component for utf8-art-editor.
 //
-// IMPORTANT DESIGN NOTE
-// The previous implementation stored content as a 1D stream of codepoints and
-// "wrapped" it by column count. That makes it hard to:
-//   - treat the canvas as a traditional fixed-width grid
-//   - support infinite rows (allocated on demand)
-//   - add layers (which require stable row/col addressing)
-//   - implement editing operations (overwrite, backspace, line breaks, etc.)
-//
-// The canvas is now a fixed-width grid with rows that grow on demand.
-// Internally we keep a document with one-or-more layers; compositing currently
-// treats U' ' as transparent so future layers can be added without rewriting UI.
+// The canvas is a fixed-width grid with rows that grow on demand.
+// Internally we keep a document with one-or-more layers; compositing
+// treats U' ' as transparent
 
 #pragma once
 

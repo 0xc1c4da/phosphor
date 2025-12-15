@@ -18,6 +18,7 @@ SOURCES  = main.cpp \
            ansl_editor.cpp \
            ansl_script_engine.cpp \
            ansl_luajit.cpp \
+           ansl_sort.cpp \
            ansl_params_ui.cpp \
            tool_palette.cpp \
            io_manager.cpp
@@ -47,6 +48,11 @@ DEPS     = $(OBJS:.o=.d)
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
 CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd)
 LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd) -ldl
+
+# Optional, provided by the Nix dev shell (see flake.nix).
+# libnoise in nixpkgs is static-only, so we link it explicitly via these env vars.
+CXXFLAGS += $(LIBNOISE_CFLAGS)
+LIBS     += $(LIBNOISE_LIBS)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

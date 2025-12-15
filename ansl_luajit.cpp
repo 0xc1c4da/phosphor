@@ -1,14 +1,20 @@
 #include "ansl_native.h"
 
+#include "imgui.h"
+
 extern "C"
 {
 #include <lua.h>
 #include <lauxlib.h>
 }
 
+#include <noise/noise.h>
+#include <noise/noisegen.h>
+
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <new>
 
 #include "xterm256_palette.h"
 
@@ -568,6 +574,367 @@ static void SetFuncs(lua_State* L, const luaL_Reg* regs)
     luaL_setfuncs(L, regs, 0);
 }
 
+// -------- noise (libnoise) --------
+// Lua API:
+//   local n = ansl.noise.perlin{ seed=..., frequency=..., lacunarity=..., octaves=..., persistence=..., quality="std" }
+//   local v = n:get(x,y,z)   -- number (usually in [-1,1])
+//   local v = n:get2(x,y)    -- z=0
+//
+// Similar constructors: billow{}, ridged{}, voronoi{}.
+namespace noise_lua
+{
+static const char* MT_PERLIN  = "AnslNoisePerlin";
+static const char* MT_BILLOW  = "AnslNoiseBillow";
+static const char* MT_RIDGED  = "AnslNoiseRidged";
+static const char* MT_VORONOI = "AnslNoiseVoronoi";
+
+template <typename T>
+static T* Check(lua_State* L, int idx, const char* mt)
+{
+    void* ud = luaL_checkudata(L, idx, mt);
+    return static_cast<T*>(ud);
+}
+
+static noise::NoiseQuality ParseQualityFromStack(lua_State* L, int idx, noise::NoiseQuality def = noise::QUALITY_STD)
+{
+    if (lua_gettop(L) < idx || lua_isnil(L, idx))
+        return def;
+    if (lua_isnumber(L, idx))
+    {
+        const int q = (int)lua_tointeger(L, idx);
+        if (q <= 0) return noise::QUALITY_FAST;
+        if (q == 1) return noise::QUALITY_STD;
+        return noise::QUALITY_BEST;
+    }
+    if (lua_isstring(L, idx))
+    {
+        size_t len = 0;
+        const char* s = lua_tolstring(L, idx, &len);
+        const std::string v(s ? s : "", s ? (s + len) : (s ? s : ""));
+        if (v == "fast" || v == "FAST" || v == "0") return noise::QUALITY_FAST;
+        if (v == "std" || v == "standard" || v == "STD" || v == "1") return noise::QUALITY_STD;
+        if (v == "best" || v == "BEST" || v == "2") return noise::QUALITY_BEST;
+    }
+    return def;
+}
+
+static bool GetFieldNumber(lua_State* L, int idx, const char* key, double& out)
+{
+    idx = LuaAbsIndex(L, idx);
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, key);
+    if (!lua_isnumber(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = (double)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return true;
+}
+
+static bool GetFieldInt(lua_State* L, int idx, const char* key, int& out)
+{
+    idx = LuaAbsIndex(L, idx);
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, key);
+    if (!lua_isnumber(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = (int)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+    return true;
+}
+
+static bool GetFieldBool(lua_State* L, int idx, const char* key, bool& out)
+{
+    idx = LuaAbsIndex(L, idx);
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, key);
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = lua_toboolean(L, -1) != 0;
+    lua_pop(L, 1);
+    return true;
+}
+
+static bool GetFieldQuality(lua_State* L, int idx, const char* key, noise::NoiseQuality& out)
+{
+    idx = LuaAbsIndex(L, idx);
+    if (!lua_istable(L, idx))
+        return false;
+    lua_getfield(L, idx, key);
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    out = ParseQualityFromStack(L, lua_gettop(L), out);
+    lua_pop(L, 1);
+    return true;
+}
+
+template <typename ModuleT>
+static void ApplyCommonFractalOpts(lua_State* L, int opt_idx, ModuleT& m)
+{
+    int seed = 0;
+    if (GetFieldInt(L, opt_idx, "seed", seed))
+        m.SetSeed(seed);
+
+    double freq = 0.0;
+    if (GetFieldNumber(L, opt_idx, "frequency", freq))
+        m.SetFrequency(freq);
+
+    double lac = 0.0;
+    if (GetFieldNumber(L, opt_idx, "lacunarity", lac))
+        m.SetLacunarity(lac);
+
+    int oct = 0;
+    if (GetFieldInt(L, opt_idx, "octaves", oct) || GetFieldInt(L, opt_idx, "octaveCount", oct))
+        m.SetOctaveCount(oct);
+
+    noise::NoiseQuality q = m.GetNoiseQuality();
+    if (GetFieldQuality(L, opt_idx, "quality", q))
+        m.SetNoiseQuality(q);
+}
+
+static void ApplyPersistenceOpt(lua_State* L, int opt_idx, noise::module::Perlin& m)
+{
+    double p = 0.0;
+    if (GetFieldNumber(L, opt_idx, "persistence", p))
+        m.SetPersistence(p);
+}
+
+static void ApplyPersistenceOpt(lua_State* L, int opt_idx, noise::module::Billow& m)
+{
+    double p = 0.0;
+    if (GetFieldNumber(L, opt_idx, "persistence", p))
+        m.SetPersistence(p);
+}
+
+struct PerlinUD { noise::module::Perlin m; };
+struct BillowUD { noise::module::Billow m; };
+struct RidgedUD { noise::module::RidgedMulti m; };
+struct VoronoiUD { noise::module::Voronoi m; };
+
+static int l_perlin_gc(lua_State* L)  { Check<PerlinUD>(L, 1, MT_PERLIN)->~PerlinUD(); return 0; }
+static int l_billow_gc(lua_State* L)  { Check<BillowUD>(L, 1, MT_BILLOW)->~BillowUD(); return 0; }
+static int l_ridged_gc(lua_State* L)  { Check<RidgedUD>(L, 1, MT_RIDGED)->~RidgedUD(); return 0; }
+static int l_voronoi_gc(lua_State* L) { Check<VoronoiUD>(L, 1, MT_VORONOI)->~VoronoiUD(); return 0; }
+
+static int l_perlin_get(lua_State* L)
+{
+    const auto* ud = Check<PerlinUD>(L, 1, MT_PERLIN);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4)));
+    return 1;
+}
+static int l_perlin_get2(lua_State* L)
+{
+    const auto* ud = Check<PerlinUD>(L, 1, MT_PERLIN);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), 0.0));
+    return 1;
+}
+static int l_billow_get(lua_State* L)
+{
+    const auto* ud = Check<BillowUD>(L, 1, MT_BILLOW);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4)));
+    return 1;
+}
+static int l_billow_get2(lua_State* L)
+{
+    const auto* ud = Check<BillowUD>(L, 1, MT_BILLOW);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), 0.0));
+    return 1;
+}
+static int l_ridged_get(lua_State* L)
+{
+    const auto* ud = Check<RidgedUD>(L, 1, MT_RIDGED);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4)));
+    return 1;
+}
+static int l_ridged_get2(lua_State* L)
+{
+    const auto* ud = Check<RidgedUD>(L, 1, MT_RIDGED);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), 0.0));
+    return 1;
+}
+static int l_voronoi_get(lua_State* L)
+{
+    const auto* ud = Check<VoronoiUD>(L, 1, MT_VORONOI);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4)));
+    return 1;
+}
+static int l_voronoi_get2(lua_State* L)
+{
+    const auto* ud = Check<VoronoiUD>(L, 1, MT_VORONOI);
+    lua_pushnumber(L, ud->m.GetValue(luaL_checknumber(L, 2), luaL_checknumber(L, 3), 0.0));
+    return 1;
+}
+
+static int l_noise_perlin(lua_State* L)
+{
+    void* mem = lua_newuserdata(L, sizeof(PerlinUD));
+    auto* ud = new (mem) PerlinUD();
+    if (lua_gettop(L) >= 1 && lua_istable(L, 1))
+    {
+        try { ApplyCommonFractalOpts(L, 1, ud->m); ApplyPersistenceOpt(L, 1, ud->m); }
+        catch (...) { return luaL_error(L, "ansl.noise.perlin: invalid options"); }
+    }
+    luaL_setmetatable(L, MT_PERLIN);
+    return 1;
+}
+
+static int l_noise_billow(lua_State* L)
+{
+    void* mem = lua_newuserdata(L, sizeof(BillowUD));
+    auto* ud = new (mem) BillowUD();
+    if (lua_gettop(L) >= 1 && lua_istable(L, 1))
+    {
+        try { ApplyCommonFractalOpts(L, 1, ud->m); ApplyPersistenceOpt(L, 1, ud->m); }
+        catch (...) { return luaL_error(L, "ansl.noise.billow: invalid options"); }
+    }
+    luaL_setmetatable(L, MT_BILLOW);
+    return 1;
+}
+
+static int l_noise_ridged(lua_State* L)
+{
+    void* mem = lua_newuserdata(L, sizeof(RidgedUD));
+    auto* ud = new (mem) RidgedUD();
+    if (lua_gettop(L) >= 1 && lua_istable(L, 1))
+    {
+        try { ApplyCommonFractalOpts(L, 1, ud->m); }
+        catch (...) { return luaL_error(L, "ansl.noise.ridged: invalid options"); }
+    }
+    luaL_setmetatable(L, MT_RIDGED);
+    return 1;
+}
+
+static int l_noise_voronoi(lua_State* L)
+{
+    void* mem = lua_newuserdata(L, sizeof(VoronoiUD));
+    auto* ud = new (mem) VoronoiUD();
+    if (lua_gettop(L) >= 1 && lua_istable(L, 1))
+    {
+        try
+        {
+            int seed = 0;
+            if (GetFieldInt(L, 1, "seed", seed)) ud->m.SetSeed(seed);
+            double freq = 0.0;
+            if (GetFieldNumber(L, 1, "frequency", freq)) ud->m.SetFrequency(freq);
+            double disp = 0.0;
+            if (GetFieldNumber(L, 1, "displacement", disp)) ud->m.SetDisplacement(disp);
+            bool dist = false;
+            if (GetFieldBool(L, 1, "distance", dist) || GetFieldBool(L, 1, "enableDistance", dist))
+                ud->m.EnableDistance(dist);
+        }
+        catch (...) { return luaL_error(L, "ansl.noise.voronoi: invalid options"); }
+    }
+    luaL_setmetatable(L, MT_VORONOI);
+    return 1;
+}
+
+// value noise helper (integer lattice)
+static int l_noise_value3(lua_State* L)
+{
+    const int x = (int)luaL_checkinteger(L, 1);
+    const int y = (int)luaL_checkinteger(L, 2);
+    const int z = (int)luaL_checkinteger(L, 3);
+    const int seed = (int)luaL_optinteger(L, 4, 0);
+    lua_pushnumber(L, noise::ValueNoise3D(x, y, z, seed));
+    return 1;
+}
+
+static void EnsureMt(lua_State* L, const char* mt, const luaL_Reg* methods, lua_CFunction gc)
+{
+    if (luaL_newmetatable(L, mt))
+    {
+        lua_pushcfunction(L, gc);
+        lua_setfield(L, -2, "__gc");
+        lua_newtable(L); // __index
+        SetFuncs(L, methods);
+        lua_setfield(L, -2, "__index");
+    }
+    lua_pop(L, 1); // mt
+}
+
+static void EnsureNoiseMetatables(lua_State* L)
+{
+    static const luaL_Reg perlin_methods[] = {
+        {"get", l_perlin_get},
+        {"get2", l_perlin_get2},
+        {nullptr, nullptr},
+    };
+    static const luaL_Reg billow_methods[] = {
+        {"get", l_billow_get},
+        {"get2", l_billow_get2},
+        {nullptr, nullptr},
+    };
+    static const luaL_Reg ridged_methods[] = {
+        {"get", l_ridged_get},
+        {"get2", l_ridged_get2},
+        {nullptr, nullptr},
+    };
+    static const luaL_Reg voronoi_methods[] = {
+        {"get", l_voronoi_get},
+        {"get2", l_voronoi_get2},
+        {nullptr, nullptr},
+    };
+    EnsureMt(L, MT_PERLIN, perlin_methods, l_perlin_gc);
+    EnsureMt(L, MT_BILLOW, billow_methods, l_billow_gc);
+    EnsureMt(L, MT_RIDGED, ridged_methods, l_ridged_gc);
+    EnsureMt(L, MT_VORONOI, voronoi_methods, l_voronoi_gc);
+}
+
+static void PushNoiseModule(lua_State* L)
+{
+    EnsureNoiseMetatables(L);
+
+    lua_createtable(L, 0, 8); // noise
+
+    lua_pushcfunction(L, l_noise_perlin);  lua_setfield(L, -2, "perlin");
+    lua_pushcfunction(L, l_noise_billow);  lua_setfield(L, -2, "billow");
+    lua_pushcfunction(L, l_noise_ridged);  lua_setfield(L, -2, "ridged");
+    lua_pushcfunction(L, l_noise_voronoi); lua_setfield(L, -2, "voronoi");
+    lua_pushcfunction(L, l_noise_value3);  lua_setfield(L, -2, "value3");
+
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, (lua_Integer)noise::QUALITY_FAST); lua_setfield(L, -2, "fast");
+    lua_pushinteger(L, (lua_Integer)noise::QUALITY_STD);  lua_setfield(L, -2, "std");
+    lua_pushinteger(L, (lua_Integer)noise::QUALITY_BEST); lua_setfield(L, -2, "best");
+    lua_setfield(L, -2, "quality");
+}
+} // namespace noise_lua
+
+// -------- sort (glyph brightness / ink coverage) --------
+static int l_sort_brightness(lua_State* L)
+{
+    size_t len = 0;
+    const char* s = luaL_checklstring(L, 1, &len);
+    const bool ascending = (lua_gettop(L) >= 2) ? (lua_toboolean(L, 2) != 0) : false;
+
+    // Use the app font (Unscii). During script load/compile we may not have a "current"
+    // window/font yet, so fall back to the first atlas font.
+    const ImFont* font = ImGui::GetFont();
+    if (!font)
+    {
+        ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+        if (atlas && atlas->Fonts.Size > 0)
+            font = atlas->Fonts[0];
+    }
+    const std::string out = ansl::sort::by_brightness_utf8(s, len, font, ascending);
+    lua_pushlstring(L, out.data(), out.size());
+    return 1;
+}
+
 // -------- string (minimal) --------
 static int l_string_utf8chars(lua_State* L)
 {
@@ -1103,6 +1470,14 @@ extern "C" int luaopen_ansl(lua_State* L)
     lua_createtable(L, 0, 0);
     SetFuncs(L, buffer_fns);
     lua_setfield(L, -2, "buffer");
+    // sort (host: uses ImGui font atlas to sort glyphs by brightness)
+    lua_createtable(L, 0, 0);
+    static const luaL_Reg sort_fns[] = {
+        {"brightness", l_sort_brightness}, // (utf8, ascending?) -> utf8
+        {nullptr, nullptr},
+    };
+    SetFuncs(L, sort_fns);
+    lua_setfield(L, -2, "sort");
     // drawbox: host-specific (depends on styling + higher-level layout); keep as stub for now
     lua_createtable(L, 0, 0);
     lua_setfield(L, -2, "drawbox");
@@ -1110,6 +1485,10 @@ extern "C" int luaopen_ansl(lua_State* L)
     lua_createtable(L, 0, 0);
     SetFuncs(L, string_fns);
     lua_setfield(L, -2, "string");
+
+    // noise (libnoise)
+    noise_lua::PushNoiseModule(L);
+    lua_setfield(L, -2, "noise");
 
     return 1;
 }
