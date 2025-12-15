@@ -33,6 +33,7 @@
 #include "layer_manager.h"
 #include "ansl_editor.h"
 #include "ansl_script_engine.h"
+#include "ansl_native.h"
 #include "tool_palette.h"
 #include "xterm256_palette.h"
 
@@ -775,6 +776,10 @@ int main(int, char**)
     // Character palette state
     CharacterPalette character_palette;
 
+    // Current brush glyph for tools (from picker/palette selection).
+    uint32_t    tool_brush_cp = character_picker.SelectedCodePoint();
+    std::string tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+
     // Layer manager state
     LayerManager layer_manager;
 
@@ -1064,7 +1069,11 @@ int main(int, char**)
         {
             uint32_t cp = 0;
             if (character_picker.TakeSelectionChanged(cp))
+            {
                 character_palette.OnPickerSelectedCodePoint(cp);
+                tool_brush_cp = cp;
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            }
         }
 
         // Character Palette window (loads assets/palettes.json via nlohmann_json)
@@ -1077,7 +1086,11 @@ int main(int, char**)
         {
             uint32_t cp = 0;
             if (character_palette.TakeUserSelectionChanged(cp))
+            {
                 character_picker.JumpToCodePoint(cp);
+                tool_brush_cp = cp;
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            }
         }
 
         // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
@@ -1387,6 +1400,8 @@ int main(int, char**)
                 ctx.focused = c.HasFocus();
                 ctx.fg = fg_idx;
                 ctx.bg = bg_idx;
+                ctx.brush_utf8 = tool_brush_utf8;
+                ctx.brush_cp = (int)tool_brush_cp;
                 ctx.allow_caret_writeback = true;
 
                 c.GetCaretCell(ctx.caret_x, ctx.caret_y);

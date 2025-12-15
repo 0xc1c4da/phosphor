@@ -1,1 +1,0 @@
-settings = { icon = "🖌", label = "Paintbrush" }

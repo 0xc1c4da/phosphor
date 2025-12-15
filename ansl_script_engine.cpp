@@ -695,6 +695,12 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "enter");
     lua_setfield(impl_->L, -2, "keys"); // ctx.keys = keys
 
+    // Tool brush defaults
+    lua_pushliteral(impl_->L, " ");
+    lua_setfield(impl_->L, -2, "brush");
+    lua_pushinteger(impl_->L, 32);
+    lua_setfield(impl_->L, -2, "brushCp");
+
     impl_->ctx_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
 
     impl_->initialized = true;
@@ -886,6 +892,15 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
     if (frame_ctx.bg >= 0) { lua_pushinteger(L, frame_ctx.bg); lua_setfield(L, -2, "bg"); }
     else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
+
+    // Brush selection for tools
+    if (!frame_ctx.brush_utf8.empty())
+        lua_pushlstring(L, frame_ctx.brush_utf8.data(), frame_ctx.brush_utf8.size());
+    else
+        lua_pushliteral(L, " ");
+    lua_setfield(L, -2, "brush");
+    lua_pushinteger(L, (lua_Integer)frame_ctx.brush_cp);
+    lua_setfield(L, -2, "brushCp");
 
     lua_getfield(L, -1, "metrics");
     if (lua_istable(L, -1))

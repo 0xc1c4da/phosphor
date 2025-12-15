@@ -183,6 +183,10 @@ private:
 
     float m_last_cell_aspect = 1.0f;
 
+    // Mouse capture independent of ImGui ActiveId: once the user clicks on the canvas,
+    // we keep updating cursor cell coords while the button is held (enables click+drag tools).
+    bool m_mouse_capture = false;
+
     // Input captured from ImGui:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;

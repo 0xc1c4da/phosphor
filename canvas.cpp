@@ -734,17 +734,26 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
     ImGuiIO& io = ImGui::GetIO();
     const bool hovered = ImGui::IsItemHovered();
     const bool active  = ImGui::IsItemActive(); // stays true during click+drag if the item captured the mouse button
-    if (!hovered && !active)
-    {
-        m_cursor_valid = false;
-        return;
-    }
 
     const bool left_down  = io.MouseDown[ImGuiMouseButton_Left];
     const bool right_down = io.MouseDown[ImGuiMouseButton_Right];
     const bool any_down   = left_down || right_down;
     const bool any_clicked =
         (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)));
+
+    // Capture mouse for tool interactions (pencil/brush) so click+drag continues to update
+    // even if ImGui ActiveId is owned by another widget (e.g. our hidden InputText).
+    if (any_clicked)
+        m_mouse_capture = true;
+    if (!any_down)
+        m_mouse_capture = false;
+
+    const bool tracking = hovered || active || m_mouse_capture;
+    if (!tracking)
+    {
+        m_cursor_valid = false;
+        return;
+    }
 
     // Update pointer state (hover cell + pressed state) every frame.
     {

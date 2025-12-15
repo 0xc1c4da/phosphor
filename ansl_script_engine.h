@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 class AnsiCanvas;
@@ -58,6 +59,12 @@ struct AnslFrameContext
     // pick up the editor's current FG/BG selection without guessing.
     int fg = -1;
     int bg = -1;
+
+    // Current "brush" glyph selection for tools (UTF-8). Empty means " " (space).
+    // Provided by the host (e.g. character picker/palette selection).
+    std::string_view brush_utf8;
+    // Optional brush codepoint (Unicode scalar). 0 means "unknown".
+    int brush_cp = 0;
 
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;
