@@ -98,14 +98,19 @@ public:
     // ---------------------------------------------------------------------
     // Pointer state (for tools/scripts)
     // ---------------------------------------------------------------------
-    // Returns current hovered cell (x=col, y=row) and button state.
-    // If the canvas isn't hovered, returns false and leaves outputs unchanged.
-    bool GetPointerCell(int& out_x,
-                        int& out_y,
-                        bool& out_pressed,
-                        int& out_px,
-                        int& out_py,
-                        bool& out_ppressed) const;
+    // Caret = the editing caret used by keyboard operations (x=col, y=row).
+    void GetCaretCell(int& out_x, int& out_y) const { out_x = m_caret_col; out_y = m_caret_row; }
+
+    // Cursor = the mouse cursor expressed in cell space (x=col, y=row) plus button state.
+    // If the canvas isn't hovered/active, returns false.
+    bool GetCursorCell(int& out_x,
+                       int& out_y,
+                       bool& out_left_down,
+                       bool& out_right_down,
+                       int& out_px,
+                       int& out_py,
+                       bool& out_prev_left_down,
+                       bool& out_prev_right_down) const;
 
     // Latest rendered cell aspect ratio (cell_w / cell_h). Defaults to 1.
     float GetLastCellAspect() const { return m_last_cell_aspect; }
@@ -126,21 +131,23 @@ private:
     std::vector<Layer> m_layers;
     int                m_active_layer = 0;
 
-    // Cursor position (row/col) in grid space.
-    int  m_cursor_row = 0;
-    int  m_cursor_col = 0;
+    // Caret position (row/col) in grid space (keyboard/editing caret).
+    int  m_caret_row = 0;
+    int  m_caret_col = 0;
 
     // Whether this canvas currently has keyboard focus.
     bool m_has_focus = false;
 
-    // Last known pointer cell (updated during Render()).
-    bool m_pointer_valid = false;
-    int  m_pointer_col = 0;
-    int  m_pointer_row = 0;
-    bool m_pointer_pressed = false;
-    int  m_pointer_pcol = 0;
-    int  m_pointer_prow = 0;
-    bool m_pointer_ppressed = false;
+    // Last known mouse cursor state in cell space (updated during Render()).
+    bool m_cursor_valid = false;
+    int  m_cursor_col = 0;
+    int  m_cursor_row = 0;
+    bool m_cursor_left_down = false;
+    bool m_cursor_right_down = false;
+    int  m_cursor_pcol = 0;
+    int  m_cursor_prow = 0;
+    bool m_cursor_prev_left_down = false;
+    bool m_cursor_prev_right_down = false;
 
     float m_last_cell_aspect = 1.0f;
 

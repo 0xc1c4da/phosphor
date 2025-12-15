@@ -14,13 +14,19 @@ struct AnslFrameContext
     // Compatibility with classic ANSL runner context.
     float metrics_aspect = 1.0f;
 
-    // Cursor/pointer in cell space.
+    // Caret = the editing caret used by keyboard operations (cell space).
+    int caret_x = 0;
+    int caret_y = 0;
+
+    // Cursor = the mouse cursor expressed in cell space, plus button state.
     int  cursor_x = 0;
     int  cursor_y = 0;
-    bool cursor_pressed = false;
+    bool cursor_left_down = false;
+    bool cursor_right_down = false;
     int  cursor_px = 0;
     int  cursor_py = 0;
-    bool cursor_ppressed = false;
+    bool cursor_prev_left_down = false;
+    bool cursor_prev_right_down = false;
 
     // Script defaults (xterm-256 indices). -1 means "unset".
     // These are not yet used by the host shim, but are exposed so scripts can

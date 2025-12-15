@@ -134,9 +134,9 @@ void AnsiCanvas::ApplyTypedCodepoint(char32_t cp)
     // Enter -> new line.
     if (cp == U'\n' || cp == U'\r')
     {
-        m_cursor_row++;
-        m_cursor_col = 0;
-        EnsureRows(m_cursor_row + 1);
+        m_caret_row++;
+        m_caret_col = 0;
+        EnsureRows(m_caret_row + 1);
         return;
     }
 
@@ -144,15 +144,15 @@ void AnsiCanvas::ApplyTypedCodepoint(char32_t cp)
     if (cp < 0x20)
         return;
 
-    SetActiveCell(m_cursor_row, m_cursor_col, cp);
+    SetActiveCell(m_caret_row, m_caret_col, cp);
 
     // Advance cursor.
-    m_cursor_col++;
-    if (m_cursor_col >= m_columns)
+    m_caret_col++;
+    if (m_caret_col >= m_columns)
     {
-        m_cursor_col = 0;
-        m_cursor_row++;
-        EnsureRows(m_cursor_row + 1);
+        m_caret_col = 0;
+        m_caret_row++;
+        EnsureRows(m_caret_row + 1);
     }
 }
 
@@ -331,10 +331,10 @@ void AnsiCanvas::SetColumns(int columns)
     }
 
     // Clamp cursor to new width.
-    if (m_cursor_col >= m_columns)
-        m_cursor_col = m_columns - 1;
-    if (m_cursor_col < 0)
-        m_cursor_col = 0;
+    if (m_caret_col >= m_columns)
+        m_caret_col = m_columns - 1;
+    if (m_caret_col < 0)
+        m_caret_col = 0;
 }
 
 bool AnsiCanvas::LoadFromFile(const std::string& path)
@@ -409,8 +409,8 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
         }
     }
 
-    m_cursor_row = 0;
-    m_cursor_col = 0;
+    m_caret_row = 0;
+    m_caret_col = 0;
     return true;
 }
 
@@ -703,46 +703,46 @@ void AnsiCanvas::HandleKeyboardNavigation()
     //  - right at last col goes to next row's col 0 (growing rows on demand)
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
     {
-        if (m_cursor_col > 0)
-            m_cursor_col--;
-        else if (m_cursor_row > 0)
+        if (m_caret_col > 0)
+            m_caret_col--;
+        else if (m_caret_row > 0)
         {
-            m_cursor_row--;
-            m_cursor_col = m_columns - 1;
+            m_caret_row--;
+            m_caret_col = m_columns - 1;
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
     {
-        if (m_cursor_col < m_columns - 1)
-            m_cursor_col++;
+        if (m_caret_col < m_columns - 1)
+            m_caret_col++;
         else
         {
-            m_cursor_row++;
-            m_cursor_col = 0;
-            EnsureRows(m_cursor_row + 1);
+            m_caret_row++;
+            m_caret_col = 0;
+            EnsureRows(m_caret_row + 1);
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
     {
-        if (m_cursor_row > 0)
-            m_cursor_row--;
+        if (m_caret_row > 0)
+            m_caret_row--;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
     {
-        m_cursor_row++;
-        EnsureRows(m_cursor_row + 1);
+        m_caret_row++;
+        EnsureRows(m_caret_row + 1);
     }
 
     // Home/End: move within the current row.
     if (ImGui::IsKeyPressed(ImGuiKey_Home))
-        m_cursor_col = 0;
+        m_caret_col = 0;
     if (ImGui::IsKeyPressed(ImGuiKey_End))
-        m_cursor_col = m_columns - 1;
+        m_caret_col = m_columns - 1;
 
     // Clamp.
-    if (m_cursor_row < 0) m_cursor_row = 0;
-    if (m_cursor_col < 0) m_cursor_col = 0;
-    if (m_cursor_col >= m_columns) m_cursor_col = m_columns - 1;
+    if (m_caret_row < 0) m_caret_row = 0;
+    if (m_caret_col < 0) m_caret_col = 0;
+    if (m_caret_col >= m_columns) m_caret_col = m_columns - 1;
 }
 
 void AnsiCanvas::HandleTextInput()
@@ -756,29 +756,29 @@ void AnsiCanvas::HandleTextInput()
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace))
     {
         // Move left then clear.
-        if (m_cursor_col > 0)
-            m_cursor_col--;
-        else if (m_cursor_row > 0)
+        if (m_caret_col > 0)
+            m_caret_col--;
+        else if (m_caret_row > 0)
         {
-            m_cursor_row--;
-            m_cursor_col = m_columns - 1;
+            m_caret_row--;
+            m_caret_col = m_columns - 1;
         }
-        SetActiveCell(m_cursor_row, m_cursor_col, U' ');
-        ClearActiveCellStyle(m_cursor_row, m_cursor_col);
+        SetActiveCell(m_caret_row, m_caret_col, U' ');
+        ClearActiveCellStyle(m_caret_row, m_caret_col);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Delete))
     {
-        SetActiveCell(m_cursor_row, m_cursor_col, U' ');
-        ClearActiveCellStyle(m_cursor_row, m_cursor_col);
+        SetActiveCell(m_caret_row, m_caret_col, U' ');
+        ClearActiveCellStyle(m_caret_row, m_caret_col);
     }
 
     // Enter -> new line (handled as a key press so it works even when the backend
     // doesn't emit a text event for it).
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
     {
-        m_cursor_row++;
-        m_cursor_col = 0;
-        EnsureRows(m_cursor_row + 1);
+        m_caret_row++;
+        m_caret_col = 0;
+        EnsureRows(m_caret_row + 1);
     }
 }
 
@@ -787,76 +787,88 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
     EnsureDocument();
 
     ImGuiIO& io = ImGui::GetIO();
-    if (!ImGui::IsItemHovered())
+    const bool hovered = ImGui::IsItemHovered();
+    const bool active  = ImGui::IsItemActive(); // stays true during click+drag if the item captured the mouse button
+    if (!hovered && !active)
     {
-        m_pointer_valid = false;
+        m_cursor_valid = false;
         return;
     }
+
+    const bool left_down  = io.MouseDown[ImGuiMouseButton_Left];
+    const bool right_down = io.MouseDown[ImGuiMouseButton_Right];
+    const bool any_down   = left_down || right_down;
+    const bool any_clicked =
+        (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)));
 
     // Update pointer state (hover cell + pressed state) every frame.
     {
         ImVec2 local(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
-        if (local.x >= 0.0f && local.y >= 0.0f)
-        {
-            int col = static_cast<int>(local.x / cell_w);
-            int row = static_cast<int>(local.y / cell_h);
 
-            if (col < 0) col = 0;
-            if (col >= m_columns) col = m_columns - 1;
-            if (row < 0) row = 0;
-
-            EnsureRows(row + 1);
-
-            m_pointer_pcol = m_pointer_col;
-            m_pointer_prow = m_pointer_row;
-            m_pointer_ppressed = m_pointer_pressed;
-
-            m_pointer_col = col;
-            m_pointer_row = row;
-            m_pointer_pressed = io.MouseDown[ImGuiMouseButton_Left];
-            m_pointer_valid = true;
-        }
-        else
-        {
-            m_pointer_valid = false;
-        }
-    }
-
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-    {
-        ImVec2 local(io.MousePos.x - origin.x, io.MousePos.y - origin.y);
-        if (local.x < 0.0f || local.y < 0.0f)
-            return;
-
-        int col = static_cast<int>(local.x / cell_w);
-        int row = static_cast<int>(local.y / cell_h);
+        // Convert to cell coords; allow dragging outside the item rect by clamping.
+        int col = static_cast<int>(std::floor(local.x / cell_w));
+        int row = static_cast<int>(std::floor(local.y / cell_h));
 
         if (col < 0) col = 0;
         if (col >= m_columns) col = m_columns - 1;
         if (row < 0) row = 0;
 
-        EnsureRows(row + 1);
-        m_cursor_row = row;
+        // Don't let hover accidentally grow the document; only allow row growth when interacting.
+        // (This keeps keyboard editing stable even if the mouse is moving around.)
+        if (!any_down && !any_clicked)
+        {
+            if (row >= m_rows) row = m_rows - 1;
+            if (row < 0) row = 0;
+        }
+        else
+        {
+            EnsureRows(row + 1);
+        }
+
+        // Previous pointer state (for drag detection).
+        m_cursor_pcol = m_cursor_col;
+        m_cursor_prow = m_cursor_row;
+        m_cursor_prev_left_down  = m_cursor_left_down;
+        m_cursor_prev_right_down = m_cursor_right_down;
+
+        // Current pointer state.
         m_cursor_col = col;
-        m_has_focus = true;
+        m_cursor_row = row;
+        m_cursor_left_down  = left_down;
+        m_cursor_right_down = right_down;
+        m_cursor_valid = true;
+
+        // Update the canvas caret only when:
+        // - the user clicks inside the canvas, or
+        // - the user is dragging with a button held (item is active).
+        // This avoids mouse motion interfering with keyboard editing.
+        if (any_clicked || (active && any_down))
+        {
+            m_caret_row = row;
+            m_caret_col = col;
+        }
     }
 }
 
-bool AnsiCanvas::GetPointerCell(int& out_x,
-                                int& out_y,
-                                bool& out_pressed,
-                                int& out_px,
-                                int& out_py,
-                                bool& out_ppressed) const
+bool AnsiCanvas::GetCursorCell(int& out_x,
+                               int& out_y,
+                               bool& out_left_down,
+                               bool& out_right_down,
+                               int& out_px,
+                               int& out_py,
+                               bool& out_prev_left_down,
+                               bool& out_prev_right_down) const
 {
-    if (!m_pointer_valid)
+    if (!m_cursor_valid)
         return false;
-    out_x = m_pointer_col;
-    out_y = m_pointer_row;
-    out_pressed = m_pointer_pressed;
-    out_px = m_pointer_pcol;
-    out_py = m_pointer_prow;
-    out_ppressed = m_pointer_ppressed;
+    out_x = m_cursor_col;
+    out_y = m_cursor_row;
+    out_left_down = m_cursor_left_down;
+    out_right_down = m_cursor_right_down;
+    out_px = m_cursor_pcol;
+    out_py = m_cursor_prow;
+    out_prev_left_down = m_cursor_prev_left_down;
+    out_prev_right_down = m_cursor_prev_right_down;
     return true;
 }
 
@@ -916,8 +928,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 draw_list->AddRectFilled(cell_min, cell_max, (ImU32)cell.bg);
             }
 
-            // Cursor highlight.
-            if (row == m_cursor_row && col == m_cursor_col)
+            // Caret highlight.
+            if (row == m_caret_row && col == m_caret_col)
             {
                 ImU32 cursor_col = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
                 draw_list->AddRectFilled(cell_min, cell_max, cursor_col);
@@ -957,7 +969,7 @@ void AnsiCanvas::Render(const char* id)
 
     // Quick status line (foundation for future toolbars).
     ImGui::Text("Cols: %d  Rows: %d  Cursor: (%d, %d)%s",
-                m_columns, m_rows, m_cursor_row, m_cursor_col,
+                m_columns, m_rows, m_caret_row, m_caret_col,
                 m_has_focus ? "  [editing]" : "");
 
     // Layer GUI lives in the LayerManager component (see layer_manager.*).
@@ -1025,21 +1037,24 @@ void AnsiCanvas::Render(const char* id)
     }
 
     // Always keep the document large enough to contain the cursor.
-    EnsureRows(m_cursor_row + 1);
+    EnsureRows(m_caret_row + 1);
 
     ImVec2 canvas_size(scaled_cell_w * static_cast<float>(m_columns),
                        scaled_cell_h * static_cast<float>(m_rows));
 
-    ImGui::InvisibleButton(id, canvas_size, ImGuiButtonFlags_MouseButtonLeft);
+    // Capture both left and right mouse buttons so tools/scripts can react to either click+drag.
+    ImGui::InvisibleButton(id, canvas_size,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 origin = ImGui::GetItemRectMin();
     origin.x = std::floor(origin.x);
     origin.y = std::floor(origin.y);
 
     // Focus rules: click inside to focus, click outside (in same window) to defocus.
-    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    const bool any_click = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    if (ImGui::IsItemHovered() && any_click)
         m_has_focus = true;
-    else if (!ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    else if (!ImGui::IsItemHovered() && any_click)
         m_has_focus = false;
 
     HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
@@ -1055,9 +1070,9 @@ void AnsiCanvas::Render(const char* id)
         const float scroll_x = ImGui::GetScrollX();
         const float scroll_y = ImGui::GetScrollY();
 
-        const float cursor_x0 = static_cast<float>(m_cursor_col) * scaled_cell_w;
+        const float cursor_x0 = static_cast<float>(m_caret_col) * scaled_cell_w;
         const float cursor_x1 = cursor_x0 + scaled_cell_w;
-        const float cursor_y0 = static_cast<float>(m_cursor_row) * scaled_cell_h;
+        const float cursor_y0 = static_cast<float>(m_caret_row) * scaled_cell_h;
         const float cursor_y1 = cursor_y0 + scaled_cell_h;
 
         if (cursor_x0 < scroll_x)

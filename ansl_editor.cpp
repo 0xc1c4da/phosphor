@@ -355,16 +355,23 @@ void AnslEditor::Render(const char* id,
             fctx.fg = current_fg_xterm;
             fctx.bg = current_bg_xterm;
 
-            int cx = 0, cy = 0, cpx = 0, cpy = 0;
-            bool pressed = false, ppressed = false;
-            if (canvas->GetPointerCell(cx, cy, pressed, cpx, cpy, ppressed))
+            // Caret position comes from the canvas caret (keyboard/editing).
+            canvas->GetCaretCell(fctx.caret_x, fctx.caret_y);
+
+            // Cursor/button state comes from the canvas mouse cursor (cell-space).
+            int cx = 0, cy = 0, pcx = 0, pcy = 0;
+            bool left_down = false, right_down = false;
+            bool prev_left_down = false, prev_right_down = false;
+            if (canvas->GetCursorCell(cx, cy, left_down, right_down, pcx, pcy, prev_left_down, prev_right_down))
             {
                 fctx.cursor_x = cx;
                 fctx.cursor_y = cy;
-                fctx.cursor_pressed = pressed;
-                fctx.cursor_px = cpx;
-                fctx.cursor_py = cpy;
-                fctx.cursor_ppressed = ppressed;
+                fctx.cursor_left_down = left_down;
+                fctx.cursor_right_down = right_down;
+                fctx.cursor_px = pcx;
+                fctx.cursor_py = pcy;
+                fctx.cursor_prev_left_down = prev_left_down;
+                fctx.cursor_prev_right_down = prev_right_down;
             }
 
             std::string err;

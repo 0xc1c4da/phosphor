@@ -97,7 +97,8 @@ function render(ctx, layer)
   local cursor = ctx.cursor or {}
 
   -- Fill the floor with noise (or scribble on press).
-  if not cursor.pressed then
+  local down = (cursor.left == true) or (cursor.right == true)
+  if not down then
     local t = (tonumber(ctx.time) or 0) * 0.0015
     local last = cols * (rows - 1) -- 0-based start index of last row
     for x = 0, cols - 1 do

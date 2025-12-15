@@ -636,7 +636,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
         return false;
 
     // Pre-create a reusable ctx table to avoid per-frame allocations/GC churn.
-    // ctx = { cols, rows, frame, time, metrics={aspect=...}, cursor={x,y,pressed,p={...}} }
+    // ctx = { cols, rows, frame, time, metrics={aspect=...}, caret={x,y}, cursor={x,y,left,right,p={...}} }
     lua_newtable(impl_->L); // ctx
     lua_newtable(impl_->L); // metrics
     lua_pushnumber(impl_->L, 1.0);
@@ -646,13 +646,20 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_newtable(impl_->L); // cursor
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "y");
-    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "pressed");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "left");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "right");
     lua_newtable(impl_->L); // cursor.p
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
     lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "y");
-    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "pressed");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "left");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "right");
     lua_setfield(impl_->L, -2, "p");
     lua_setfield(impl_->L, -2, "cursor"); // ctx.cursor = cursor
+
+    lua_newtable(impl_->L); // caret
+    lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
+    lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "y");
+    lua_setfield(impl_->L, -2, "caret"); // ctx.caret = caret
 
     impl_->ctx_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
 
@@ -852,19 +859,29 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     }
     lua_pop(L, 1); // metrics
 
+    lua_getfield(L, -1, "caret");
+    if (lua_istable(L, -1))
+    {
+        lua_pushinteger(L, frame_ctx.caret_x); lua_setfield(L, -2, "x");
+        lua_pushinteger(L, frame_ctx.caret_y); lua_setfield(L, -2, "y");
+    }
+    lua_pop(L, 1); // caret
+
     lua_getfield(L, -1, "cursor");
     if (lua_istable(L, -1))
     {
         lua_pushinteger(L, frame_ctx.cursor_x); lua_setfield(L, -2, "x");
         lua_pushinteger(L, frame_ctx.cursor_y); lua_setfield(L, -2, "y");
-        lua_pushboolean(L, frame_ctx.cursor_pressed); lua_setfield(L, -2, "pressed");
+        lua_pushboolean(L, frame_ctx.cursor_left_down); lua_setfield(L, -2, "left");
+        lua_pushboolean(L, frame_ctx.cursor_right_down); lua_setfield(L, -2, "right");
 
         lua_getfield(L, -1, "p");
         if (lua_istable(L, -1))
         {
             lua_pushinteger(L, frame_ctx.cursor_px); lua_setfield(L, -2, "x");
             lua_pushinteger(L, frame_ctx.cursor_py); lua_setfield(L, -2, "y");
-            lua_pushboolean(L, frame_ctx.cursor_ppressed); lua_setfield(L, -2, "pressed");
+            lua_pushboolean(L, frame_ctx.cursor_prev_left_down); lua_setfield(L, -2, "left");
+            lua_pushboolean(L, frame_ctx.cursor_prev_right_down); lua_setfield(L, -2, "right");
         }
         lua_pop(L, 1); // p
     }
