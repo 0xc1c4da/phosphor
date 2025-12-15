@@ -64,6 +64,14 @@ public:
     //  - Content is written into a fixed-width grid; long lines wrap to next row.
     bool LoadFromFile(const std::string& path);
 
+    // ---------------------------------------------------------------------
+    // Undo / Redo (per-canvas)
+    // ---------------------------------------------------------------------
+    bool CanUndo() const;
+    bool CanRedo() const;
+    bool Undo();
+    bool Redo();
+
     // Render the canvas inside the current ImGui window.
     // `id` must be unique within the window (used for ImGui item id).
     void Render(const char* id);
@@ -157,6 +165,16 @@ private:
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
     };
 
+    struct Snapshot
+    {
+        int                columns = 80;
+        int                rows = 1;
+        int                active_layer = 0;
+        int                caret_row = 0;
+        int                caret_col = 0;
+        std::vector<Layer> layers;
+    };
+
     int m_columns = 80;
     int m_rows    = 1; // allocated rows (always >= 1)
 
@@ -191,6 +209,18 @@ private:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
 
+    // Undo/Redo stacks. Each entry is a full document snapshot.
+    std::vector<Snapshot> m_undo_stack;
+    std::vector<Snapshot> m_redo_stack;
+    size_t                m_undo_limit = 256;
+
+    // "Capture scope" used to group multiple mutations into a single undo step.
+    bool     m_undo_capture_active = false;
+    bool     m_undo_capture_modified = false;
+    bool     m_undo_capture_has_snapshot = false;
+    bool     m_undo_applying_snapshot = false;
+    Snapshot m_undo_capture_snapshot;
+
     // Internal helpers
     void EnsureDocument();
     void EnsureRows(int rows_needed);
@@ -208,6 +238,13 @@ private:
     void          SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg);
     void          ClearActiveCellStyle(int row, int col);
     void          ClearLayerCellStyleInternal(int layer_index, int row, int col);
+
+    // Undo helpers
+    Snapshot MakeSnapshot() const;
+    void     ApplySnapshot(const Snapshot& s);
+    void     BeginUndoCapture();
+    void     EndUndoCapture();
+    void     PrepareUndoSnapshot();
 
     void HandleCharInputWidget(const char* id);
     static int TextInputCallback(ImGuiInputTextCallbackData* data);

@@ -123,6 +123,136 @@ AnsiCanvas::AnsiCanvas(int columns)
 {
 }
 
+// ---------------------------------------------------------------------------
+// Undo / Redo
+// ---------------------------------------------------------------------------
+
+AnsiCanvas::Snapshot AnsiCanvas::MakeSnapshot() const
+{
+    Snapshot s;
+    s.columns = m_columns;
+    s.rows = m_rows;
+    s.active_layer = m_active_layer;
+    s.caret_row = m_caret_row;
+    s.caret_col = m_caret_col;
+    s.layers = m_layers;
+    return s;
+}
+
+void AnsiCanvas::ApplySnapshot(const Snapshot& s)
+{
+    m_undo_applying_snapshot = true;
+
+    m_columns = (s.columns > 0) ? s.columns : 80;
+    m_rows    = (s.rows > 0) ? s.rows : 1;
+    m_layers  = s.layers;
+    m_active_layer = s.active_layer;
+    m_caret_row = s.caret_row;
+    m_caret_col = s.caret_col;
+
+    // Transient interaction state; recomputed next frame.
+    m_cursor_valid = false;
+    m_mouse_capture = false;
+
+    // Re-establish invariants.
+    EnsureDocument();
+    if (m_rows <= 0) m_rows = 1;
+    EnsureRows(m_rows);
+    if (m_caret_row < 0) m_caret_row = 0;
+    if (m_caret_col < 0) m_caret_col = 0;
+    if (m_caret_col >= m_columns) m_caret_col = m_columns - 1;
+
+    m_undo_applying_snapshot = false;
+}
+
+void AnsiCanvas::BeginUndoCapture()
+{
+    if (m_undo_applying_snapshot)
+        return;
+    m_undo_capture_active = true;
+    m_undo_capture_modified = false;
+    m_undo_capture_has_snapshot = false;
+}
+
+void AnsiCanvas::EndUndoCapture()
+{
+    if (!m_undo_capture_active)
+        return;
+
+    if (m_undo_capture_modified && m_undo_capture_has_snapshot)
+    {
+        m_undo_stack.push_back(std::move(m_undo_capture_snapshot));
+        if (m_undo_stack.size() > m_undo_limit)
+            m_undo_stack.erase(m_undo_stack.begin(),
+                               m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
+        m_redo_stack.clear();
+    }
+
+    m_undo_capture_active = false;
+    m_undo_capture_modified = false;
+    m_undo_capture_has_snapshot = false;
+}
+
+void AnsiCanvas::PrepareUndoSnapshot()
+{
+    if (m_undo_applying_snapshot)
+        return;
+    if (!m_undo_capture_active)
+        return;
+
+    if (!m_undo_capture_has_snapshot)
+    {
+        m_undo_capture_snapshot = MakeSnapshot();
+        m_undo_capture_has_snapshot = true;
+    }
+    m_undo_capture_modified = true;
+}
+
+bool AnsiCanvas::CanUndo() const
+{
+    return !m_undo_stack.empty();
+}
+
+bool AnsiCanvas::CanRedo() const
+{
+    return !m_redo_stack.empty();
+}
+
+bool AnsiCanvas::Undo()
+{
+    if (m_undo_stack.empty())
+        return false;
+    if (m_undo_applying_snapshot)
+        return false;
+
+    Snapshot current = MakeSnapshot();
+    Snapshot prev = std::move(m_undo_stack.back());
+    m_undo_stack.pop_back();
+    m_redo_stack.push_back(std::move(current));
+    ApplySnapshot(prev);
+    return true;
+}
+
+bool AnsiCanvas::Redo()
+{
+    if (m_redo_stack.empty())
+        return false;
+    if (m_undo_applying_snapshot)
+        return false;
+
+    Snapshot current = MakeSnapshot();
+    Snapshot next = std::move(m_redo_stack.back());
+    m_redo_stack.pop_back();
+
+    m_undo_stack.push_back(std::move(current));
+    if (m_undo_stack.size() > m_undo_limit)
+        m_undo_stack.erase(m_undo_stack.begin(),
+                           m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
+
+    ApplySnapshot(next);
+    return true;
+}
+
 void AnsiCanvas::TakeTypedCodepoints(std::vector<char32_t>& out)
 {
     out.clear();
@@ -248,6 +378,7 @@ bool AnsiCanvas::IsLayerVisible(int index) const
 int AnsiCanvas::AddLayer(const std::string& name)
 {
     EnsureDocument();
+    PrepareUndoSnapshot();
 
     Layer layer;
     layer.name = name.empty() ? ("Layer " + std::to_string((int)m_layers.size() + 1)) : name;
@@ -270,6 +401,7 @@ bool AnsiCanvas::RemoveLayer(int index)
     if (index < 0 || index >= static_cast<int>(m_layers.size()))
         return false;
 
+    PrepareUndoSnapshot();
     m_layers.erase(m_layers.begin() + index);
     if (m_active_layer >= static_cast<int>(m_layers.size()))
         m_active_layer = static_cast<int>(m_layers.size()) - 1;
@@ -305,6 +437,7 @@ void AnsiCanvas::SetColumns(int columns)
     if (columns == m_columns)
         return;
 
+    PrepareUndoSnapshot();
     const int old_cols = m_columns;
     const int old_rows = m_rows;
     m_columns = columns;
@@ -360,6 +493,7 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
                       std::istreambuf_iterator<char>());
 
     EnsureDocument();
+    PrepareUndoSnapshot();
 
     // Reset document to a single empty row.
     m_rows = 1;
@@ -471,6 +605,7 @@ void AnsiCanvas::EnsureRows(int rows_needed)
     if (rows_needed <= m_rows)
         return;
 
+    PrepareUndoSnapshot();
     m_rows = rows_needed;
     const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
     for (Layer& layer : m_layers)
@@ -540,6 +675,7 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
 void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
 {
     EnsureDocument();
+    PrepareUndoSnapshot();
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
@@ -557,6 +693,7 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
 void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg)
 {
     EnsureDocument();
+    PrepareUndoSnapshot();
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
@@ -578,6 +715,7 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
 void AnsiCanvas::ClearActiveCellStyle(int row, int col)
 {
     EnsureDocument();
+    PrepareUndoSnapshot();
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
@@ -600,6 +738,7 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
 
+    PrepareUndoSnapshot();
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
@@ -618,6 +757,7 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
 
+    PrepareUndoSnapshot();
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
@@ -693,6 +833,7 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
     EnsureDocument();
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
+    PrepareUndoSnapshot();
     ClearLayerCellStyleInternal(layer_index, row, col);
     return true;
 }
@@ -702,6 +843,7 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
     EnsureDocument();
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
+    PrepareUndoSnapshot();
     Layer& layer = m_layers[(size_t)layer_index];
     std::fill(layer.cells.begin(), layer.cells.end(), cp);
     std::fill(layer.fg.begin(), layer.fg.end(), 0);
@@ -717,6 +859,7 @@ bool AnsiCanvas::FillLayer(int layer_index,
     EnsureDocument();
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
+    PrepareUndoSnapshot();
     Layer& layer = m_layers[(size_t)layer_index];
     if (cp.has_value())
         std::fill(layer.cells.begin(), layer.cells.end(), *cp);
@@ -985,6 +1128,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     // Capture keyboard events and let the active tool handle them *before* we compute canvas_size,
     // so row growth (typing/enter/wrap) updates ImGui's scroll range immediately.
+    BeginUndoCapture();
     CaptureKeyEvents();
     if (tool_runner)
         tool_runner(*this, 0); // keyboard phase
@@ -1015,6 +1159,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // Mouse phase: tools can react to cursor state for this frame.
     if (tool_runner)
         tool_runner(*this, 1);
+    EndUndoCapture();
 
     // Keep cursor visible when navigating.
     if (m_has_focus)

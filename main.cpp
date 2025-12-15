@@ -885,6 +885,18 @@ int main(int, char**)
         ImGui::NewFrame();
         frame_counter++;
 
+        // Determine which canvas should receive Edit actions (Undo/Redo).
+        // Focus is tracked by each AnsiCanvas instance.
+        AnsiCanvas* focused_canvas = nullptr;
+        for (auto& c : canvases)
+        {
+            if (c.open && c.canvas.HasFocus())
+            {
+                focused_canvas = &c.canvas;
+                break;
+            }
+        }
+
         // Main menu bar: File > New Canvas, Quit
         if (ImGui::BeginMainMenuBar())
         {
@@ -920,6 +932,19 @@ int main(int, char**)
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Edit"))
+            {
+                const bool can_undo = focused_canvas && focused_canvas->CanUndo();
+                const bool can_redo = focused_canvas && focused_canvas->CanRedo();
+
+                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, can_undo))
+                    focused_canvas->Undo();
+                if (ImGui::MenuItem("Redo", "Ctrl+Y", false, can_redo))
+                    focused_canvas->Redo();
+
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Window"))
             {
                 ImGui::MenuItem("Xterm-256 Color Picker", nullptr, &show_color_picker_window);
@@ -931,6 +956,25 @@ int main(int, char**)
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
+        }
+
+        // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
+        if (focused_canvas)
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            if (io.KeyCtrl)
+            {
+                // Ctrl+Z = Undo, Ctrl+Shift+Z = Redo (common convention), Ctrl+Y = Redo.
+                if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+                {
+                    if (io.KeyShift)
+                        focused_canvas->Redo();
+                    else
+                        focused_canvas->Undo();
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+                    focused_canvas->Redo();
+            }
         }
 
         // Import Image modal dialog
