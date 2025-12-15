@@ -299,6 +299,9 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
     opt.cp437 = false;
     // Don't force an opaque default background for generated output.
     opt.default_bg_unset = true;
+    // Avoid libansilove-style eager wrap for generated output; chafa may emit explicit
+    // newlines at the row boundary, which would double-advance with eager wrapping.
+    opt.wrap_policy = ansi_importer::Options::WrapPolicy::PutOnly;
 
     AnsiCanvas imported;
     std::string ierr;

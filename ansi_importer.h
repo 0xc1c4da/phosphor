@@ -27,6 +27,21 @@ struct Options
     // a default background should not paint over the editor UI.
     bool default_bg_unset = false;
 
+    // Wrap behavior when the cursor reaches the last column.
+    //
+    // libansilove wraps before processing the next byte when in text state.
+    // Some generated ANSI streams (e.g. Chafa) can include explicit newlines at
+    // the row boundary, where eager wrapping can effectively double-advance.
+    enum class WrapPolicy
+    {
+        // Match libansilove: when in text state and col==columns, advance to next row
+        // before handling the next byte (including CSI sequences).
+        LibAnsiLoveEager,
+        // Only wrap when writing a printable glyph (i.e. via put()).
+        PutOnly,
+    };
+    WrapPolicy wrap_policy = WrapPolicy::LibAnsiLoveEager;
+
     // Text decoding:
     // - If true (default), importer prefers CP437 but will auto-switch to UTF-8 when the
     //   byte stream strongly resembles valid UTF-8 and contains no ANSI escape sequences.

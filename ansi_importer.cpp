@@ -469,6 +469,16 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     while (i < bytes.size() && state != State::End)
     {
+        if (options.wrap_policy == Options::WrapPolicy::LibAnsiLoveEager)
+        {
+            // libansilove wraps before processing the next character.
+            if (state == State::Text && col == columns)
+            {
+                row += 1;
+                col = 0;
+            }
+        }
+
         const std::uint8_t b = bytes[i];
         if (state == State::Text)
         {
