@@ -1100,7 +1100,7 @@ int main(int, char**)
                 float indent = (avail > widget_width) ? (avail - widget_width) * 0.5f : 0.0f;
 
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
-                ImGui::XtermForegroundBackgroundWidget("FG/BG", fg_color, bg_color, active_fb);
+                ImGui::XtermForegroundBackgroundWidget("🙿", fg_color, bg_color, active_fb);
             }
 
             ImGui::Separator();

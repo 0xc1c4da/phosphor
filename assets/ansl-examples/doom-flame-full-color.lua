@@ -1,65 +1,58 @@
--- Doom Flame (full color) - xterm-256 edition
--- Port of ansl/src/programs/demos/doom_flame_full_color.js to idiomatic Lua.
---
--- Color model:
---   - fg/bg are xterm-256 indices (0..255), no alpha
---   - nil means "unset"
---
--- Host API:
---   - function render(ctx, layer)
---   - layer:set(x, y, glyph, fg?, bg?)
---   - layer:clear(glyph?)
+-- Doom Flame (full color) — demoscene-clean Lua port of `doom-flame-full-color.js`.
+-- API: `render(ctx, layer)`; `layer:set(x, y, char, fg?, bg?)` with xterm-256 indices, `nil` = unset.
+
+settings = { bg = ansl.color.ansi16.black }
 
 local num = ansl.num
+local color = ansl.color
 
-local min, max, floor = math.min, math.max, math.floor
+local floor = math.floor
+local min = math.min
+local rndi = math.random -- inclusive range
 
--- Small helpers (avoid pulling in globals repeatedly)
-local function clampi(v, lo, hi)
-  v = floor(v)
-  if v < lo then return lo end
-  if v > hi then return hi end
-  return v
+-- Palette: JS named colors → canonical hex → nearest xterm-256 index.
+local pal = {
+  color.hex("000000"), -- black
+  color.hex("800080"), -- purple
+  color.hex("8b0000"), -- darkred
+  color.hex("ff0000"), -- red
+  color.hex("ff4500"), -- orangered
+  color.hex("ffd700"), -- gold
+  color.hex("fffacd"), -- lemonchiffon
+  color.hex("ffffff"), -- white
+}
+
+-- Intensity ramp (JS: '011222233334444444455566667')
+local ramp_s = "011222233334444444455566667"
+local ramp_len = #ramp_s
+local function ramp(u)
+  if u < 0 then u = 0
+  elseif u > ramp_len - 1 then u = ramp_len - 1
+  end
+  return ramp_s:byte(u + 1) - 48 -- '0'..'7' → 0..7
 end
 
--- Random int between a and b inclusive
-local function rndi(a, b)
-  if b == nil then b = 0 end
-  if a > b then a, b = b, a end
-  return floor(a + math.random() * (b - a + 1))
-end
-
--- Value noise (Scratchapixel / classic lattice noise)
-local function valueNoise()
+-- Value noise (Scratchapixel). Same structure as JS, but with 1-based tables.
+local function value_noise()
   local tableSize = 256
-
   local r = {}
-  local perm = {}
+  local p = {}
+
   for k = 0, tableSize - 1 do
     r[k + 1] = math.random()
-    perm[k + 1] = k
+    p[k + 1] = k
   end
 
-  -- Fisher-Yates shuffle
-  for k = tableSize - 1, 1, -1 do
-    local i = floor(math.random() * (k + 1))
-    perm[k + 1], perm[i + 1] = perm[i + 1], perm[k + 1]
-  end
-
-  -- Duplicate for 512 lookup (avoid mod in inner hash)
-  for k = 1, tableSize do
-    perm[tableSize + k] = perm[k]
+  -- JS shuffle: swap each entry with a random one in the full table, and mirror into +256.
+  for k = 0, tableSize - 1 do
+    local i = floor(math.random() * tableSize) -- 0..255
+    local a, b = k + 1, i + 1
+    p[a], p[b] = p[b], p[a]
+    p[a + tableSize] = p[a]
   end
 
   local smoothstep = num.smoothstep
   local mix = num.mix
-
-  local function imod(x)
-    -- stable 0..255 even for negative (not expected but harmless)
-    local m = x % tableSize
-    if m < 0 then m = m + tableSize end
-    return m
-  end
 
   return function(px, py)
     local xi = floor(px)
@@ -67,77 +60,51 @@ local function valueNoise()
     local tx = px - xi
     local ty = py - yi
 
-    local rx0 = imod(xi)
-    local rx1 = imod(xi + 1)
-    local ry0 = imod(yi)
-    local ry1 = imod(yi + 1)
+    local rx0 = xi % tableSize
+    local rx1 = (rx0 + 1) % tableSize
+    local ry0 = yi % tableSize
+    local ry1 = (ry0 + 1) % tableSize
 
-    -- Hash corners through permutation table (0-based values stored in perm[])
-    local c00 = r[perm[perm[rx0 + 1] + ry0 + 1] + 1]
-    local c10 = r[perm[perm[rx1 + 1] + ry0 + 1] + 1]
-    local c01 = r[perm[perm[rx0 + 1] + ry1 + 1] + 1]
-    local c11 = r[perm[perm[rx1 + 1] + ry1 + 1] + 1]
+    local c00 = r[p[p[rx0 + 1] + ry0 + 1] + 1]
+    local c10 = r[p[p[rx1 + 1] + ry0 + 1] + 1]
+    local c01 = r[p[p[rx0 + 1] + ry1 + 1] + 1]
+    local c11 = r[p[p[rx1 + 1] + ry1 + 1] + 1]
 
     local sx = smoothstep(0, 1, tx)
     local sy = smoothstep(0, 1, ty)
-
-    local nx0 = mix(c00, c10, sx)
-    local nx1 = mix(c01, c11, sx)
-    return mix(nx0, nx1, sy)
+    return mix(mix(c00, c10, sx), mix(c01, c11, sx), sy)
   end
 end
 
--- xterm palette indices for the flame
-local color = ansl.color
-local pal = {
-  color.ansi16.black,              -- 0  (top)
-  color.rgb(128, 0, 128),          -- 1  purple
-  color.rgb(139, 0, 0),            -- 2  dark red
-  color.rgb(255, 0, 0),            -- 3  red
-  color.rgb(255, 69, 0),           -- 4  orange red
-  color.rgb(255, 215, 0),          -- 5  gold
-  color.rgb(255, 250, 205),        -- 6  lemon chiffon
-  color.ansi16.bright_white,       -- 7  (bottom)
-}
+local noise = value_noise()
 
--- Flame intensity ramp (0..7). Source string is 0-based in JS; store as 1-based here.
-local flame = {}
-do
-  local s = "011222233334444444455566667"
-  for i = 1, #s do
-    flame[i] = tonumber(s:sub(i, i)) or 0
-  end
-end
-local flameLen = #flame
-
--- Persistent state (resizes on demand)
+-- Persistent buffer (1D, 1-based), re-used across frames.
 local cols, rows = 0, 0
 local data = {}
-local noise = valueNoise()
 
 function render(ctx, layer)
   local c = tonumber(ctx.cols) or 0
   local r = tonumber(ctx.rows) or 0
   if c <= 0 or r <= 0 then return end
 
-  -- Reset buffers on resize (keep table object, overwrite contents)
   if c ~= cols or r ~= rows then
     cols, rows = c, r
     local n = cols * rows
     for i = 1, n do data[i] = 0 end
+    for i = n + 1, #data do data[i] = nil end
   end
 
   local cursor = ctx.cursor or {}
-  local pressed = not not cursor.pressed
 
-  -- Fill floor with noise (or scribble if pressed)
-  if not pressed then
+  -- Fill the floor with noise (or scribble on press).
+  if not cursor.pressed then
     local t = (tonumber(ctx.time) or 0) * 0.0015
-    local last = cols * (rows - 1) -- 0-based offset of last row
+    local last = cols * (rows - 1) -- 0-based start index of last row
     for x = 0, cols - 1 do
-      local v = floor(num.map(noise(x * 0.05, t), 0, 1, 5, 50))
-      local idx = last + x + 1
-      data[idx] = min(v, (data[idx] or 0) + 2)
+      local u = floor(num.map(noise(x * 0.05, t), 0, 1, 5, 50))
+      local idx1 = last + x + 1
+      local prev = data[idx1] or 0
+      data[idx1] = (u < prev + 2) and u or (prev + 2)
     end
   else
     local cx = floor(tonumber(cursor.x) or 0)
@@ -147,34 +114,39 @@ function render(ctx, layer)
     end
   end
 
-  -- Propagate upward with randomness
-  local n = cols * rows
-  for i = 0, n - 1 do
-    local row = floor(i / cols)
-    local col = i - row * cols
-    local dest_col = clampi(col + rndi(-1, 1), 0, cols - 1)
-    local dest = row * cols + dest_col
-    local src_row = min(rows - 1, row + 1)
-    local src = src_row * cols + col
-    data[dest + 1] = max(0, (data[src + 1] or 0) - rndi(0, 2))
+  -- Propagate towards the ceiling (keep JS iteration order: top → bottom).
+  for y = 0, rows - 1 do
+    local src_y = (y + 1 < rows) and (y + 1) or (rows - 1)
+    local row_off = y * cols
+    local src_off = src_y * cols
+
+    for x = 0, cols - 1 do
+      local dest_x = x + rndi(-1, 1)
+      if dest_x < 0 then dest_x = 0
+      elseif dest_x >= cols then dest_x = cols - 1
+      end
+
+      local v = (data[src_off + x + 1] or 0) - rndi(0, 2)
+      if v < 0 then v = 0 end
+      data[row_off + dest_x + 1] = v
+    end
   end
 
-  -- Draw
-  -- We set every cell each frame (including bg) so the output is deterministic even
-  -- if the host isn't clearing the layer each tick.
-  local bg0 = pal[1] -- black
+  -- Draw.
+  local bg0 = pal[1]
   for y = 0, rows - 1 do
+    local off = y * cols
     for x = 0, cols - 1 do
-      local idx = x + y * cols + 1
-      local u = data[idx] or 0
-      local v = flame[clampi(u + 1, 1, flameLen)] or 0
+      local u = data[off + x + 1] or 0
+      local v = ramp(u) -- 0..7
 
       if v == 0 then
         layer:set(x, y, " ", nil, bg0)
       else
-        local bg = pal[v + 1] -- v in 1..7 => pal[2..8]
-        local fg = pal[min(#pal, v + 2)] -- brighter on top, clamp to white
-        layer:set(x, y, tostring(u % 10), fg, bg)
+        local bg = pal[v + 1]
+        local fg = pal[(v + 2 <= 8) and (v + 2) or 8]
+        -- Pass ASCII codepoint directly to avoid any UTF-8 decoding edge cases in LuaJIT.
+        layer:set(x, y, 48 + (u % 10), fg, bg)
       end
     end
   end

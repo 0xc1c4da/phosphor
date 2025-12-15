@@ -516,7 +516,13 @@ bool XtermForegroundBackgroundWidget(const char* label,
     ImVec2 swap_size(sz * 0.6f, sz * 0.6f);
     PushID(label);
     SetCursorScreenPos(swap_min);
-    if (Button("##swap", swap_size))
+    // Use a visible glyph for the button label, while keeping a stable ID with "##swap".
+    // Note: the glyph will only render if the current ImGui font contains it.
+    //
+    // C++20 note: avoid u8"..." here because it yields const char8_t*, but ImGui expects const char*.
+    // UTF-8 bytes for U+2B8C (⮌): E2 AE 8C
+    static const char* kSwapLabel = "\xE2\xAE\x8C##swap";
+    if (Button(kSwapLabel, swap_size))
     {
         ImVec4 tmp = foreground;
         foreground = background;
@@ -524,21 +530,6 @@ bool XtermForegroundBackgroundWidget(const char* label,
         changed = true;
     }
     PopID();
-
-    // Draw a simple arrow over the swap button
-    ImVec2 swap_max = ImVec2(swap_min.x + swap_size.x, swap_min.y + swap_size.y);
-    ImVec2 c = ImVec2((swap_min.x + swap_max.x) * 0.5f,
-                      (swap_min.y + swap_max.y) * 0.5f);
-    float r = swap_size.x * 0.35f;
-    ImU32 arrow_col = GetColorU32(ImVec4(1,1,1,1));
-    draw_list->AddLine(ImVec2(c.x - r, c.y + r),
-                       ImVec2(c.x + r * 0.6f, c.y - r * 0.2f),
-                       arrow_col, 2.0f);
-    draw_list->AddTriangleFilled(
-        ImVec2(c.x + r * 0.8f, c.y - r * 0.6f),
-        ImVec2(c.x + r * 1.1f, c.y - r * 0.1f),
-        ImVec2(c.x + r * 0.4f, c.y - r * 0.1f),
-        arrow_col);
 
     // Restore cursor to end of reserved area so following widgets don't overlap.
     SetCursorScreenPos(cursor_after);

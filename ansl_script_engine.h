@@ -64,7 +64,13 @@ struct AnslScriptSettings
 //
 // Classic ANSL compatibility:
 // - If `render` is missing but global `main(coord, context, cursor, buffer)` exists,
-//   the host will generate a default render() that runs main per cell and calls setRow().
+//   the host will generate a default render() that:
+//   - calls optional `pre(context, cursor, buffer)` once per frame
+//   - runs `main()` per cell
+//   - supports `main()` returning either:
+//       - a scalar (string/number) -> glyph
+//       - a table with `char` (+ optional `fg`/`bg` xterm-256 indices) -> per-cell colors via layer:set()
+//   - calls optional `post(context, cursor, buffer)` once per frame
 class AnslScriptEngine
 {
 public:
