@@ -34,6 +34,49 @@ public:
     int  GetRows() const { return m_rows; } // allocated rows (>= 1)
 
     // ---------------------------------------------------------------------
+    // Viewport (zoom + scroll) state
+    // ---------------------------------------------------------------------
+    // Zoom is a multiplicative scale applied to the base font cell metrics.
+    // This is independent of the window size (no auto-fit).
+    float GetZoom() const { return m_zoom; }
+    void  SetZoom(float zoom);
+
+    // Request a scroll position in *canvas pixel space* (child window scroll).
+    // Applied on next Render() call.
+    void RequestScrollPixels(float scroll_x, float scroll_y);
+
+    struct ViewState
+    {
+        bool  valid = false;
+        int   columns = 0;
+        int   rows = 0;
+        float zoom = 1.0f;
+
+        // Base metrics from the active ImGui font at Render() time.
+        float base_cell_w = 0.0f;
+        float base_cell_h = 0.0f;
+        float cell_w = 0.0f;
+        float cell_h = 0.0f;
+
+        // Full canvas size in pixels (cell_w * columns, cell_h * rows).
+        float canvas_w = 0.0f;
+        float canvas_h = 0.0f;
+
+        // Visible region in pixels (child InnerClipRect size) and scroll offset.
+        float view_w = 0.0f;
+        float view_h = 0.0f;
+        float scroll_x = 0.0f;
+        float scroll_y = 0.0f;
+    };
+
+    // Returns the last captured viewport state from Render().
+    const ViewState& GetLastViewState() const { return m_last_view; }
+
+    // Composite cell sampling (used by preview/minimap).
+    // Returns false if out of bounds.
+    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const;
+
+    // ---------------------------------------------------------------------
     // Layers (foundation)
     // ---------------------------------------------------------------------
     int         GetLayerCount() const;
@@ -244,6 +287,15 @@ private:
     bool m_cursor_prev_right_down = false;
 
     float m_last_cell_aspect = 1.0f;
+
+    // Zoom and last captured viewport metrics.
+    float    m_zoom = 1.0f;
+    ViewState m_last_view;
+
+    // Deferred scroll request (applied during next Render() when child is active).
+    bool  m_scroll_request_valid = false;
+    float m_scroll_request_x = 0.0f;
+    float m_scroll_request_y = 0.0f;
 
     // Mouse capture independent of ImGui ActiveId: once the user clicks on the canvas,
     // we keep updating cursor cell coords while the button is held (enables click+drag tools).

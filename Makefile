@@ -10,6 +10,7 @@ BUILD_DIR = build
 
 SOURCES  = main.cpp \
            canvas.cpp \
+           preview_window.cpp \
            ansi_importer.cpp \
            colour_picker.cpp \
            image_to_chafa_dialog.cpp \

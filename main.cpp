@@ -39,6 +39,7 @@
 #include "xterm256_palette.h"
 #include "io_manager.h"
 #include "image_to_chafa_dialog.h"
+#include "preview_window.h"
 
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
@@ -765,6 +766,7 @@ int main(int, char**)
     bool   show_layer_manager_window = true;
     bool   show_ansl_editor_window = true;
     bool   show_tool_palette_window = true;
+    bool   show_preview_window = true;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -835,6 +837,9 @@ int main(int, char**)
 
     // Image -> ANSI (Chafa) conversion dialog
     ImageToChafaDialog image_to_chafa_dialog;
+
+    // Canvas preview (minimap)
+    PreviewWindow preview_window;
 
     // Import Image dialog state
     bool show_import_image_popup = false;
@@ -1010,6 +1015,7 @@ int main(int, char**)
                 ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
                 ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
                 ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
+                ImGui::MenuItem("Preview", nullptr, &show_preview_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1643,6 +1649,12 @@ int main(int, char**)
             RenderImageWindowContents(img, image_to_chafa_dialog);
 
             ImGui::End();
+        }
+
+        // Preview window for the active canvas (minimap + viewport rectangle).
+        if (show_preview_window)
+        {
+            preview_window.Render("Preview", &show_preview_window, active_canvas);
         }
 
         // Chafa conversion dialog (may create a new canvas on accept).

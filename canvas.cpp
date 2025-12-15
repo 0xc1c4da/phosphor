@@ -123,6 +123,37 @@ AnsiCanvas::AnsiCanvas(int columns)
 {
 }
 
+void AnsiCanvas::SetZoom(float zoom)
+{
+    // Clamp to a sensible range so we don't generate zero-sized cells or huge buffers.
+    const float min_zoom = 0.10f;
+    const float max_zoom = 12.0f;
+    if (zoom < min_zoom) zoom = min_zoom;
+    if (zoom > max_zoom) zoom = max_zoom;
+    m_zoom = zoom;
+}
+
+void AnsiCanvas::RequestScrollPixels(float scroll_x, float scroll_y)
+{
+    m_scroll_request_valid = true;
+    m_scroll_request_x = scroll_x;
+    m_scroll_request_y = scroll_y;
+}
+
+bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const
+{
+    out_cp = U' ';
+    out_fg = 0;
+    out_bg = 0;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_cp = c.cp;
+    out_fg = c.fg;
+    out_bg = c.bg;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Undo / Redo
 // ---------------------------------------------------------------------------
@@ -1124,7 +1155,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     EnsureDocument();
 
     // Base cell size from the current font (Unscii is monospaced).
-    // We intentionally *do not auto-scale to window width* so the grid remains stable.
+    // We intentionally *do not auto-fit to window width*; the user controls zoom explicitly.
     const float font_size = ImGui::GetFontSize();
     const float cell_w = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
     const float cell_h = font_size;
@@ -1157,36 +1188,69 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         return;
     }
 
-    // Restore fit-to-width behavior: keep logical column count fixed, scale cells
-    // so the grid fits the available width of the child.
     const float base_font_size = font_size;
     const float base_cell_w    = cell_w;
+    const float base_cell_h    = cell_h;
 
-    float scaled_font_size = base_font_size;
-    float scaled_cell_w    = base_cell_w;
-    float scaled_cell_h    = cell_h;
-
-    const float needed_width    = base_cell_w * static_cast<float>(m_columns);
-    const float available_width = ImGui::GetContentRegionAvail().x;
-    if (needed_width > 0.0f && available_width > 0.0f)
+    // Ctrl+MouseWheel zoom on the canvas (like a typical editor).
+    // We also adjust scroll so the point under the mouse stays stable.
     {
-        float scale = available_width / needed_width;
-        const float min_scale = 0.25f;
-        const float max_scale = 4.0f;
-        if (scale < min_scale) scale = min_scale;
-        if (scale > max_scale) scale = max_scale;
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && io.MouseWheel != 0.0f &&
+            ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
+        {
+            auto snapped_scale_for_zoom = [&](float zoom) -> float
+            {
+                // Must match the snapping logic below (snap based on cell_w).
+                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
+                if (snapped_cell_w < 1.0f)
+                    snapped_cell_w = 1.0f;
+                return snapped_cell_w / base_cell_w;
+            };
 
-        float snapped_cell_w = std::floor(base_cell_w * scale + 0.5f);
-        if (snapped_cell_w < 1.0f)
-            snapped_cell_w = 1.0f;
-        float snapped_scale = snapped_cell_w / base_cell_w;
+            const float old_zoom = m_zoom;
+            const float old_scale = snapped_scale_for_zoom(old_zoom);
 
-        scaled_font_size = base_font_size * snapped_scale;
-        scaled_cell_w    = snapped_cell_w;
-        scaled_cell_h    = std::floor(base_font_size * snapped_scale + 0.5f);
-        if (scaled_cell_h < 1.0f)
-            scaled_cell_h = 1.0f;
+            const float factor = (io.MouseWheel > 0.0f) ? 1.10f : (1.0f / 1.10f);
+            SetZoom(old_zoom * factor);
+
+            const float new_zoom = m_zoom;
+            const float new_scale = snapped_scale_for_zoom(new_zoom);
+            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+
+            // The canvas origin in screen space is the current cursor position in the child.
+            // (We don't add any other widgets before the InvisibleButton.)
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            const float local_x = io.MousePos.x - origin.x;
+            const float local_y = io.MousePos.y - origin.y;
+
+            const float world_x = ImGui::GetScrollX() + local_x;
+            const float world_y = ImGui::GetScrollY() + local_y;
+
+            const float new_scroll_x = world_x * ratio - local_x;
+            const float new_scroll_y = world_y * ratio - local_y;
+            RequestScrollPixels(new_scroll_x, new_scroll_y);
+        }
     }
+
+    // Explicit zoom (no auto-fit), but SNAP to the nearest pixel-aligned glyph cell.
+    //
+    // IMPORTANT: do NOT round width/height independently based on m_zoom.
+    // That breaks the font's cell aspect ratio and can create visible seams between glyphs.
+    // Instead:
+    //  - snap cell_w to integer pixels
+    //  - derive a single snapped_scale from that
+    //  - compute font size and cell_h from the same snapped_scale
+    float snapped_cell_w = std::floor(base_cell_w * m_zoom + 0.5f);
+    if (snapped_cell_w < 1.0f)
+        snapped_cell_w = 1.0f;
+    const float snapped_scale = snapped_cell_w / base_cell_w;
+
+    float scaled_font_size = std::max(1.0f, std::floor(base_font_size * snapped_scale + 0.5f));
+    float scaled_cell_w    = snapped_cell_w;
+    float scaled_cell_h    = std::floor(base_cell_h * snapped_scale + 0.5f);
+    if (scaled_cell_h < 1.0f)
+        scaled_cell_h = 1.0f;
 
     // Expose last aspect for tools/scripts.
     if (scaled_cell_h > 0.0f)
@@ -1198,6 +1262,13 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // so row growth (typing/enter/wrap) updates ImGui's scroll range immediately.
     BeginUndoCapture();
     CaptureKeyEvents();
+    const int caret_start_row = m_caret_row;
+    const int caret_start_col = m_caret_col;
+    const bool had_typed_input = !m_typed_queue.empty();
+    const bool had_key_input =
+        m_key_events.left || m_key_events.right || m_key_events.up || m_key_events.down ||
+        m_key_events.home || m_key_events.end || m_key_events.backspace || m_key_events.del ||
+        m_key_events.enter;
     if (tool_runner)
         tool_runner(*this, 0); // keyboard phase
 
@@ -1206,6 +1277,32 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     ImVec2 canvas_size(scaled_cell_w * static_cast<float>(m_columns),
                        scaled_cell_h * static_cast<float>(m_rows));
+
+    // Apply any deferred scroll request now that we have a valid child window.
+    // Note: clamp to scrollable bounds using InnerClipRect (what the renderer clips to).
+    bool suppress_caret_autoscroll = false;
+    if (m_scroll_request_valid)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        const ImRect clip = w ? w->InnerClipRect : ImRect(0, 0, 0, 0);
+        const float view_w = clip.GetWidth();
+        const float view_h = clip.GetHeight();
+        const float max_x = std::max(0.0f, canvas_size.x - view_w);
+        const float max_y = std::max(0.0f, canvas_size.y - view_h);
+
+        float sx = m_scroll_request_x;
+        float sy = m_scroll_request_y;
+        if (sx < 0.0f) sx = 0.0f;
+        if (sy < 0.0f) sy = 0.0f;
+        if (sx > max_x) sx = max_x;
+        if (sy > max_y) sy = max_y;
+
+        ImGui::SetScrollX(sx);
+        ImGui::SetScrollY(sy);
+
+        suppress_caret_autoscroll = true;
+        m_scroll_request_valid = false;
+    }
 
     // Capture both left and right mouse buttons so tools/scripts can react to either click+drag.
     ImGui::InvisibleButton(id, canvas_size,
@@ -1240,7 +1337,14 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     EndUndoCapture();
 
     // Keep cursor visible when navigating.
-    if (m_has_focus)
+    //
+    // Important: only auto-scroll to caret when there was keyboard/text input this frame.
+    // This prevents "snap-back" after mouse-driven scrolling/panning (e.g. preview minimap drag),
+    // and avoids fighting tools that adjust the caret during mouse painting.
+    const bool caret_moved = (m_caret_row != caret_start_row) || (m_caret_col != caret_start_col);
+    const bool mouse_painting = m_cursor_valid && (m_cursor_left_down || m_cursor_right_down);
+    const bool should_follow_caret = had_key_input || had_typed_input || (caret_moved && mouse_painting);
+    if (m_has_focus && !suppress_caret_autoscroll && should_follow_caret)
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const ImRect clip_rect = window ? window->InnerClipRect : ImRect(0, 0, 0, 0);
@@ -1267,6 +1371,28 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
 
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+
+    // Capture last viewport metrics for minimap/preview. Do this at the very end so any
+    // caret auto-scroll or scroll requests are reflected.
+    {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const ImRect clip_rect = window ? window->InnerClipRect : ImRect(0, 0, 0, 0);
+        m_last_view.valid = true;
+        m_last_view.columns = m_columns;
+        m_last_view.rows = m_rows;
+        m_last_view.zoom = m_zoom;
+        m_last_view.base_cell_w = base_cell_w;
+        m_last_view.base_cell_h = base_cell_h;
+        m_last_view.cell_w = scaled_cell_w;
+        m_last_view.cell_h = scaled_cell_h;
+        m_last_view.canvas_w = canvas_size.x;
+        m_last_view.canvas_h = canvas_size.y;
+        m_last_view.view_w = clip_rect.GetWidth();
+        m_last_view.view_h = clip_rect.GetHeight();
+        m_last_view.scroll_x = ImGui::GetScrollX();
+        m_last_view.scroll_y = ImGui::GetScrollY();
+    }
+
     ImGui::EndChild();
 }
 
