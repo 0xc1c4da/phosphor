@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "description": "Action->key mapping for Phosphor. Chords are human-readable strings (e.g. Ctrl+Z). Inspired from PabloDraw, Moebius, and Icy Draw.",
+  "actions": [
+    {
+      "id": "app.file.new",
+      "title": "New",
+      "category": "File",
+      "description": "Create a new canvas/document.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+N", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+N", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "app.file.open",
+      "title": "Open…",
+      "category": "File",
+      "description": "Open a file/project from disk.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+O", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+O", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "app.file.save",
+      "title": "Save",
+      "category": "File",
+      "description": "Save the current document/project.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+S", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+S", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "app.file.save_as",
+      "title": "Save As…",
+      "category": "File",
+      "description": "Save a copy / choose format.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Shift+S", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+Shift+S", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "app.file.close_window",
+      "title": "Close Window",
+      "category": "File",
+      "description": "Close the current window.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+W", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+W", "context": "global", "platform": "macos" },
+        { "enabled": true, "chord": "Alt+F4", "context": "global", "platform": "windows" }
+      ]
+    },
+    {
+      "id": "app.quit",
+      "title": "Quit",
+      "category": "File",
+      "description": "Exit the application.",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+X", "context": "global", "platform": "windows" },
+        { "enabled": true, "chord": "Cmd+Q", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "app.settings.open",
+      "title": "Settings…",
+      "category": "File",
+      "description": "Open the Settings window.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+,", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+,", "context": "global", "platform": "macos" }
+      ]
+    },
+
+    {
+      "id": "edit.undo",
+      "title": "Undo",
+      "category": "Edit",
+      "description": "Undo last operation.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Z", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+Z", "context": "editor", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "edit.redo",
+      "title": "Redo",
+      "category": "Edit",
+      "description": "Redo last undone operation.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Shift+Z", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Ctrl+Y", "context": "editor", "platform": "windows" },
+        { "enabled": true, "chord": "Cmd+Shift+Z", "context": "editor", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "edit.cut",
+      "title": "Cut",
+      "category": "Edit",
+      "description": "Cut selection to clipboard.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+X", "context": "selection", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+X", "context": "selection", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "edit.copy",
+      "title": "Copy",
+      "category": "Edit",
+      "description": "Copy selection to clipboard.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+C", "context": "selection", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+C", "context": "selection", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "edit.paste",
+      "title": "Paste",
+      "category": "Edit",
+      "description": "Paste clipboard at caret/cursor.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+V", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+V", "context": "editor", "platform": "macos" },
+        { "enabled": false, "chord": "Ctrl+L", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "edit.select_all",
+      "title": "Select All",
+      "category": "Edit",
+      "description": "Select the full canvas/document extent.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+A", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+A", "context": "editor", "platform": "macos" }
+      ]
+    },
+
+    {
+      "id": "selection.clear_or_cancel",
+      "title": "Clear Selection / Cancel",
+      "category": "Selection",
+      "description": "Clear selection or cancel current selection operation.",
+      "bindings": [
+        { "enabled": true, "chord": "Escape", "context": "selection", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.delete",
+      "title": "Delete Selection Contents",
+      "category": "Selection",
+      "description": "Erase selection contents.",
+      "bindings": [
+        { "enabled": true, "chord": "Delete", "context": "selection", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.start_block",
+      "title": "Start Selection / Block Select",
+      "category": "Selection",
+      "description": "Start a selection (block select).",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+B", "context": "editor", "platform": "any" }
+      ]
+    },
+
+    {
+      "id": "nav.caret_left",
+      "title": "Move Caret Left",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Left", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.caret_right",
+      "title": "Move Caret Right",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Right", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.caret_up",
+      "title": "Move Caret Up",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Up", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.caret_down",
+      "title": "Move Caret Down",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Down", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.select_left",
+      "title": "Extend Selection Left",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Shift+Left", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.select_right",
+      "title": "Extend Selection Right",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Shift+Right", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.select_up",
+      "title": "Extend Selection Up",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Shift+Up", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.select_down",
+      "title": "Extend Selection Down",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Shift+Down", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.home",
+      "title": "Line Start",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "Home", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.end",
+      "title": "Line End",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "End", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.page_up",
+      "title": "Page Up",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "PageUp", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "nav.page_down",
+      "title": "Page Down",
+      "category": "Navigation",
+      "bindings": [
+        { "enabled": true, "chord": "PageDown", "context": "editor", "platform": "any" }
+      ]
+    },
+
+    {
+      "id": "editor.toggle_insert",
+      "title": "Toggle Insert Mode",
+      "category": "Editor",
+      "bindings": [
+        { "enabled": true, "chord": "Insert", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "editor.new_line",
+      "title": "New Line",
+      "category": "Editor",
+      "bindings": [
+        { "enabled": true, "chord": "Enter", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "editor.backspace",
+      "title": "Backspace",
+      "category": "Editor",
+      "bindings": [
+        { "enabled": true, "chord": "Backspace", "context": "editor", "platform": "any" }
+      ]
+    },
+
+    {
+      "id": "color.prev_fg",
+      "title": "Previous Foreground Color",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Up", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "color.next_fg",
+      "title": "Next Foreground Color",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Down", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "color.prev_bg",
+      "title": "Previous Background Color",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Left", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "color.next_bg",
+      "title": "Next Background Color",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Right", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "color.pick_attribute",
+      "title": "Pick Attribute Under Caret",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+U", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "color.default",
+      "title": "Default Color",
+      "category": "Color",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+D", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+D", "context": "editor", "platform": "macos" }
+      ]
+    },
+
+    {
+      "id": "view.zoom_in",
+      "title": "Zoom In",
+      "category": "View",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+=", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+=", "context": "global", "platform": "macos" },
+        { "enabled": true, "chord": "Ctrl++", "context": "global", "platform": "any" }
+      ]
+    },
+    {
+      "id": "view.zoom_out",
+      "title": "Zoom Out",
+      "category": "View",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+-", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+-", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "view.zoom_reset",
+      "title": "Reset Zoom",
+      "category": "View",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+0", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+0", "context": "global", "platform": "macos" }
+      ]
+    }
+  ]
+}
+
+

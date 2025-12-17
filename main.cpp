@@ -36,6 +36,7 @@
 #include "io_manager.h"
 #include "image_to_chafa_dialog.h"
 #include "preview_window.h"
+#include "settings.h"
 
 #include "file_dialog_tags.h"
 #include "sdl_file_dialog_queue.h"
@@ -766,6 +767,8 @@ int main(int, char**)
     bool   show_ansl_editor_window = true;
     bool   show_tool_palette_window = true;
     bool   show_preview_window = true;
+    bool   show_settings_window = false;
+    SettingsWindow settings_window;
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -995,6 +998,13 @@ int main(int, char**)
                 if (ImGui::MenuItem("Quit"))
                 {
                     done = true;
+                }
+
+                ImGui::Separator();
+                if (ImGui::MenuItem("Settings..."))
+                {
+                    show_settings_window = true;
+                    settings_window.SetOpen(true);
                 }
 
                 ImGui::EndMenu();
@@ -1611,6 +1621,14 @@ int main(int, char**)
         if (show_preview_window)
         {
             preview_window.Render("Preview", &show_preview_window, active_canvas);
+        }
+
+        // Settings window (extendable tabs; includes Key Bindings editor).
+        if (show_settings_window)
+        {
+            settings_window.SetOpen(show_settings_window);
+            settings_window.Render("Settings");
+            show_settings_window = settings_window.IsOpen();
         }
 
         // Chafa conversion dialog (may create a new canvas on accept).

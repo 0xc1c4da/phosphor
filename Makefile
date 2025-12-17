@@ -25,7 +25,8 @@ SOURCES  = main.cpp \
            ansl_sort.cpp \
            ansl_params_ui.cpp \
            tool_palette.cpp \
-           io_manager.cpp
+           io_manager.cpp \
+           settings.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \
