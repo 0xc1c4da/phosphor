@@ -467,6 +467,46 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
     return true;
 }
 
+bool AnsiCanvas::CopySelectionToClipboardComposite()
+{
+    EnsureDocument();
+    if (!HasSelection())
+        return false;
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    const size_t n = (size_t)w * (size_t)h;
+    g_clipboard.w = w;
+    g_clipboard.h = h;
+    g_clipboard.cp.assign(n, U' ');
+    g_clipboard.fg.assign(n, 0);
+    g_clipboard.bg.assign(n, 0);
+
+    for (int j = 0; j < h; ++j)
+    {
+        for (int i = 0; i < w; ++i)
+        {
+            const int x = x0 + i;
+            const int y = y0 + j;
+            const size_t out = (size_t)j * (size_t)w + (size_t)i;
+
+            if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                continue;
+
+            const CompositeCell c = GetCompositeCell(y, x);
+            g_clipboard.cp[out] = c.cp;
+            g_clipboard.fg[out] = c.fg;
+            g_clipboard.bg[out] = c.bg;
+        }
+    }
+    return true;
+}
+
 bool AnsiCanvas::DeleteSelection(int layer_index)
 {
     EnsureDocument();
@@ -510,7 +550,7 @@ bool AnsiCanvas::CutSelectionToClipboard(int layer_index)
     return DeleteSelection(layer_index);
 }
 
-bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, bool transparent_spaces)
+bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, bool transparent_spaces)
 {
     EnsureDocument();
     if (!ClipboardHas())
@@ -548,12 +588,18 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, bool transparent_
                 continue;
 
             const size_t dst = CellIndex(py, px);
-            if (dst < layer.cells.size())
-                layer.cells[dst] = cp;
-            if (dst < layer.fg.size())
-                layer.fg[dst] = g_clipboard.fg[s];
-            if (dst < layer.bg.size())
-                layer.bg[dst] = g_clipboard.bg[s];
+            if (mode == PasteMode::Both || mode == PasteMode::CharOnly)
+            {
+                if (dst < layer.cells.size())
+                    layer.cells[dst] = cp;
+            }
+            if (mode == PasteMode::Both || mode == PasteMode::ColorOnly)
+            {
+                if (dst < layer.fg.size())
+                    layer.fg[dst] = g_clipboard.fg[s];
+                if (dst < layer.bg.size())
+                    layer.bg[dst] = g_clipboard.bg[s];
+            }
         }
 
     SetSelectionCorners(x, y, x + w - 1, y + h - 1);

@@ -1,4 +1,14 @@
-settings = { icon = "▭", label = "Select" }
+settings = {
+  icon = "▭",
+  label = "Select",
+
+  -- Tool parameters (host renders UI; values are available under ctx.params.*)
+  params = {
+    copyMode = { type = "enum", label = "Copy Mode", items = { "layer", "composite" }, default = "layer" },
+    pasteMode = { type = "enum", label = "Paste Mode", items = { "both", "char", "color" }, default = "both" },
+    transparentSpaces = { type = "bool", label = "Paste: Transparent spaces", default = false },
+  },
+}
 
 local selecting = false
 local sel_x0 = 0
@@ -25,6 +35,7 @@ function render(ctx, layer)
   local caret = ctx.caret or {}
   local keys = ctx.keys or {}
   local mods = ctx.mods or {}
+  local p = ctx.params or {}
 
   -- Phase 0: keyboard shortcuts.
   if phase == 0 then
@@ -48,10 +59,13 @@ function render(ctx, layer)
 
     -- Clipboard operations.
     if mods.ctrl and keys.c then
-      canvas:copySelection()
+      local mode = p.copyMode
+      if type(mode) ~= "string" then mode = "layer" end
+      canvas:copySelection(mode)
       return
     end
     if mods.ctrl and keys.x then
+      -- Cut is always per-layer (destructive). Copy mode doesn't apply.
       canvas:cutSelection()
       selecting = false
       return
@@ -59,7 +73,10 @@ function render(ctx, layer)
     if mods.ctrl and keys.v then
       local x = to_int(caret.x, 0)
       local y = to_int(caret.y, 0)
-      canvas:pasteClipboard(x, y)
+      local mode = p.pasteMode
+      if type(mode) ~= "string" then mode = "both" end
+      local transparent = (p.transparentSpaces == true)
+      canvas:pasteClipboard(x, y, nil, mode, transparent)
       selecting = false
       return
     end

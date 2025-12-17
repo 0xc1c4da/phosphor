@@ -280,9 +280,23 @@ public:
 
     // Paste the global clipboard into the given layer at (x,y).
     // If layer_index < 0, uses the active layer.
-    // If transparent_spaces is true, space glyphs do not overwrite destination glyphs.
+    enum class PasteMode
+    {
+        Both = 0,     // overwrite glyph + fg + bg
+        CharOnly = 1, // overwrite glyph only
+        ColorOnly = 2 // overwrite fg + bg only (glyph preserved)
+    };
+
+    // If transparent_spaces is true, space glyphs in the clipboard do not apply (no-op for that cell).
     // Returns false if clipboard empty or paste target invalid.
-    bool PasteClipboard(int x, int y, int layer_index = -1, bool transparent_spaces = false);
+    bool PasteClipboard(int x,
+                        int y,
+                        int layer_index = -1,
+                        PasteMode mode = PasteMode::Both,
+                        bool transparent_spaces = false);
+
+    // Copy mode: either the active layer's cells, or the composited "what you see" result.
+    bool CopySelectionToClipboardComposite();
 
     // Interactive move/duplicate of the current selection (floating selection preview).
     bool IsMovingSelection() const { return m_move.active; }

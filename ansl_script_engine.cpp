@@ -275,13 +275,56 @@ static int LuaOptLayerIndex(lua_State* L, int idx, int def = -1)
     return (int)luaL_checkinteger(L, idx);
 }
 
+static AnsiCanvas::PasteMode ParsePasteMode(lua_State* L, int idx, AnsiCanvas::PasteMode def = AnsiCanvas::PasteMode::Both)
+{
+    if (lua_gettop(L) < idx || lua_isnil(L, idx))
+        return def;
+    if (lua_isnumber(L, idx))
+    {
+        const int v = (int)lua_tointeger(L, idx);
+        if (v == 1) return AnsiCanvas::PasteMode::CharOnly;
+        if (v == 2) return AnsiCanvas::PasteMode::ColorOnly;
+        return AnsiCanvas::PasteMode::Both;
+    }
+    if (lua_isstring(L, idx))
+    {
+        size_t len = 0;
+        const char* s = lua_tolstring(L, idx, &len);
+        const std::string v(s ? s : "", s ? (s + len) : (s ? s : ""));
+        if (v == "char" || v == "Char" || v == "glyph" || v == "charOnly" || v == "CharOnly")
+            return AnsiCanvas::PasteMode::CharOnly;
+        if (v == "color" || v == "colour" || v == "colorOnly" || v == "ColorOnly")
+            return AnsiCanvas::PasteMode::ColorOnly;
+        if (v == "both" || v == "Both")
+            return AnsiCanvas::PasteMode::Both;
+    }
+    return def;
+}
+
 static int l_canvas_copySelection(lua_State* L)
 {
     CanvasBinding* b = CheckCanvas(L, 1);
     if (!b || !b->canvas)
         return luaL_error(L, "Invalid canvas binding");
-    const int layer = LuaOptLayerIndex(L, 2, -1);
-    lua_pushboolean(L, b->canvas->CopySelectionToClipboard(layer) ? 1 : 0);
+    // copySelection([modeOrLayer], [layer])
+    // mode: "layer" (default) or "composite"
+    int layer = -1;
+    bool composite = false;
+    if (lua_gettop(L) >= 2 && lua_isstring(L, 2))
+    {
+        const std::string mode = LuaToString(L, 2);
+        if (mode == "composite" || mode == "Composite")
+            composite = true;
+        layer = LuaOptLayerIndex(L, 3, -1);
+    }
+    else
+    {
+        layer = LuaOptLayerIndex(L, 2, -1);
+    }
+
+    const bool ok = composite ? b->canvas->CopySelectionToClipboardComposite()
+                              : b->canvas->CopySelectionToClipboard(layer);
+    lua_pushboolean(L, ok ? 1 : 0);
     return 1;
 }
 
@@ -290,6 +333,7 @@ static int l_canvas_cutSelection(lua_State* L)
     CanvasBinding* b = CheckCanvas(L, 1);
     if (!b || !b->canvas)
         return luaL_error(L, "Invalid canvas binding");
+    // cutSelection([layer])  (composite cut is not supported)
     const int layer = LuaOptLayerIndex(L, 2, -1);
     lua_pushboolean(L, b->canvas->CutSelectionToClipboard(layer) ? 1 : 0);
     return 1;
@@ -312,9 +356,17 @@ static int l_canvas_pasteClipboard(lua_State* L)
         return luaL_error(L, "Invalid canvas binding");
     const int x = (int)luaL_checkinteger(L, 2);
     const int y = (int)luaL_checkinteger(L, 3);
-    const int layer = LuaOptLayerIndex(L, 4, -1);
-    const bool transparent = (lua_gettop(L) >= 5) ? (lua_toboolean(L, 5) != 0) : false;
-    lua_pushboolean(L, b->canvas->PasteClipboard(x, y, layer, transparent) ? 1 : 0);
+    // pasteClipboard(x, y, [layer], [mode], [transparentSpaces])
+    int layer = -1;
+    int idx = 4;
+    if (lua_gettop(L) >= 4 && lua_isnumber(L, 4))
+    {
+        layer = (int)lua_tointeger(L, 4);
+        idx = 5;
+    }
+    const AnsiCanvas::PasteMode mode = ParsePasteMode(L, idx, AnsiCanvas::PasteMode::Both);
+    const bool transparent = (lua_gettop(L) >= (idx + 1)) ? (lua_toboolean(L, idx + 1) != 0) : false;
+    lua_pushboolean(L, b->canvas->PasteClipboard(x, y, layer, mode, transparent) ? 1 : 0);
     return 1;
 }
 
