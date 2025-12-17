@@ -3,7 +3,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
     imgui = {
-      url = "github:ocornut/imgui/v1.91.4";
+      url = "github:ocornut/imgui/dc48a7c88eef4a347000d55062d35cc94e00ef70";
       flake = false;
     };
   };
@@ -33,34 +33,11 @@
           libnoise
         ];
 
-        phosphorSrc = pkgs.lib.cleanSourceWith {
-          src = ./.;
-          filter = path: type:
-            let
-              root = toString ./. + "/";
-              rel = pkgs.lib.removePrefix root (toString path);
-            in
-              # Always keep the flake metadata / build files
-              rel == "flake.nix" ||
-              rel == "flake.lock" ||
-              rel == "Makefile" ||
-              rel == "README.md" ||
-              # Keep source + vendored deps + runtime assets (embedded at build time)
-              pkgs.lib.hasPrefix "src/" rel ||
-              pkgs.lib.hasPrefix "vendor/" rel ||
-              pkgs.lib.hasPrefix "assets/" rel ||
-              # Exclude build outputs / large reference material / nix result symlinks
-              !(pkgs.lib.hasPrefix "build/" rel) &&
-              !(pkgs.lib.hasPrefix "result" rel) &&
-              !(pkgs.lib.hasPrefix "references/" rel) &&
-              rel != "phosphor";
-        };
-
         phosphor = pkgs.stdenv.mkDerivation {
           pname = "phosphor";
           version = "0.0.0";
 
-          src = phosphorSrc;
+          src = self;
 
           nativeBuildInputs = with pkgs; [
             binutils
@@ -76,16 +53,11 @@
           preBuild = ''
             export LIBNOISE_CFLAGS="-I${pkgs.libnoise}/include"
             export LIBNOISE_LIBS="-L${pkgs.libnoise}/lib -lnoise-static -lnoiseutils-static"
-
-            # Flakes don't automatically include git submodule contents in the source tree.
-            # Ensure Dear ImGui sources are present at vendor/imgui for the Makefile build.
-            rm -rf vendor/imgui
-            mkdir -p vendor
-            cp -r ${imgui} vendor/imgui
           '';
 
           makeFlags = [
             "CXX=${pkgs.stdenv.cc}/bin/c++"
+            "IMGUI_DIR=${imgui}"
           ];
 
           installPhase = ''
@@ -131,6 +103,7 @@
 
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath devShellPackages}:$LD_LIBRARY_PATH
+            export IMGUI_DIR=${imgui}
 
             # Provide libnoise
             export LIBNOISE_CFLAGS="-I${pkgs.libnoise}/include"

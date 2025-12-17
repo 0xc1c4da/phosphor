@@ -3,8 +3,15 @@
 CXX       ?= g++
 OBJCOPY   ?= objcopy
 EXE       = phosphor
-IMGUI_DIR = vendor/imgui
+# Allow overriding ImGui location (e.g. from `nix develop` via env var).
+# If you build outside of Nix, set IMGUI_DIR to a checkout of ocornut/imgui.
+IMGUI_DIR ?= vendor/imgui
 BUILD_DIR = build
+
+# Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
+ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
+$(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
+endif
 
 SOURCES  = \
            src/app/main.cpp \
@@ -85,7 +92,10 @@ $(BUILD_DIR)/%.o: %.cpp
 
 $(ASSETS_ARCHIVE): $(shell find assets -type f)
 	@mkdir -p $(dir $@)
-	tar --format=ustar -C assets -cf - . | zstd -q -19 -o $@
+	@tmp="$@.tmp"; \
+	rm -f "$$tmp"; \
+	tar --format=ustar -C assets -cf - . | zstd -q -19 -o "$$tmp"; \
+	mv -f "$$tmp" "$@"
 
 $(ASSETS_OBJ): $(ASSETS_ARCHIVE)
 	@mkdir -p $(dir $@)
