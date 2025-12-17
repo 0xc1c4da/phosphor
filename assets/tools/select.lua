@@ -33,7 +33,6 @@ function render(ctx, layer)
   local cols = to_int(ctx.cols, 0)
   local rows = to_int(ctx.rows, 0)
   local caret = ctx.caret or {}
-  local keys = ctx.keys or {}
   local mods = ctx.mods or {}
   local hotkeys = ctx.hotkeys or {}
   local actions = ctx.actions or {}
@@ -42,7 +41,7 @@ function render(ctx, layer)
   -- Phase 0: keyboard shortcuts.
   if phase == 0 then
     -- Cancel / clear.
-    if hotkeys.cancel or keys.escape then
+    if hotkeys.cancel or actions["selection.clear_or_cancel"] then
       if canvas:isMovingSelection() then
         canvas:cancelMoveSelection()
       else
@@ -53,26 +52,26 @@ function render(ctx, layer)
     end
 
     -- Select all.
-    if (hotkeys.selectAll or (mods.ctrl and keys.a)) and cols > 0 and rows > 0 then
+    if (hotkeys.selectAll or actions["edit.select_all"]) and cols > 0 and rows > 0 then
       canvas:setSelection(0, 0, cols - 1, rows - 1)
       selecting = false
       return
     end
 
     -- Clipboard operations.
-    if hotkeys.copy or (mods.ctrl and keys.c) then
+    if hotkeys.copy or actions["edit.copy"] then
       local mode = p.copyMode
       if type(mode) ~= "string" then mode = "layer" end
       canvas:copySelection(mode)
       return
     end
-    if hotkeys.cut or (mods.ctrl and keys.x) then
+    if hotkeys.cut or actions["edit.cut"] then
       -- Cut is always per-layer (destructive). Copy mode doesn't apply.
       canvas:cutSelection()
       selecting = false
       return
     end
-    if hotkeys.paste or (mods.ctrl and keys.v) then
+    if hotkeys.paste or actions["edit.paste"] then
       local x = to_int(caret.x, 0)
       local y = to_int(caret.y, 0)
       local mode = p.pasteMode
@@ -84,7 +83,7 @@ function render(ctx, layer)
     end
 
     -- Delete selection contents.
-    if (hotkeys.deleteSelection or actions["selection.delete"] or keys["delete"]) and canvas:hasSelection() then
+    if (hotkeys.deleteSelection or actions["selection.delete"]) and canvas:hasSelection() then
       canvas:deleteSelection()
       selecting = false
       return

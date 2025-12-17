@@ -833,22 +833,27 @@ int main(int, char**)
         }
 
         // Main menu bar: File > New Canvas, Quit
+        auto create_new_canvas = [&]()
+        {
+            CanvasWindow canvas_window;
+            canvas_window.open = true;
+            canvas_window.id = next_canvas_id++;
+
+            // Load test.ans into the new canvas. If it fails, the canvas starts empty.
+            canvas_window.canvas.SetColumns(80);
+            canvas_window.canvas.LoadFromFile("test.ans");
+
+            canvases.push_back(canvas_window);
+            last_active_canvas_id = canvas_window.id;
+        };
+
         if (ImGui::BeginMainMenuBar())
         {
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("New Canvas"))
                 {
-                    CanvasWindow canvas_window;
-                    canvas_window.open = true;
-                    canvas_window.id = next_canvas_id++;
-
-                    // Load test.ans into the new canvas. If it fails, the canvas starts empty.
-                    canvas_window.canvas.SetColumns(80);
-                    canvas_window.canvas.LoadFromFile("test.ans");
-
-                    canvases.push_back(canvas_window);
-                    last_active_canvas_id = canvas_window.id;
+                    create_new_canvas();
                 }
 
                 // Project IO + import/export (handled by IoManager).
@@ -973,6 +978,37 @@ int main(int, char**)
             {
                 show_settings_window = true;
                 settings_window.SetOpen(true);
+            }
+
+            // File-level actions (no focused canvas required; Save is gated below).
+            if (!any_popup)
+            {
+                if (keybinds.ActionPressed("app.file.new", kctx))
+                {
+                    create_new_canvas();
+                }
+                if (keybinds.ActionPressed("app.file.open", kctx))
+                {
+                    io_manager.RequestLoadFile(window, file_dialogs);
+                }
+
+                const bool save_pressed =
+                    keybinds.ActionPressed("app.file.save", kctx) ||
+                    keybinds.ActionPressed("app.file.save_as", kctx);
+                if (save_pressed && active_canvas)
+                {
+                    io_manager.RequestSaveProject(window, file_dialogs);
+                }
+
+                if (keybinds.ActionPressed("app.file.export_ansi", kctx) && active_canvas)
+                {
+                    io_manager.RequestExportAnsi(window, file_dialogs);
+                }
+
+                if (keybinds.ActionPressed("app.quit", kctx))
+                {
+                    done = true;
+                }
             }
 
             // Canvas-scoped edit/view shortcuts: only when a canvas grid is focused.

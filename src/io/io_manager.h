@@ -36,6 +36,11 @@ public:
 
     IoManager();
 
+    // Programmatic triggers (used by keybindings, not just menu clicks).
+    void RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs);
+    void RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs);
+    void RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialogs);
+
     // Call from within the "File" menu.
     void RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb);
 

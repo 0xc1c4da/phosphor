@@ -304,6 +304,43 @@ IoManager::IoManager()
     }
 }
 
+void IoManager::RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs)
+{
+    m_last_error.clear();
+    std::vector<SdlFileDialogQueue::FilterPair> filters = {
+        {"Phosphor Project (*.phos)", "phos"},
+        {"All files", "*"},
+    };
+    fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
+    fs::path suggested = base / "project.phos";
+    dialogs.ShowSaveFileDialog(kDialog_SaveProject, window, filters, suggested.string());
+}
+
+void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
+{
+    m_last_error.clear();
+    std::vector<SdlFileDialogQueue::FilterPair> filters = {
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;png;jpg;jpeg;gif;bmp"},
+        {"Phosphor Project (*.phos)", "phos"},
+        {"ANSI / Text (*.ans;*.asc;*.txt)", "ans;asc;txt"},
+        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
+        {"All files", "*"},
+    };
+    dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, false);
+}
+
+void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialogs)
+{
+    m_last_error.clear();
+    std::vector<SdlFileDialogQueue::FilterPair> filters = {
+        {"ANSI / Text (*.ans;*.txt)", "ans;txt"},
+        {"All files", "*"},
+    };
+    fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
+    fs::path suggested = base / "export.ans";
+    dialogs.ShowSaveFileDialog(kDialog_ExportAnsi, window, filters, suggested.string());
+}
+
 void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb)
 {
     const bool has_focus_canvas = (focused_canvas != nullptr);
@@ -313,41 +350,19 @@ void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, 
         ImGui::BeginDisabled();
     if (ImGui::MenuItem("Save..."))
     {
-        m_last_error.clear();
-        std::vector<SdlFileDialogQueue::FilterPair> filters = {
-            {"Phosphor Project (*.phos)", "phos"},
-            {"All files", "*"},
-        };
-        fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
-        fs::path suggested = base / "project.phos";
-        dialogs.ShowSaveFileDialog(kDialog_SaveProject, window, filters, suggested.string());
+        RequestSaveProject(window, dialogs);
     }
     if (!has_focus_canvas)
         ImGui::EndDisabled();
 
     if (ImGui::MenuItem("Load..."))
     {
-        m_last_error.clear();
-        std::vector<SdlFileDialogQueue::FilterPair> filters = {
-            {"Supported files (*.phos;*.ans;*.asc;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;png;jpg;jpeg;gif;bmp"},
-            {"Phosphor Project (*.phos)", "phos"},
-            {"ANSI / Text (*.ans;*.asc;*.txt)", "ans;asc;txt"},
-            {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
-            {"All files", "*"},
-        };
-        dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, false);
+        RequestLoadFile(window, dialogs);
     }
 
     if (ImGui::MenuItem("Export..."))
     {
-        m_last_error.clear();
-        std::vector<SdlFileDialogQueue::FilterPair> filters = {
-            {"ANSI / Text (*.ans;*.txt)", "ans;txt"},
-            {"All files", "*"},
-        };
-        fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
-        fs::path suggested = base / "export.ans";
-        dialogs.ShowSaveFileDialog(kDialog_ExportAnsi, window, filters, suggested.string());
+        RequestExportAnsi(window, dialogs);
     }
 
     (void)cb;

@@ -100,7 +100,6 @@ $(ASSETS_ARCHIVE): $(shell find assets -type f)
 $(ASSETS_OBJ): $(ASSETS_ARCHIVE)
 	@mkdir -p $(dir $@)
 	ld -r -b binary -o $@ $<
-	# Mark the object as NOT requiring an executable stack (silences ld warning).
 	$(OBJCOPY) --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=contents $@
 
 all: $(EXE)
