@@ -1,6 +1,8 @@
 #include "io_manager.h"
 
 #include "ansi_importer.h"
+#include "file_dialog_tags.h"
+#include "sdl_file_dialog_queue.h"
 
 #include "imgui.h"
 
@@ -118,22 +120,6 @@ static bool ZstdDecompressKnownSize(const std::vector<std::uint8_t>& in,
         return false;
     }
     return true;
-}
-
-static std::string Lower(std::string s)
-{
-    for (auto& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-static bool HasExt(const fs::path& p, const std::vector<std::string>& exts_lower)
-{
-    std::string ext = Lower(p.extension().string());
-    for (const auto& e : exts_lower)
-        if (ext == e)
-            return true;
-    return false;
 }
 
 static std::vector<std::uint8_t> ReadAllBytes(const std::string& path, std::string& err)
@@ -520,59 +506,15 @@ IoManager::IoManager()
     // Default to current working directory when the app starts.
     try
     {
-        m_dialog.current_dir = fs::current_path().string();
+        m_last_dir = fs::current_path().string();
     }
     catch (...)
     {
-        m_dialog.current_dir = ".";
+        m_last_dir = ".";
     }
 }
 
-void IoManager::OpenDialog(DialogKind kind)
-{
-    const std::string prev_dir = m_dialog.current_dir;
-    m_dialog = FileDialogState{};
-    m_dialog.kind = kind;
-    m_dialog.request_open = true;
-    m_dialog.current_dir = prev_dir.empty() ? "." : prev_dir;
-
-    // Keep cwd stable across opens.
-    if (m_dialog.current_dir.empty())
-    {
-        try { m_dialog.current_dir = fs::current_path().string(); }
-        catch (...) { m_dialog.current_dir = "."; }
-    }
-
-    switch (kind)
-    {
-        case DialogKind::SaveProject:
-            m_dialog.title = "Save Project";
-            m_dialog.ok_label = "Save";
-            m_dialog.is_save = true;
-            std::snprintf(m_dialog.filename_buf, sizeof(m_dialog.filename_buf), "%s", "project.phos");
-            break;
-        case DialogKind::LoadProject:
-            m_dialog.title = "Load Project";
-            m_dialog.ok_label = "Open";
-            m_dialog.is_save = false;
-            break;
-        case DialogKind::ImportAnsi:
-            m_dialog.title = "Import ANSI";
-            m_dialog.ok_label = "Open";
-            m_dialog.is_save = false;
-            break;
-        case DialogKind::ExportAnsi:
-            m_dialog.title = "Export (stub)";
-            m_dialog.ok_label = "Save";
-            m_dialog.is_save = true;
-            std::snprintf(m_dialog.filename_buf, sizeof(m_dialog.filename_buf), "%s", "export.ans");
-            break;
-        default:
-            break;
-    }
-}
-
-void IoManager::RenderFileMenu(AnsiCanvas* focused_canvas, const Callbacks& cb)
+void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb)
 {
     const bool has_focus_canvas = (focused_canvas != nullptr);
 
@@ -580,247 +522,172 @@ void IoManager::RenderFileMenu(AnsiCanvas* focused_canvas, const Callbacks& cb)
     if (!has_focus_canvas)
         ImGui::BeginDisabled();
     if (ImGui::MenuItem("Save..."))
-        OpenDialog(DialogKind::SaveProject);
+    {
+        m_last_error.clear();
+        std::vector<SdlFileDialogQueue::FilterPair> filters = {
+            {"Phosphor Project (*.phos)", "phos"},
+            {"All files", "*"},
+        };
+        fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
+        fs::path suggested = base / "project.phos";
+        dialogs.ShowSaveFileDialog(kDialog_SaveProject, window, filters, suggested.string());
+    }
     if (!has_focus_canvas)
         ImGui::EndDisabled();
 
     if (ImGui::MenuItem("Load..."))
-        OpenDialog(DialogKind::LoadProject);
+    {
+        m_last_error.clear();
+        std::vector<SdlFileDialogQueue::FilterPair> filters = {
+            {"Phosphor Project (*.phos)", "phos"},
+            {"All files", "*"},
+        };
+        dialogs.ShowOpenFileDialog(kDialog_LoadProject, window, filters, m_last_dir, false);
+    }
 
     if (ImGui::MenuItem("Import..."))
-        OpenDialog(DialogKind::ImportAnsi);
+    {
+        m_last_error.clear();
+        std::vector<SdlFileDialogQueue::FilterPair> filters = {
+            {"ANSI / Text (*.ans;*.asc;*.txt)", "ans;asc;txt"},
+            {"All files", "*"},
+        };
+        dialogs.ShowOpenFileDialog(kDialog_ImportAnsi, window, filters, m_last_dir, false);
+    }
 
     if (ImGui::MenuItem("Export..."))
-        OpenDialog(DialogKind::ExportAnsi);
+    {
+        m_last_error.clear();
+        std::vector<SdlFileDialogQueue::FilterPair> filters = {
+            {"ANSI / Text (*.ans;*.txt)", "ans;txt"},
+            {"All files", "*"},
+        };
+        fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
+        fs::path suggested = base / "export.ans";
+        dialogs.ShowSaveFileDialog(kDialog_ExportAnsi, window, filters, suggested.string());
+    }
 
     (void)cb;
 }
 
-void IoManager::RenderPopups(AnsiCanvas* focused_canvas, const Callbacks& cb)
+void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb)
 {
-    if (m_dialog.kind == DialogKind::None)
+    // Ignore dialogs not owned by IoManager.
+    if (r.tag != kDialog_SaveProject &&
+        r.tag != kDialog_LoadProject &&
+        r.tag != kDialog_ImportAnsi &&
+        r.tag != kDialog_ExportAnsi)
         return;
 
-    if (m_dialog.request_open)
+    if (!r.error.empty())
     {
-        ImGui::OpenPopup(m_dialog.title.c_str());
-        m_dialog.request_open = false;
+        m_last_error = r.error;
+        return;
+    }
+    if (r.canceled || r.paths.empty())
+        return;
+
+    const std::string chosen = r.paths[0];
+
+    auto is_uri = [](const std::string& s) -> bool
+    {
+        return s.find("://") != std::string::npos;
+    };
+
+    if (!is_uri(chosen))
+    {
+        try
+        {
+            fs::path p(chosen);
+            if (p.has_parent_path())
+                m_last_dir = p.parent_path().string();
+        }
+        catch (...) {}
     }
 
-    if (ImGui::BeginPopupModal(m_dialog.title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    std::string err;
+
+    if (r.tag == kDialog_SaveProject)
     {
-        RenderDialogContents(focused_canvas, cb);
-        ImGui::EndPopup();
+        if (!focused_canvas)
+        {
+            m_last_error = "No focused canvas to save.";
+            return;
+        }
+
+        std::string path = chosen;
+        if (!is_uri(path))
+        {
+            fs::path p(path);
+            if (p.extension().empty())
+                path += ".phos";
+        }
+
+        if (SaveProjectToFile(path, *focused_canvas, err))
+        {
+            m_last_error.clear();
+        }
+        else
+        {
+            m_last_error = err.empty() ? "Save failed." : err;
+        }
+    }
+    else if (r.tag == kDialog_LoadProject)
+    {
+        if (!cb.create_canvas)
+        {
+            m_last_error = "Internal error: create_canvas callback not set.";
+            return;
+        }
+
+        AnsiCanvas loaded;
+        if (LoadProjectFromFile(chosen, loaded, err))
+        {
+            cb.create_canvas(std::move(loaded));
+            m_last_error.clear();
+        }
+        else
+        {
+            m_last_error = err.empty() ? "Load failed." : err;
+        }
+    }
+    else if (r.tag == kDialog_ImportAnsi)
+    {
+        if (!cb.create_canvas)
+        {
+            m_last_error = "Internal error: create_canvas callback not set.";
+            return;
+        }
+
+        AnsiCanvas imported;
+        std::string ierr;
+        if (!ansi_importer::ImportAnsiFileToCanvas(chosen, imported, ierr))
+        {
+            m_last_error = ierr.empty() ? "Failed to import ANSI file." : ierr;
+        }
+        else
+        {
+            cb.create_canvas(std::move(imported));
+            m_last_error.clear();
+        }
+    }
+    else if (r.tag == kDialog_ExportAnsi)
+    {
+        // Stub: UI contract only (we'll implement proper export later).
+        (void)chosen;
+        m_last_error = "Export is not implemented yet.";
     }
 }
 
-void IoManager::RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks& cb)
+void IoManager::RenderStatusWindows()
 {
-    // Extensions per dialog type
-    std::vector<std::string> exts;
-    if (m_dialog.kind == DialogKind::SaveProject || m_dialog.kind == DialogKind::LoadProject)
-        exts = { ".phos", ".cbor" };
-    else if (m_dialog.kind == DialogKind::ImportAnsi || m_dialog.kind == DialogKind::ExportAnsi)
-        exts = { ".ans", ".txt" };
-
-    ImGui::Text("Directory: %s", m_dialog.current_dir.c_str());
-    ImGui::Separator();
-
-    const ImVec2 list_size(640.0f, 320.0f);
-    if (ImGui::BeginChild("io_file_list", list_size, true, ImGuiWindowFlags_HorizontalScrollbar))
+    if (!m_last_error.empty())
     {
-        fs::path cur(m_dialog.current_dir.empty() ? "." : m_dialog.current_dir);
-
-        // ".."
-        if (cur.has_parent_path())
-        {
-            if (ImGui::Selectable("..", false))
-            {
-                m_dialog.current_dir = cur.parent_path().string();
-                m_dialog.selected_name.clear();
-            }
-        }
-
-        try
-        {
-            std::vector<fs::directory_entry> entries;
-            for (const auto& e : fs::directory_iterator(cur))
-                entries.push_back(e);
-            std::sort(entries.begin(), entries.end(), [](const fs::directory_entry& a, const fs::directory_entry& b) {
-                const bool ad = a.is_directory();
-                const bool bd = b.is_directory();
-                if (ad != bd) return ad > bd;
-                return a.path().filename().string() < b.path().filename().string();
-            });
-
-            for (const auto& entry : entries)
-            {
-                const fs::path p = entry.path();
-                const std::string name = p.filename().string();
-                if (name.empty())
-                    continue;
-
-                if (entry.is_directory())
-                {
-                    const std::string label = "[dir] " + name + "/";
-                    if (ImGui::Selectable(label.c_str(), false))
-                    {
-                        m_dialog.current_dir = p.string();
-                        m_dialog.selected_name.clear();
-                    }
-                    continue;
-                }
-
-                if (!entry.is_regular_file())
-                    continue;
-
-                if (!exts.empty() && !HasExt(p, exts))
-                    continue;
-
-                const bool selected = (name == m_dialog.selected_name);
-                if (ImGui::Selectable(name.c_str(), selected))
-                {
-                    m_dialog.selected_name = name;
-                    if (m_dialog.is_save)
-                        std::snprintf(m_dialog.filename_buf, sizeof(m_dialog.filename_buf), "%s", name.c_str());
-                }
-            }
-        }
-        catch (const std::exception& e)
-        {
-            m_dialog.error = e.what();
-        }
-
-        ImGui::EndChild();
-    }
-
-    if (!m_dialog.error.empty())
-    {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_dialog.error.c_str());
-    }
-
-    if (m_dialog.is_save)
-    {
-        ImGui::Separator();
-        ImGui::TextUnformatted("File name:");
-        ImGui::SetNextItemWidth(640.0f);
-        ImGui::InputText("##io_filename", m_dialog.filename_buf, IM_ARRAYSIZE(m_dialog.filename_buf));
-    }
-
-    ImGui::Separator();
-
-    bool can_ok = true;
-    if (m_dialog.is_save)
-    {
-        can_ok = (std::strlen(m_dialog.filename_buf) > 0);
-    }
-    else
-    {
-        can_ok = !m_dialog.selected_name.empty();
-    }
-
-    if (!can_ok)
-        ImGui::BeginDisabled();
-    if (ImGui::Button(m_dialog.ok_label.c_str()))
-    {
-        fs::path base(m_dialog.current_dir.empty() ? "." : m_dialog.current_dir);
-        std::string chosen_name = m_dialog.is_save ? std::string(m_dialog.filename_buf) : m_dialog.selected_name;
-        fs::path full = base / chosen_name;
-
-        // Auto-append a reasonable extension when saving.
-        if (m_dialog.is_save && full.extension().empty())
-        {
-            if (m_dialog.kind == DialogKind::SaveProject)
-                full += ".phos";
-            else if (m_dialog.kind == DialogKind::ExportAnsi)
-                full += ".ans";
-        }
-
-        std::string err;
-
-        if (m_dialog.kind == DialogKind::SaveProject)
-        {
-            if (!focused_canvas)
-            {
-                m_dialog.error = "No focused canvas to save.";
-            }
-            else if (SaveProjectToFile(full.string(), *focused_canvas, err))
-            {
-                m_last_status = "Saved project.";
-                ImGui::CloseCurrentPopup();
-                m_dialog.kind = DialogKind::None;
-            }
-            else
-            {
-                m_dialog.error = err.empty() ? "Save failed." : err;
-            }
-        }
-        else if (m_dialog.kind == DialogKind::LoadProject)
-        {
-            if (!cb.create_canvas)
-            {
-                m_dialog.error = "Internal error: create_canvas callback not set.";
-            }
-            else
-            {
-                AnsiCanvas loaded;
-                if (LoadProjectFromFile(full.string(), loaded, err))
-                {
-                    cb.create_canvas(std::move(loaded));
-                    m_last_status = "Loaded project.";
-                    ImGui::CloseCurrentPopup();
-                    m_dialog.kind = DialogKind::None;
-                }
-                else
-                {
-                    m_dialog.error = err.empty() ? "Load failed." : err;
-                }
-            }
-        }
-        else if (m_dialog.kind == DialogKind::ImportAnsi)
-        {
-            if (!cb.create_canvas)
-            {
-                m_dialog.error = "Internal error: create_canvas callback not set.";
-            }
-            else
-            {
-                AnsiCanvas imported;
-                std::string ierr;
-                if (!ansi_importer::ImportAnsiFileToCanvas(full.string(), imported, ierr))
-                {
-                    m_dialog.error = ierr.empty() ? "Failed to import ANSI file." : ierr;
-                }
-                else
-                {
-                    cb.create_canvas(std::move(imported));
-                    m_last_status = "Imported ANSI file.";
-                    ImGui::CloseCurrentPopup();
-                    m_dialog.kind = DialogKind::None;
-                }
-            }
-        }
-        else if (m_dialog.kind == DialogKind::ExportAnsi)
-        {
-            // Stub: UI contract only (we'll implement proper ANSI/ANSL export later).
-            m_dialog.error = "Export is not implemented yet.";
-        }
-    }
-    if (!can_ok)
-        ImGui::EndDisabled();
-
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel"))
-    {
-        ImGui::CloseCurrentPopup();
-        m_dialog.kind = DialogKind::None;
-    }
-
-    if (!m_last_status.empty())
-    {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", m_last_status.c_str());
+        ImGui::Begin("File Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_last_error.c_str());
+        if (ImGui::Button("Dismiss"))
+            m_last_error.clear();
+        ImGui::End();
     }
 }
 

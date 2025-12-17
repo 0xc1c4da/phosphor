@@ -14,6 +14,7 @@ SOURCES  = main.cpp \
            ansi_importer.cpp \
            colour_picker.cpp \
            image_to_chafa_dialog.cpp \
+           sdl_file_dialog_queue.cpp \
            xterm256_palette.cpp \
            character_picker.cpp \
            character_palette.cpp \

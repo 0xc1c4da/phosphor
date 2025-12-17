@@ -5,9 +5,12 @@
 #include <functional>
 #include <string>
 
+struct SdlFileDialogResult;
+class SdlFileDialogQueue;
+struct SDL_Window;
+
 // IO manager:
 // - owns File menu items (Save/Load/Import/Export)
-// - provides an in-app ImGui file picker (open/save)
 // - serializes projects as CBOR via nlohmann::json (implemented in io_manager.cpp)
 class IoManager
 {
@@ -21,42 +24,16 @@ public:
     IoManager();
 
     // Call from within the "File" menu.
-    void RenderFileMenu(AnsiCanvas* focused_canvas, const Callbacks& cb);
+    void RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb);
 
-    // Call once per frame (after menus) to render any active popups/modals.
-    void RenderPopups(AnsiCanvas* focused_canvas, const Callbacks& cb);
+    // Handle a completed SDL file dialog (polled from SdlFileDialogQueue).
+    void HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb);
+
+    // Optional UI helpers (ImGui) to show last status / error.
+    void RenderStatusWindows();
 
 private:
-    enum class DialogKind
-    {
-        None = 0,
-        SaveProject,
-        LoadProject,
-        ImportAnsi,
-        ExportAnsi,
-    };
-
-    struct FileDialogState
-    {
-        DialogKind kind = DialogKind::None;
-        bool       request_open = false; // triggers ImGui::OpenPopup next frame
-
-        std::string title;
-        std::string ok_label;
-        bool        is_save = false;
-
-        std::string current_dir;
-        std::string selected_name;
-        char        filename_buf[256] = {};
-
-        std::string error;
-        std::string info;
-    };
-
-    FileDialogState m_dialog;
-    std::string     m_last_status;
-
-    void OpenDialog(DialogKind kind);
-    void RenderDialogContents(AnsiCanvas* focused_canvas, const Callbacks& cb);
+    std::string m_last_dir;
+    std::string m_last_error;
 };
 

@@ -37,6 +37,9 @@
 #include "image_to_chafa_dialog.h"
 #include "preview_window.h"
 
+#include "file_dialog_tags.h"
+#include "sdl_file_dialog_queue.h"
+
 // Vulkan debug
 //#define APP_USE_UNLIMITED_FRAME_RATE
 #ifdef _DEBUG
@@ -837,12 +840,16 @@ int main(int, char**)
     // Canvas preview (minimap)
     PreviewWindow preview_window;
 
-    // Import Image dialog state
-    bool show_import_image_popup = false;
-    std::string import_error;
     namespace fs = std::filesystem;
-    fs::path current_import_dir = fs::current_path();
-    std::string selected_import_name;
+
+    // SDL native file dialogs (async -> polled queue).
+    SdlFileDialogQueue file_dialogs;
+
+    // Import Image result state (native dialog)
+    std::string import_image_error;
+    std::string last_import_image_dir;
+    try { last_import_image_dir = fs::current_path().string(); }
+    catch (...) { last_import_image_dir = "."; }
 
     // File IO (projects, import/export)
     IoManager io_manager;
@@ -856,6 +863,9 @@ int main(int, char**)
         // and run the normal shutdown path below.
         if (g_InterruptRequested)
             break;
+
+        // Some platforms (e.g. Linux portals) may require pumping events for dialogs.
+        SDL_PumpEvents();
 
         // Poll and handle events
         SDL_Event event;
@@ -969,16 +979,17 @@ int main(int, char**)
                         canvases.push_back(std::move(canvas_window));
                         last_active_canvas_id = canvas_window.id;
                     };
-                    io_manager.RenderFileMenu(active_canvas, cbs);
+                    io_manager.RenderFileMenu(window, file_dialogs, active_canvas, cbs);
                 }
 
                 if (ImGui::MenuItem("Import Image..."))
                 {
-                    // Open our in-app file picker. We keep this entirely in ImGui so it works
-                    // cross-platform and doesn't depend on external dialog libraries.
-                    show_import_image_popup = true;
-                    import_error.clear();
-                    selected_import_name.clear();
+                    import_image_error.clear();
+                    std::vector<SdlFileDialogQueue::FilterPair> filters = {
+                        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
+                        {"All files", "*"},
+                    };
+                    file_dialogs.ShowOpenFileDialog(kDialog_ImportImage, window, filters, last_import_image_dir, false);
                 }
 
                 if (ImGui::MenuItem("Quit"))
@@ -1017,7 +1028,7 @@ int main(int, char**)
             ImGui::EndMainMenuBar();
         }
 
-        // IoManager popups/modals (Save/Load/Import/Export).
+        // Dispatch completed native file dialogs (projects, import/export, image import).
         {
             IoManager::Callbacks cbs;
             cbs.create_canvas = [&](AnsiCanvas&& c)
@@ -1029,8 +1040,58 @@ int main(int, char**)
                 canvases.push_back(std::move(canvas_window));
                 last_active_canvas_id = canvas_window.id;
             };
-            io_manager.RenderPopups(active_canvas, cbs);
+
+            SdlFileDialogResult r;
+            while (file_dialogs.Poll(r))
+            {
+                if (r.tag == kDialog_ImportImage)
+                {
+                    if (!r.error.empty())
+                    {
+                        import_image_error = r.error;
+                        continue;
+                    }
+                    if (r.canceled || r.paths.empty())
+                        continue;
+
+                    const std::string path = r.paths[0];
+                    int iw = 0, ih = 0;
+                    std::vector<unsigned char> rgba;
+                    if (!LoadImageAsRgba32(path, iw, ih, rgba))
+                    {
+                        import_image_error = "Failed to load image.";
+                        continue;
+                    }
+
+                    ImageWindow img;
+                    img.id = next_image_id++;
+                    img.path = path;
+                    img.width = iw;
+                    img.height = ih;
+                    img.pixels = std::move(rgba);
+                    img.open = true;
+                    images.push_back(std::move(img));
+
+                    if (path.find("://") == std::string::npos)
+                    {
+                        try
+                        {
+                            fs::path p(path);
+                            if (p.has_parent_path())
+                                last_import_image_dir = p.parent_path().string();
+                        }
+                        catch (...) {}
+                    }
+                }
+                else
+                {
+                    io_manager.HandleDialogResult(r, active_canvas, cbs);
+                }
+            }
         }
+
+        // File IO feedback (success/error).
+        io_manager.RenderStatusWindows();
 
         // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
         if (focused_canvas)
@@ -1051,127 +1112,12 @@ int main(int, char**)
             }
         }
 
-        // Import Image modal dialog
-        if (show_import_image_popup)
+        // Import Image error reporting (native dialog).
+        if (!import_image_error.empty())
         {
-            ImGui::OpenPopup("Import Image");
-            show_import_image_popup = false;
-        }
-        if (ImGui::BeginPopupModal("Import Image", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            ImGui::TextWrapped("Choose an image file to import.\n"
-                               "Images are loaded via stb_image into an RGBA buffer, "
-                               "which we can later feed into chafa for ANSI conversion.");
-
-            ImGui::Separator();
-            ImGui::Text("Directory: %s", current_import_dir.string().c_str());
-
-            ImVec2 list_size(600.0f, 300.0f);
-            if (ImGui::BeginChild("import_file_list", list_size, true, ImGuiWindowFlags_HorizontalScrollbar))
-            {
-                // ".." entry to go up one directory
-                if (current_import_dir.has_parent_path())
-                {
-                    if (ImGui::Selectable("..", false))
-                    {
-                        current_import_dir = current_import_dir.parent_path();
-                        selected_import_name.clear();
-                    }
-                }
-
-                // Enumerate directory entries
-                try
-                {
-                    for (const auto& entry : fs::directory_iterator(current_import_dir))
-                    {
-                        const fs::path& p = entry.path();
-                        std::string name = p.filename().string();
-                        if (name.empty())
-                            continue;
-
-                        if (entry.is_directory())
-                        {
-                            std::string label = "[dir] " + name + "/";
-                            if (ImGui::Selectable(label.c_str(), false))
-                            {
-                                current_import_dir = p;
-                                selected_import_name.clear();
-                            }
-                        }
-                        else if (entry.is_regular_file())
-                        {
-                            // Basic filter for common image extensions; SDL currently only
-                            // loads BMP here, but we keep the UI future-proof.
-                            std::string ext = p.extension().string();
-                            for (auto& c : ext)
-                                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-                            bool looks_like_image =
-                                (ext == ".bmp" || ext == ".png" ||
-                                 ext == ".jpg" || ext == ".jpeg" ||
-                                 ext == ".gif");
-                            if (!looks_like_image)
-                                continue;
-
-                            bool selected = (name == selected_import_name);
-                            if (ImGui::Selectable(name.c_str(), selected))
-                            {
-                                selected_import_name = name;
-                            }
-                        }
-                    }
-                }
-                catch (const std::exception& e)
-                {
-                    import_error = e.what();
-                }
-
-                ImGui::EndChild();
-            }
-
-            if (!import_error.empty())
-            {
-                ImGui::Separator();
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", import_error.c_str());
-            }
-
-            ImGui::Separator();
-            bool can_open = !selected_import_name.empty();
-            if (!can_open)
-                ImGui::BeginDisabled();
-            if (ImGui::Button("Open"))
-            {
-                fs::path full_path = current_import_dir / selected_import_name;
-                ImageWindow img;
-                img.id = next_image_id++;
-                img.path = full_path.string();
-
-                int w = 0, h = 0;
-                std::vector<unsigned char> rgba;
-                if (!LoadImageAsRgba32(img.path, w, h, rgba))
-                {
-                    import_error = "Failed to load image.";
-                }
-                else
-                {
-                    img.width = w;
-                    img.height = h;
-                    img.pixels = std::move(rgba);
-                    img.open = true;
-                    images.push_back(std::move(img));
-                    ImGui::CloseCurrentPopup();
-                }
-            }
-            if (!can_open)
-                ImGui::EndDisabled();
-
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
-            {
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::EndPopup();
+            ImGui::Begin("Import Image Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", import_image_error.c_str());
+            ImGui::End();
         }
 
         // Optional: keep the ImGui demo available for reference
