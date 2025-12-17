@@ -1,0 +1,90 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Small persistent "session" state for the app:
+// - SDL main window geometry (size/position/maximized)
+// - which ImGui tool windows are toggled open
+// - ImGui window placements (pos/size/collapsed) for deterministic restore
+struct ImGuiWindowPlacement
+{
+    bool  valid = false;
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    bool  collapsed = false;
+};
+
+struct SessionState
+{
+    struct OpenCanvas
+    {
+        int id = 0;
+        bool open = true;
+
+        // Canvas project state encoded as: zstd-compressed CBOR (nlohmann::json::to_cbor) then base64.
+        std::string project_cbor_zstd_b64;
+        std::uint64_t project_cbor_size = 0; // uncompressed CBOR size in bytes
+
+        // Viewport state
+        float zoom = 1.0f;
+        float scroll_x = 0.0f;
+        float scroll_y = 0.0f;
+    };
+
+    struct OpenImage
+    {
+        int id = 0;
+        bool open = true;
+        std::string path; // reloaded at startup
+    };
+
+    // Main window geometry (SDL window coordinates)
+    int window_w = 0;
+    int window_h = 0;
+    int window_x = 0;
+    int window_y = 0;
+    bool window_pos_valid = false;
+    bool window_maximized = false;
+
+    // Tool window visibility toggles
+    bool show_color_picker_window = true;
+    bool show_character_picker_window = true;
+    bool show_character_palette_window = true;
+    bool show_layer_manager_window = true;
+    bool show_ansl_editor_window = true;
+    bool show_tool_palette_window = true;
+    bool show_preview_window = true;
+    bool show_settings_window = false;
+
+    // A couple of useful "workspace" bits
+    std::string last_import_image_dir;
+
+    // ImGui window placements (keyed by the window name passed to ImGui::Begin()).
+    // This replaces reliance on imgui.ini so we can guarantee restore behavior.
+    std::unordered_map<std::string, ImGuiWindowPlacement> imgui_windows;
+
+    // Workspace content
+    std::string active_tool_path;
+    int last_active_canvas_id = -1;
+    int next_canvas_id = 1;
+    int next_image_id = 1;
+    std::vector<OpenCanvas> open_canvases;
+    std::vector<OpenImage> open_images;
+};
+
+// Returns an absolute directory path intended for app config/state.
+// On Linux prefers $XDG_CONFIG_HOME/phosphor, then $HOME/.config/phosphor.
+std::string GetPhosphorConfigDir();
+
+// Returns absolute paths for persisted state.
+std::string GetSessionStatePath();
+
+bool LoadSessionState(SessionState& out, std::string& err);
+bool SaveSessionState(const SessionState& st, std::string& err);
+
+

@@ -8,6 +8,7 @@
 struct SdlFileDialogResult;
 class SdlFileDialogQueue;
 struct SDL_Window;
+struct SessionState;
 
 // IO manager:
 // - owns File menu items (Save/Load/Import/Export)
@@ -30,7 +31,7 @@ public:
     void HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb);
 
     // Optional UI helpers (ImGui) to show last status / error.
-    void RenderStatusWindows();
+    void RenderStatusWindows(SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 private:
     std::string m_last_dir;

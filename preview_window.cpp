@@ -3,6 +3,7 @@
 #include "canvas.h"
 
 #include "imgui.h"
+#include "imgui_persistence.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,16 +13,25 @@ static bool PointInRect(const ImVec2& p, const ImVec2& a, const ImVec2& b)
     return (p.x >= a.x && p.y >= a.y && p.x <= b.x && p.y <= b.y);
 }
 
-bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas)
+bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
+                           SessionState* session, bool apply_placement_this_frame)
 {
     if (!p_open || !*p_open)
         return false;
 
-    if (!ImGui::Begin(title ? title : "Preview", p_open))
+    const char* win_name = title ? title : "Preview";
+    if (session)
+        ApplyImGuiWindowPlacement(*session, win_name, apply_placement_this_frame);
+
+    if (!ImGui::Begin(win_name, p_open))
     {
+        if (session)
+            CaptureImGuiWindowPlacement(*session, win_name);
         ImGui::End();
         return true;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, win_name);
 
     const AnsiCanvas::ViewState vs = canvas ? canvas->GetLastViewState() : AnsiCanvas::ViewState{};
 

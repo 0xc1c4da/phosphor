@@ -16,6 +16,8 @@
 #include <fstream>          // std::ifstream
 #include <algorithm>        // std::min
 #include <iterator>
+#include <unordered_set>
+#include <zstd.h>
 
 #include <nlohmann/json.hpp>
 
@@ -37,6 +39,10 @@
 #include "image_to_chafa_dialog.h"
 #include "preview_window.h"
 #include "settings.h"
+#include "session_state.h"
+#include "imgui_persistence.h"
+#include "project_state_json.h"
+#include "binary_codec.h"
 
 #include "file_dialog_tags.h"
 #include "sdl_file_dialog_queue.h"
@@ -668,6 +674,14 @@ int main(int, char**)
     // of abruptly killing the process (which can upset Vulkan/SDL).
     std::signal(SIGINT, HandleInterruptSignal);
 
+    // Load persisted session state (window geometry + tool window toggles).
+    SessionState session_state;
+    {
+        std::string err;
+        if (!LoadSessionState(session_state, err) && !err.empty())
+            std::fprintf(stderr, "[session] %s\n", err.c_str());
+    }
+
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
@@ -682,10 +696,21 @@ int main(int, char**)
                           SDL_WINDOW_RESIZABLE |
                           SDL_WINDOW_HIDDEN |
                           SDL_WINDOW_HIGH_PIXEL_DENSITY);
+
+    auto clamp_i = [](int v, int lo, int hi) -> int { return (v < lo) ? lo : (v > hi) ? hi : v; };
+    int initial_w = (int)(1280 * main_scale);
+    int initial_h = (int)(800  * main_scale);
+    if (session_state.window_w > 0 && session_state.window_h > 0)
+    {
+        // Keep some sanity bounds so bad state can't create a 0px or enormous window.
+        initial_w = clamp_i(session_state.window_w, 320, 16384);
+        initial_h = clamp_i(session_state.window_h, 240, 16384);
+    }
+
     SDL_Window* window = SDL_CreateWindow(
         "Phosphor",
-        (int)(1280 * main_scale),
-        (int)(800  * main_scale),
+        initial_w,
+        initial_h,
         window_flags);
     if (window == nullptr)
     {
@@ -716,7 +741,15 @@ int main(int, char**)
     SDL_GetWindowSize(window, &w, &h);
     ImGui_ImplVulkanH_Window* wd = &g_MainWindowData;
     SetupVulkanWindow(wd, surface, w, h);
-    SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
+    if (session_state.window_pos_valid)
+        SDL_SetWindowPosition(window, session_state.window_x, session_state.window_y);
+    else
+        SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
+    if (session_state.window_maximized)
+        SDL_MaximizeWindow(window);
+
     SDL_ShowWindow(window);
 
     // Setup Dear ImGui context
@@ -725,6 +758,10 @@ int main(int, char**)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+
+    // Disable ImGui's ini persistence entirely.
+    // We persist/restore window placements ourselves via SessionState (session.json).
+    io.IniFilename = nullptr;
 
     // Load Unscii as the default font (mono, great for UTF‑8 art).
     // Relative to the working directory (project root when running ./utf8-art-editor).
@@ -760,15 +797,16 @@ int main(int, char**)
     // Our state
     bool show_demo_window = false;
     ImVec4 clear_color = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
-    bool   show_color_picker_window = true;
-    bool   show_character_picker_window = true;
-    bool   show_character_palette_window = true;
-    bool   show_layer_manager_window = true;
-    bool   show_ansl_editor_window = true;
-    bool   show_tool_palette_window = true;
-    bool   show_preview_window = true;
-    bool   show_settings_window = false;
+    bool   show_color_picker_window = session_state.show_color_picker_window;
+    bool   show_character_picker_window = session_state.show_character_picker_window;
+    bool   show_character_palette_window = session_state.show_character_palette_window;
+    bool   show_layer_manager_window = session_state.show_layer_manager_window;
+    bool   show_ansl_editor_window = session_state.show_ansl_editor_window;
+    bool   show_tool_palette_window = session_state.show_tool_palette_window;
+    bool   show_preview_window = session_state.show_preview_window;
+    bool   show_settings_window = session_state.show_settings_window;
     SettingsWindow settings_window;
+    settings_window.SetOpen(show_settings_window);
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -819,6 +857,11 @@ int main(int, char**)
         if (!tool_palette.LoadFromDirectory("assets/tools", err))
             tools_error = err;
     }
+    // Restore last selected tool (if any).
+    if (!session_state.active_tool_path.empty())
+    {
+        tool_palette.SetActiveToolByPath(session_state.active_tool_path);
+    }
     {
         std::string tool_path;
         if (tool_palette.TakeActiveToolChanged(tool_path))
@@ -851,15 +894,160 @@ int main(int, char**)
     // Import Image result state (native dialog)
     std::string import_image_error;
     std::string last_import_image_dir;
-    try { last_import_image_dir = fs::current_path().string(); }
-    catch (...) { last_import_image_dir = "."; }
+    if (!session_state.last_import_image_dir.empty())
+        last_import_image_dir = session_state.last_import_image_dir;
+    else
+    {
+        try { last_import_image_dir = fs::current_path().string(); }
+        catch (...) { last_import_image_dir = "."; }
+    }
 
     // File IO (projects, import/export)
     IoManager io_manager;
 
+    // Restore workspace content (open canvases + images).
+    if (session_state.next_canvas_id > 0)
+        next_canvas_id = session_state.next_canvas_id;
+    if (session_state.next_image_id > 0)
+        next_image_id = session_state.next_image_id;
+    last_active_canvas_id = session_state.last_active_canvas_id;
+
+    auto decode_project_state = [&](const SessionState::OpenCanvas& oc, AnsiCanvas::ProjectState& out_ps, std::string& err) -> bool
+    {
+        err.clear();
+        if (oc.project_cbor_zstd_b64.empty() || oc.project_cbor_size == 0)
+            return false;
+
+        std::string comp_bytes;
+        if (!Base64Decode(oc.project_cbor_zstd_b64, comp_bytes))
+        {
+            err = "base64 decode failed";
+            return false;
+        }
+
+        std::string cbor_bytes;
+        std::string zerr;
+        if (!ZstdDecompressBytesKnownSize(comp_bytes, oc.project_cbor_size, cbor_bytes, zerr))
+        {
+            err = zerr;
+            return false;
+        }
+
+        nlohmann::json j;
+        try
+        {
+            const auto* p = reinterpret_cast<const std::uint8_t*>(cbor_bytes.data());
+            j = nlohmann::json::from_cbor(p, p + cbor_bytes.size());
+        }
+        catch (const std::exception& e)
+        {
+            err = std::string("CBOR decode failed: ") + e.what();
+            return false;
+        }
+
+        return project_state_json::FromJson(j, out_ps, err);
+    };
+
+    auto encode_project_state = [&](const AnsiCanvas::ProjectState& ps,
+                                    std::string& out_b64,
+                                    std::uint64_t& out_cbor_size,
+                                    std::string& err) -> bool
+    {
+        err.clear();
+        out_b64.clear();
+        out_cbor_size = 0;
+
+        nlohmann::json j = project_state_json::ToJson(ps);
+        std::vector<std::uint8_t> cbor;
+        try
+        {
+            cbor = nlohmann::json::to_cbor(j);
+        }
+        catch (const std::exception& e)
+        {
+            err = std::string("CBOR encode failed: ") + e.what();
+            return false;
+        }
+
+        out_cbor_size = (std::uint64_t)cbor.size();
+        std::string cbor_bytes(reinterpret_cast<const char*>(cbor.data()),
+                               reinterpret_cast<const char*>(cbor.data() + cbor.size()));
+
+        std::string comp;
+        std::string zerr;
+        if (!ZstdCompressBytes(cbor_bytes, comp, zerr))
+        {
+            err = zerr;
+            return false;
+        }
+        if (!Base64Encode(reinterpret_cast<const std::uint8_t*>(comp.data()), comp.size(), out_b64))
+        {
+            err = "base64 encode failed";
+            return false;
+        }
+        return true;
+    };
+
+    // Restore canvases.
+    for (const auto& oc : session_state.open_canvases)
+    {
+        CanvasWindow cw;
+        cw.open = oc.open;
+        cw.id = (oc.id > 0) ? oc.id : next_canvas_id++;
+
+        AnsiCanvas::ProjectState ps;
+        std::string derr;
+        if (decode_project_state(oc, ps, derr))
+        {
+            std::string apply_err;
+            if (!cw.canvas.SetProjectState(ps, apply_err))
+                std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, apply_err.c_str());
+        }
+        else if (!oc.project_cbor_zstd_b64.empty())
+        {
+            std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, derr.c_str());
+        }
+
+        cw.canvas.SetZoom(oc.zoom);
+        cw.canvas.RequestScrollPixels(oc.scroll_x, oc.scroll_y);
+
+        const int restored_id = cw.id;
+        canvases.push_back(std::move(cw));
+        next_canvas_id = std::max(next_canvas_id, restored_id + 1);
+    }
+
+    // Restore images (paths only; pixels reloaded).
+    for (const auto& oi : session_state.open_images)
+    {
+        ImageWindow img;
+        img.open = oi.open;
+        img.id = (oi.id > 0) ? oi.id : next_image_id++;
+        img.path = oi.path;
+        if (!img.path.empty())
+        {
+            int iw = 0, ih = 0;
+            std::vector<unsigned char> rgba;
+            if (LoadImageAsRgba32(img.path, iw, ih, rgba))
+            {
+                img.width = iw;
+                img.height = ih;
+                img.pixels = std::move(rgba);
+            }
+        }
+        images.push_back(std::move(img));
+        next_image_id = std::max(next_image_id, images.back().id + 1);
+    }
+
     // Main loop
     bool done = false;
     int frame_counter = 0;
+    std::unordered_set<std::string> applied_imgui_placements;
+    auto should_apply_placement = [&](const char* window_name) -> bool
+    {
+        if (!window_name || !*window_name)
+            return false;
+        return applied_imgui_placements.emplace(window_name).second;
+    };
     while (!done)
     {
         // If Ctrl+C was pressed in the terminal, break out of the render loop
@@ -1101,7 +1289,7 @@ int main(int, char**)
         }
 
         // File IO feedback (success/error).
-        io_manager.RenderStatusWindows();
+        io_manager.RenderStatusWindows(&session_state, should_apply_placement("File Error"));
 
         // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
         if (focused_canvas)
@@ -1125,7 +1313,10 @@ int main(int, char**)
         // Import Image error reporting (native dialog).
         if (!import_image_error.empty())
         {
-            ImGui::Begin("Import Image Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            const char* wname = "Import Image Error";
+            ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
+            ImGui::Begin(wname, nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+            CaptureImGuiWindowPlacement(session_state, wname);
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", import_image_error.c_str());
             ImGui::End();
         }
@@ -1137,7 +1328,9 @@ int main(int, char**)
         // Unicode Character Picker window (ICU67 / Unicode 13)
         if (show_character_picker_window)
         {
-            character_picker.Render("Unicode Character Picker", &show_character_picker_window);
+            const char* name = "Unicode Character Picker";
+            character_picker.Render(name, &show_character_picker_window,
+                                    &session_state, should_apply_placement(name));
         }
 
         // If the picker selection changed, update the palette's selected cell (replace or select).
@@ -1154,7 +1347,9 @@ int main(int, char**)
         // Character Palette window (loads assets/palettes.json via nlohmann_json)
         if (show_character_palette_window)
         {
-            character_palette.Render("Character Palette", &show_character_palette_window);
+            const char* name = "Character Palette";
+            character_palette.Render(name, &show_character_palette_window,
+                                     &session_state, should_apply_placement(name));
         }
 
         // If the user clicked a glyph in the palette, navigate the picker to it.
@@ -1171,7 +1366,10 @@ int main(int, char**)
         // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
         if (show_color_picker_window)
         {
+            const char* name = "Xterm-256 Color Picker";
+            ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
             ImGui::Begin("Xterm-256 Color Picker", &show_color_picker_window, ImGuiWindowFlags_None);
+            CaptureImGuiWindowPlacement(session_state, name);
 
             // Load palettes from assets/colours.json (with a default HSV fallback).
             static bool                         palettes_loaded    = false;
@@ -1391,7 +1589,10 @@ int main(int, char**)
         // Tool Palette window
         if (show_tool_palette_window)
         {
-            const bool tool_palette_changed = tool_palette.Render("Tool Palette", &show_tool_palette_window);
+            const char* name = "Tool Palette";
+            const bool tool_palette_changed =
+                tool_palette.Render(name, &show_tool_palette_window,
+                                    &session_state, should_apply_placement(name));
             (void)tool_palette_changed;
 
             if (tool_palette.TakeReloadRequested())
@@ -1417,14 +1618,20 @@ int main(int, char**)
 
             if (!tool_compile_error.empty())
             {
+                const char* wname = "Tool Error";
+                ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
                 ImGui::Begin("Tool Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                CaptureImGuiWindowPlacement(session_state, wname);
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", tool_compile_error.c_str());
                 ImGui::End();
             }
 
             if (!tools_error.empty())
             {
+                const char* wname = "Tools Error";
+                ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
                 ImGui::Begin("Tools Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                CaptureImGuiWindowPlacement(session_state, wname);
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", tools_error.c_str());
                 ImGui::End();
             }
@@ -1432,7 +1639,10 @@ int main(int, char**)
             // Tool parameters UI (settings.params -> ctx.params)
             if (tool_engine.HasParams())
             {
+                const char* wname = "Tool Parameters";
+                ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
                 ImGui::Begin("Tool Parameters", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                CaptureImGuiWindowPlacement(session_state, wname);
                 const ToolSpec* t = tool_palette.GetActiveTool();
                 if (t)
                     ImGui::Text("%s", t->label.c_str());
@@ -1455,7 +1665,9 @@ int main(int, char**)
             std::string title = "Canvas " + std::to_string(canvas.id) +
                                 "##canvas" + std::to_string(canvas.id);
 
+            ApplyImGuiWindowPlacement(session_state, title.c_str(), should_apply_placement(title.c_str()));
             ImGui::Begin(title.c_str(), &canvas.open, ImGuiWindowFlags_None);
+            CaptureImGuiWindowPlacement(session_state, title.c_str());
 
             // Track last active canvas window even if the canvas grid itself isn't focused.
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
@@ -1558,6 +1770,7 @@ int main(int, char**)
         // Layer Manager window (targets one of the open canvases)
         if (show_layer_manager_window)
         {
+            const char* name = "Layer Manager";
             std::vector<LayerManagerCanvasRef> refs;
             refs.reserve(canvases.size());
             for (auto& c : canvases)
@@ -1566,13 +1779,17 @@ int main(int, char**)
                     continue;
                 refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
             }
-            layer_manager.Render("Layer Manager", &show_layer_manager_window, refs);
+            layer_manager.Render(name, &show_layer_manager_window, refs,
+                                 &session_state, should_apply_placement(name));
         }
 
         // ANSL Editor window
         if (show_ansl_editor_window)
         {
+            const char* name = "ANSL Editor";
+            ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
             ImGui::Begin("ANSL Editor", &show_ansl_editor_window, ImGuiWindowFlags_None);
+            CaptureImGuiWindowPlacement(session_state, name);
             std::vector<LayerManagerCanvasRef> refs;
             refs.reserve(canvases.size());
             for (auto& c : canvases)
@@ -1605,7 +1822,9 @@ int main(int, char**)
             std::string title = "Image " + std::to_string(img.id) +
                                 "##image" + std::to_string(img.id);
 
+            ApplyImGuiWindowPlacement(session_state, title.c_str(), should_apply_placement(title.c_str()));
             ImGui::Begin(title.c_str(), &img.open, ImGuiWindowFlags_None);
+            CaptureImGuiWindowPlacement(session_state, title.c_str());
 
             // Display basic metadata and then the scalable preview.
             ImGui::Text("Path: %s", img.path.c_str());
@@ -1620,14 +1839,17 @@ int main(int, char**)
         // Preview window for the active canvas (minimap + viewport rectangle).
         if (show_preview_window)
         {
-            preview_window.Render("Preview", &show_preview_window, active_canvas);
+            const char* name = "Preview";
+            preview_window.Render(name, &show_preview_window, active_canvas,
+                                  &session_state, should_apply_placement(name));
         }
 
         // Settings window (extendable tabs; includes Key Bindings editor).
         if (show_settings_window)
         {
+            const char* name = "Settings";
             settings_window.SetOpen(show_settings_window);
-            settings_window.Render("Settings");
+            settings_window.Render(name, &session_state, should_apply_placement(name));
             show_settings_window = settings_window.IsOpen();
         }
 
@@ -1660,9 +1882,92 @@ int main(int, char**)
             FrameRender(wd, draw_data);
             FramePresent(wd);
         }
+
     }
 
     // Cleanup
+        // Persist session state (main window geometry + tool window visibility toggles).
+        {
+            SessionState st = session_state; // start from loaded defaults
+
+            int sw = 0, sh = 0;
+            SDL_GetWindowSize(window, &sw, &sh);
+            st.window_w = sw;
+            st.window_h = sh;
+
+            int sx = 0, sy = 0;
+            SDL_GetWindowPosition(window, &sx, &sy);
+            st.window_x = sx;
+            st.window_y = sy;
+            st.window_pos_valid = true;
+
+            const SDL_WindowFlags wf = SDL_GetWindowFlags(window);
+            st.window_maximized = (wf & SDL_WINDOW_MAXIMIZED) != 0;
+
+            st.show_color_picker_window = show_color_picker_window;
+            st.show_character_picker_window = show_character_picker_window;
+            st.show_character_palette_window = show_character_palette_window;
+            st.show_layer_manager_window = show_layer_manager_window;
+            st.show_ansl_editor_window = show_ansl_editor_window;
+            st.show_tool_palette_window = show_tool_palette_window;
+            st.show_preview_window = show_preview_window;
+            st.show_settings_window = show_settings_window;
+
+            st.last_import_image_dir = last_import_image_dir;
+
+            // Active tool
+            if (const ToolSpec* t = tool_palette.GetActiveTool())
+                st.active_tool_path = t->path;
+
+            // Canvas/image workspace
+            st.last_active_canvas_id = last_active_canvas_id;
+            st.next_canvas_id = next_canvas_id;
+            st.next_image_id = next_image_id;
+
+            st.open_canvases.clear();
+            st.open_canvases.reserve(canvases.size());
+            for (const auto& cw : canvases)
+            {
+                SessionState::OpenCanvas oc;
+                oc.id = cw.id;
+                oc.open = cw.open;
+                oc.zoom = cw.canvas.GetZoom();
+                const auto& vs = cw.canvas.GetLastViewState();
+                if (vs.valid)
+                {
+                    oc.scroll_x = vs.scroll_x;
+                    oc.scroll_y = vs.scroll_y;
+                }
+
+                std::string enc_err;
+                if (!encode_project_state(cw.canvas.GetProjectState(),
+                                          oc.project_cbor_zstd_b64,
+                                          oc.project_cbor_size,
+                                          enc_err))
+                {
+                    std::fprintf(stderr, "[session] encode canvas %d failed: %s\n", cw.id, enc_err.c_str());
+                }
+
+                st.open_canvases.push_back(std::move(oc));
+            }
+
+            st.open_images.clear();
+            st.open_images.reserve(images.size());
+            for (const auto& im : images)
+            {
+                SessionState::OpenImage oi;
+                oi.id = im.id;
+                oi.open = im.open;
+                oi.path = im.path;
+                if (!oi.path.empty())
+                    st.open_images.push_back(std::move(oi));
+            }
+
+            std::string err;
+            if (!SaveSessionState(st, err) && !err.empty())
+                std::fprintf(stderr, "[session] save failed: %s\n", err.c_str());
+        }
+
     // During a Ctrl+C shutdown the Vulkan device might already be in a bad
     // state; don't abort the whole process just because vkDeviceWaitIdle()
     // reports a non-success here.

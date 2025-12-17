@@ -11,6 +11,7 @@
 #include <vector>
 
 class AnsiCanvas;
+struct SessionState;
 
 struct LayerManagerCanvasRef
 {
@@ -23,7 +24,9 @@ class LayerManager
 public:
     void Render(const char* title,
                 bool* p_open,
-                const std::vector<LayerManagerCanvasRef>& canvases);
+                const std::vector<LayerManagerCanvasRef>& canvases,
+                SessionState* session = nullptr,
+                bool apply_placement_this_frame = false);
 
 private:
     int selected_canvas_id_ = 0;

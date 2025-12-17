@@ -6,6 +6,7 @@
 #include <vector>
 
 class CharacterPicker;
+struct SessionState;
 
 // Character Palette component for utf8-art-editor.
 //
@@ -40,7 +41,8 @@ public:
     CharacterPalette& operator=(const CharacterPalette&) = delete;
 
     // Render the palette editor window. Returns true if it remains open.
-    bool Render(const char* window_title, bool* p_open = nullptr);
+    bool Render(const char* window_title, bool* p_open = nullptr,
+                SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
     // Load/save palettes file.
     bool LoadFromFile(const char* path, std::string& error);

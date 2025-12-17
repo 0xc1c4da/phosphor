@@ -1,6 +1,7 @@
 #include "tool_palette.h"
 
 #include "imgui.h"
+#include "imgui_persistence.h"
 
 extern "C"
 {
@@ -209,14 +210,43 @@ bool ToolPalette::TakeReloadRequested()
     return true;
 }
 
-bool ToolPalette::Render(const char* title, bool* p_open)
+bool ToolPalette::SetActiveToolByPath(const std::string& path)
+{
+    if (path.empty() || tools_.empty())
+        return false;
+    for (int i = 0; i < (int)tools_.size(); ++i)
+    {
+        if (tools_[(size_t)i].path == path)
+        {
+            if (active_index_ != i)
+            {
+                active_index_ = i;
+                active_changed_ = true;
+                return true;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session, bool apply_placement_this_frame)
 {
     bool changed_this_frame = false;
+    if (session)
+        ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
     if (!ImGui::Begin(title, p_open, ImGuiWindowFlags_None))
     {
+        if (session)
+        {
+            // Even when collapsed, capture current pos/size/collapsed for persistence.
+            CaptureImGuiWindowPlacement(*session, title);
+        }
         ImGui::End();
         return false;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, title);
 
     if (ImGui::Button("Refresh"))
     {

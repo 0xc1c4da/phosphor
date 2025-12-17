@@ -8,6 +8,7 @@
 #pragma once
 
 class AnsiCanvas;
+struct SessionState;
 
 class PreviewWindow
 {
@@ -15,7 +16,8 @@ public:
     PreviewWindow() = default;
 
     // Render the preview window. Returns true if it was drawn (visible).
-    bool Render(const char* title, bool* p_open, AnsiCanvas* canvas);
+    bool Render(const char* title, bool* p_open, AnsiCanvas* canvas,
+                SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 private:
     // Drag interaction state.

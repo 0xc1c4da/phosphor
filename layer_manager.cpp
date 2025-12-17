@@ -2,22 +2,31 @@
 
 #include "canvas.h"
 #include "imgui.h"
+#include "imgui_persistence.h"
 
 #include <cstdio>
 #include <string>
 
 void LayerManager::Render(const char* title,
                           bool* p_open,
-                          const std::vector<LayerManagerCanvasRef>& canvases)
+                          const std::vector<LayerManagerCanvasRef>& canvases,
+                          SessionState* session,
+                          bool apply_placement_this_frame)
 {
     if (!p_open || !*p_open)
         return;
 
+    if (session)
+        ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
     if (!ImGui::Begin(title, p_open, ImGuiWindowFlags_None))
     {
+        if (session)
+            CaptureImGuiWindowPlacement(*session, title);
         ImGui::End();
         return;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, title);
 
     if (canvases.empty())
     {

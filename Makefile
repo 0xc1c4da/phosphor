@@ -23,7 +23,11 @@ SOURCES  = main.cpp \
            ansl_params_ui.cpp \
            tool_palette.cpp \
            io_manager.cpp \
-           settings.cpp
+           settings.cpp \
+           session_state.cpp \
+           imgui_persistence.cpp \
+           project_state_json.cpp \
+           binary_codec.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \
            $(IMGUI_DIR)/imgui_demo.cpp \
            $(IMGUI_DIR)/imgui_draw.cpp \

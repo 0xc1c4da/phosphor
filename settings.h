@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+struct SessionState;
+
 // Forward declarations to avoid pulling imgui headers into all compilation units.
 struct ImGuiTextFilter;
 
@@ -50,7 +52,8 @@ public:
     bool SaveKeyBindingsToFile(const std::string& path, std::string& out_error) const;
 
     // Main render call. Safe to call every frame; does nothing if closed.
-    void Render(const char* title = "Settings");
+    // If session is provided, window placement (pos/size/collapsed) is captured/restored via SessionState.
+    void Render(const char* title = "Settings", SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 private:
     void EnsureDefaultTabsRegistered();

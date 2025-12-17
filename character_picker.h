@@ -7,6 +7,7 @@
 
 // Forward declare to keep header light.
 struct ImFont;
+struct SessionState;
 
 // Dear ImGui Unicode Character Picker (Unicode 13 via ICU67).
 //
@@ -37,7 +38,8 @@ public:
     CharacterPicker& operator=(const CharacterPicker&) = delete;
 
     // Render the picker UI. Returns true if it is still open (for convenience in windowing).
-    bool Render(const char* window_title, bool* p_open = nullptr);
+    bool Render(const char* window_title, bool* p_open = nullptr,
+                SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
     // Get the currently selected code point (Unicode scalar where possible).
     uint32_t SelectedCodePoint() const { return selected_cp_; }

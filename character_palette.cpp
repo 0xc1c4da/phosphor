@@ -1,6 +1,7 @@
 #include "character_palette.h"
 
 #include "imgui.h"
+#include "imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <nlohmann/json.hpp>
@@ -349,15 +350,22 @@ bool CharacterPalette::TakeUserSelectionChanged(uint32_t& out_cp)
     return out_cp != 0;
 }
 
-bool CharacterPalette::Render(const char* window_title, bool* p_open)
+bool CharacterPalette::Render(const char* window_title, bool* p_open,
+                              SessionState* session, bool apply_placement_this_frame)
 {
     EnsureLoaded();
 
+    if (session)
+        ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);
     if (!ImGui::Begin(window_title, p_open, ImGuiWindowFlags_NoSavedSettings))
     {
+        if (session)
+            CaptureImGuiWindowPlacement(*session, window_title);
         ImGui::End();
         return (p_open == nullptr) ? true : *p_open;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, window_title);
 
     // Handle queued file operations (triggered by UI buttons).
     if (request_reload_)

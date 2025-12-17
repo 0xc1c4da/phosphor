@@ -1,6 +1,7 @@
 #include "character_picker.h"
 
 #include "imgui.h"
+#include "imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <unicode/uchar.h>
@@ -717,16 +718,23 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
 
 // -------------------- UI --------------------
 
-bool CharacterPicker::Render(const char* window_title, bool* p_open)
+bool CharacterPicker::Render(const char* window_title, bool* p_open,
+                             SessionState* session, bool apply_placement_this_frame)
 {
     EnsureBlocksLoaded();
     RebuildAvailablePlanes(ImGui::GetFont());
 
+    if (session)
+        ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);
     if (!ImGui::Begin(window_title, p_open, ImGuiWindowFlags_NoSavedSettings))
     {
+        if (session)
+            CaptureImGuiWindowPlacement(*session, window_title);
         ImGui::End();
         return (p_open == nullptr) ? true : *p_open;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, window_title);
 
     RenderTopBar();
     ImGui::Separator();

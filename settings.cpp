@@ -1,6 +1,7 @@
 #include "settings.h"
 
 #include "imgui.h"
+#include "imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <nlohmann/json.hpp>
@@ -374,19 +375,38 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
     });
 }
 
-void SettingsWindow::Render(const char* title)
+void SettingsWindow::Render(const char* title, SessionState* session, bool apply_placement_this_frame)
 {
     if (!open_)
         return;
 
     EnsureDefaultTabsRegistered();
 
-    ImGui::SetNextWindowSize(ImVec2(860, 560), ImGuiCond_FirstUseEver);
+    // Provide a reasonable default size for first-time users, but prefer persisted placements.
+    if (session && apply_placement_this_frame)
+    {
+        auto it = session->imgui_windows.find(title);
+        const bool has = (it != session->imgui_windows.end() && it->second.valid);
+        if (!has)
+            ImGui::SetNextWindowSize(ImVec2(860, 560), ImGuiCond_Always);
+    }
+    else if (!session)
+    {
+        ImGui::SetNextWindowSize(ImVec2(860, 560), ImGuiCond_FirstUseEver);
+    }
+
+    if (session)
+        ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
+
     if (!ImGui::Begin(title, &open_, ImGuiWindowFlags_None))
     {
+        if (session)
+            CaptureImGuiWindowPlacement(*session, title);
         ImGui::End();
         return;
     }
+    if (session)
+        CaptureImGuiWindowPlacement(*session, title);
 
     if (ImGui::BeginTabBar("##settings_tabs"))
     {

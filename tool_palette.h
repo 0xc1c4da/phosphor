@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+struct SessionState;
+
 // Tool Palette:
 // - scans assets/tools/*.lua
 // - reads global `settings = { icon = "...", label = "..." }`
@@ -22,7 +24,7 @@ public:
     bool LoadFromDirectory(const std::string& tools_dir, std::string& error);
 
     // Renders the palette as an ImGui window. Returns true if the active tool changed.
-    bool Render(const char* title, bool* p_open);
+    bool Render(const char* title, bool* p_open, SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
     int GetActiveToolIndex() const { return active_index_; }
     const ToolSpec* GetActiveTool() const;
@@ -34,6 +36,10 @@ public:
     // If the user pressed Refresh, returns true and clears the flag.
     bool TakeReloadRequested();
     const std::string& GetToolsDir() const { return tools_dir_; }
+
+    // Restore selection from a previously saved tool path.
+    // Returns true if a matching tool was found and selection changed.
+    bool SetActiveToolByPath(const std::string& path);
 
 private:
     std::vector<ToolSpec> tools_;
