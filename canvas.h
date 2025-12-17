@@ -222,6 +222,13 @@ public:
         bool backspace = false;
         bool del = false;
         bool enter = false;
+
+        // Common editing/selection shortcuts (captured as discrete presses).
+        bool c = false;
+        bool v = false;
+        bool x = false;
+        bool a = false;
+        bool escape = false;
     };
 
     // Moves queued typed codepoints into `out` (clearing the internal queue).
@@ -242,6 +249,47 @@ public:
 
     // Latest rendered cell aspect ratio (cell_w / cell_h). Defaults to 1.
     float GetLastCellAspect() const { return m_last_cell_aspect; }
+
+    // ---------------------------------------------------------------------
+    // Selection + clipboard (for tools; clipboard is global across canvases)
+    // ---------------------------------------------------------------------
+    struct Rect
+    {
+        int x = 0;
+        int y = 0;
+        int w = 0;
+        int h = 0;
+    };
+
+    // Selection rectangle is stored in cell space. Corners are inclusive.
+    bool HasSelection() const { return m_selection.active && m_selection.w > 0 && m_selection.h > 0; }
+    Rect GetSelectionRect() const;
+    void SetSelectionCorners(int x0, int y0, int x1, int y1);
+    void ClearSelection();
+    bool SelectionContains(int x, int y) const;
+
+    // Clipboard is shared across all canvases (copy/paste between canvases).
+    static bool ClipboardHas();
+    static Rect ClipboardRect(); // returns {0,0,w,h} (w/h may be 0)
+
+    // Copy/cut/delete operate on the current selection rect in the given layer.
+    // If layer_index < 0, uses the active layer.
+    bool CopySelectionToClipboard(int layer_index = -1);
+    bool CutSelectionToClipboard(int layer_index = -1);
+    bool DeleteSelection(int layer_index = -1);
+
+    // Paste the global clipboard into the given layer at (x,y).
+    // If layer_index < 0, uses the active layer.
+    // If transparent_spaces is true, space glyphs do not overwrite destination glyphs.
+    // Returns false if clipboard empty or paste target invalid.
+    bool PasteClipboard(int x, int y, int layer_index = -1, bool transparent_spaces = false);
+
+    // Interactive move/duplicate of the current selection (floating selection preview).
+    bool IsMovingSelection() const { return m_move.active; }
+    bool BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer_index = -1);
+    void UpdateMoveSelection(int cursor_x, int cursor_y);
+    bool CommitMoveSelection(int layer_index = -1);
+    bool CancelMoveSelection(int layer_index = -1);
 
 private:
     struct Layer
@@ -305,6 +353,45 @@ private:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
 
+    // Selection state (per-canvas, transient; not serialized).
+    struct SelectionState
+    {
+        bool active = false;
+        int  x = 0;
+        int  y = 0;
+        int  w = 0;
+        int  h = 0;
+    };
+    SelectionState m_selection;
+
+    struct ClipCell
+    {
+        char32_t cp = U' ';
+        Color32  fg = 0;
+        Color32  bg = 0;
+    };
+
+    // Floating selection state for interactive move/copy preview (per-canvas, transient).
+    struct MoveState
+    {
+        bool active = false;
+        bool cut = false; // true if we cleared the source region (move); false if copy/duplicate
+
+        int src_x = 0;
+        int src_y = 0;
+        int w = 0;
+        int h = 0;
+
+        int dst_x = 0;
+        int dst_y = 0;
+
+        int grab_dx = 0; // cursor - dst_x
+        int grab_dy = 0;
+
+        std::vector<ClipCell> cells; // size w*h
+    };
+    MoveState m_move;
+
     // Undo/Redo stacks. Each entry is a full document snapshot.
     std::vector<Snapshot> m_undo_stack;
     std::vector<Snapshot> m_redo_stack;
@@ -351,6 +438,11 @@ private:
                           float cell_w,
                           float cell_h,
                           float font_size);
+    void DrawSelectionOverlay(ImDrawList* draw_list,
+                              const ImVec2& origin,
+                              float cell_w,
+                              float cell_h,
+                              float font_size);
 };
 
 

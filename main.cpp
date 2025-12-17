@@ -1570,6 +1570,20 @@ int main(int, char**)
                     ctx.key_backspace = keys.backspace;
                     ctx.key_delete = keys.del;
                     ctx.key_enter = keys.enter;
+
+                    // Extra tool shortcut keys.
+                    ctx.key_c = keys.c;
+                    ctx.key_v = keys.v;
+                    ctx.key_x = keys.x;
+                    ctx.key_a = keys.a;
+                    ctx.key_escape = keys.escape;
+
+                    // Modifier state.
+                    ImGuiIO& io = ImGui::GetIO();
+                    ctx.mod_ctrl = io.KeyCtrl;
+                    ctx.mod_shift = io.KeyShift;
+                    ctx.mod_alt = io.KeyAlt;
+                    ctx.mod_super = io.KeySuper;
                 }
 
                 std::string err;

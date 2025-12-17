@@ -176,10 +176,197 @@ struct LayerBinding
     int layer_index = 0;
 };
 
+struct CanvasBinding
+{
+    AnsiCanvas* canvas = nullptr;
+};
+
 static LayerBinding* CheckLayer(lua_State* L, int idx)
 {
     void* ud = luaL_checkudata(L, idx, "AnsiLayer");
     return static_cast<LayerBinding*>(ud);
+}
+
+static CanvasBinding* CheckCanvas(lua_State* L, int idx)
+{
+    void* ud = luaL_checkudata(L, idx, "AnsiCanvas");
+    return static_cast<CanvasBinding*>(ud);
+}
+
+static int l_canvas_hasSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    lua_pushboolean(L, (b && b->canvas && b->canvas->HasSelection()) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_getSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas || !b->canvas->HasSelection())
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    const auto r = b->canvas->GetSelectionRect();
+    lua_pushinteger(L, r.x);
+    lua_pushinteger(L, r.y);
+    lua_pushinteger(L, r.w);
+    lua_pushinteger(L, r.h);
+    return 4;
+}
+
+static int l_canvas_setSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int x0 = (int)luaL_checkinteger(L, 2);
+    const int y0 = (int)luaL_checkinteger(L, 3);
+    const int x1 = (int)luaL_checkinteger(L, 4);
+    const int y1 = (int)luaL_checkinteger(L, 5);
+    b->canvas->SetSelectionCorners(x0, y0, x1, y1);
+    return 0;
+}
+
+static int l_canvas_clearSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    b->canvas->ClearSelection();
+    return 0;
+}
+
+static int l_canvas_selectionContains(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+    lua_pushboolean(L, b->canvas->SelectionContains(x, y) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_clipboardHas(lua_State* L)
+{
+    lua_pushboolean(L, AnsiCanvas::ClipboardHas() ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_clipboardSize(lua_State* L)
+{
+    if (!AnsiCanvas::ClipboardHas())
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    const auto r = AnsiCanvas::ClipboardRect();
+    lua_pushinteger(L, r.w);
+    lua_pushinteger(L, r.h);
+    return 2;
+}
+
+static int LuaOptLayerIndex(lua_State* L, int idx, int def = -1)
+{
+    if (lua_gettop(L) < idx || lua_isnil(L, idx))
+        return def;
+    return (int)luaL_checkinteger(L, idx);
+}
+
+static int l_canvas_copySelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->CopySelectionToClipboard(layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_cutSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->CutSelectionToClipboard(layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_deleteSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->DeleteSelection(layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_pasteClipboard(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+    const int layer = LuaOptLayerIndex(L, 4, -1);
+    const bool transparent = (lua_gettop(L) >= 5) ? (lua_toboolean(L, 5) != 0) : false;
+    lua_pushboolean(L, b->canvas->PasteClipboard(x, y, layer, transparent) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_isMovingSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    lua_pushboolean(L, (b && b->canvas && b->canvas->IsMovingSelection()) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_beginMoveSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int grab_x = (int)luaL_checkinteger(L, 2);
+    const int grab_y = (int)luaL_checkinteger(L, 3);
+    const bool copy = (lua_gettop(L) >= 4) ? (lua_toboolean(L, 4) != 0) : false;
+    const int layer = LuaOptLayerIndex(L, 5, -1);
+    lua_pushboolean(L, b->canvas->BeginMoveSelection(grab_x, grab_y, copy, layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_updateMoveSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+    b->canvas->UpdateMoveSelection(x, y);
+    return 0;
+}
+
+static int l_canvas_commitMoveSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->CommitMoveSelection(layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_cancelMoveSelection(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->CancelMoveSelection(layer) ? 1 : 0);
+    return 1;
 }
 
 static int l_layer_set(lua_State* L)
@@ -406,6 +593,14 @@ static int l_layer_gc(lua_State* L)
     return 0;
 }
 
+static int l_canvas_gc(lua_State* L)
+{
+    CanvasBinding* b = static_cast<CanvasBinding*>(luaL_checkudata(L, 1, "AnsiCanvas"));
+    if (b)
+        b->canvas = nullptr;
+    return 0;
+}
+
 static void EnsureLayerMetatable(lua_State* L)
 {
     if (luaL_newmetatable(L, "AnsiLayer"))
@@ -429,6 +624,35 @@ static void EnsureLayerMetatable(lua_State* L)
     lua_pop(L, 1); // metatable
 }
 
+static void EnsureCanvasMetatable(lua_State* L)
+{
+    if (luaL_newmetatable(L, "AnsiCanvas"))
+    {
+        lua_pushcfunction(L, l_canvas_gc);
+        lua_setfield(L, -2, "__gc");
+
+        lua_newtable(L); // __index
+        lua_pushcfunction(L, l_canvas_hasSelection);      lua_setfield(L, -2, "hasSelection");
+        lua_pushcfunction(L, l_canvas_getSelection);      lua_setfield(L, -2, "getSelection");
+        lua_pushcfunction(L, l_canvas_setSelection);      lua_setfield(L, -2, "setSelection");
+        lua_pushcfunction(L, l_canvas_clearSelection);    lua_setfield(L, -2, "clearSelection");
+        lua_pushcfunction(L, l_canvas_selectionContains); lua_setfield(L, -2, "selectionContains");
+        lua_pushcfunction(L, l_canvas_clipboardHas);      lua_setfield(L, -2, "clipboardHas");
+        lua_pushcfunction(L, l_canvas_clipboardSize);     lua_setfield(L, -2, "clipboardSize");
+        lua_pushcfunction(L, l_canvas_copySelection);     lua_setfield(L, -2, "copySelection");
+        lua_pushcfunction(L, l_canvas_cutSelection);      lua_setfield(L, -2, "cutSelection");
+        lua_pushcfunction(L, l_canvas_deleteSelection);   lua_setfield(L, -2, "deleteSelection");
+        lua_pushcfunction(L, l_canvas_pasteClipboard);    lua_setfield(L, -2, "pasteClipboard");
+        lua_pushcfunction(L, l_canvas_isMovingSelection); lua_setfield(L, -2, "isMovingSelection");
+        lua_pushcfunction(L, l_canvas_beginMoveSelection); lua_setfield(L, -2, "beginMoveSelection");
+        lua_pushcfunction(L, l_canvas_updateMoveSelection); lua_setfield(L, -2, "updateMoveSelection");
+        lua_pushcfunction(L, l_canvas_commitMoveSelection); lua_setfield(L, -2, "commitMoveSelection");
+        lua_pushcfunction(L, l_canvas_cancelMoveSelection); lua_setfield(L, -2, "cancelMoveSelection");
+        lua_setfield(L, -2, "__index");
+    }
+    lua_pop(L, 1); // metatable
+}
+
 static void PushLayerObject(lua_State* L, AnsiCanvas* canvas, int layer_index)
 {
     EnsureLayerMetatable(L);
@@ -436,6 +660,15 @@ static void PushLayerObject(lua_State* L, AnsiCanvas* canvas, int layer_index)
     b->canvas = canvas;
     b->layer_index = layer_index;
     luaL_setmetatable(L, "AnsiLayer");
+}
+
+static CanvasBinding* PushCanvasObject(lua_State* L, AnsiCanvas* canvas)
+{
+    EnsureCanvasMetatable(L);
+    auto* b = static_cast<CanvasBinding*>(lua_newuserdata(L, sizeof(CanvasBinding)));
+    b->canvas = canvas;
+    luaL_setmetatable(L, "AnsiCanvas");
+    return b;
 }
 
 static int LuaTraceback(lua_State* L)
@@ -926,9 +1159,11 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     //   cols, rows, frame, time, fg, bg,
     //   focused, phase,
     //   keys={...}, typed={...},
+    //   mods={ctrl,shift,alt,super},
     //   metrics={aspect=...},
     //   caret={x,y},
-    //   cursor={valid,x,y,left,right,p={x,y,left,right}}
+    //   cursor={valid,x,y,left,right,p={x,y,left,right}},
+    //   canvas=<AnsiCanvas userdata>
     // }
     lua_newtable(impl_->L); // ctx
     lua_newtable(impl_->L); // metrics
@@ -966,7 +1201,20 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "backspace");
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "delete");
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "enter");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "c");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "v");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "x");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "a");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "escape");
     lua_setfield(impl_->L, -2, "keys"); // ctx.keys = keys
+
+    // mods table (reused)
+    lua_newtable(impl_->L); // mods
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "ctrl");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "shift");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "alt");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "super");
+    lua_setfield(impl_->L, -2, "mods"); // ctx.mods = mods
 
     // params table (reused): ctx.params = {}
     lua_newtable(impl_->L); // params
@@ -979,6 +1227,10 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_setfield(impl_->L, -2, "brush");
     lua_pushinteger(impl_->L, 32);
     lua_setfield(impl_->L, -2, "brushCp");
+
+    // Canvas userdata (reused): ctx.canvas
+    (void)PushCanvasObject(impl_->L, nullptr);
+    lua_setfield(impl_->L, -2, "canvas");
 
     impl_->ctx_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX);
 
@@ -1213,6 +1465,17 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
 
     // ctx table (reused)
     lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->ctx_ref); // stack: render, ctx
+
+    // Update ctx.canvas binding to point at the current canvas.
+    lua_getfield(L, -1, "canvas");
+    if (lua_isuserdata(L, -1))
+    {
+        CanvasBinding* cb = static_cast<CanvasBinding*>(luaL_checkudata(L, -1, "AnsiCanvas"));
+        if (cb)
+            cb->canvas = &canvas;
+    }
+    lua_pop(L, 1); // canvas
+
     lua_pushinteger(L, frame_ctx.cols);  lua_setfield(L, -2, "cols");
     lua_pushinteger(L, frame_ctx.rows);  lua_setfield(L, -2, "rows");
     lua_pushinteger(L, frame_ctx.frame); lua_setfield(L, -2, "frame");
@@ -1284,8 +1547,24 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pushboolean(L, frame_ctx.key_backspace); lua_setfield(L, -2, "backspace");
         lua_pushboolean(L, frame_ctx.key_delete);    lua_setfield(L, -2, "delete");
         lua_pushboolean(L, frame_ctx.key_enter);     lua_setfield(L, -2, "enter");
+        lua_pushboolean(L, frame_ctx.key_c);         lua_setfield(L, -2, "c");
+        lua_pushboolean(L, frame_ctx.key_v);         lua_setfield(L, -2, "v");
+        lua_pushboolean(L, frame_ctx.key_x);         lua_setfield(L, -2, "x");
+        lua_pushboolean(L, frame_ctx.key_a);         lua_setfield(L, -2, "a");
+        lua_pushboolean(L, frame_ctx.key_escape);    lua_setfield(L, -2, "escape");
     }
     lua_pop(L, 1); // keys
+
+    // mods table
+    lua_getfield(L, -1, "mods");
+    if (lua_istable(L, -1))
+    {
+        lua_pushboolean(L, frame_ctx.mod_ctrl ? 1 : 0);   lua_setfield(L, -2, "ctrl");
+        lua_pushboolean(L, frame_ctx.mod_shift ? 1 : 0);  lua_setfield(L, -2, "shift");
+        lua_pushboolean(L, frame_ctx.mod_alt ? 1 : 0);    lua_setfield(L, -2, "alt");
+        lua_pushboolean(L, frame_ctx.mod_super ? 1 : 0);  lua_setfield(L, -2, "super");
+    }
+    lua_pop(L, 1); // mods
 
     // typed codepoints -> ctx.typed = { "a", "中", ... }
     lua_newtable(L);

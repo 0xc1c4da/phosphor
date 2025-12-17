@@ -90,6 +90,18 @@ struct AnslFrameContext
     bool key_backspace = false;
     bool key_delete = false;
     bool key_enter = false;
+    // Additional key press events for tool shortcuts (selection, clipboard, cancel).
+    bool key_c = false;
+    bool key_v = false;
+    bool key_x = false;
+    bool key_a = false;
+    bool key_escape = false;
+
+    // Modifier state (captured this frame).
+    bool mod_ctrl = false;
+    bool mod_shift = false;
+    bool mod_alt = false;
+    bool mod_super = false;
 
     // Script defaults (xterm-256 indices). -1 means "unset".
     // These are not yet used by the host shim, but are exposed so scripts can

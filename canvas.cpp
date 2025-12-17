@@ -14,6 +14,21 @@
 #include <string>
 #include <vector>
 
+namespace
+{
+struct GlobalClipboard
+{
+    int w = 0;
+    int h = 0;
+    // Stored per-cell (same dimensions): glyph + fg + bg. 0 colors mean "unset".
+    std::vector<char32_t>         cp;
+    std::vector<AnsiCanvas::Color32> fg;
+    std::vector<AnsiCanvas::Color32> bg;
+};
+
+static GlobalClipboard g_clipboard;
+} // namespace
+
 // Utility: encode a single UTF-32 codepoint into UTF-8.
 static int EncodeUtf8(char32_t cp, char out[5])
 {
@@ -309,6 +324,423 @@ AnsiCanvas::KeyEvents AnsiCanvas::TakeKeyEvents()
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Selection + clipboard
+// ---------------------------------------------------------------------------
+
+AnsiCanvas::Rect AnsiCanvas::GetSelectionRect() const
+{
+    Rect r;
+    if (!HasSelection())
+        return r;
+    r.x = m_selection.x;
+    r.y = m_selection.y;
+    r.w = m_selection.w;
+    r.h = m_selection.h;
+    return r;
+}
+
+void AnsiCanvas::SetSelectionCorners(int x0, int y0, int x1, int y1)
+{
+    EnsureDocument();
+    if (m_columns <= 0)
+    {
+        m_selection = SelectionState{};
+        return;
+    }
+
+    x0 = std::clamp(x0, 0, m_columns - 1);
+    x1 = std::clamp(x1, 0, m_columns - 1);
+    if (y0 < 0) y0 = 0;
+    if (y1 < 0) y1 = 0;
+
+    const int minx = std::min(x0, x1);
+    const int maxx = std::max(x0, x1);
+    const int miny = std::min(y0, y1);
+    const int maxy = std::max(y0, y1);
+
+    const int w = (maxx - minx) + 1;
+    const int h = (maxy - miny) + 1;
+    if (w <= 0 || h <= 0)
+    {
+        m_selection = SelectionState{};
+        return;
+    }
+
+    m_selection.active = true;
+    m_selection.x = minx;
+    m_selection.y = miny;
+    m_selection.w = w;
+    m_selection.h = h;
+}
+
+void AnsiCanvas::ClearSelection()
+{
+    m_selection = SelectionState{};
+    if (m_move.active)
+        m_move = MoveState{};
+}
+
+bool AnsiCanvas::SelectionContains(int x, int y) const
+{
+    if (!HasSelection())
+        return false;
+    if (x < m_selection.x || y < m_selection.y)
+        return false;
+    if (x >= m_selection.x + m_selection.w)
+        return false;
+    if (y >= m_selection.y + m_selection.h)
+        return false;
+    return true;
+}
+
+bool AnsiCanvas::ClipboardHas()
+{
+    if (g_clipboard.w <= 0 || g_clipboard.h <= 0)
+        return false;
+    const size_t n = (size_t)g_clipboard.w * (size_t)g_clipboard.h;
+    return g_clipboard.cp.size() == n && g_clipboard.fg.size() == n && g_clipboard.bg.size() == n;
+}
+
+AnsiCanvas::Rect AnsiCanvas::ClipboardRect()
+{
+    Rect r;
+    if (!ClipboardHas())
+        return r;
+    r.w = g_clipboard.w;
+    r.h = g_clipboard.h;
+    return r;
+}
+
+static int NormalizeLayerIndex(const AnsiCanvas& c, int layer_index)
+{
+    if (layer_index < 0)
+        return c.GetActiveLayerIndex();
+    return layer_index;
+}
+
+bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
+{
+    EnsureDocument();
+    if (!HasSelection())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    const size_t n = (size_t)w * (size_t)h;
+    g_clipboard.w = w;
+    g_clipboard.h = h;
+    g_clipboard.cp.assign(n, U' ');
+    g_clipboard.fg.assign(n, 0);
+    g_clipboard.bg.assign(n, 0);
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    for (int j = 0; j < h; ++j)
+    {
+        for (int i = 0; i < w; ++i)
+        {
+            const int x = x0 + i;
+            const int y = y0 + j;
+            const size_t out = (size_t)j * (size_t)w + (size_t)i;
+
+            if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                continue;
+
+            const size_t idx = CellIndex(y, x);
+            if (idx < layer.cells.size())
+                g_clipboard.cp[out] = layer.cells[idx];
+            if (idx < layer.fg.size())
+                g_clipboard.fg[out] = layer.fg[idx];
+            if (idx < layer.bg.size())
+                g_clipboard.bg[out] = layer.bg[idx];
+        }
+    }
+    return true;
+}
+
+bool AnsiCanvas::DeleteSelection(int layer_index)
+{
+    EnsureDocument();
+    if (!HasSelection())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    PrepareUndoSnapshot();
+    Layer& layer = m_layers[(size_t)layer_index];
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int x = x0 + i;
+            const int y = y0 + j;
+            if (x < 0 || x >= m_columns || y < 0)
+                continue;
+            EnsureRows(y + 1);
+            const size_t idx = CellIndex(y, x);
+            if (idx < layer.cells.size())
+                layer.cells[idx] = U' ';
+            if (idx < layer.fg.size())
+                layer.fg[idx] = 0;
+            if (idx < layer.bg.size())
+                layer.bg[idx] = 0;
+        }
+    return true;
+}
+
+bool AnsiCanvas::CutSelectionToClipboard(int layer_index)
+{
+    if (!CopySelectionToClipboard(layer_index))
+        return false;
+    return DeleteSelection(layer_index);
+}
+
+bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, bool transparent_spaces)
+{
+    EnsureDocument();
+    if (!ClipboardHas())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+
+    const int w = g_clipboard.w;
+    const int h = g_clipboard.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    PrepareUndoSnapshot();
+    EnsureRows(y + h);
+    Layer& layer = m_layers[(size_t)layer_index];
+
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int px = x + i;
+            const int py = y + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+            const size_t s = (size_t)j * (size_t)w + (size_t)i;
+            if (s >= g_clipboard.cp.size())
+                continue;
+
+            const char32_t cp = g_clipboard.cp[s];
+            if (transparent_spaces && cp == U' ')
+                continue;
+
+            const size_t dst = CellIndex(py, px);
+            if (dst < layer.cells.size())
+                layer.cells[dst] = cp;
+            if (dst < layer.fg.size())
+                layer.fg[dst] = g_clipboard.fg[s];
+            if (dst < layer.bg.size())
+                layer.bg[dst] = g_clipboard.bg[s];
+        }
+
+    SetSelectionCorners(x, y, x + w - 1, y + h - 1);
+    return true;
+}
+
+bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer_index)
+{
+    EnsureDocument();
+    if (!HasSelection())
+        return false;
+    if (!SelectionContains(grab_x, grab_y))
+        return false;
+    if (m_move.active)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    MoveState mv;
+    mv.active = true;
+    mv.cut = !copy;
+    mv.src_x = x0;
+    mv.src_y = y0;
+    mv.w = w;
+    mv.h = h;
+    mv.dst_x = x0;
+    mv.dst_y = y0;
+    mv.grab_dx = std::clamp(grab_x - x0, 0, std::max(0, w - 1));
+    mv.grab_dy = std::clamp(grab_y - y0, 0, std::max(0, h - 1));
+    mv.cells.assign((size_t)w * (size_t)h, ClipCell{});
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int sx = x0 + i;
+            const int sy = y0 + j;
+            const size_t out = (size_t)j * (size_t)w + (size_t)i;
+            if (sx < 0 || sx >= m_columns || sy < 0 || sy >= m_rows)
+                continue;
+            const size_t idx = CellIndex(sy, sx);
+            if (idx < layer.cells.size())
+                mv.cells[out].cp = layer.cells[idx];
+            if (idx < layer.fg.size())
+                mv.cells[out].fg = layer.fg[idx];
+            if (idx < layer.bg.size())
+                mv.cells[out].bg = layer.bg[idx];
+        }
+
+    if (mv.cut)
+    {
+        PrepareUndoSnapshot();
+        Layer& mut = m_layers[(size_t)layer_index];
+        for (int j = 0; j < h; ++j)
+            for (int i = 0; i < w; ++i)
+            {
+                const int sx = x0 + i;
+                const int sy = y0 + j;
+                if (sx < 0 || sx >= m_columns || sy < 0)
+                    continue;
+                EnsureRows(sy + 1);
+                const size_t idx = CellIndex(sy, sx);
+                if (idx < mut.cells.size())
+                    mut.cells[idx] = U' ';
+                if (idx < mut.fg.size())
+                    mut.fg[idx] = 0;
+                if (idx < mut.bg.size())
+                    mut.bg[idx] = 0;
+            }
+    }
+
+    m_move = std::move(mv);
+    return true;
+}
+
+void AnsiCanvas::UpdateMoveSelection(int cursor_x, int cursor_y)
+{
+    if (!m_move.active)
+        return;
+    if (cursor_x < 0) cursor_x = 0;
+    if (cursor_y < 0) cursor_y = 0;
+    const int nx = cursor_x - m_move.grab_dx;
+    const int ny = cursor_y - m_move.grab_dy;
+    m_move.dst_x = std::clamp(nx, 0, std::max(0, m_columns - 1));
+    m_move.dst_y = std::max(0, ny);
+    SetSelectionCorners(m_move.dst_x, m_move.dst_y,
+                        m_move.dst_x + m_move.w - 1,
+                        m_move.dst_y + m_move.h - 1);
+}
+
+bool AnsiCanvas::CommitMoveSelection(int layer_index)
+{
+    EnsureDocument();
+    if (!m_move.active)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const int w = m_move.w;
+    const int h = m_move.h;
+    if (w <= 0 || h <= 0 || (int)m_move.cells.size() != w * h)
+        return false;
+
+    PrepareUndoSnapshot();
+    EnsureRows(m_move.dst_y + h);
+    Layer& layer = m_layers[(size_t)layer_index];
+
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int px = m_move.dst_x + i;
+            const int py = m_move.dst_y + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+            const size_t idx = CellIndex(py, px);
+            const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
+            if (idx < layer.cells.size())
+                layer.cells[idx] = src.cp;
+            if (idx < layer.fg.size())
+                layer.fg[idx] = src.fg;
+            if (idx < layer.bg.size())
+                layer.bg[idx] = src.bg;
+        }
+
+    SetSelectionCorners(m_move.dst_x, m_move.dst_y,
+                        m_move.dst_x + w - 1,
+                        m_move.dst_y + h - 1);
+    m_move = MoveState{};
+    return true;
+}
+
+bool AnsiCanvas::CancelMoveSelection(int layer_index)
+{
+    EnsureDocument();
+    if (!m_move.active)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (m_move.cut)
+    {
+        const int w = m_move.w;
+        const int h = m_move.h;
+        if (w > 0 && h > 0 && (int)m_move.cells.size() == w * h)
+        {
+            PrepareUndoSnapshot();
+            EnsureRows(m_move.src_y + h);
+            Layer& layer = m_layers[(size_t)layer_index];
+            for (int j = 0; j < h; ++j)
+                for (int i = 0; i < w; ++i)
+                {
+                    const int px = m_move.src_x + i;
+                    const int py = m_move.src_y + j;
+                    if (px < 0 || px >= m_columns || py < 0)
+                        continue;
+                    const size_t idx = CellIndex(py, px);
+                    const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
+                    if (idx < layer.cells.size())
+                        layer.cells[idx] = src.cp;
+                    if (idx < layer.fg.size())
+                        layer.fg[idx] = src.fg;
+                    if (idx < layer.bg.size())
+                        layer.bg[idx] = src.bg;
+                }
+        }
+    }
+
+    SetSelectionCorners(m_move.src_x, m_move.src_y,
+                        m_move.src_x + m_move.w - 1,
+                        m_move.src_y + m_move.h - 1);
+    m_move = MoveState{};
+    return true;
+}
+
 void AnsiCanvas::SetCaretCell(int x, int y)
 {
     EnsureDocument();
@@ -408,6 +840,13 @@ void AnsiCanvas::CaptureKeyEvents()
     m_key_events.backspace = ImGui::IsKeyPressed(ImGuiKey_Backspace);
     m_key_events.del       = ImGui::IsKeyPressed(ImGuiKey_Delete);
     m_key_events.enter     = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+
+    // Selection/clipboard keys (used by tools; modifiers are checked separately via ImGuiIO in the host).
+    m_key_events.c      = ImGui::IsKeyPressed(ImGuiKey_C, false);
+    m_key_events.v      = ImGui::IsKeyPressed(ImGuiKey_V, false);
+    m_key_events.x      = ImGui::IsKeyPressed(ImGuiKey_X, false);
+    m_key_events.a      = ImGui::IsKeyPressed(ImGuiKey_A, false);
+    m_key_events.escape = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 int AnsiCanvas::GetLayerCount() const
@@ -1156,6 +1595,70 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     }
 }
 
+void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
+                                      const ImVec2& origin,
+                                      float cell_w,
+                                      float cell_h,
+                                      float font_size)
+{
+    if (!draw_list)
+        return;
+    ImFont* font = ImGui::GetFont();
+    if (!font)
+        return;
+
+    // Floating selection preview (drawn above the document).
+    if (m_move.active && m_move.w > 0 && m_move.h > 0 && (int)m_move.cells.size() == m_move.w * m_move.h)
+    {
+        const int w = m_move.w;
+        const int h = m_move.h;
+        for (int j = 0; j < h; ++j)
+        {
+            for (int i = 0; i < w; ++i)
+            {
+                const int x = m_move.dst_x + i;
+                const int y = m_move.dst_y + j;
+                if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                    continue;
+
+                const ClipCell& c = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
+                ImVec2 cell_min(origin.x + x * cell_w,
+                                origin.y + y * cell_h);
+                ImVec2 cell_max(cell_min.x + cell_w,
+                                cell_min.y + cell_h);
+                if (c.bg != 0)
+                    draw_list->AddRectFilled(cell_min, cell_max, (ImU32)c.bg);
+                if (c.cp != U' ')
+                {
+                    char buf[5] = {0, 0, 0, 0, 0};
+                    EncodeUtf8(c.cp, buf);
+                    const ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : ImGui::GetColorU32(ImGuiCol_Text);
+                    draw_list->AddText(font, font_size, cell_min, fg_col, buf, nullptr);
+                }
+            }
+        }
+    }
+
+    // Selection border (uses selection rect, which tracks floating selection during move).
+    if (HasSelection())
+    {
+        const int x0 = m_selection.x;
+        const int y0 = m_selection.y;
+        const int x1 = x0 + m_selection.w;
+        const int y1 = y0 + m_selection.h;
+
+        ImVec2 p0(origin.x + x0 * cell_w, origin.y + y0 * cell_h);
+        ImVec2 p1(origin.x + x1 * cell_w, origin.y + y1 * cell_h);
+        p0.x = std::floor(p0.x) + 0.5f;
+        p0.y = std::floor(p0.y) + 0.5f;
+        p1.x = std::floor(p1.x) - 0.5f;
+        p1.y = std::floor(p1.y) - 0.5f;
+
+        const ImU32 col = ImGui::GetColorU32(ImVec4(0.15f, 0.75f, 1.0f, 0.90f));
+        draw_list->AddRect(p0, p1, col, 0.0f, 0, 2.0f);
+    }
+}
+
 void AnsiCanvas::Render(const char* id)
 {
     Render(id, {});
@@ -1389,6 +1892,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
 
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+    DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
     // caret auto-scroll or scroll requests are reflected.
