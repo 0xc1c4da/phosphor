@@ -23,6 +23,7 @@
 #include <stb/stb_image.h>  // Image loading (PNG/JPG/GIF/BMP/...)
 
 #include "ui/colour_picker.h"
+#include "ui/colour_palette.h"
 #include "core/canvas.h"
 #include "ui/character_picker.h"
 #include "ui/character_palette.h"
@@ -73,111 +74,6 @@ static void HandleInterruptSignal(int signal)
 {
     if (signal == SIGINT)
         g_InterruptRequested = 1;
-}
-
-// ---------------------------------------------------------------------------
-// Palette loading from assets/colours.json (nlohmann_json)
-// ---------------------------------------------------------------------------
-
-struct ColourPaletteDef
-{
-    std::string      title;
-    std::vector<ImVec4> colors;
-};
-
-static bool HexToImVec4(const std::string& hex, ImVec4& out)
-{
-    std::string s = hex;
-    if (!s.empty() && s[0] == '#')
-        s.erase(0, 1);
-    if (s.size() != 6 && s.size() != 8)
-        return false;
-
-    auto to_u8 = [](const std::string& sub) -> int
-    {
-        return static_cast<int>(std::strtoul(sub.c_str(), nullptr, 16));
-    };
-
-    int r = to_u8(s.substr(0, 2));
-    int g = to_u8(s.substr(2, 2));
-    int b = to_u8(s.substr(4, 2));
-    int a = 255;
-    if (s.size() == 8)
-        a = to_u8(s.substr(6, 2));
-
-    out.x = r / 255.0f;
-    out.y = g / 255.0f;
-    out.z = b / 255.0f;
-    out.w = a / 255.0f;
-    return true;
-}
-
-static bool LoadColourPalettesFromJson(const char* path,
-                                       std::vector<ColourPaletteDef>& out,
-                                       std::string& error)
-{
-    using nlohmann::json;
-
-    std::ifstream f(path);
-    if (!f)
-    {
-        error = std::string("Failed to open ") + path;
-        return false;
-    }
-
-    json j;
-    try
-    {
-        f >> j;
-    }
-    catch (const std::exception& e)
-    {
-        error = e.what();
-        return false;
-    }
-
-    if (!j.is_array())
-    {
-        error = "Expected top-level JSON array in colours.json";
-        return false;
-    }
-
-    out.clear();
-    for (const auto& item : j)
-    {
-        if (!item.is_object())
-            continue;
-
-        ColourPaletteDef def;
-        if (auto it = item.find("title"); it != item.end() && it->is_string())
-            def.title = it->get<std::string>();
-        else
-            continue;
-
-        if (auto it = item.find("colors"); it != item.end() && it->is_array())
-        {
-            for (const auto& c : *it)
-            {
-                if (!c.is_string())
-                    continue;
-                ImVec4 col;
-                if (HexToImVec4(c.get<std::string>(), col))
-                    def.colors.push_back(col);
-            }
-        }
-
-        if (!def.colors.empty())
-            out.push_back(std::move(def));
-    }
-
-    if (out.empty())
-    {
-        error = "No valid palettes found in colours.json";
-        return false;
-    }
-
-    error.clear();
-    return true;
 }
 
 static void check_vk_result(VkResult err)
@@ -807,10 +703,19 @@ int main(int, char**)
     settings_window.SetOpen(show_settings_window);
 
     // Shared color state for the xterm-256 color pickers.
-    ImVec4 fg_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-    ImVec4 bg_color = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
-    int    active_fb = 0;          // 0 = foreground, 1 = background
-    int    xterm_picker_mode = 0;  // 0 = Hue Bar, 1 = Hue Wheel
+    ImVec4 fg_color = ImVec4(session_state.xterm_color_picker.fg[0],
+                             session_state.xterm_color_picker.fg[1],
+                             session_state.xterm_color_picker.fg[2],
+                             session_state.xterm_color_picker.fg[3]);
+    ImVec4 bg_color = ImVec4(session_state.xterm_color_picker.bg[0],
+                             session_state.xterm_color_picker.bg[1],
+                             session_state.xterm_color_picker.bg[2],
+                             session_state.xterm_color_picker.bg[3]);
+    int    active_fb = session_state.xterm_color_picker.active_fb;           // 0 = foreground, 1 = background
+    int    xterm_picker_mode = session_state.xterm_color_picker.picker_mode; // 0 = Hue Bar, 1 = Hue Wheel
+    int    xterm_selected_palette = session_state.xterm_color_picker.selected_palette;
+    int    xterm_picker_preview_fb = session_state.xterm_color_picker.picker_preview_fb; // 0 = fg, 1 = bg
+    float  xterm_picker_last_hue = session_state.xterm_color_picker.last_hue;
 
     // Canvas state
     std::vector<CanvasWindow> canvases;
@@ -1287,6 +1192,37 @@ int main(int, char**)
             }
         }
 
+        // Double-click in picker/palette inserts the glyph into the active canvas at the caret.
+        {
+            uint32_t cp = 0;
+            const bool dbl =
+                character_picker.TakeDoubleClicked(cp) ||
+                character_palette.TakeUserDoubleClicked(cp);
+            if (dbl && cp != 0 && active_canvas)
+            {
+                int caret_x = 0;
+                int caret_y = 0;
+                active_canvas->GetCaretCell(caret_x, caret_y);
+
+                // Create an undo boundary before mutating so Undo restores the previous state.
+                active_canvas->PushUndoSnapshot();
+
+                const int layer_index = active_canvas->GetActiveLayerIndex();
+                active_canvas->SetLayerCell(layer_index, caret_y, caret_x, (char32_t)cp);
+
+                // Advance caret like a simple editor (wrap to next row).
+                const int cols = active_canvas->GetColumns();
+                int nx = caret_x + 1;
+                int ny = caret_y;
+                if (cols > 0 && nx >= cols)
+                {
+                    nx = 0;
+                    ny = caret_y + 1;
+                }
+                active_canvas->SetCaretCell(nx, ny);
+            }
+        }
+
         // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
         if (show_color_picker_window)
         {
@@ -1299,7 +1235,6 @@ int main(int, char**)
             static bool                         palettes_loaded    = false;
             static std::vector<ColourPaletteDef> palettes;
             static std::string                  palettes_error;
-            static int                          selected_palette   = 0;
             static int                          last_palette_index = -1;
             static std::vector<ImVec4>          saved_palette;
 
@@ -1324,7 +1259,7 @@ int main(int, char**)
                     palettes.clear();
                     palettes.push_back(std::move(def));
                     palettes_error.clear();
-                    selected_palette = 0;
+                    xterm_selected_palette = 0;
                 }
             }
 
@@ -1332,6 +1267,13 @@ int main(int, char**)
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                    "Palette load error: %s", palettes_error.c_str());
+            }
+
+            // Clamp palette selection after palettes are known.
+            if (!palettes.empty())
+            {
+                if (xterm_selected_palette < 0 || xterm_selected_palette >= (int)palettes.size())
+                    xterm_selected_palette = 0;
             }
 
             // Foreground / Background selector at the top (centered).
@@ -1345,7 +1287,10 @@ int main(int, char**)
                 float indent = (avail > widget_width) ? (avail - widget_width) * 0.5f : 0.0f;
 
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
-                ImGui::XtermForegroundBackgroundWidget("🙿", fg_color, bg_color, active_fb);
+                const bool fb_widget_changed =
+                    ImGui::XtermForegroundBackgroundWidget("🙿", fg_color, bg_color, active_fb);
+                if (fb_widget_changed)
+                    xterm_picker_preview_fb = active_fb;
             }
 
             ImGui::Separator();
@@ -1361,27 +1306,19 @@ int main(int, char**)
             ImGui::SetNextItemWidth(-FLT_MIN);
             // Keep the picker reticle showing the last-edited color (left edits active, right edits the other),
             // so right-click doesn't "snap back" to the last left-click position next frame.
-            static int picker_preview_fb = 0;      // 0 = fg, 1 = bg
-            static int last_active_fb_seen = 0;    // track focus changes
-            if (active_fb != last_active_fb_seen)
-            {
-                picker_preview_fb = active_fb;
-                last_active_fb_seen = active_fb;
-            }
-
-            ImVec4& preview_col = (picker_preview_fb == 0) ? fg_color : bg_color;
+            ImVec4& preview_col = (xterm_picker_preview_fb == 0) ? fg_color : bg_color;
             float   picker_col[4] = { preview_col.x, preview_col.y, preview_col.z, preview_col.w };
             bool    value_changed = false;
             bool    used_right = false;
             if (xterm_picker_mode == 0)
-                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false, &used_right);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false, &used_right, &xterm_picker_last_hue);
             else
-                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false, &used_right);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false, &used_right, &xterm_picker_last_hue);
 
             if (value_changed)
             {
                 int dst_fb = used_right ? (1 - active_fb) : active_fb;
-                picker_preview_fb = dst_fb;
+                xterm_picker_preview_fb = dst_fb;
                 ImVec4& dst = (dst_fb == 0) ? fg_color : bg_color;
                 dst.x = picker_col[0];
                 dst.y = picker_col[1];
@@ -1402,15 +1339,15 @@ int main(int, char**)
                 if (!names.empty())
                 {
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::Combo("##Palette", &selected_palette, names.data(), (int)names.size());
+                    ImGui::Combo("##Palette", &xterm_selected_palette, names.data(), (int)names.size());
                 }
             }
 
             // Rebuild working palette when selection changes.
-            if (selected_palette != last_palette_index && !palettes.empty())
+            if (xterm_selected_palette != last_palette_index && !palettes.empty())
             {
-                saved_palette = palettes[selected_palette].colors;
-                last_palette_index = selected_palette;
+                saved_palette = palettes[xterm_selected_palette].colors;
+                last_palette_index = xterm_selected_palette;
             }
 
             ImGui::BeginGroup();
@@ -1836,6 +1773,21 @@ int main(int, char**)
             st.show_tool_palette_window = show_tool_palette_window;
             st.show_preview_window = show_preview_window;
             st.show_settings_window = show_settings_window;
+
+            // Xterm-256 picker UI state
+            st.xterm_color_picker.fg[0] = fg_color.x;
+            st.xterm_color_picker.fg[1] = fg_color.y;
+            st.xterm_color_picker.fg[2] = fg_color.z;
+            st.xterm_color_picker.fg[3] = fg_color.w;
+            st.xterm_color_picker.bg[0] = bg_color.x;
+            st.xterm_color_picker.bg[1] = bg_color.y;
+            st.xterm_color_picker.bg[2] = bg_color.z;
+            st.xterm_color_picker.bg[3] = bg_color.w;
+            st.xterm_color_picker.active_fb = active_fb;
+            st.xterm_color_picker.picker_mode = xterm_picker_mode;
+            st.xterm_color_picker.selected_palette = xterm_selected_palette;
+            st.xterm_color_picker.picker_preview_fb = xterm_picker_preview_fb;
+            st.xterm_color_picker.last_hue = xterm_picker_last_hue;
 
             st.last_import_image_dir = last_import_image_dir;
 

@@ -17,6 +17,7 @@ SOURCES  = \
            src/ui/character_palette.cpp \
            src/ui/character_picker.cpp \
            src/ui/colour_picker.cpp \
+           src/ui/colour_palette.cpp \
            src/ui/image_to_chafa_dialog.cpp \
            src/ui/layer_manager.cpp \
            src/ui/preview_window.cpp \

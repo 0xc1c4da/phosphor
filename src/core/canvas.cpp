@@ -848,14 +848,37 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
     // SDL3 backend only emits text input events when ImGui indicates it wants text input,
     // so we need a focused InputText to receive characters.
     //
-    // Guard against mouse clicks so we don't steal focus from other UI widgets on the
-    // click frame (layer rename, menus, etc). The canvas focus state will be updated
-    // later in Render() based on where the click landed.
-    const bool any_click =
-        ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+    // IMPORTANT: avoid stealing ActiveId from other windows.
+    //
+    // The tool palette (and other tool windows) render before canvases each frame.
+    // If we call SetKeyboardFocusHere() later in the frame while the user is clicking
+    // another window, this hidden InputText can steal ActiveId and make that click
+    // appear to "not work" (often requiring a second click).
+    //
+    // Therefore we only refocus while:
+    // - the canvas is logically focused
+    // - the canvas window is focused *and hovered* (mouse is actually over it)
+    // - no mouse interaction happened this frame
+    // - no popup is open
+    ImGuiIO& io = ImGui::GetIO();
+    const bool any_mouse_down =
+        io.MouseDown[ImGuiMouseButton_Left] ||
+        io.MouseDown[ImGuiMouseButton_Right] ||
+        io.MouseDown[ImGuiMouseButton_Middle];
+    const bool any_mouse_click =
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseClicked(ImGuiMouseButton_Middle);
+    const bool any_mouse_release =
+        ImGui::IsMouseReleased(ImGuiMouseButton_Left) ||
+        ImGui::IsMouseReleased(ImGuiMouseButton_Right) ||
+        ImGui::IsMouseReleased(ImGuiMouseButton_Middle);
+    const bool any_mouse_interaction = any_mouse_down || any_mouse_click || any_mouse_release;
+
     if (m_has_focus &&
-        !any_click &&
+        !any_mouse_interaction &&
         ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
         !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
     {
         ImGui::SetKeyboardFocusHere();
@@ -871,6 +894,11 @@ void AnsiCanvas::CaptureKeyEvents()
 {
     m_key_events = KeyEvents{};
     if (!m_has_focus)
+        return;
+    // Bind keyboard navigation to *ImGui window focus* (not just our internal canvas focus).
+    // Otherwise arrow keys pressed while interacting with other windows (e.g. character picker)
+    // can still be consumed by the canvas because IsKeyPressed() is global.
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
         return;
     // If a popup/modal is open, don't interpret keys as canvas commands.
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))

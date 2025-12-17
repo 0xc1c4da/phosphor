@@ -21,6 +21,28 @@ struct ImGuiWindowPlacement
 
 struct SessionState
 {
+    struct XtermColorPickerState
+    {
+        // Normalized RGBA, ImGui-style.
+        float fg[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        float bg[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+        // 0 = foreground, 1 = background
+        int active_fb = 0;
+
+        // 0 = Hue Bar, 1 = Hue Wheel
+        int picker_mode = 0;
+
+        // Palette UI state (assets/colours.json)
+        int selected_palette = 0;
+
+        // Which color the picker reticle is currently previewing (0 = fg, 1 = bg).
+        int picker_preview_fb = 0;
+
+        // Hue memory for grayscale colors so the picker doesn't reset to red after restart.
+        float last_hue = 0.0f;
+    };
+
     struct OpenCanvas
     {
         int id = 0;
@@ -63,6 +85,7 @@ struct SessionState
 
     // Per-tool UI state
     bool character_palette_settings_open = true;
+    XtermColorPickerState xterm_color_picker;
 
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;

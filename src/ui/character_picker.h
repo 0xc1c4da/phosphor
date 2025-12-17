@@ -50,6 +50,9 @@ public:
     // Returns true if selection changed since last call, and outputs the current selection.
     bool TakeSelectionChanged(uint32_t& out_cp);
 
+    // Returns true if the user double-clicked a glyph in the grid this frame.
+    bool TakeDoubleClicked(uint32_t& out_cp);
+
     // Small ICU-backed helpers (useful for tooltips/callbacks).
     static std::string BlockNameFor(uint32_t cp);
 
@@ -109,8 +112,6 @@ private:
     void RenderGridAndSidePanel();
     void RenderGrid(uint32_t view_start, uint32_t view_end,
                     const std::vector<uint32_t>* explicit_cps /* if non-null, render these cps */);
-    void HandleGridKeyboardNavigation(uint32_t view_start, uint32_t view_end,
-                                      const std::vector<uint32_t>* explicit_cps);
 
 private:
     // Blocks
@@ -131,6 +132,9 @@ private:
     uint32_t selected_cp_ = 0x0041; // 'A' default
     bool scroll_to_selected_ = false;
     bool selection_changed_ = false;
+    bool request_focus_selected_ = false; // keep ImGui keyboard-nav highlight synced to selection
+    bool double_clicked_ = false;
+    uint32_t double_clicked_cp_ = 0;
 
     // Omitted ranges (e.g. known missing glyph spans for the current font)
     std::vector<OmitRange> omit_ranges_;

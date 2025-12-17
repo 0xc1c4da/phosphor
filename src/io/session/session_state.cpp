@@ -54,7 +54,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 2;
+    j["schema_version"] = 3;
 
     json win;
     win["w"] = st.window_w;
@@ -75,6 +75,20 @@ static json ToJson(const SessionState& st)
     ui["show_preview_window"] = st.show_preview_window;
     ui["show_settings_window"] = st.show_settings_window;
     ui["character_palette_settings_open"] = st.character_palette_settings_open;
+
+    // Xterm-256 picker UI state
+    json xcp;
+    xcp["fg"] = {st.xterm_color_picker.fg[0], st.xterm_color_picker.fg[1],
+                 st.xterm_color_picker.fg[2], st.xterm_color_picker.fg[3]};
+    xcp["bg"] = {st.xterm_color_picker.bg[0], st.xterm_color_picker.bg[1],
+                 st.xterm_color_picker.bg[2], st.xterm_color_picker.bg[3]};
+    xcp["active_fb"] = st.xterm_color_picker.active_fb;
+    xcp["picker_mode"] = st.xterm_color_picker.picker_mode;
+    xcp["selected_palette"] = st.xterm_color_picker.selected_palette;
+    xcp["picker_preview_fb"] = st.xterm_color_picker.picker_preview_fb;
+    xcp["last_hue"] = st.xterm_color_picker.last_hue;
+    ui["xterm_color_picker"] = std::move(xcp);
+
     j["ui"] = std::move(ui);
 
     json ws;
@@ -176,6 +190,33 @@ static void FromJson(const json& j, SessionState& out)
             out.show_settings_window = ui["show_settings_window"].get<bool>();
         if (ui.contains("character_palette_settings_open") && ui["character_palette_settings_open"].is_boolean())
             out.character_palette_settings_open = ui["character_palette_settings_open"].get<bool>();
+
+        if (ui.contains("xterm_color_picker") && ui["xterm_color_picker"].is_object())
+        {
+            const json& xcp = ui["xterm_color_picker"];
+            if (xcp.contains("fg") && xcp["fg"].is_array() && xcp["fg"].size() == 4)
+            {
+                for (int i = 0; i < 4; ++i)
+                    if (xcp["fg"][i].is_number())
+                        out.xterm_color_picker.fg[i] = xcp["fg"][i].get<float>();
+            }
+            if (xcp.contains("bg") && xcp["bg"].is_array() && xcp["bg"].size() == 4)
+            {
+                for (int i = 0; i < 4; ++i)
+                    if (xcp["bg"][i].is_number())
+                        out.xterm_color_picker.bg[i] = xcp["bg"][i].get<float>();
+            }
+            if (xcp.contains("active_fb") && xcp["active_fb"].is_number_integer())
+                out.xterm_color_picker.active_fb = xcp["active_fb"].get<int>();
+            if (xcp.contains("picker_mode") && xcp["picker_mode"].is_number_integer())
+                out.xterm_color_picker.picker_mode = xcp["picker_mode"].get<int>();
+            if (xcp.contains("selected_palette") && xcp["selected_palette"].is_number_integer())
+                out.xterm_color_picker.selected_palette = xcp["selected_palette"].get<int>();
+            if (xcp.contains("picker_preview_fb") && xcp["picker_preview_fb"].is_number_integer())
+                out.xterm_color_picker.picker_preview_fb = xcp["picker_preview_fb"].get<int>();
+            if (xcp.contains("last_hue") && xcp["last_hue"].is_number())
+                out.xterm_color_picker.last_hue = xcp["last_hue"].get<float>();
+        }
     }
 
     if (j.contains("workspace") && j["workspace"].is_object())
@@ -287,7 +328,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2)
+        if (ver != 1 && ver != 2 && ver != 3)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

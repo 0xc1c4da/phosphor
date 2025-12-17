@@ -318,6 +318,7 @@ void CharacterPalette::ReplaceSelectedCellWith(uint32_t cp)
     if (g.utf8.empty())
         return;
     glyphs[gi] = std::move(g);
+    request_focus_selected_ = true;
 }
 
 void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
@@ -334,6 +335,8 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
         ReplaceSelectedCellWith(cp);
     else if (auto idx = FindGlyphIndexByFirstCp(cp))
         selected_cell_ = *idx;
+
+    request_focus_selected_ = true;
 }
 
 bool CharacterPalette::TakeUserSelectionChanged(uint32_t& out_cp)
@@ -343,6 +346,16 @@ bool CharacterPalette::TakeUserSelectionChanged(uint32_t& out_cp)
     user_selection_changed_ = false;
     out_cp = user_selected_cp_;
     user_selected_cp_ = 0;
+    return out_cp != 0;
+}
+
+bool CharacterPalette::TakeUserDoubleClicked(uint32_t& out_cp)
+{
+    if (!user_double_clicked_)
+        return false;
+    user_double_clicked_ = false;
+    out_cp = user_double_clicked_cp_;
+    user_double_clicked_cp_ = 0;
     return out_cp != 0;
 }
 
@@ -619,6 +632,7 @@ void CharacterPalette::RenderGrid()
     const ImU32 col_text = ImGui::GetColorU32(ImGuiCol_Text);
     const ImU32 col_sel_bg = ImGui::GetColorU32(ImGuiCol_Header);
     const ImU32 col_hover_bg = ImGui::GetColorU32(ImGuiCol_HeaderHovered);
+    const ImU32 col_nav = ImGui::GetColorU32(ImGuiCol_NavHighlight);
 
     for (int idx = 0; idx < total_items; ++idx)
     {
@@ -631,14 +645,20 @@ void CharacterPalette::RenderGrid()
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
         const ImVec2 p1(p0.x + cell, p0.y + cell);
 
-        ImGui::InvisibleButton("##cell", ImVec2(cell, cell));
+        // Enable ImGui keyboard navigation for this custom grid so arrow keys move the "caret".
+        // We then mirror nav-focus -> selected_cell_ to keep the two highlights synchronized.
+        ImGui::InvisibleButton("##cell", ImVec2(cell, cell), ImGuiButtonFlags_EnableNav);
         const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary);
         const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+        const bool focused = ImGui::IsItemFocused();
+        const bool double_clicked =
+            hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 
         const bool is_sel = (idx == selected_cell_);
         if (clicked)
         {
             selected_cell_ = idx;
+            request_focus_selected_ = true;
             const uint32_t cp = glyphs[(size_t)idx].first_cp;
             if (cp != 0)
             {
@@ -647,10 +667,46 @@ void CharacterPalette::RenderGrid()
             }
         }
 
+        // Keep keyboard caret + selection synchronized (single source of truth).
+        if (focused && idx != selected_cell_)
+        {
+            selected_cell_ = idx;
+            request_focus_selected_ = false; // already focused
+            const uint32_t cp = glyphs[(size_t)idx].first_cp;
+            if (cp != 0)
+            {
+                user_selection_changed_ = true;
+                user_selected_cp_ = cp;
+            }
+        }
+        if (double_clicked)
+        {
+            const uint32_t cp = glyphs[(size_t)idx].first_cp;
+            if (cp != 0)
+            {
+                user_double_clicked_ = true;
+                user_double_clicked_cp_ = cp;
+            }
+        }
+
         if (is_sel)
             dl->AddRectFilled(p0, p1, col_sel_bg);
         else if (hovered)
             dl->AddRectFilled(p0, p1, col_hover_bg);
+
+        // Draw a visible keyboard "caret" when this cell is nav-focused.
+        if (focused)
+            dl->AddRect(p0, p1, col_nav, 0.0f, 0, 2.0f);
+
+        // If selection changed programmatically (or via mouse), request nav focus on selected cell
+        // so we don't end up with a second caret elsewhere.
+        if (request_focus_selected_ &&
+            idx == selected_cell_ &&
+            ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        {
+            ImGui::SetItemDefaultFocus();
+            request_focus_selected_ = false;
+        }
 
         const std::string& glyph = glyphs[(size_t)idx].utf8;
         const char* text = glyph.empty() ? " " : glyph.c_str();

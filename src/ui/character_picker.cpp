@@ -87,6 +87,7 @@ static int CeilDivInt(int a, int b)
 void CharacterPicker::MarkSelectionChanged()
 {
     selection_changed_ = true;
+    request_focus_selected_ = true;
 }
 
 bool CharacterPicker::TakeSelectionChanged(uint32_t& out_cp)
@@ -96,6 +97,16 @@ bool CharacterPicker::TakeSelectionChanged(uint32_t& out_cp)
     selection_changed_ = false;
     out_cp = selected_cp_;
     return true;
+}
+
+bool CharacterPicker::TakeDoubleClicked(uint32_t& out_cp)
+{
+    if (!double_clicked_)
+        return false;
+    double_clicked_ = false;
+    out_cp = double_clicked_cp_;
+    double_clicked_cp_ = 0;
+    return out_cp != 0;
 }
 
 void CharacterPicker::JumpToCodePoint(uint32_t cp)
@@ -957,7 +968,6 @@ void CharacterPicker::RenderGridAndSidePanel()
         if (!cps.empty() && std::find(cps.begin(), cps.end(), selected_cp_) == cps.end())
             selected_cp_ = cps.front();
         RenderGrid(0, 0, &cps);
-        HandleGridKeyboardNavigation(0, 0, &cps);
     }
     else
     {
@@ -969,7 +979,6 @@ void CharacterPicker::RenderGridAndSidePanel()
             if (std::find(visible_cps_cache_.begin(), visible_cps_cache_.end(), selected_cp_) == visible_cps_cache_.end())
                 selected_cp_ = visible_cps_cache_.front();
             RenderGrid(0, 0, &visible_cps_cache_);
-            HandleGridKeyboardNavigation(0, 0, &visible_cps_cache_);
         }
         else
         {
@@ -1163,6 +1172,33 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
                     }
                     ImGui::PopStyleVar();
 
+                    // Keep keyboard navigation highlight synchronized with selection:
+                    // - When user navigates with keyboard, ImGui changes the focused item; we mirror that to selection.
+                    // - When selection changes programmatically, we request focus on the selected cell so we don't get
+                    //   a second highlight stranded elsewhere.
+                    if (ImGui::IsItemFocused() && cp != selected_cp_)
+                    {
+                        selected_cp_ = cp;
+                        confusables_for_cp_ = 0xFFFFFFFFu;
+                        scroll_to_selected_ = true;
+                        MarkSelectionChanged();
+                    }
+                    if (request_focus_selected_ &&
+                        cp == selected_cp_ &&
+                        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+                    {
+                        ImGui::SetItemDefaultFocus();
+                        request_focus_selected_ = false;
+                    }
+
+                    // Double-click inserts into the canvas caret (handled by app-level wiring).
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary) &&
+                        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    {
+                        double_clicked_ = true;
+                        double_clicked_cp_ = cp;
+                    }
+
                     if (is_sel && scroll_to_selected_)
                     {
                         ImGui::SetScrollHereY(0.5f);
@@ -1188,93 +1224,3 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
         ImGui::EndTable();
     }
 }
-
-void CharacterPicker::HandleGridKeyboardNavigation(uint32_t view_start, uint32_t view_end,
-                                                   const std::vector<uint32_t>* explicit_cps)
-{
-    // Only react when the grid child is focused.
-    // (We render this inside the grid child.)
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
-        return;
-
-    constexpr int kCols = 16;
-    auto move_to_index = [&](int idx)
-    {
-        if (!explicit_cps)
-            return;
-        if (idx < 0 || idx >= static_cast<int>(explicit_cps->size()))
-            return;
-        selected_cp_ = (*explicit_cps)[static_cast<size_t>(idx)];
-        confusables_for_cp_ = 0xFFFFFFFFu;
-        MarkSelectionChanged();
-    };
-
-    auto find_index = [&]() -> int
-    {
-        if (!explicit_cps)
-            return -1;
-        for (int i = 0; i < static_cast<int>(explicit_cps->size()); ++i)
-            if ((*explicit_cps)[static_cast<size_t>(i)] == selected_cp_)
-                return i;
-        return -1;
-    };
-
-    const bool left  = ImGui::IsKeyPressed(ImGuiKey_LeftArrow);
-    const bool right = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
-    const bool up    = ImGui::IsKeyPressed(ImGuiKey_UpArrow);
-    const bool down  = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
-
-    if (!(left || right || up || down))
-        return;
-
-    if (explicit_cps)
-    {
-        int idx = find_index();
-        if (idx < 0)
-            idx = 0;
-
-        if (left)  idx -= 1;
-        if (right) idx += 1;
-        if (up)    idx -= kCols;
-        if (down)  idx += kCols;
-
-        idx = std::clamp(idx, 0, std::max(0, static_cast<int>(explicit_cps->size()) - 1));
-        move_to_index(idx);
-        scroll_to_selected_ = true;
-        return;
-    }
-
-    // Range view navigation: step within the full range (table will scroll).
-    uint32_t cp = selected_cp_;
-    auto step_non_omitted = [&](int delta) -> uint32_t
-    {
-        int64_t cur = static_cast<int64_t>(cp);
-        const int64_t lo = static_cast<int64_t>(view_start);
-        const int64_t hi = static_cast<int64_t>(view_end);
-        for (int tries = 0; tries < 4096; ++tries)
-        {
-            cur += delta;
-            if (cur < lo) return static_cast<uint32_t>(view_start);
-            if (cur > hi) return static_cast<uint32_t>(view_end);
-            const uint32_t u = static_cast<uint32_t>(cur);
-            if (IsScalarValue(u) && !IsOmitted(u))
-                return u;
-        }
-        return cp;
-    };
-
-    if (left && cp > view_start)  cp = step_non_omitted(-1);
-    if (right && cp < view_end)  cp = step_non_omitted(+1);
-    if (up && cp >= view_start + kCols)   cp = step_non_omitted(-kCols);
-    if (down && cp + kCols <= view_end)   cp = step_non_omitted(+kCols);
-
-    if (cp != selected_cp_)
-    {
-        selected_cp_ = cp;
-        confusables_for_cp_ = 0xFFFFFFFFu;
-        scroll_to_selected_ = true;
-        MarkSelectionChanged();
-    }
-}
-
-

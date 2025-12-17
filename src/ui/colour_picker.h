@@ -11,10 +11,12 @@ namespace ImGui
 
 bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4],
                                   bool show_alpha = false,
-                                  bool* out_used_right_click = nullptr);
+                                  bool* out_used_right_click = nullptr,
+                                  float* inout_last_hue = nullptr);
 bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4],
                                     bool show_alpha = false,
-                                    bool* out_used_right_click = nullptr);
+                                    bool* out_used_right_click = nullptr,
+                                    float* inout_last_hue = nullptr);
 
 // Composite foreground/background widget:
 // - Shows two overlaid xterm-quantized color squares (foreground on top of background).

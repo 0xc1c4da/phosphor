@@ -59,6 +59,10 @@ public:
     // Returns true if the user clicked a glyph in the palette grid this frame.
     bool TakeUserSelectionChanged(uint32_t& out_cp);
 
+    // Returns true if the user double-clicked a glyph in the palette grid this frame.
+    // Output is the glyph's first Unicode code point (0 if invalid).
+    bool TakeUserDoubleClicked(uint32_t& out_cp);
+
 private:
     void EnsureLoaded();
     void EnsureNonEmpty();
@@ -89,6 +93,7 @@ private:
 
     // Cell selection
     int selected_cell_ = 0;
+    bool request_focus_selected_ = false; // keep ImGui keyboard-nav highlight synced to selection
 
     // Picker integration behavior
     bool picker_replaces_selected_cell_ = false;
@@ -105,6 +110,10 @@ private:
     // "user clicked something" output
     bool user_selection_changed_ = false;
     uint32_t user_selected_cp_ = 0;
+
+    // "user double-clicked something" output
+    bool user_double_clicked_ = false;
+    uint32_t user_double_clicked_cp_ = 0;
 };
 
 
