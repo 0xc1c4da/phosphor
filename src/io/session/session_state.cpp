@@ -1,7 +1,6 @@
 #include "io/session/session_state.h"
 
 #include <nlohmann/json.hpp>
-#include <zstd.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -309,10 +308,13 @@ bool SaveSessionState(const SessionState& st, std::string& err)
         return false;
     }
 
-    std::ofstream out(path);
+    // Atomic write: write to a temp file in the same directory then rename over the original.
+    const std::string tmp_path = path + ".tmp";
+
+    std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
     if (!out)
     {
-        err = "Failed to open session state file for writing.";
+        err = "Failed to open temp session state file for writing.";
         return false;
     }
 
@@ -323,6 +325,24 @@ bool SaveSessionState(const SessionState& st, std::string& err)
     catch (const std::exception& e)
     {
         err = std::string("Failed to write session state: ") + e.what();
+        return false;
+    }
+
+    out.close();
+    if (!out)
+    {
+        err = "Failed to finalize session state temp file write.";
+        return false;
+    }
+
+    std::error_code ec;
+    fs::rename(tmp_path, path, ec);
+    if (ec)
+    {
+        err = std::string("Failed to atomically replace session state file: ") + ec.message();
+        // Best effort cleanup; ignore errors.
+        std::error_code rm_ec;
+        fs::remove(tmp_path, rm_ec);
         return false;
     }
 

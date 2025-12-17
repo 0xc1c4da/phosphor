@@ -27,6 +27,7 @@ SOURCES  = \
            src/io/io_manager.cpp \
            src/io/sdl_file_dialog_queue.cpp \
            src/io/session/imgui_persistence.cpp \
+           src/io/session/open_canvas_codec.cpp \
            src/io/session/project_state_json.cpp \
            src/io/session/session_state.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp \

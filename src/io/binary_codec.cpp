@@ -56,17 +56,28 @@ bool Base64Decode(const std::string& b64, std::string& out_bytes)
     if (s.size() % 4 != 0)
         return false;
 
-    size_t pad = 0;
-    if (!s.empty() && s.back() == '=') pad++;
-    if (s.size() >= 2 && s[s.size() - 2] == '=') pad++;
-
     out_bytes.reserve((s.size() / 4) * 3);
     for (size_t i = 0; i < s.size(); i += 4)
     {
-        int v0 = (s[i + 0] == '=') ? 0 : B64Index((unsigned char)s[i + 0]);
-        int v1 = (s[i + 1] == '=') ? 0 : B64Index((unsigned char)s[i + 1]);
-        int v2 = (s[i + 2] == '=') ? 0 : B64Index((unsigned char)s[i + 2]);
-        int v3 = (s[i + 3] == '=') ? 0 : B64Index((unsigned char)s[i + 3]);
+        const bool last_quad = (i + 4 == s.size());
+
+        const char c0 = s[i + 0];
+        const char c1 = s[i + 1];
+        const char c2 = s[i + 2];
+        const char c3 = s[i + 3];
+
+        // '=' padding is only legal in the final 1-2 chars of the final quartet.
+        if (c0 == '=' || c1 == '=')
+            return false;
+        if ((c2 == '=' || c3 == '=') && !last_quad)
+            return false;
+        if (c2 == '=' && c3 != '=')
+            return false;
+
+        int v0 = B64Index((unsigned char)c0);
+        int v1 = B64Index((unsigned char)c1);
+        int v2 = (c2 == '=') ? 0 : B64Index((unsigned char)c2);
+        int v3 = (c3 == '=') ? 0 : B64Index((unsigned char)c3);
         if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0)
             return false;
 
@@ -76,15 +87,11 @@ bool Base64Decode(const std::string& b64, std::string& out_bytes)
                                ((std::uint32_t)v3);
 
         out_bytes.push_back((char)((triple >> 16) & 0xFF));
-        if (s[i + 2] != '=')
+        if (c2 != '=')
             out_bytes.push_back((char)((triple >> 8) & 0xFF));
-        if (s[i + 3] != '=')
+        if (c3 != '=')
             out_bytes.push_back((char)((triple >> 0) & 0xFF));
     }
-
-    // Trim padding-derived bytes if needed (defensive).
-    if (pad && out_bytes.size() >= pad)
-        out_bytes.resize(out_bytes.size() - pad);
     return true;
 }
 
@@ -112,6 +119,15 @@ bool ZstdDecompressBytesKnownSize(const std::string& in, std::uint64_t out_size,
 {
     err.clear();
     out.clear();
+
+    // Hard safety cap: session files are user-controlled input, and we always know the size we
+    // intend to decompress to. Still, bound allocation to avoid OOM / abuse.
+    constexpr std::uint64_t kMaxOutSize = (1ull << 30); // 1 GiB
+    if (out_size > kMaxOutSize)
+    {
+        err = "zstd decompress failed: requested output size exceeds 1GiB limit.";
+        return false;
+    }
 
     if (out_size > (std::uint64_t)std::numeric_limits<size_t>::max())
     {

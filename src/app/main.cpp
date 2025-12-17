@@ -17,8 +17,6 @@
 #include <algorithm>        // std::min
 #include <iterator>
 #include <unordered_set>
-#include <zstd.h>
-
 #include <nlohmann/json.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -41,8 +39,8 @@
 #include "ui/settings.h"
 #include "io/session/session_state.h"
 #include "io/session/imgui_persistence.h"
-#include "io/session/project_state_json.h"
-#include "io/binary_codec.h"
+#include "io/session/open_canvas_codec.h"
+#include "io/session/open_canvas_codec.h"
 
 #include "io/file_dialog_tags.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -912,81 +910,7 @@ int main(int, char**)
         next_image_id = session_state.next_image_id;
     last_active_canvas_id = session_state.last_active_canvas_id;
 
-    auto decode_project_state = [&](const SessionState::OpenCanvas& oc, AnsiCanvas::ProjectState& out_ps, std::string& err) -> bool
-    {
-        err.clear();
-        if (oc.project_cbor_zstd_b64.empty() || oc.project_cbor_size == 0)
-            return false;
-
-        std::string comp_bytes;
-        if (!Base64Decode(oc.project_cbor_zstd_b64, comp_bytes))
-        {
-            err = "base64 decode failed";
-            return false;
-        }
-
-        std::string cbor_bytes;
-        std::string zerr;
-        if (!ZstdDecompressBytesKnownSize(comp_bytes, oc.project_cbor_size, cbor_bytes, zerr))
-        {
-            err = zerr;
-            return false;
-        }
-
-        nlohmann::json j;
-        try
-        {
-            const auto* p = reinterpret_cast<const std::uint8_t*>(cbor_bytes.data());
-            j = nlohmann::json::from_cbor(p, p + cbor_bytes.size());
-        }
-        catch (const std::exception& e)
-        {
-            err = std::string("CBOR decode failed: ") + e.what();
-            return false;
-        }
-
-        return project_state_json::FromJson(j, out_ps, err);
-    };
-
-    auto encode_project_state = [&](const AnsiCanvas::ProjectState& ps,
-                                    std::string& out_b64,
-                                    std::uint64_t& out_cbor_size,
-                                    std::string& err) -> bool
-    {
-        err.clear();
-        out_b64.clear();
-        out_cbor_size = 0;
-
-        nlohmann::json j = project_state_json::ToJson(ps);
-        std::vector<std::uint8_t> cbor;
-        try
-        {
-            cbor = nlohmann::json::to_cbor(j);
-        }
-        catch (const std::exception& e)
-        {
-            err = std::string("CBOR encode failed: ") + e.what();
-            return false;
-        }
-
-        out_cbor_size = (std::uint64_t)cbor.size();
-        std::string cbor_bytes(reinterpret_cast<const char*>(cbor.data()),
-                               reinterpret_cast<const char*>(cbor.data() + cbor.size()));
-
-        std::string comp;
-        std::string zerr;
-        if (!ZstdCompressBytes(cbor_bytes, comp, zerr))
-        {
-            err = zerr;
-            return false;
-        }
-        if (!Base64Encode(reinterpret_cast<const std::uint8_t*>(comp.data()), comp.size(), out_b64))
-        {
-            err = "base64 encode failed";
-            return false;
-        }
-        return true;
-    };
+    // NOTE: OpenCanvas project-state (CBOR->zstd->base64) encoding/decoding is owned by io/session.
 
     // Restore canvases.
     for (const auto& oc : session_state.open_canvases)
@@ -997,7 +921,7 @@ int main(int, char**)
 
         AnsiCanvas::ProjectState ps;
         std::string derr;
-        if (decode_project_state(oc, ps, derr))
+        if (open_canvas_codec::DecodeProjectState(oc, ps, derr))
         {
             std::string apply_err;
             if (!cw.canvas.SetProjectState(ps, apply_err))
@@ -1940,10 +1864,7 @@ int main(int, char**)
                 }
 
                 std::string enc_err;
-                if (!encode_project_state(cw.canvas.GetProjectState(),
-                                          oc.project_cbor_zstd_b64,
-                                          oc.project_cbor_size,
-                                          enc_err))
+                if (!open_canvas_codec::EncodeProjectState(cw.canvas.GetProjectState(), oc, enc_err))
                 {
                     std::fprintf(stderr, "[session] encode canvas %d failed: %s\n", cw.id, enc_err.c_str());
                 }
