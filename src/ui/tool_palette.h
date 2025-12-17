@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "core/key_bindings.h"
+
 struct SessionState;
 
 // Tool Palette:
@@ -15,6 +17,10 @@ struct ToolSpec
     std::string path;   // full path to .lua tool file
     std::string icon;   // UTF-8 glyph shown on the button
     std::string label;  // human-friendly name
+
+    // Optional tool-registered actions (for keybinding engine + Settings UI).
+    // Tools may define these under `settings.actions` in their Lua file.
+    std::vector<kb::Action> actions;
 };
 
 class ToolPalette

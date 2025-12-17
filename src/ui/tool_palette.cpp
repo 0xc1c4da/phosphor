@@ -23,6 +23,16 @@ extern "C"
 
 namespace fs = std::filesystem;
 
+static int LuaArrayLen(lua_State* L, int idx)
+{
+#if defined(LUA_VERSION_NUM) && LUA_VERSION_NUM >= 502
+    return (int)lua_rawlen(L, idx);
+#else
+    // LuaJIT (Lua 5.1 API)
+    return (int)lua_objlen(L, idx);
+#endif
+}
+
 static std::string ReadFileToString(const std::string& path)
 {
     std::ifstream in(path, std::ios::binary);
@@ -48,6 +58,7 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
     out.path = path;
     out.icon = "?";
     out.label = BasenameNoExt(path);
+    out.actions.clear();
 
     const std::string src = ReadFileToString(path);
     if (src.empty())
@@ -80,6 +91,13 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
     lua_getglobal(L, "settings");
     if (lua_istable(L, -1))
     {
+        auto get_string_field = [&](const char* key, std::string& dst) {
+            lua_getfield(L, -1, key);
+            if (lua_isstring(L, -1))
+                dst = lua_tostring(L, -1);
+            lua_pop(L, 1);
+        };
+
         lua_getfield(L, -1, "icon");
         if (lua_isstring(L, -1))
             out.icon = lua_tostring(L, -1);
@@ -89,6 +107,97 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
         if (lua_isstring(L, -1))
             out.label = lua_tostring(L, -1);
         lua_pop(L, 1);
+
+        // Optional: settings.actions = { {id=..., title=..., category=..., description=..., bindings={...}}, ... }
+        lua_getfield(L, -1, "actions");
+        if (lua_istable(L, -1))
+        {
+            const int n = LuaArrayLen(L, -1);
+            for (int i = 1; i <= n; ++i)
+            {
+                lua_rawgeti(L, -1, i);
+                if (!lua_istable(L, -1))
+                {
+                    lua_pop(L, 1);
+                    continue;
+                }
+
+                kb::Action a;
+                get_string_field("id", a.id);
+                if (a.id.empty())
+                {
+                    lua_pop(L, 1);
+                    continue;
+                }
+                get_string_field("title", a.title);
+                get_string_field("category", a.category);
+                get_string_field("description", a.description);
+
+                // Defaults
+                if (a.title.empty()) a.title = a.id;
+                if (a.category.empty()) a.category = "Tool";
+
+                // Parse bindings:
+                // - bindings = { "Ctrl+K", "Alt+B", ... } (strings)
+                // - OR bindings = { { chord="Ctrl+K", context="editor", platform="any", enabled=true }, ... }
+                lua_getfield(L, -1, "bindings");
+                if (lua_istable(L, -1))
+                {
+                    const int bn = LuaArrayLen(L, -1);
+                    for (int bi = 1; bi <= bn; ++bi)
+                    {
+                        lua_rawgeti(L, -1, bi);
+                        kb::KeyBinding b;
+                        b.enabled = true;
+                        b.context = "editor";
+                        b.platform = "any";
+
+                        if (lua_isstring(L, -1))
+                        {
+                            b.chord = lua_tostring(L, -1);
+                            if (!b.chord.empty())
+                                a.bindings.push_back(std::move(b));
+                            lua_pop(L, 1);
+                            continue;
+                        }
+
+                        if (lua_istable(L, -1))
+                        {
+                            lua_getfield(L, -1, "enabled");
+                            if (lua_isboolean(L, -1))
+                                b.enabled = lua_toboolean(L, -1) != 0;
+                            lua_pop(L, 1);
+
+                            lua_getfield(L, -1, "chord");
+                            if (lua_isstring(L, -1))
+                                b.chord = lua_tostring(L, -1);
+                            lua_pop(L, 1);
+
+                            lua_getfield(L, -1, "context");
+                            if (lua_isstring(L, -1))
+                                b.context = lua_tostring(L, -1);
+                            lua_pop(L, 1);
+
+                            lua_getfield(L, -1, "platform");
+                            if (lua_isstring(L, -1))
+                                b.platform = lua_tostring(L, -1);
+                            lua_pop(L, 1);
+
+                            if (!b.chord.empty())
+                                a.bindings.push_back(std::move(b));
+                        }
+                        lua_pop(L, 1); // binding (string/table/other)
+                    }
+                }
+                lua_pop(L, 1); // bindings
+
+                if (!a.bindings.empty())
+                    out.actions.push_back(std::move(a));
+
+                lua_pop(L, 1); // action table
+            }
+        }
+        lua_pop(L, 1); // actions
     }
     lua_pop(L, 1); // settings
 

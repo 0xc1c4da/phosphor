@@ -19,6 +19,8 @@
 #include <unordered_set>
 #include <nlohmann/json.hpp>
 
+#include "core/embedded_assets.h"
+#include "core/paths.h"
 #include "ui/colour_picker.h"
 #include "ui/colour_palette.h"
 #include "core/canvas.h"
@@ -39,6 +41,8 @@
 #include "ui/settings.h"
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
+#include "core/key_bindings.h"
+#include "core/paths.h"
 #include "io/session/session_state.h"
 #include "io/session/imgui_persistence.h"
 #include "io/session/open_canvas_codec.h"
@@ -415,6 +419,13 @@ int main(int, char**)
             std::fprintf(stderr, "[session] %s\n", err.c_str());
     }
 
+    // Extract embedded default assets to the user's config directory on first run.
+    {
+        std::string err;
+        if (!EnsureBundledAssetsExtracted(err))
+            std::fprintf(stderr, "[assets] %s\n", err.c_str());
+    }
+
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
@@ -497,8 +508,7 @@ int main(int, char**)
     io.IniFilename = nullptr;
 
     // Load Unscii as the default font (mono, great for UTF‑8 art).
-    // Relative to the working directory (project root when running ./utf8-art-editor).
-    io.Fonts->AddFontFromFileTTF("assets/unscii-16-full.ttf", 16.0f);
+    io.Fonts->AddFontFromFileTTF(PhosphorAssetPath("unscii-16-full.ttf").c_str(), 16.0f);
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -541,6 +551,16 @@ int main(int, char**)
     bool   show_settings_window = session_state.show_settings_window;
     SettingsWindow settings_window;
     settings_window.SetOpen(show_settings_window);
+
+    // Key bindings engine (shared across app shortcuts + ANSL tool hotkeys + Settings UI).
+    kb::KeyBindingsEngine keybinds;
+    keybinds.SetPath(PhosphorAssetPath("key-bindings.json"));
+    {
+        std::string kerr;
+        (void)keybinds.LoadFromFile(keybinds.Path(), kerr);
+        // Non-fatal: engine will fall back to defaults and surface error in Settings UI.
+    }
+    settings_window.SetKeyBindingsEngine(&keybinds);
 
     // Shared color state for the xterm-256 color pickers.
     ImVec4 fg_color = ImVec4(session_state.xterm_color_picker.fg[0],
@@ -585,12 +605,12 @@ int main(int, char**)
     {
         std::string err;
         // Initialize the embedded LuaJIT scripting engine and register the native `ansl` module.
-        if (!ansl_engine.Init("assets", err))
+        if (!ansl_engine.Init(GetPhosphorAssetsDir(), err))
             fprintf(stderr, "[ansl] init failed: %s\n", err.c_str());
     }
     {
         std::string err;
-        if (!tool_engine.Init("assets", err))
+        if (!tool_engine.Init(GetPhosphorAssetsDir(), err))
             fprintf(stderr, "[tools] init failed: %s\n", err.c_str());
     }
 
@@ -600,7 +620,7 @@ int main(int, char**)
     std::string tool_compile_error;
     {
         std::string err;
-        if (!tool_palette.LoadFromDirectory("assets/tools", err))
+        if (!tool_palette.LoadFromDirectory(PhosphorAssetPath("tools"), err))
             tools_error = err;
     }
     // Restore last selected tool (if any).
@@ -619,6 +639,10 @@ int main(int, char**)
                 tool_compile_error = err;
             else
                 tool_compile_error.clear();
+
+            // Register tool-provided keybinding actions (if any) into the shared engine.
+            if (const ToolSpec* t = tool_palette.GetActiveTool())
+                keybinds.SetToolActions(t->actions);
         }
     }
 
@@ -932,21 +956,40 @@ int main(int, char**)
         io_manager.RenderStatusWindows(&session_state, should_apply_placement("File Error"));
 
         // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
-        if (focused_canvas)
         {
-            ImGuiIO& io = ImGui::GetIO();
-            if (io.KeyCtrl)
+            // Global app shortcuts (gated similarly to the canvas key capture rules).
+            // Note: engine does not gate on focus/popup by itself; we do it here.
+            const bool any_popup =
+                ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            kb::EvalContext kctx;
+            kctx.global = true;
+            kctx.editor = (focused_canvas != nullptr);
+            kctx.canvas = (focused_canvas != nullptr);
+            kctx.selection = (focused_canvas != nullptr && focused_canvas->HasSelection());
+            kctx.platform = kb::RuntimePlatform();
+
+            // Settings window hotkey is truly global (no focused canvas required).
+            if (!any_popup && keybinds.ActionPressed("app.settings.open", kctx))
             {
-                // Ctrl+Z = Undo, Ctrl+Shift+Z = Redo (common convention), Ctrl+Y = Redo.
-                if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
-                {
-                    if (io.KeyShift)
-                        focused_canvas->Redo();
-                    else
-                        focused_canvas->Undo();
-                }
-                if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
+                show_settings_window = true;
+                settings_window.SetOpen(true);
+            }
+
+            // Canvas-scoped edit/view shortcuts: only when a canvas grid is focused.
+            if (focused_canvas && !any_popup)
+            {
+                if (keybinds.ActionPressed("edit.undo", kctx))
+                    focused_canvas->Undo();
+                if (keybinds.ActionPressed("edit.redo", kctx))
                     focused_canvas->Redo();
+
+                // Zoom via keybindings (mouse wheel zoom remains implemented in AnsiCanvas).
+                if (keybinds.ActionPressed("view.zoom_in", kctx))
+                    focused_canvas->SetZoom(focused_canvas->GetZoom() * 1.10f);
+                if (keybinds.ActionPressed("view.zoom_out", kctx))
+                    focused_canvas->SetZoom(focused_canvas->GetZoom() / 1.10f);
+                if (keybinds.ActionPressed("view.zoom_reset", kctx))
+                    focused_canvas->SetZoom(1.0f);
             }
         }
 
@@ -1032,39 +1075,47 @@ int main(int, char**)
             dst->SetCaretCell(nx, ny);
         };
 
-        // Hotkeys for character sets:
-        // - F1..F12 inserts from active set
-        // - Ctrl+1..9,0 inserts slots 1..10 (F1..F10)
+        // Hotkeys for character sets (now driven by the keybinding engine):
+        // - charset.insert.f1..f12
+        // - charset.insert.ctrl_1..ctrl_9, ctrl_0 (maps to slots 1..10)
         if (focused_canvas)
         {
-            ImGuiIO& io = ImGui::GetIO();
-            if (!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            const bool any_popup =
+                ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            if (!any_popup)
             {
-                // F-keys: only when no modifiers (to keep room for future "switch set" modifiers).
-                if (!io.KeyCtrl && !io.KeyAlt && !io.KeyShift && !io.KeySuper)
+                kb::EvalContext kctx;
+                kctx.global = true;
+                kctx.editor = true;
+                kctx.canvas = true;
+                kctx.selection = focused_canvas->HasSelection();
+                kctx.platform = kb::RuntimePlatform();
+
+                for (int i = 0; i < 12; ++i)
                 {
-                    for (int i = 0; i < 12; ++i)
+                    const std::string id = "charset.insert.f" + std::to_string(i + 1);
+                    if (keybinds.ActionPressed(id, kctx))
                     {
-                        if (ImGui::IsKeyPressed((ImGuiKey)((int)ImGuiKey_F1 + i), false))
-                        {
-                            const uint32_t cp = character_sets.GetSlotCodePoint(i);
-                            insert_cp_into_canvas(focused_canvas, cp);
-                        }
+                        const uint32_t cp = character_sets.GetSlotCodePoint(i);
+                        insert_cp_into_canvas(focused_canvas, cp);
                     }
                 }
 
-                // Ctrl+digits: map Ctrl+1..9 to slots 0..8, Ctrl+0 to slot 9.
-                if (io.KeyCtrl && !io.KeyAlt && !io.KeyShift && !io.KeySuper)
+                // Ctrl+1..9 maps to slots 0..8, Ctrl+0 maps to slot 9.
+                for (int d = 1; d <= 9; ++d)
                 {
-                    for (int d = 0; d <= 9; ++d)
+                    const std::string id = "charset.insert.ctrl_" + std::to_string(d);
+                    if (keybinds.ActionPressed(id, kctx))
                     {
-                        const ImGuiKey k = (ImGuiKey)((int)ImGuiKey_0 + d);
-                        if (!ImGui::IsKeyPressed(k, false))
-                            continue;
-                        const int slot = (d == 0) ? 9 : (d - 1);
+                        const int slot = d - 1;
                         const uint32_t cp = character_sets.GetSlotCodePoint(slot);
                         insert_cp_into_canvas(focused_canvas, cp);
                     }
+                }
+                if (keybinds.ActionPressed("charset.insert.ctrl_0", kctx))
+                {
+                    const uint32_t cp = character_sets.GetSlotCodePoint(9);
+                    insert_cp_into_canvas(focused_canvas, cp);
                 }
             }
         }
@@ -1108,7 +1159,7 @@ int main(int, char**)
 
             if (!palettes_loaded)
             {
-                LoadColourPalettesFromJson("assets/colours.json", palettes, palettes_error);
+                LoadColourPalettesFromJson(PhosphorAssetPath("colours.json").c_str(), palettes, palettes_error);
                 palettes_loaded = true;
 
                 // Fallback if loading failed or file empty: single default HSV palette.
@@ -1328,7 +1379,7 @@ int main(int, char**)
             if (tool_palette.TakeReloadRequested())
             {
                 std::string err;
-                if (!tool_palette.LoadFromDirectory(tool_palette.GetToolsDir().empty() ? "assets/tools" : tool_palette.GetToolsDir(), err))
+                if (!tool_palette.LoadFromDirectory(tool_palette.GetToolsDir().empty() ? PhosphorAssetPath("tools") : tool_palette.GetToolsDir(), err))
                     tools_error = err;
                 else
                     tools_error.clear();
@@ -1344,6 +1395,10 @@ int main(int, char**)
                     tool_compile_error = err;
                 else
                     tool_compile_error.clear();
+
+                // Register tool-provided keybinding actions (if any) into the shared engine.
+                if (const ToolSpec* t = tool_palette.GetActiveTool())
+                    keybinds.SetToolActions(t->actions);
             }
 
             if (!tool_compile_error.empty())
@@ -1475,6 +1530,8 @@ int main(int, char**)
                 ctx.cursor_prev_right_down = pr;
 
                 std::vector<char32_t> typed;
+                std::vector<std::string> pressed_actions;
+                ctx.actions_pressed = nullptr;
                 if (phase == 0)
                 {
                     // Keyboard phase consumes typed + key presses.
@@ -1505,6 +1562,32 @@ int main(int, char**)
                     ctx.mod_shift = io.KeyShift;
                     ctx.mod_alt = io.KeyAlt;
                     ctx.mod_super = io.KeySuper;
+
+                    // Engine-provided hotkeys/actions for tools.
+                    kb::EvalContext kctx;
+                    kctx.global = true;
+                    kctx.editor = c.HasFocus();
+                    kctx.canvas = c.HasFocus();
+                    kctx.selection = c.HasSelection();
+                    kctx.platform = kb::RuntimePlatform();
+
+                    const kb::Hotkeys hk = keybinds.EvalCommonHotkeys(kctx);
+                    ctx.hotkeys.copy = hk.copy;
+                    ctx.hotkeys.cut = hk.cut;
+                    ctx.hotkeys.paste = hk.paste;
+                    ctx.hotkeys.selectAll = hk.select_all;
+                    ctx.hotkeys.cancel = hk.cancel;
+                    ctx.hotkeys.deleteSelection = hk.delete_selection;
+
+                    // Provide a minimal list of pressed action ids for tool scripts.
+                    pressed_actions.clear();
+                    if (hk.copy) pressed_actions.push_back("edit.copy");
+                    if (hk.cut) pressed_actions.push_back("edit.cut");
+                    if (hk.paste) pressed_actions.push_back("edit.paste");
+                    if (hk.select_all) pressed_actions.push_back("edit.select_all");
+                    if (hk.cancel) pressed_actions.push_back("selection.clear_or_cancel");
+                    if (hk.delete_selection) pressed_actions.push_back("selection.delete");
+                    ctx.actions_pressed = &pressed_actions;
                 }
 
                 std::string err;

@@ -80,7 +80,7 @@ private:
 private:
     // File state
     bool        loaded_ = false;
-    std::string file_path_ = "assets/palettes.json";
+    std::string file_path_;
     std::string last_error_;
 
     // UI

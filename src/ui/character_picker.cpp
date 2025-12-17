@@ -336,7 +336,7 @@ bool CharacterPicker::HasGlyph(const ImFont* font, uint32_t cp)
     return const_cast<ImFont*>(font)->IsGlyphInFont(static_cast<ImWchar>(cp));
 }
 
-std::optional<uint32_t> CharacterPicker::FirstVisibleInRange(uint32_t start, uint32_t end, const ImFont* font) const
+std::optional<uint32_t> CharacterPicker::FirstVisibleInRange(uint32_t start, uint32_t end, const ImFont* /*font*/) const
 {
     if (end < start)
         return std::nullopt;
@@ -682,8 +682,6 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
         return;
     if (IsOmitted(base_cp))
         return;
-
-    const ImFont* font = ImGui::GetFont();
 
     auto sc = MakeSpoofChecker();
     if (!sc)

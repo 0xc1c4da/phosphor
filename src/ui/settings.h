@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+namespace kb { class KeyBindingsEngine; }
+
 struct SessionState;
 
 // Forward declarations to avoid pulling imgui headers into all compilation units.
@@ -14,23 +16,6 @@ struct ImGuiTextFilter;
 class SettingsWindow
 {
 public:
-    struct KeyBinding
-    {
-        bool        enabled  = true;
-        std::string chord;      // e.g. "Ctrl+Shift+Z", "Alt+B", "Left"
-        std::string context;    // e.g. "global", "editor", "selection"
-        std::string platform;   // "any", "windows", "linux", "macos"
-    };
-
-    struct Action
-    {
-        std::string            id;          // internal stable id, e.g. "app.file.new"
-        std::string            title;       // UI label
-        std::string            category;    // grouping (File/Edit/View/Selection/...)
-        std::string            description; // optional help text
-        std::vector<KeyBinding> bindings;
-    };
-
     struct Tab
     {
         std::string id;    // stable internal id
@@ -43,13 +28,13 @@ public:
     void SetOpen(bool open) { open_ = open; }
     bool IsOpen() const { return open_; }
 
+    // Attaches the keybinding engine that backs the Key Bindings tab.
+    // The window does not own the engine.
+    void SetKeyBindingsEngine(kb::KeyBindingsEngine* engine) { keybinds_ = engine; }
+
     // Extendable: allows future subsystems to register additional tabs/panels.
     // If a tab with the same id exists, it is replaced.
     void RegisterTab(const Tab& tab);
-
-    // Loads/Saves the keybindings JSON from disk.
-    bool LoadKeyBindingsFromFile(const std::string& path, std::string& out_error);
-    bool SaveKeyBindingsToFile(const std::string& path, std::string& out_error) const;
 
     // Main render call. Safe to call every frame; does nothing if closed.
     // If session is provided, window placement (pos/size/collapsed) is captured/restored via SessionState.
@@ -59,8 +44,6 @@ private:
     void EnsureDefaultTabsRegistered();
     void RenderTab_KeyBindings();
 
-    static std::vector<Action> DefaultActions(); // used if no JSON exists / parse fails
-
 private:
     bool open_ = false;
 
@@ -69,12 +52,8 @@ private:
     std::vector<Tab>      tabs_;
     std::string           active_tab_id_;
 
-    // Keybindings model
-    std::string           keybindings_path_ = "assets/key-bindings.json";
-    std::vector<Action>   actions_;
-    bool                  loaded_ = false;
-    bool                  dirty_ = false;
-    std::string           last_error_;
+    // Key bindings model lives in core; UI just edits it.
+    kb::KeyBindingsEngine* keybinds_ = nullptr;
 
     // UI state
     std::string           filter_text_;

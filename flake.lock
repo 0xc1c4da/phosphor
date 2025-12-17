@@ -18,6 +18,23 @@
         "type": "github"
       }
     },
+    "imgui": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1729281843,
+        "narHash": "sha256-6j4keBOAzbBDsV0+R4zTNlsltxz2dJDGI43UIrHXDNM=",
+        "owner": "ocornut",
+        "repo": "imgui",
+        "rev": "99109c0b3b052cffa154a9295440f68868a39f74",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ocornut",
+        "ref": "v1.91.4",
+        "repo": "imgui",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1765549813,
@@ -36,6 +53,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "imgui": "imgui",
         "nixpkgs": "nixpkgs"
       }
     },

@@ -1,6 +1,7 @@
 #include "ui/character_set.h"
 
 #include "imgui.h"
+#include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -13,7 +14,10 @@
 
 using nlohmann::json;
 
-CharacterSetWindow::CharacterSetWindow() = default;
+CharacterSetWindow::CharacterSetWindow()
+{
+    file_path_ = PhosphorAssetPath("character-sets.json");
+}
 CharacterSetWindow::~CharacterSetWindow() = default;
 
 bool CharacterSetWindow::IsScalarValue(uint32_t cp)

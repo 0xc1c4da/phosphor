@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := all
 
 CXX       ?= g++
+OBJCOPY   ?= objcopy
 EXE       = phosphor
 IMGUI_DIR = vendor/imgui
 BUILD_DIR = build
@@ -8,6 +9,9 @@ BUILD_DIR = build
 SOURCES  = \
            src/app/main.cpp \
            src/core/canvas.cpp \
+           src/core/embedded_assets.cpp \
+           src/core/key_bindings.cpp \
+           src/core/paths.cpp \
            src/core/xterm256_palette.cpp \
            src/ansl/ansl_script_engine.cpp \
            src/ansl/ansl_luajit.cpp \
@@ -46,6 +50,14 @@ SOURCES += $(IMGUI_DIR)/backends/imgui_impl_sdl3.cpp \
 
 OBJS     = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 
+# ---------------------------------------------------------------------------
+# Embedded assets (assets/ -> tar -> zstd -> linked into the binary)
+# ---------------------------------------------------------------------------
+ASSETS_ARCHIVE = $(BUILD_DIR)/phosphor_assets.tar.zst
+ASSETS_OBJ     = $(BUILD_DIR)/phosphor_assets_blob.o
+
+OBJS += $(ASSETS_OBJ)
+
 CXXFLAGS ?= -std=c++20 -O3
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -Isrc
 # Enable 32-bit ImWchar in Dear ImGui so Unscii glyphs above U+FFFF render correctly.
@@ -70,6 +82,16 @@ LIBS     += $(LIBNOISE_LIBS)
 $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
+
+$(ASSETS_ARCHIVE): $(shell find assets -type f)
+	@mkdir -p $(dir $@)
+	tar --format=ustar -C assets -cf - . | zstd -q -19 -o $@
+
+$(ASSETS_OBJ): $(ASSETS_ARCHIVE)
+	@mkdir -p $(dir $@)
+	ld -r -b binary -o $@ $<
+	# Mark the object as NOT requiring an executable stack (silences ld warning).
+	$(OBJCOPY) --add-section .note.GNU-stack=/dev/null --set-section-flags .note.GNU-stack=contents $@
 
 all: $(EXE)
 

@@ -56,7 +56,7 @@ private:
     bool clear_layer_each_frame_ = true;
 
     // Example scripts dropdown
-    std::string              examples_dir_ = "assets/ansl-examples";
+    std::string              examples_dir_;
     std::vector<ExampleSpec> examples_;
     bool                     examples_loaded_ = false;
     std::string              examples_error_;

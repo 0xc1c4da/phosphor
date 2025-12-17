@@ -364,6 +364,206 @@
         { "enabled": true, "chord": "Ctrl+0", "context": "global", "platform": "any" },
         { "enabled": true, "chord": "Cmd+0", "context": "global", "platform": "macos" }
       ]
+    },
+
+    {
+      "id": "charset.insert.f1",
+      "title": "Insert Character Set Slot 1 (F1)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F1 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F1", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f2",
+      "title": "Insert Character Set Slot 2 (F2)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F2 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F2", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f3",
+      "title": "Insert Character Set Slot 3 (F3)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F3 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F3", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f4",
+      "title": "Insert Character Set Slot 4 (F4)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F4 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F4", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f5",
+      "title": "Insert Character Set Slot 5 (F5)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F5 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F5", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f6",
+      "title": "Insert Character Set Slot 6 (F6)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F6 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F6", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f7",
+      "title": "Insert Character Set Slot 7 (F7)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F7 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F7", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f8",
+      "title": "Insert Character Set Slot 8 (F8)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F8 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F8", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f9",
+      "title": "Insert Character Set Slot 9 (F9)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F9 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F9", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f10",
+      "title": "Insert Character Set Slot 10 (F10)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F10 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F10", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f11",
+      "title": "Insert Character Set Slot 11 (F11)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F11 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F11", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.f12",
+      "title": "Insert Character Set Slot 12 (F12)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F12 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "F12", "context": "editor", "platform": "any" }
+      ]
+    },
+
+    {
+      "id": "charset.insert.ctrl_1",
+      "title": "Insert Character Set Slot 1 (Ctrl+1)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F1 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+1", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_2",
+      "title": "Insert Character Set Slot 2 (Ctrl+2)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F2 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+2", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_3",
+      "title": "Insert Character Set Slot 3 (Ctrl+3)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F3 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+3", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_4",
+      "title": "Insert Character Set Slot 4 (Ctrl+4)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F4 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+4", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_5",
+      "title": "Insert Character Set Slot 5 (Ctrl+5)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F5 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+5", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_6",
+      "title": "Insert Character Set Slot 6 (Ctrl+6)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F6 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+6", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_7",
+      "title": "Insert Character Set Slot 7 (Ctrl+7)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F7 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+7", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_8",
+      "title": "Insert Character Set Slot 8 (Ctrl+8)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F8 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+8", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_9",
+      "title": "Insert Character Set Slot 9 (Ctrl+9)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F9 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+9", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "charset.insert.ctrl_0",
+      "title": "Insert Character Set Slot 10 (Ctrl+0)",
+      "category": "Character Set",
+      "description": "Insert the glyph mapped to F10 in the active character set.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+0", "context": "editor", "platform": "any" }
+      ]
     }
   ]
 }

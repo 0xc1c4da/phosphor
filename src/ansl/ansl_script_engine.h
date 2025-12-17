@@ -103,6 +103,23 @@ struct AnslFrameContext
     bool mod_alt = false;
     bool mod_super = false;
 
+    // Engine-provided hotkeys/actions (preferred over "typed-char hacks").
+    // These are computed by the host keybinding engine so tools don't need to
+    // re-encode platform differences or modifier edge cases.
+    struct Hotkeys
+    {
+        bool copy = false;
+        bool cut = false;
+        bool paste = false;
+        bool selectAll = false;
+        bool cancel = false;
+        bool deleteSelection = false;
+    } hotkeys;
+
+    // List of action ids that are pressed this frame (edge-triggered).
+    // The host owns the vector; valid only for the duration of RunFrame().
+    const std::vector<std::string>* actions_pressed = nullptr;
+
     // Script defaults (xterm-256 indices). -1 means "unset".
     // These are not yet used by the host shim, but are exposed so scripts can
     // pick up the editor's current FG/BG selection without guessing.

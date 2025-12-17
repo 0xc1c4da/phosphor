@@ -1,19 +1,15 @@
 #include "ui/settings.h"
 
 #include "imgui.h"
+#include "core/paths.h"
+#include "core/key_bindings.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
 
-#include <nlohmann/json.hpp>
-
 #include <algorithm>
 #include <cctype>
-#include <fstream>
-#include <optional>
 #include <string>
-
-using json = nlohmann::json;
 
 namespace
 {
@@ -100,7 +96,11 @@ static std::string BuildChordString(const ImGuiIO& io, ImGuiKey key)
     if (io.KeyCtrl)  out += "Ctrl+";
     if (io.KeyShift) out += "Shift+";
     if (io.KeyAlt)   out += "Alt+";
+#if defined(__APPLE__)
+    if (io.KeySuper) out += "Cmd+";
+#else
     if (io.KeySuper) out += "Super+";
+#endif
 
     const char* name = ImGui::GetKeyName(key);
     std::string key_name = name ? name : "";
@@ -108,116 +108,11 @@ static std::string BuildChordString(const ImGuiIO& io, ImGuiKey key)
     out += key_name.empty() ? "Unknown" : key_name;
     return out;
 }
-
-static json KeyBindingToJson(const SettingsWindow::KeyBinding& b)
-{
-    json jb;
-    jb["enabled"] = b.enabled;
-    jb["chord"] = b.chord;
-    jb["context"] = b.context.empty() ? "global" : b.context;
-    jb["platform"] = b.platform.empty() ? "any" : b.platform;
-    return jb;
-}
-
-static bool KeyBindingFromJson(const json& jb, SettingsWindow::KeyBinding& out, std::string& err)
-{
-    err.clear();
-    if (!jb.is_object())
-    {
-        err = "binding is not an object";
-        return false;
-    }
-    out = SettingsWindow::KeyBinding{};
-    if (jb.contains("enabled") && jb["enabled"].is_boolean())
-        out.enabled = jb["enabled"].get<bool>();
-    if (jb.contains("chord") && jb["chord"].is_string())
-        out.chord = jb["chord"].get<std::string>();
-    if (jb.contains("context") && jb["context"].is_string())
-        out.context = jb["context"].get<std::string>();
-    else
-        out.context = "global";
-    if (jb.contains("platform") && jb["platform"].is_string())
-        out.platform = jb["platform"].get<std::string>();
-    else
-        out.platform = "any";
-
-    // Minimal validation: chord must be non-empty for an enabled binding.
-    if (out.enabled && out.chord.empty())
-    {
-        err = "binding chord is empty";
-        return false;
-    }
-    if (out.context.empty()) out.context = "global";
-    if (out.platform.empty()) out.platform = "any";
-    return true;
-}
-
-static json ActionToJson(const SettingsWindow::Action& a)
-{
-    json ja;
-    ja["id"] = a.id;
-    ja["title"] = a.title;
-    ja["category"] = a.category;
-    if (!a.description.empty())
-        ja["description"] = a.description;
-    json binds = json::array();
-    for (const auto& b : a.bindings)
-        binds.push_back(KeyBindingToJson(b));
-    ja["bindings"] = std::move(binds);
-    return ja;
-}
-
-static bool ActionFromJson(const json& ja, SettingsWindow::Action& out, std::string& err)
-{
-    err.clear();
-    if (!ja.is_object())
-    {
-        err = "action is not an object";
-        return false;
-    }
-    if (!ja.contains("id") || !ja["id"].is_string())
-    {
-        err = "action missing string 'id'";
-        return false;
-    }
-
-    out = SettingsWindow::Action{};
-    out.id = ja["id"].get<std::string>();
-    if (ja.contains("title") && ja["title"].is_string())
-        out.title = ja["title"].get<std::string>();
-    if (ja.contains("category") && ja["category"].is_string())
-        out.category = ja["category"].get<std::string>();
-    if (ja.contains("description") && ja["description"].is_string())
-        out.description = ja["description"].get<std::string>();
-
-    if (out.title.empty())
-        out.title = out.id;
-    if (out.category.empty())
-        out.category = "Other";
-
-    out.bindings.clear();
-    if (ja.contains("bindings") && ja["bindings"].is_array())
-    {
-        for (const auto& jb : ja["bindings"])
-        {
-            SettingsWindow::KeyBinding b;
-            std::string berr;
-            if (!KeyBindingFromJson(jb, b, berr))
-            {
-                err = "action '" + out.id + "': " + berr;
-                return false;
-            }
-            out.bindings.push_back(std::move(b));
-        }
-    }
-
-    return true;
-}
 } // namespace
 
 SettingsWindow::SettingsWindow()
 {
-    // Delay loading until first render to avoid file IO during startup.
+    // Key bindings are backed by a shared core engine (attached via SetKeyBindingsEngine()).
 }
 
 void SettingsWindow::RegisterTab(const Tab& tab)
@@ -232,123 +127,6 @@ void SettingsWindow::RegisterTab(const Tab& tab)
         }
     }
     tabs_.push_back(tab);
-}
-
-bool SettingsWindow::LoadKeyBindingsFromFile(const std::string& path, std::string& out_error)
-{
-    out_error.clear();
-    keybindings_path_ = path;
-
-    std::ifstream f(path);
-    if (!f)
-    {
-        // If missing, fall back to defaults and consider it "loaded" so UI works.
-        actions_ = DefaultActions();
-        loaded_ = true;
-        dirty_ = true; // prompt user to save new file
-        last_error_ = std::string("Could not open '") + path + "'. Using defaults (not saved yet).";
-        out_error = last_error_;
-        return false;
-    }
-
-    json j;
-    try
-    {
-        f >> j;
-    }
-    catch (const std::exception& e)
-    {
-        actions_ = DefaultActions();
-        loaded_ = true;
-        dirty_ = true;
-        last_error_ = std::string("JSON parse error: ") + e.what();
-        out_error = last_error_;
-        return false;
-    }
-
-    if (!j.is_object())
-    {
-        out_error = "key-bindings.json root must be an object";
-        last_error_ = out_error;
-        return false;
-    }
-    if (!j.contains("schema_version") || !j["schema_version"].is_number_integer())
-    {
-        out_error = "key-bindings.json missing integer 'schema_version'";
-        last_error_ = out_error;
-        return false;
-    }
-    const int ver = j["schema_version"].get<int>();
-    if (ver != 1)
-    {
-        out_error = "Unsupported key-bindings schema_version (expected 1)";
-        last_error_ = out_error;
-        return false;
-    }
-    if (!j.contains("actions") || !j["actions"].is_array())
-    {
-        out_error = "key-bindings.json missing 'actions' array";
-        last_error_ = out_error;
-        return false;
-    }
-
-    std::vector<Action> actions;
-    for (const auto& ja : j["actions"])
-    {
-        Action a;
-        std::string err;
-        if (!ActionFromJson(ja, a, err))
-        {
-            out_error = err;
-            last_error_ = out_error;
-            return false;
-        }
-        actions.push_back(std::move(a));
-    }
-
-    actions_ = std::move(actions);
-    loaded_ = true;
-    dirty_ = false;
-    last_error_.clear();
-    return true;
-}
-
-bool SettingsWindow::SaveKeyBindingsToFile(const std::string& path, std::string& out_error) const
-{
-    out_error.clear();
-
-    json j;
-    j["schema_version"] = 1;
-    j["name"] = "Phosphor Key Bindings";
-    j["description"] = "Action->key mapping for Phosphor. Chords are human-readable strings (e.g. Ctrl+Z).";
-    j["notes"] = json::array({
-        "This file is intended to be edited in-app via File > Settings > Key Bindings.",
-        "Fields are forward-compatible: unknown fields should be preserved by future loaders.",
-    });
-
-    json actions = json::array();
-    for (const auto& a : actions_)
-        actions.push_back(ActionToJson(a));
-    j["actions"] = std::move(actions);
-
-    std::ofstream out(path);
-    if (!out)
-    {
-        out_error = "Failed to open file for writing.";
-        return false;
-    }
-
-    try
-    {
-        out << j.dump(2) << "\n";
-    }
-    catch (const std::exception& e)
-    {
-        out_error = std::string("Failed to write JSON: ") + e.what();
-        return false;
-    }
-
-    return true;
 }
 
 void SettingsWindow::EnsureDefaultTabsRegistered()
@@ -444,26 +222,33 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
 
 void SettingsWindow::RenderTab_KeyBindings()
 {
-    // Lazy load
-    if (!loaded_)
+    if (!keybinds_)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Key bindings engine not attached.");
+        return;
+    }
+
+    // Lazy load (from the engine's configured path).
+    if (!keybinds_->IsLoaded())
     {
         std::string err;
-        (void)LoadKeyBindingsFromFile(keybindings_path_, err);
+        (void)keybinds_->LoadFromFile(keybinds_->Path(), err);
     }
 
     // Header row: file path + dirty indicator + actions
     {
-        ImGui::Text("File: %s", keybindings_path_.c_str());
+        ImGui::Text("File: %s", keybinds_->Path().c_str());
         ImGui::SameLine();
-        if (dirty_)
+        if (keybinds_->IsDirty())
         {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "• Modified");
         }
     }
 
-    if (!last_error_.empty())
+    if (!keybinds_->LastError().empty())
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", keybinds_->LastError().c_str());
     }
 
     ImGui::Separator();
@@ -473,21 +258,15 @@ void SettingsWindow::RenderTab_KeyBindings()
         if (ImGui::Button("Reload"))
         {
             std::string err;
-            LoadKeyBindingsFromFile(keybindings_path_, err);
+            keybinds_->LoadFromFile(keybinds_->Path(), err);
         }
         ImGui::SameLine();
         if (ImGui::Button("Save"))
         {
             std::string err;
-            if (SaveKeyBindingsToFile(keybindings_path_, err))
+            if (keybinds_->SaveToFile(keybinds_->Path(), err))
             {
-                // Mark clean only on success.
-                dirty_ = false;
-                last_error_.clear();
-            }
-            else
-            {
-                last_error_ = err.empty() ? "Save failed." : err;
+                keybinds_->ClearDirty();
             }
         }
         ImGui::SameLine();
@@ -569,13 +348,14 @@ void SettingsWindow::RenderTab_KeyBindings()
             close = true;
         }
 
-        if (commit && capture_action_idx_ < actions_.size())
+        auto& actions = keybinds_->ActionsMutable();
+        if (commit && capture_action_idx_ < actions.size())
         {
-            auto& a = actions_[capture_action_idx_];
+            auto& a = actions[capture_action_idx_];
             if (capture_binding_idx_ < a.bindings.size())
             {
                 a.bindings[capture_binding_idx_].chord = committed_chord;
-                dirty_ = true;
+                keybinds_->MarkDirty();
             }
         }
 
@@ -589,14 +369,15 @@ void SettingsWindow::RenderTab_KeyBindings()
     }
 
     // Sort a view (stable) by category/title for nicer display.
-    std::vector<size_t> order(actions_.size());
-    for (size_t i = 0; i < actions_.size(); ++i)
+    const auto& actions_ro = keybinds_->Actions();
+    std::vector<size_t> order(actions_ro.size());
+    for (size_t i = 0; i < actions_ro.size(); ++i)
         order[i] = i;
 
     std::stable_sort(order.begin(), order.end(), [&](size_t ia, size_t ib)
     {
-        const auto& a = actions_[ia];
-        const auto& b = actions_[ib];
+        const auto& a = actions_ro[ia];
+        const auto& b = actions_ro[ib];
         if (a.category != b.category) return a.category < b.category;
         return a.title < b.title;
     });
@@ -615,7 +396,8 @@ void SettingsWindow::RenderTab_KeyBindings()
         for (size_t oi = 0; oi < order.size(); ++oi)
         {
             const size_t idx = order[oi];
-            Action& a = actions_[idx];
+            // Mutations go through the engine.
+            auto& a = keybinds_->ActionsMutable()[idx];
 
             // Filter match on category/title/id/description.
             if (!needle.empty())
@@ -657,12 +439,12 @@ void SettingsWindow::RenderTab_KeyBindings()
             ImGui::TableNextColumn();
             for (size_t bi = 0; bi < a.bindings.size(); ++bi)
             {
-                KeyBinding& b = a.bindings[bi];
+                kb::KeyBinding& b = a.bindings[bi];
                 ImGui::PushID((int)bi);
 
                 // enabled
                 if (ImGui::Checkbox("##en", &b.enabled))
-                    dirty_ = true;
+                    keybinds_->MarkDirty();
                 ImGui::SameLine();
 
                 // platform
@@ -674,7 +456,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                     if (ImGui::Combo("##plat", &pidx, items, IM_ARRAYSIZE(items)))
                     {
                         b.platform = PlatformFromIndex(pidx);
-                        dirty_ = true;
+                        keybinds_->MarkDirty();
                     }
                 }
                 ImGui::SameLine();
@@ -688,7 +470,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                     if (ImGui::Combo("##ctx", &cidx, items, IM_ARRAYSIZE(items)))
                     {
                         b.context = ContextFromIndex(cidx);
-                        dirty_ = true;
+                        keybinds_->MarkDirty();
                     }
                 }
                 ImGui::SameLine();
@@ -697,19 +479,19 @@ void SettingsWindow::RenderTab_KeyBindings()
                 // Chord input was too wide; keep it compact so inline buttons are always visible.
                 ImGui::SetNextItemWidth(160.0f);
                 if (ImGui::InputTextWithHint("##chord", "e.g. Ctrl+Z", &b.chord))
-                    dirty_ = true;
+                    keybinds_->MarkDirty();
 
                 // Inline controls on the same row as chord input.
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Add"))
                 {
-                    KeyBinding nb;
+                    kb::KeyBinding nb;
                     nb.enabled = true;
                     nb.platform = "any";
                     nb.context = "global";
                     nb.chord.clear();
                     a.bindings.push_back(std::move(nb));
-                    dirty_ = true;
+                    keybinds_->MarkDirty();
                 }
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Record…"))
@@ -722,7 +504,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                 if (ImGui::SmallButton("Remove"))
                 {
                     a.bindings.erase(a.bindings.begin() + (ptrdiff_t)bi);
-                    dirty_ = true;
+                    keybinds_->MarkDirty();
                     ImGui::PopID();
                     break; // binding list mutated; restart next frame
                 }
@@ -735,265 +517,6 @@ void SettingsWindow::RenderTab_KeyBindings()
 
         ImGui::EndTable();
     }
-}
-
-std::vector<SettingsWindow::Action> SettingsWindow::DefaultActions()
-{
-    // Seeded primarily from references/hotkeys.md "Common keybindings (cross-editor comparison)".
-    // This is a curated set of common concepts; bindings include platform variants where known.
-    return {
-        // --- File ---
-        {
-            .id="app.file.new", .title="New", .category="File",
-            .description="Create a new canvas/document.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+N", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+N", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="app.file.open", .title="Open…", .category="File",
-            .description="Open a file/project from disk.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+O", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+O", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="app.file.save", .title="Save", .category="File",
-            .description="Save the current document/project.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+S", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+S", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="app.file.save_as", .title="Save As…", .category="File",
-            .description="Save a copy / choose format.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+Shift+S", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+Shift+S", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="app.file.close_window", .title="Close Window", .category="File",
-            .description="Close the current window.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+W", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+W", .context="global", .platform="macos"},
-                {.enabled=true, .chord="Alt+F4", .context="global", .platform="windows"},
-            }
-        },
-        {
-            .id="app.quit", .title="Quit", .category="File",
-            .description="Exit the application.",
-            .bindings={
-                {.enabled=true, .chord="Alt+X", .context="global", .platform="windows"},
-                {.enabled=true, .chord="Cmd+Q", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="app.settings.open", .title="Settings…", .category="File",
-            .description="Open the Settings window.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+,", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+,", .context="global", .platform="macos"},
-            }
-        },
-
-        // --- Edit ---
-        {
-            .id="edit.undo", .title="Undo", .category="Edit",
-            .description="Undo last operation.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+Z", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Cmd+Z", .context="editor", .platform="macos"},
-            }
-        },
-        {
-            .id="edit.redo", .title="Redo", .category="Edit",
-            .description="Redo last undone operation.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+Shift+Z", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Ctrl+Y", .context="editor", .platform="windows"},
-                {.enabled=true, .chord="Cmd+Shift+Z", .context="editor", .platform="macos"},
-            }
-        },
-        {
-            .id="edit.cut", .title="Cut", .category="Edit",
-            .description="Cut selection to clipboard.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+X", .context="selection", .platform="any"},
-                {.enabled=true, .chord="Cmd+X", .context="selection", .platform="macos"},
-            }
-        },
-        {
-            .id="edit.copy", .title="Copy", .category="Edit",
-            .description="Copy selection to clipboard.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+C", .context="selection", .platform="any"},
-                {.enabled=true, .chord="Cmd+C", .context="selection", .platform="macos"},
-            }
-        },
-        {
-            .id="edit.paste", .title="Paste", .category="Edit",
-            .description="Paste clipboard at caret/cursor.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+V", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Cmd+V", .context="editor", .platform="macos"},
-                // Icy Draw default differs (Ctrl+L); included for compatibility.
-                {.enabled=false, .chord="Ctrl+L", .context="editor", .platform="any"},
-            }
-        },
-        {
-            .id="edit.select_all", .title="Select All", .category="Edit",
-            .description="Select the full canvas/document extent.",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+A", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Cmd+A", .context="editor", .platform="macos"},
-            }
-        },
-
-        // --- Selection ---
-        {
-            .id="selection.clear_or_cancel", .title="Clear Selection / Cancel", .category="Selection",
-            .description="Clear selection or cancel current selection operation.",
-            .bindings={
-                {.enabled=true, .chord="Escape", .context="selection", .platform="any"},
-            }
-        },
-        {
-            .id="selection.delete", .title="Delete Selection Contents", .category="Selection",
-            .description="Erase selection contents.",
-            .bindings={
-                {.enabled=true, .chord="Delete", .context="selection", .platform="any"},
-            }
-        },
-        {
-            .id="selection.start_block", .title="Start Selection / Block Select", .category="Selection",
-            .description="Start a selection (block select).",
-            .bindings={
-                {.enabled=true, .chord="Alt+B", .context="editor", .platform="any"},
-            }
-        },
-
-        // --- Navigation / caret ---
-        {
-            .id="nav.caret_left", .title="Move Caret Left", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Left", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.caret_right", .title="Move Caret Right", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Right", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.caret_up", .title="Move Caret Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Up", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.caret_down", .title="Move Caret Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Down", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.select_left", .title="Extend Selection Left", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Left", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.select_right", .title="Extend Selection Right", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Right", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.select_up", .title="Extend Selection Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Up", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.select_down", .title="Extend Selection Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Down", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.home", .title="Line Start", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Home", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.end", .title="Line End", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="End", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.page_up", .title="Page Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="PageUp", .context="editor", .platform="any"} }
-        },
-        {
-            .id="nav.page_down", .title="Page Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="PageDown", .context="editor", .platform="any"} }
-        },
-
-        // --- Editing (text-like) ---
-        {
-            .id="editor.toggle_insert", .title="Toggle Insert Mode", .category="Editor", .description="",
-            .bindings={ {.enabled=true, .chord="Insert", .context="editor", .platform="any"} }
-        },
-        {
-            .id="editor.new_line", .title="New Line", .category="Editor", .description="",
-            .bindings={ {.enabled=true, .chord="Enter", .context="editor", .platform="any"} }
-        },
-        {
-            .id="editor.backspace", .title="Backspace", .category="Editor", .description="",
-            .bindings={ {.enabled=true, .chord="Backspace", .context="editor", .platform="any"} }
-        },
-
-        // --- Colors / attributes ---
-        {
-            .id="color.prev_fg", .title="Previous Foreground Color", .category="Color", .description="",
-            .bindings={ {.enabled=true, .chord="Ctrl+Up", .context="editor", .platform="any"} }
-        },
-        {
-            .id="color.next_fg", .title="Next Foreground Color", .category="Color", .description="",
-            .bindings={ {.enabled=true, .chord="Ctrl+Down", .context="editor", .platform="any"} }
-        },
-        {
-            .id="color.prev_bg", .title="Previous Background Color", .category="Color", .description="",
-            .bindings={ {.enabled=true, .chord="Ctrl+Left", .context="editor", .platform="any"} }
-        },
-        {
-            .id="color.next_bg", .title="Next Background Color", .category="Color", .description="",
-            .bindings={ {.enabled=true, .chord="Ctrl+Right", .context="editor", .platform="any"} }
-        },
-        {
-            .id="color.pick_attribute", .title="Pick Attribute Under Caret", .category="Color", .description="",
-            .bindings={ {.enabled=true, .chord="Alt+U", .context="editor", .platform="any"} }
-        },
-        {
-            .id="color.default", .title="Default Color", .category="Color", .description="",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+D", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Cmd+D", .context="editor", .platform="macos"},
-            }
-        },
-
-        // --- View ---
-        {
-            .id="view.zoom_in", .title="Zoom In", .category="View", .description="",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+=", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+=", .context="global", .platform="macos"},
-                {.enabled=true, .chord="Ctrl++", .context="global", .platform="any"},
-            }
-        },
-        {
-            .id="view.zoom_out", .title="Zoom Out", .category="View", .description="",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+-", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+-", .context="global", .platform="macos"},
-            }
-        },
-        {
-            .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
-            .bindings={
-                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
-            }
-        },
-    };
 }
 
 

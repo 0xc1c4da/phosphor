@@ -1159,6 +1159,10 @@ struct AnslScriptEngine::Impl
     std::vector<AnslParamSpec> params;
     std::unordered_map<std::string, AnslParamValue> param_values;
     std::unordered_map<std::string, AnslParamValue> param_defaults;
+
+    // For ctx.actions: we nil out previously-set keys each frame so the table only
+    // contains edge-triggered pressed actions for the current frame.
+    std::vector<std::string> prev_actions;
 };
 
 AnslScriptEngine::AnslScriptEngine()
@@ -1212,6 +1216,8 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     //   focused, phase,
     //   keys={...}, typed={...},
     //   mods={ctrl,shift,alt,super},
+    //   hotkeys={copy,cut,paste,selectAll,cancel,deleteSelection},
+    //   actions={ ["edit.copy"]=true, ... },  -- pressed this frame
     //   metrics={aspect=...},
     //   caret={x,y},
     //   cursor={valid,x,y,left,right,p={x,y,left,right}},
@@ -1268,6 +1274,20 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "super");
     lua_setfield(impl_->L, -2, "mods"); // ctx.mods = mods
 
+    // hotkeys table (reused): ctx.hotkeys = { copy=false, ... }
+    lua_newtable(impl_->L); // hotkeys
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "copy");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "cut");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "paste");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "selectAll");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "cancel");
+    lua_pushboolean(impl_->L, 0); lua_setfield(impl_->L, -2, "deleteSelection");
+    lua_setfield(impl_->L, -2, "hotkeys"); // ctx.hotkeys = hotkeys
+
+    // actions table (reused): ctx.actions = {}
+    lua_newtable(impl_->L);
+    lua_setfield(impl_->L, -2, "actions");
+
     // params table (reused): ctx.params = {}
     lua_newtable(impl_->L); // params
     impl_->params_ref = luaL_ref(impl_->L, LUA_REGISTRYINDEX); // pops params
@@ -1291,6 +1311,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     impl_->params.clear();
     impl_->param_values.clear();
     impl_->param_defaults.clear();
+    impl_->prev_actions.clear();
     error.clear();
     return true;
 }
@@ -1617,6 +1638,45 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pushboolean(L, frame_ctx.mod_super ? 1 : 0);  lua_setfield(L, -2, "super");
     }
     lua_pop(L, 1); // mods
+
+    // hotkeys table
+    lua_getfield(L, -1, "hotkeys");
+    if (lua_istable(L, -1))
+    {
+        lua_pushboolean(L, frame_ctx.hotkeys.copy ? 1 : 0);            lua_setfield(L, -2, "copy");
+        lua_pushboolean(L, frame_ctx.hotkeys.cut ? 1 : 0);             lua_setfield(L, -2, "cut");
+        lua_pushboolean(L, frame_ctx.hotkeys.paste ? 1 : 0);           lua_setfield(L, -2, "paste");
+        lua_pushboolean(L, frame_ctx.hotkeys.selectAll ? 1 : 0);       lua_setfield(L, -2, "selectAll");
+        lua_pushboolean(L, frame_ctx.hotkeys.cancel ? 1 : 0);          lua_setfield(L, -2, "cancel");
+        lua_pushboolean(L, frame_ctx.hotkeys.deleteSelection ? 1 : 0); lua_setfield(L, -2, "deleteSelection");
+    }
+    lua_pop(L, 1); // hotkeys
+
+    // actions table: clear keys set last frame, then set currently-pressed actions to true.
+    lua_getfield(L, -1, "actions");
+    if (lua_istable(L, -1))
+    {
+        // Clear previous pressed keys.
+        for (const std::string& k : impl_->prev_actions)
+        {
+            lua_pushlstring(L, k.data(), k.size());
+            lua_pushnil(L);
+            lua_settable(L, -3);
+        }
+        impl_->prev_actions.clear();
+
+        if (frame_ctx.actions_pressed)
+        {
+            for (const std::string& id : *frame_ctx.actions_pressed)
+            {
+                lua_pushlstring(L, id.data(), id.size());
+                lua_pushboolean(L, 1);
+                lua_settable(L, -3);
+                impl_->prev_actions.push_back(id);
+            }
+        }
+    }
+    lua_pop(L, 1); // actions
 
     // typed codepoints -> ctx.typed = { "a", "中", ... }
     lua_newtable(L);

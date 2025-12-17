@@ -1,6 +1,7 @@
 #include "ui/character_palette.h"
 
 #include "imgui.h"
+#include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -30,7 +31,10 @@ static std::string TrimCopy(const std::string& s)
 
 } // namespace
 
-CharacterPalette::CharacterPalette() = default;
+CharacterPalette::CharacterPalette()
+{
+    file_path_ = PhosphorAssetPath("palettes.json");
+}
 CharacterPalette::~CharacterPalette() = default;
 
 uint32_t CharacterPalette::DecodeFirstCodePointUtf8(const std::string& s)

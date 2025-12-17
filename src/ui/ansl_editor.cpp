@@ -1,6 +1,7 @@
 #include "ui/ansl_editor.h"
 
 #include "imgui.h"
+#include "core/paths.h"
 #include "core/canvas.h"
 #include "core/xterm256_palette.h"
 #include "ui/ansl_params_ui.h"
@@ -109,6 +110,8 @@ AnslEditor::AnslEditor()
 {
     // Provide a tiny bit of initial capacity so typing doesn't immediately resize every frame.
     text_.reserve(1024);
+
+    examples_dir_ = PhosphorAssetPath("ansl-examples");
 
     // Helpful starter template.
     if (text_.empty())
