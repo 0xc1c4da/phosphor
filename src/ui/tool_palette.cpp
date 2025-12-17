@@ -248,13 +248,6 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     if (session)
         CaptureImGuiWindowPlacement(*session, title);
 
-    if (ImGui::Button("Refresh"))
-    {
-        reload_requested_ = true;
-        changed_this_frame = true;
-    }
-    ImGui::Separator();
-
     if (tools_.empty())
     {
         ImGui::TextUnformatted("No tools loaded.");
@@ -263,11 +256,50 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     }
 
     // Icon-only buttons in a grid.
-    const float btn_sz = ImGui::GetFrameHeight() * 2.0f;
-    const float avail = ImGui::GetContentRegionAvail().x;
-    int cols = 1;
-    if (avail > btn_sz)
-        cols = std::max(1, (int)std::floor(avail / (btn_sz + ImGui::GetStyle().ItemSpacing.x)));
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const int count = (int)tools_.size();
+
+    // Fit-to-window sizing (similar to the colour palette adaptive grid):
+    // choose cols that maximize square button size while fitting in width/height.
+    int best_cols = 1;
+    float best_size = 0.0f;
+    if (count > 0 && avail.x > 1.0f)
+    {
+        for (int cols = 1; cols <= count; ++cols)
+        {
+            const float total_spacing_x = style.ItemSpacing.x * (cols - 1);
+            const float width_limit = (avail.x - total_spacing_x) / (float)cols;
+            if (width_limit <= 1.0f)
+                break;
+
+            const int rows = (count + cols - 1) / cols;
+            float button_size = width_limit;
+            if (avail.y > 1.0f)
+            {
+                const float total_spacing_y = style.ItemSpacing.y * (rows - 1);
+                const float height_limit = (avail.y - total_spacing_y) / (float)rows;
+                if (height_limit <= 1.0f)
+                    continue;
+                button_size = std::min(width_limit, height_limit);
+            }
+
+            if (button_size > best_size)
+            {
+                best_size = button_size;
+                best_cols = cols;
+            }
+        }
+    }
+
+    if (best_size <= 0.0f)
+    {
+        best_cols = 1;
+        best_size = style.FramePadding.y * 2.0f + 8.0f; // minimal fallback
+    }
+
+    const int cols = best_cols;
+    const ImVec2 button_size(best_size, best_size);
 
     for (int i = 0; i < (int)tools_.size(); ++i)
     {
@@ -280,7 +312,7 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 
         const std::string& icon = tools_[(size_t)i].icon;
-        if (ImGui::Button(icon.empty() ? "?" : icon.c_str(), ImVec2(btn_sz, btn_sz)))
+        if (ImGui::Button(icon.empty() ? "?" : icon.c_str(), button_size))
         {
             if (active_index_ != i)
             {

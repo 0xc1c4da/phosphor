@@ -61,6 +61,9 @@ struct SessionState
     bool show_preview_window = true;
     bool show_settings_window = false;
 
+    // Per-tool UI state
+    bool character_palette_settings_open = true;
+
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;
 

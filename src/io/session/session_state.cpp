@@ -74,6 +74,7 @@ static json ToJson(const SessionState& st)
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
     ui["show_preview_window"] = st.show_preview_window;
     ui["show_settings_window"] = st.show_settings_window;
+    ui["character_palette_settings_open"] = st.character_palette_settings_open;
     j["ui"] = std::move(ui);
 
     json ws;
@@ -173,6 +174,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_preview_window = ui["show_preview_window"].get<bool>();
         if (ui.contains("show_settings_window") && ui["show_settings_window"].is_boolean())
             out.show_settings_window = ui["show_settings_window"].get<bool>();
+        if (ui.contains("character_palette_settings_open") && ui["character_palette_settings_open"].is_boolean())
+            out.character_palette_settings_open = ui["character_palette_settings_open"].get<bool>();
     }
 
     if (j.contains("workspace") && j["workspace"].is_object())

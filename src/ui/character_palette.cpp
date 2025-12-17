@@ -328,16 +328,12 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     if (cp == 0)
         return;
 
-    if (!picker_replaces_selected_cell_)
-    {
-        if (auto idx = FindGlyphIndexByFirstCp(cp))
-        {
-            selected_cell_ = *idx;
-            return;
-        }
-    }
-
-    ReplaceSelectedCellWith(cp);
+    // Default: do NOT mutate the palette. Only select an existing matching glyph.
+    // Optional: if enabled, picker selection replaces the currently selected cell.
+    if (picker_replaces_selected_cell_)
+        ReplaceSelectedCellWith(cp);
+    else if (auto idx = FindGlyphIndexByFirstCp(cp))
+        selected_cell_ = *idx;
 }
 
 bool CharacterPalette::TakeUserSelectionChanged(uint32_t& out_cp)
@@ -354,6 +350,13 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
                               SessionState* session, bool apply_placement_this_frame)
 {
     EnsureLoaded();
+
+    // Initialize the collapsible settings state from persisted session once.
+    if (session && !settings_open_init_from_session_)
+    {
+        settings_open_ = session->character_palette_settings_open;
+        settings_open_init_from_session_ = true;
+    }
 
     if (session)
         ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);
@@ -388,21 +391,22 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
             last_error_.clear();
     }
 
-    RenderTopBar();
-    ImGui::Separator();
+    // Collapsible settings panel (keeps the window mostly “just the grid”).
+    ImGui::SetNextItemOpen(settings_open_, ImGuiCond_Once);
+    const bool open = ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_None);
+    settings_open_ = open;
+    if (session)
+        session->character_palette_settings_open = settings_open_;
+    if (open)
+    {
+        RenderTopBar();
+        ImGui::Separator();
+    }
 
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float editor_w = 340.0f;
-    const float grid_w = std::max(200.0f, avail.x - editor_w - ImGui::GetStyle().ItemSpacing.x);
-
-    ImGui::BeginChild("##pal_grid", ImVec2(grid_w, 0.0f), true);
+    // Single full-width grid (no side editor panel).
+    // Scrollbar appears only if needed (e.g. very large palettes with min cell size).
+    ImGui::BeginChild("##pal_grid", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_None);
     RenderGrid();
-    ImGui::EndChild();
-
-    ImGui::SameLine();
-
-    ImGui::BeginChild("##pal_editor", ImVec2(0.0f, 0.0f), true);
-    RenderEditorPanel();
     ImGui::EndChild();
 
     ImGui::End();
@@ -425,6 +429,13 @@ void CharacterPalette::RenderTopBar()
     ImGui::SameLine();
     if (ImGui::Button("Save"))
         request_save_ = true;
+
+    ImGui::Separator();
+
+    // Picker integration (side panel removed, keep a single toggle here).
+    ImGui::TextUnformatted("Picker");
+    ImGui::SameLine();
+    ImGui::Checkbox("Picker edits palette (replace selected cell)", &picker_replaces_selected_cell_);
 
     ImGui::Separator();
 
@@ -551,156 +562,126 @@ void CharacterPalette::RenderGrid()
     if (glyphs.empty())
         return;
 
-    constexpr int kCols = 16;
-    const float cell_w = 26.0f;
-    const float rowhdr_w = 56.0f;
-
-    const int total_cols = 1 + kCols;
-    ImGuiTableFlags flags =
-        ImGuiTableFlags_BordersInner | ImGuiTableFlags_BordersOuter |
-        ImGuiTableFlags_SizingFixedFit |
-        ImGuiTableFlags_RowBg |
-        ImGuiTableFlags_ScrollY;
-
-    ImVec2 outer_size(0.0f, std::max(1.0f, ImGui::GetContentRegionAvail().y));
-    if (!ImGui::BeginTable("##palette_table", total_cols, flags, outer_size))
-        return;
-
-    ImGui::TableSetupColumn("Idx", ImGuiTableColumnFlags_WidthFixed, rowhdr_w);
-    for (int c = 0; c < kCols; ++c)
-    {
-        char hdr[8];
-        std::snprintf(hdr, sizeof(hdr), "%X", c);
-        ImGui::TableSetupColumn(hdr, ImGuiTableColumnFlags_WidthFixed, cell_w);
-    }
-    ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableHeadersRow();
-
+    // Tight grid with scalable glyph rendering (no IDX column, no header row).
     const int total_items = (int)glyphs.size();
-    const int row_count = (total_items + (kCols - 1)) / kCols;
+    selected_cell_ = std::clamp(selected_cell_, 0, std::max(0, total_items - 1));
 
-    ImGuiListClipper clipper;
-    clipper.Begin(row_count);
-    while (clipper.Step())
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    // Fit-to-window sizing (similar to the adaptive grid logic used by the colour palette):
+    // Choose the column count that maximizes cell size while fitting in available width/height.
+    int best_cols = 1;
+    float best_cell = 0.0f;
+    if (total_items > 0 && avail.x > 1.0f)
     {
-        for (int r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r)
+        const int max_cols_to_try = std::min(total_items, 256);
+        for (int cols = 1; cols <= max_cols_to_try; ++cols)
         {
-            ImGui::TableNextRow();
+            const float width_limit = avail.x / (float)cols;
+            if (width_limit <= 1.0f)
+                break;
+            const int rows = (total_items + cols - 1) / cols;
 
-            ImGui::TableSetColumnIndex(0);
-            char idxbuf[16];
-            std::snprintf(idxbuf, sizeof(idxbuf), "%04X", r * kCols);
-            ImGui::TextUnformatted(idxbuf);
-
-            for (int c = 0; c < kCols; ++c)
+            float cell = width_limit;
+            if (avail.y > 1.0f)
             {
-                ImGui::TableSetColumnIndex(1 + c);
-                const int idx = r * kCols + c;
-                if (idx >= total_items)
-                {
-                    ImGui::TextUnformatted("");
+                const float height_limit = avail.y / (float)rows;
+                if (height_limit <= 1.0f)
                     continue;
-                }
+                cell = std::min(width_limit, height_limit);
+            }
 
-                const bool is_sel = (idx == selected_cell_);
-                const std::string& glyph = glyphs[(size_t)idx].utf8;
-                const char* label = glyph.empty() ? " " : glyph.c_str();
-
-                ImGui::PushID(idx);
-                ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
-                if (ImGui::Selectable(label, is_sel, ImGuiSelectableFlags_None, ImVec2(cell_w, cell_w)))
-                {
-                    selected_cell_ = idx;
-                    const uint32_t cp = glyphs[(size_t)idx].first_cp;
-                    if (cp != 0)
-                    {
-                        user_selection_changed_ = true;
-                        user_selected_cp_ = cp;
-                    }
-                }
-                ImGui::PopStyleVar();
-
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary))
-                {
-                    const uint32_t cp = glyphs[(size_t)idx].first_cp;
-                    ImGui::BeginTooltip();
-                    if (cp != 0)
-                        ImGui::Text("%s", CodePointHex(cp).c_str());
-                    ImGui::TextUnformatted(glyph.empty() ? "(empty)" : glyph.c_str());
-                    ImGui::EndTooltip();
-                }
-
-                ImGui::PopID();
+            if (cell > best_cell)
+            {
+                best_cell = cell;
+                best_cols = cols;
             }
         }
     }
 
-    ImGui::EndTable();
-}
-
-void CharacterPalette::RenderEditorPanel()
-{
-    EnsureNonEmpty();
-    const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
-    auto& glyphs = palettes_[pi].glyphs;
-    if (glyphs.empty())
-        return;
-
-    selected_cell_ = std::clamp(selected_cell_, 0, (int)glyphs.size() - 1);
-    Glyph& g = glyphs[(size_t)selected_cell_];
-
-    ImGui::TextUnformatted("Selected Cell");
-    ImGui::Separator();
-
-    ImGui::Text("Index: %d", selected_cell_);
-    if (g.first_cp != 0)
-        ImGui::Text("%s", CodePointHex(g.first_cp).c_str());
-    else
-        ImGui::TextDisabled("Invalid codepoint");
-
-    ImGui::Separator();
-
-    ImGui::TextUnformatted("Glyph (UTF-8)");
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::InputText("##glyph_utf8", &g.utf8))
-        g.first_cp = DecodeFirstCodePointUtf8(g.utf8);
-
-    if (ImGui::Button("Copy Glyph") && !g.utf8.empty())
-        ImGui::SetClipboardText(g.utf8.c_str());
-    ImGui::SameLine();
-    if (ImGui::Button("Copy U+XXXX") && g.first_cp != 0)
+    // If "perfect fit" makes cells too tiny, prefer a reasonable minimum size and allow scrolling.
+    constexpr float kMinCell = 14.0f;
+    constexpr float kMaxCell = 256.0f;
+    int cols = best_cols;
+    float cell = std::clamp(best_cell, 1.0f, kMaxCell);
+    if (cell < kMinCell)
     {
-        const std::string hex = CodePointHex(g.first_cp);
-        ImGui::SetClipboardText(hex.c_str());
+        cell = kMinCell;
+        cols = (avail.x > cell) ? std::max(1, (int)std::floor(avail.x / cell)) : 1;
     }
 
-    ImGui::Separator();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImFont* font = ImGui::GetFont();
 
-    ImGui::TextUnformatted("Picker Integration");
-    ImGui::Checkbox("Picker selection replaces selected cell", &picker_replaces_selected_cell_);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
 
-    ImGui::Separator();
+    const ImU32 col_text = ImGui::GetColorU32(ImGuiCol_Text);
+    const ImU32 col_sel_bg = ImGui::GetColorU32(ImGuiCol_Header);
+    const ImU32 col_hover_bg = ImGui::GetColorU32(ImGuiCol_HeaderHovered);
 
-    ImGui::TextUnformatted("Palette Editing");
-
-    if (ImGui::Button("Insert Blank After"))
+    for (int idx = 0; idx < total_items; ++idx)
     {
-        Glyph blank{" ", DecodeFirstCodePointUtf8(" ")};
-        glyphs.insert(glyphs.begin() + selected_cell_ + 1, blank);
-        selected_cell_ += 1;
-    }
-    if (ImGui::Button("Delete Cell"))
-    {
-        if (!glyphs.empty())
+        const int c = idx % cols;
+        if (c != 0)
+            ImGui::SameLine(0.0f, 0.0f);
+
+        ImGui::PushID(idx);
+
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 p1(p0.x + cell, p0.y + cell);
+
+        ImGui::InvisibleButton("##cell", ImVec2(cell, cell));
+        const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary);
+        const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+
+        const bool is_sel = (idx == selected_cell_);
+        if (clicked)
         {
-            glyphs.erase(glyphs.begin() + selected_cell_);
-            if (glyphs.empty())
-                glyphs.push_back(Glyph{" ", DecodeFirstCodePointUtf8(" ")});
-            selected_cell_ = std::clamp(selected_cell_, 0, (int)glyphs.size() - 1);
+            selected_cell_ = idx;
+            const uint32_t cp = glyphs[(size_t)idx].first_cp;
+            if (cp != 0)
+            {
+                user_selection_changed_ = true;
+                user_selected_cp_ = cp;
+            }
         }
+
+        if (is_sel)
+            dl->AddRectFilled(p0, p1, col_sel_bg);
+        else if (hovered)
+            dl->AddRectFilled(p0, p1, col_hover_bg);
+
+        const std::string& glyph = glyphs[(size_t)idx].utf8;
+        const char* text = glyph.empty() ? " " : glyph.c_str();
+
+        // Scale glyph drawing with cell size (no window-wide font scaling).
+        float font_px = cell * 0.85f;
+        if (font_px < 6.0f) font_px = 6.0f;
+        ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, text, nullptr);
+        const float max_dim = cell * 0.92f;
+        if (ts.x > max_dim && ts.x > 0.0f) font_px *= (max_dim / ts.x);
+        if (ts.y > max_dim && ts.y > 0.0f) font_px *= (max_dim / ts.y);
+        ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, text, nullptr);
+
+        const ImVec2 tp(p0.x + (cell - ts.x) * 0.5f,
+                        p0.y + (cell - ts.y) * 0.5f);
+        dl->AddText(font, font_px, tp, col_text, text, nullptr);
+
+        if (hovered)
+        {
+            const uint32_t cp = glyphs[(size_t)idx].first_cp;
+            ImGui::BeginTooltip();
+            if (cp != 0)
+                ImGui::Text("%s", CodePointHex(cp).c_str());
+            ImGui::TextUnformatted(glyph.empty() ? "(empty)" : glyph.c_str());
+            ImGui::EndTooltip();
+        }
+
+        ImGui::PopID();
     }
 
-    ImGui::TextDisabled("Tip: select a character in the Unicode picker to replace this cell.");
+    ImGui::PopStyleVar(2);
 }
 
 

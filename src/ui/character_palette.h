@@ -52,8 +52,8 @@ public:
     uint32_t SelectedCodePoint() const;
 
     // Called by app when the Unicode picker selection changes.
-    // By default this will replace the currently selected cell (if enabled in UI),
-    // or select an existing matching glyph.
+    // If "picker edits palette" mode is enabled, this will replace the currently selected cell.
+    // Otherwise, it will only select an existing matching glyph (no palette mutation).
     void OnPickerSelectedCodePoint(uint32_t cp);
 
     // Returns true if the user clicked a glyph in the palette grid this frame.
@@ -72,13 +72,16 @@ private:
 
     void RenderTopBar();
     void RenderGrid();
-    void RenderEditorPanel();
 
 private:
     // File state
     bool        loaded_ = false;
     std::string file_path_ = "assets/palettes.json";
     std::string last_error_;
+
+    // UI
+    bool settings_open_ = true;
+    bool settings_open_init_from_session_ = false;
 
     // Palettes
     std::vector<Palette> palettes_;
@@ -88,7 +91,7 @@ private:
     int selected_cell_ = 0;
 
     // Picker integration behavior
-    bool picker_replaces_selected_cell_ = true;
+    bool picker_replaces_selected_cell_ = false;
 
     // Transient UI state
     bool request_save_ = false;
