@@ -1,11 +1,8 @@
-## Simple SDL3 + Dear ImGui + Vulkan boilerplate build
-## Uses the local ImGui sources under ./references/imgui
-
 .DEFAULT_GOAL := all
 
 CXX       ?= g++
 EXE       = phosphor
-IMGUI_DIR = references/imgui
+IMGUI_DIR = vendor/imgui
 BUILD_DIR = build
 
 SOURCES  = main.cpp \

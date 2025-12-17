@@ -23,7 +23,6 @@
           vulkan-headers
           vulkan-loader
           shaderc
-          imgui
           nlohmann_json
           chafa
           stb
