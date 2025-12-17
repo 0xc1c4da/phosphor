@@ -21,6 +21,15 @@ struct ImGuiWindowPlacement
 
 struct SessionState
 {
+    struct ImGuiWindowChromeState
+    {
+        // 0..1 multiplier for ImGuiStyleVar_Alpha for this window.
+        float opacity = 1.0f;
+
+        // 0 = normal, 1 = pinned to front (always on top), 2 = pinned to back (always behind).
+        int z_order = 0;
+    };
+
     struct XtermColorPickerState
     {
         // Normalized RGBA, ImGui-style.
@@ -77,6 +86,7 @@ struct SessionState
     bool show_color_picker_window = true;
     bool show_character_picker_window = true;
     bool show_character_palette_window = true;
+    bool show_character_sets_window = true;
     bool show_layer_manager_window = true;
     bool show_ansl_editor_window = true;
     bool show_tool_palette_window = true;
@@ -93,6 +103,9 @@ struct SessionState
     // ImGui window placements (keyed by the window name passed to ImGui::Begin()).
     // This replaces reliance on imgui.ini so we can guarantee restore behavior.
     std::unordered_map<std::string, ImGuiWindowPlacement> imgui_windows;
+
+    // Per-ImGui-window "chrome" settings (opacity, z-order pinning).
+    std::unordered_map<std::string, ImGuiWindowChromeState> imgui_window_chrome;
 
     // Workspace content
     std::string active_tool_path;

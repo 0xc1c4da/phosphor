@@ -4,6 +4,7 @@
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/imgui_window_chrome.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,15 +24,25 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     if (session)
         ApplyImGuiWindowPlacement(*session, win_name, apply_placement_this_frame);
 
-    if (!ImGui::Begin(win_name, p_open))
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_None |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, win_name) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, win_name);
+    if (!ImGui::Begin(win_name, p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, win_name);
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return true;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, win_name);
+    if (session)
+    {
+        ApplyImGuiWindowChromeZOrder(session, win_name);
+        RenderImGuiWindowChromeMenu(session, win_name);
+    }
 
     const AnsiCanvas::ViewState vs = canvas ? canvas->GetLastViewState() : AnsiCanvas::ViewState{};
 
@@ -58,6 +69,7 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     if (!canvas || !vs.valid || vs.columns <= 0 || vs.rows <= 0 || vs.canvas_w <= 0.0f || vs.canvas_h <= 0.0f)
     {
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return true;
     }
 
@@ -67,6 +79,7 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     if (inner1.x <= inner0.x || inner1.y <= inner0.y)
     {
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return true;
     }
 
@@ -229,6 +242,7 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     }
 
     ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
     return true;
 }
 

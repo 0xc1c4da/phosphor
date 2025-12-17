@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <nlohmann/json.hpp>
@@ -398,15 +399,25 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
     if (session)
         ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
 
-    if (!ImGui::Begin(title, &open_, ImGuiWindowFlags_None))
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_None |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
+    if (!ImGui::Begin(title, &open_, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, title);
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, title);
+    if (session)
+    {
+        ApplyImGuiWindowChromeZOrder(session, title);
+        RenderImGuiWindowChromeMenu(session, title);
+    }
 
     if (ImGui::BeginTabBar("##settings_tabs"))
     {
@@ -428,6 +439,7 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
     }
 
     ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
 }
 
 void SettingsWindow::RenderTab_KeyBindings()

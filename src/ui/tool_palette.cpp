@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/imgui_window_chrome.h"
 
 extern "C"
 {
@@ -235,7 +236,11 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     bool changed_this_frame = false;
     if (session)
         ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
-    if (!ImGui::Begin(title, p_open, ImGuiWindowFlags_None))
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_None |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
+    if (!ImGui::Begin(title, p_open, flags))
     {
         if (session)
         {
@@ -243,15 +248,22 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
             CaptureImGuiWindowPlacement(*session, title);
         }
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return false;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, title);
+    if (session)
+    {
+        ApplyImGuiWindowChromeZOrder(session, title);
+        RenderImGuiWindowChromeMenu(session, title);
+    }
 
     if (tools_.empty())
     {
         ImGui::TextUnformatted("No tools loaded.");
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return changed_this_frame;
     }
 
@@ -335,6 +347,7 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     }
 
     ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
     return changed_this_frame;
 }
 

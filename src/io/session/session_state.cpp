@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -54,7 +55,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 3;
+    j["schema_version"] = 4;
 
     json win;
     win["w"] = st.window_w;
@@ -69,6 +70,7 @@ static json ToJson(const SessionState& st)
     ui["show_color_picker_window"] = st.show_color_picker_window;
     ui["show_character_picker_window"] = st.show_character_picker_window;
     ui["show_character_palette_window"] = st.show_character_palette_window;
+    ui["show_character_sets_window"] = st.show_character_sets_window;
     ui["show_layer_manager_window"] = st.show_layer_manager_window;
     ui["show_ansl_editor_window"] = st.show_ansl_editor_window;
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
@@ -152,6 +154,27 @@ static json ToJson(const SessionState& st)
     }
     j["imgui_windows"] = std::move(wins);
 
+    // ImGui window chrome (opacity + z-order pinning)
+    json chrome = json::object();
+    for (const auto& kv : st.imgui_window_chrome)
+    {
+        const std::string& name = kv.first;
+        const SessionState::ImGuiWindowChromeState& c = kv.second;
+
+        const float opacity = std::clamp(c.opacity, 0.05f, 1.0f);
+        const int z = (c.z_order < 0) ? 0 : (c.z_order > 2) ? 2 : c.z_order;
+
+        // Don't persist defaults.
+        if (opacity == 1.0f && z == 0)
+            continue;
+
+        json jc;
+        jc["opacity"] = opacity;
+        jc["z_order"] = z;
+        chrome[name] = std::move(jc);
+    }
+    j["imgui_window_chrome"] = std::move(chrome);
+
     return j;
 }
 
@@ -178,6 +201,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_character_picker_window = ui["show_character_picker_window"].get<bool>();
         if (ui.contains("show_character_palette_window") && ui["show_character_palette_window"].is_boolean())
             out.show_character_palette_window = ui["show_character_palette_window"].get<bool>();
+        if (ui.contains("show_character_sets_window") && ui["show_character_sets_window"].is_boolean())
+            out.show_character_sets_window = ui["show_character_sets_window"].get<bool>();
         if (ui.contains("show_layer_manager_window") && ui["show_layer_manager_window"].is_boolean())
             out.show_layer_manager_window = ui["show_layer_manager_window"].get<bool>();
         if (ui.contains("show_ansl_editor_window") && ui["show_ansl_editor_window"].is_boolean())
@@ -302,6 +327,28 @@ static void FromJson(const json& j, SessionState& out)
                 out.imgui_windows[it.key()] = p;
         }
     }
+
+    // ImGui window chrome (opacity + z-order pinning)
+    if (j.contains("imgui_window_chrome") && j["imgui_window_chrome"].is_object())
+    {
+        const json& chrome = j["imgui_window_chrome"];
+        for (auto it = chrome.begin(); it != chrome.end(); ++it)
+        {
+            if (!it.value().is_object())
+                continue;
+
+            SessionState::ImGuiWindowChromeState c;
+            const json& jc = it.value();
+            if (jc.contains("opacity") && jc["opacity"].is_number())
+                c.opacity = std::clamp(jc["opacity"].get<float>(), 0.05f, 1.0f);
+            if (jc.contains("z_order") && jc["z_order"].is_number_integer())
+                c.z_order = std::clamp(jc["z_order"].get<int>(), 0, 2);
+
+            // Only store non-defaults to keep the map small.
+            if (c.opacity != 1.0f || c.z_order != 0)
+                out.imgui_window_chrome[it.key()] = c;
+        }
+    }
 }
 
 bool LoadSessionState(SessionState& out, std::string& err)
@@ -328,7 +375,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

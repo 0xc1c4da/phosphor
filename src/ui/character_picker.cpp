@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <unicode/uchar.h>
@@ -737,21 +738,32 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
 
     if (session)
         ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);
-    if (!ImGui::Begin(window_title, p_open, ImGuiWindowFlags_NoSavedSettings))
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoSavedSettings |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
+    if (!ImGui::Begin(window_title, p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, window_title);
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return (p_open == nullptr) ? true : *p_open;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, window_title);
+    if (session)
+    {
+        ApplyImGuiWindowChromeZOrder(session, window_title);
+        RenderImGuiWindowChromeMenu(session, window_title);
+    }
 
     RenderTopBar();
     ImGui::Separator();
     RenderGridAndSidePanel();
 
     ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
     return (p_open == nullptr) ? true : *p_open;
 }
 

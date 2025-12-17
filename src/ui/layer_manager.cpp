@@ -3,6 +3,7 @@
 #include "core/canvas.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/imgui_window_chrome.h"
 
 #include <cstdio>
 #include <string>
@@ -18,20 +19,31 @@ void LayerManager::Render(const char* title,
 
     if (session)
         ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
-    if (!ImGui::Begin(title, p_open, ImGuiWindowFlags_None))
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_None |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
+    if (!ImGui::Begin(title, p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, title);
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, title);
+    if (session)
+    {
+        ApplyImGuiWindowChromeZOrder(session, title);
+        RenderImGuiWindowChromeMenu(session, title);
+    }
 
     if (canvases.empty())
     {
         ImGui::TextUnformatted("No canvases open.");
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
 
@@ -76,6 +88,7 @@ void LayerManager::Render(const char* title,
     {
         ImGui::TextUnformatted("Selected canvas is null.");
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
 
@@ -86,6 +99,7 @@ void LayerManager::Render(const char* title,
     {
         ImGui::TextUnformatted("Canvas has no layers (unexpected).");
         ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
 
@@ -214,6 +228,7 @@ void LayerManager::Render(const char* title,
         canvas->RemoveLayer(canvas->GetActiveLayerIndex());
 
     ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
 }
 
 
