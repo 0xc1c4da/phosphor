@@ -19,9 +19,6 @@
 #include <unordered_set>
 #include <nlohmann/json.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>  // Image loading (PNG/JPG/GIF/BMP/...)
-
 #include "ui/colour_picker.h"
 #include "ui/colour_palette.h"
 #include "core/canvas.h"
@@ -35,6 +32,7 @@
 #include "ui/ansl_params_ui.h"
 #include "core/xterm256_palette.h"
 #include "io/io_manager.h"
+#include "io/image_loader.h"
 #include "ui/image_to_chafa_dialog.h"
 #include "ui/preview_window.h"
 #include "ui/settings.h"
@@ -412,46 +410,6 @@ struct ImageWindow
     std::vector<unsigned char> pixels; // 4 bytes per pixel: R, G, B, A
 };
 
-// Load an image from disk into a RGBA8 buffer using stb_image:
-//   - supports common formats (PNG, JPG, BMP, GIF, etc.)
-//   - keeps design independent of Vulkan textures so we can later:
-//       * feed the RGBA buffer into chafa for ANSI conversion
-//       * optionally add a Vulkan texture path without changing higher-level UI code.
-static bool LoadImageAsRgba32(const std::string& path,
-                              int& out_width,
-                              int& out_height,
-                              std::vector<unsigned char>& out_pixels)
-{
-    int w = 0;
-    int h = 0;
-    int channels_in_file = 0;
-
-    // Force 4 channels so we always get RGBA8.
-    unsigned char* data = stbi_load(path.c_str(), &w, &h, &channels_in_file, 4);
-    if (!data)
-    {
-        std::fprintf(stderr, "Import Image: failed to load '%s': %s\n",
-                     path.c_str(), stbi_failure_reason());
-        return false;
-    }
-
-    if (w <= 0 || h <= 0)
-    {
-        stbi_image_free(data);
-        return false;
-    }
-
-    out_width  = w;
-    out_height = h;
-
-    const size_t pixel_bytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
-    out_pixels.resize(pixel_bytes);
-    std::memcpy(out_pixels.data(), data, pixel_bytes);
-
-    stbi_image_free(data);
-    return true;
-}
-
 // Render an ImageWindow's pixels scaled to fit the current ImGui window content region.
 // We deliberately keep this renderer agnostic of Vulkan textures by drawing a coarse
 // grid of colored rectangles that approximates the image. This is sufficient for a
@@ -794,19 +752,15 @@ int main(int, char**)
     // SDL native file dialogs (async -> polled queue).
     SdlFileDialogQueue file_dialogs;
 
-    // Import Image result state (native dialog)
-    std::string import_image_error;
-    std::string last_import_image_dir;
-    if (!session_state.last_import_image_dir.empty())
-        last_import_image_dir = session_state.last_import_image_dir;
-    else
-    {
-        try { last_import_image_dir = fs::current_path().string(); }
-        catch (...) { last_import_image_dir = "."; }
-    }
-
     // File IO (projects, import/export)
     IoManager io_manager;
+    if (!session_state.last_import_image_dir.empty())
+        io_manager.SetLastDir(session_state.last_import_image_dir);
+    else
+    {
+        try { io_manager.SetLastDir(fs::current_path().string()); }
+        catch (...) { io_manager.SetLastDir("."); }
+    }
 
     // Restore workspace content (open canvases + images).
     if (session_state.next_canvas_id > 0)
@@ -856,7 +810,8 @@ int main(int, char**)
         {
             int iw = 0, ih = 0;
             std::vector<unsigned char> rgba;
-            if (LoadImageAsRgba32(img.path, iw, ih, rgba))
+            std::string ierr;
+            if (image_loader::LoadImageAsRgba32(img.path, iw, ih, rgba, ierr))
             {
                 img.width = iw;
                 img.height = ih;
@@ -999,17 +954,18 @@ int main(int, char**)
                         canvases.push_back(std::move(canvas_window));
                         last_active_canvas_id = canvas_window.id;
                     };
-                    io_manager.RenderFileMenu(window, file_dialogs, active_canvas, cbs);
-                }
-
-                if (ImGui::MenuItem("Import Image..."))
-                {
-                    import_image_error.clear();
-                    std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
-                        {"All files", "*"},
+                    cbs.create_image = [&](IoManager::Callbacks::LoadedImage&& li)
+                    {
+                        ImageWindow img;
+                        img.id = next_image_id++;
+                        img.path = std::move(li.path);
+                        img.width = li.width;
+                        img.height = li.height;
+                        img.pixels = std::move(li.pixels);
+                        img.open = true;
+                        images.push_back(std::move(img));
                     };
-                    file_dialogs.ShowOpenFileDialog(kDialog_ImportImage, window, filters, last_import_image_dir, false);
+                    io_manager.RenderFileMenu(window, file_dialogs, active_canvas, cbs);
                 }
 
                 if (ImGui::MenuItem("Quit"))
@@ -1067,53 +1023,22 @@ int main(int, char**)
                 canvases.push_back(std::move(canvas_window));
                 last_active_canvas_id = canvas_window.id;
             };
+            cbs.create_image = [&](IoManager::Callbacks::LoadedImage&& li)
+            {
+                ImageWindow img;
+                img.id = next_image_id++;
+                img.path = std::move(li.path);
+                img.width = li.width;
+                img.height = li.height;
+                img.pixels = std::move(li.pixels);
+                img.open = true;
+                images.push_back(std::move(img));
+            };
 
             SdlFileDialogResult r;
             while (file_dialogs.Poll(r))
             {
-                if (r.tag == kDialog_ImportImage)
-                {
-                    if (!r.error.empty())
-                    {
-                        import_image_error = r.error;
-                        continue;
-                    }
-                    if (r.canceled || r.paths.empty())
-                        continue;
-
-                    const std::string path = r.paths[0];
-                    int iw = 0, ih = 0;
-                    std::vector<unsigned char> rgba;
-                    if (!LoadImageAsRgba32(path, iw, ih, rgba))
-                    {
-                        import_image_error = "Failed to load image.";
-                        continue;
-                    }
-
-                    ImageWindow img;
-                    img.id = next_image_id++;
-                    img.path = path;
-                    img.width = iw;
-                    img.height = ih;
-                    img.pixels = std::move(rgba);
-                    img.open = true;
-                    images.push_back(std::move(img));
-
-                    if (path.find("://") == std::string::npos)
-                    {
-                        try
-                        {
-                            fs::path p(path);
-                            if (p.has_parent_path())
-                                last_import_image_dir = p.parent_path().string();
-                        }
-                        catch (...) {}
-                    }
-                }
-                else
-                {
-                    io_manager.HandleDialogResult(r, active_canvas, cbs);
-                }
+                io_manager.HandleDialogResult(r, active_canvas, cbs);
             }
         }
 
@@ -1137,17 +1062,6 @@ int main(int, char**)
                 if (ImGui::IsKeyPressed(ImGuiKey_Y, false))
                     focused_canvas->Redo();
             }
-        }
-
-        // Import Image error reporting (native dialog).
-        if (!import_image_error.empty())
-        {
-            const char* wname = "Import Image Error";
-            ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
-            ImGui::Begin(wname, nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-            CaptureImGuiWindowPlacement(session_state, wname);
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", import_image_error.c_str());
-            ImGui::End();
         }
 
         // Optional: keep the ImGui demo available for reference
@@ -1789,7 +1703,7 @@ int main(int, char**)
             st.xterm_color_picker.picker_preview_fb = xterm_picker_preview_fb;
             st.xterm_color_picker.last_hue = xterm_picker_last_hue;
 
-            st.last_import_image_dir = last_import_image_dir;
+            st.last_import_image_dir = io_manager.GetLastDir();
 
             // Active tool
             if (const ToolSpec* t = tool_palette.GetActiveTool())

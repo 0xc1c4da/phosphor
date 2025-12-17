@@ -25,6 +25,7 @@ SOURCES  = \
            src/ui/tool_palette.cpp \
            src/io/ansi_importer.cpp \
            src/io/binary_codec.cpp \
+           src/io/image_loader.cpp \
            src/io/io_manager.cpp \
            src/io/sdl_file_dialog_queue.cpp \
            src/io/session/imgui_persistence.cpp \

@@ -2,6 +2,7 @@
 
 #include "io/ansi_importer.h"
 #include "io/file_dialog_tags.h"
+#include "io/image_loader.h"
 #include "io/sdl_file_dialog_queue.h"
 #include "io/session/project_state_json.h"
 
@@ -328,20 +329,13 @@ void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, 
     {
         m_last_error.clear();
         std::vector<SdlFileDialogQueue::FilterPair> filters = {
+            {"Supported files (*.phos;*.ans;*.asc;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;png;jpg;jpeg;gif;bmp"},
             {"Phosphor Project (*.phos)", "phos"},
-            {"All files", "*"},
-        };
-        dialogs.ShowOpenFileDialog(kDialog_LoadProject, window, filters, m_last_dir, false);
-    }
-
-    if (ImGui::MenuItem("Import..."))
-    {
-        m_last_error.clear();
-        std::vector<SdlFileDialogQueue::FilterPair> filters = {
             {"ANSI / Text (*.ans;*.asc;*.txt)", "ans;asc;txt"},
+            {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
             {"All files", "*"},
         };
-        dialogs.ShowOpenFileDialog(kDialog_ImportAnsi, window, filters, m_last_dir, false);
+        dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, false);
     }
 
     if (ImGui::MenuItem("Export..."))
@@ -363,8 +357,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
 {
     // Ignore dialogs not owned by IoManager.
     if (r.tag != kDialog_SaveProject &&
-        r.tag != kDialog_LoadProject &&
-        r.tag != kDialog_ImportAnsi &&
+        r.tag != kDialog_LoadFile &&
         r.tag != kDialog_ExportAnsi)
         return;
 
@@ -421,43 +414,122 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             m_last_error = err.empty() ? "Save failed." : err;
         }
     }
-    else if (r.tag == kDialog_LoadProject)
+    else if (r.tag == kDialog_LoadFile)
     {
-        if (!cb.create_canvas)
+        auto to_lower = [](std::string s) -> std::string
         {
-            m_last_error = "Internal error: create_canvas callback not set.";
-            return;
-        }
+            for (char& c : s)
+                c = (char)std::tolower((unsigned char)c);
+            return s;
+        };
 
-        AnsiCanvas loaded;
-        if (LoadProjectFromFile(chosen, loaded, err))
+        std::string ext;
+        if (!is_uri(chosen))
         {
-            cb.create_canvas(std::move(loaded));
-            m_last_error.clear();
+            try
+            {
+                fs::path p(chosen);
+                ext = p.extension().string();
+            }
+            catch (...) {}
         }
+        if (!ext.empty() && ext[0] == '.')
+            ext.erase(ext.begin());
+        ext = to_lower(ext);
+
+        auto is_ext = [&](const std::initializer_list<const char*>& exts) -> bool
+        {
+            for (const char* e : exts)
+            {
+                if (ext == e)
+                    return true;
+            }
+            return false;
+        };
+
+        // Fast-path by file extension.
+        const bool looks_project = is_ext({"phos"});
+        const bool looks_ansi = is_ext({"ans", "asc", "txt"});
+        const bool looks_image = is_ext({"png", "jpg", "jpeg", "gif", "bmp"});
+
+        auto try_load_project = [&]() -> bool
+        {
+            if (!cb.create_canvas)
+            {
+                m_last_error = "Internal error: create_canvas callback not set.";
+                return true; // handled (as error)
+            }
+            AnsiCanvas loaded;
+            if (LoadProjectFromFile(chosen, loaded, err))
+            {
+                cb.create_canvas(std::move(loaded));
+                m_last_error.clear();
+                return true;
+            }
+            return false;
+        };
+
+        auto try_import_ansi = [&]() -> bool
+        {
+            if (!cb.create_canvas)
+            {
+                m_last_error = "Internal error: create_canvas callback not set.";
+                return true; // handled (as error)
+            }
+            AnsiCanvas imported;
+            std::string ierr;
+            if (ansi_importer::ImportAnsiFileToCanvas(chosen, imported, ierr))
+            {
+                cb.create_canvas(std::move(imported));
+                m_last_error.clear();
+                return true;
+            }
+            err = ierr;
+            return false;
+        };
+
+        auto try_load_image = [&]() -> bool
+        {
+            if (!cb.create_image)
+            {
+                m_last_error = "Internal error: create_image callback not set.";
+                return true; // handled (as error)
+            }
+            int iw = 0, ih = 0;
+            std::vector<unsigned char> rgba;
+            std::string ierr;
+            if (image_loader::LoadImageAsRgba32(chosen, iw, ih, rgba, ierr))
+            {
+                Callbacks::LoadedImage li;
+                li.path = chosen;
+                li.width = iw;
+                li.height = ih;
+                li.pixels = std::move(rgba);
+                cb.create_image(std::move(li));
+                m_last_error.clear();
+                return true;
+            }
+            err = ierr;
+            return false;
+        };
+
+        bool handled = false;
+        if (looks_project)
+            handled = try_load_project();
+        else if (looks_ansi)
+            handled = try_import_ansi();
+        else if (looks_image)
+            handled = try_load_image();
         else
         {
-            m_last_error = err.empty() ? "Load failed." : err;
-        }
-    }
-    else if (r.tag == kDialog_ImportAnsi)
-    {
-        if (!cb.create_canvas)
-        {
-            m_last_error = "Internal error: create_canvas callback not set.";
-            return;
+            // Unknown extension (or URI). Try in descending order of likelihood.
+            handled = try_load_project() || try_import_ansi() || try_load_image();
         }
 
-        AnsiCanvas imported;
-        std::string ierr;
-        if (!ansi_importer::ImportAnsiFileToCanvas(chosen, imported, ierr))
+        if (!handled)
         {
-            m_last_error = ierr.empty() ? "Failed to import ANSI file." : ierr;
-        }
-        else
-        {
-            cb.create_canvas(std::move(imported));
-            m_last_error.clear();
+            // Use the most recent decoder error if we have one.
+            m_last_error = err.empty() ? "Unsupported file type or failed to load file." : err;
         }
     }
     else if (r.tag == kDialog_ExportAnsi)

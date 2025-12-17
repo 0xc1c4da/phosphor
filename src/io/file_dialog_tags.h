@@ -5,10 +5,9 @@
 enum FileDialogTag
 {
     kDialog_SaveProject = 1,
-    kDialog_LoadProject = 2,
-    kDialog_ImportAnsi  = 3,
     kDialog_ExportAnsi  = 4,
-    kDialog_ImportImage = 5,
+    // Unified loader for projects, ANSI/text, and images.
+    kDialog_LoadFile    = 2,
 };
 
 
