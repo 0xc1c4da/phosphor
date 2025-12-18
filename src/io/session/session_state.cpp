@@ -76,6 +76,7 @@ static json ToJson(const SessionState& st)
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
     ui["show_preview_window"] = st.show_preview_window;
     ui["show_settings_window"] = st.show_settings_window;
+    ui["show_16colors_browser_window"] = st.show_16colors_browser_window;
     if (!st.ui_theme.empty())
         ui["theme"] = st.ui_theme;
     ui["canvas_bg_white"] = st.canvas_bg_white;
@@ -216,6 +217,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_preview_window = ui["show_preview_window"].get<bool>();
         if (ui.contains("show_settings_window") && ui["show_settings_window"].is_boolean())
             out.show_settings_window = ui["show_settings_window"].get<bool>();
+        if (ui.contains("show_16colors_browser_window") && ui["show_16colors_browser_window"].is_boolean())
+            out.show_16colors_browser_window = ui["show_16colors_browser_window"].get<bool>();
         if (ui.contains("theme") && ui["theme"].is_string())
             out.ui_theme = ui["theme"].get<std::string>();
         if (ui.contains("canvas_bg_white") && ui["canvas_bg_white"].is_boolean())

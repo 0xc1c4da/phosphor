@@ -42,6 +42,7 @@
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
 #include "ui/skin.h"
+#include "ui/sixteen_colors_browser.h"
 #include "ui/sauce_editor_dialog.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
@@ -549,6 +550,7 @@ int main(int, char**)
     bool   show_tool_palette_window = session_state.show_tool_palette_window;
     bool   show_preview_window = session_state.show_preview_window;
     bool   show_settings_window = session_state.show_settings_window;
+    bool   show_16colors_browser_window = session_state.show_16colors_browser_window;
     SettingsWindow settings_window;
     settings_window.SetOpen(show_settings_window);
     settings_window.SetMainScale(main_scale);
@@ -656,6 +658,9 @@ int main(int, char**)
 
     // Canvas preview (minimap)
     PreviewWindow preview_window;
+
+    // 16colo.rs browser
+    SixteenColorsBrowserWindow sixteen_browser;
 
     namespace fs = std::filesystem;
 
@@ -924,6 +929,7 @@ int main(int, char**)
                 ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
                 ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
                 ImGui::MenuItem("Preview", nullptr, &show_preview_window);
+                ImGui::MenuItem("16colo.rs Browser", nullptr, &show_16colors_browser_window);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1544,9 +1550,12 @@ int main(int, char**)
                         std::max(ImGui::GetTextLineHeightWithSpacing(),
                                  ImGui::GetFrameHeightWithSpacing());
 
-                    const ImGuiStyle& style = ImGui::GetStyle();
-                    ImVec2 desired(grid_px.x + style.WindowPadding.x * 2.0f + 2.0f,
-                                   status_h + grid_px.y + style.WindowPadding.y * 2.0f + 2.0f);
+                    // The canvas window is rendered "full-bleed" (zero window padding) so the
+                    // scrollable canvas can touch the window edges. Match that here so the
+                    // initial size doesn't include padding that won't exist.
+                    const ImVec2 window_pad(0.0f, 0.0f);
+                    ImVec2 desired(grid_px.x + window_pad.x * 2.0f + 2.0f,
+                                   status_h + grid_px.y + window_pad.y * 2.0f + 2.0f);
 
                     // Clamp to viewport so large canvases don't create absurd windows.
                     const float margin = 40.0f;
@@ -1567,6 +1576,9 @@ int main(int, char**)
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, title.c_str());
+            // Full-bleed canvas: remove the normal window padding so there is no visible
+            // margin around the canvas child (especially obvious when the canvas is white).
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
             ImGui::Begin(title.c_str(), &canvas.open, flags);
             CaptureImGuiWindowPlacement(session_state, title.c_str());
             ApplyImGuiWindowChromeZOrder(&session_state, title.c_str());
@@ -1708,6 +1720,7 @@ int main(int, char**)
             canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id);
 
             ImGui::End();
+            ImGui::PopStyleVar(); // WindowPadding
             PopImGuiWindowChromeAlpha(alpha_pushed);
         }
 
@@ -1784,6 +1797,35 @@ int main(int, char**)
                                   &session_state, should_apply_placement(name));
         }
 
+        // 16colo.rs browser window.
+        if (show_16colors_browser_window)
+        {
+            const char* name = "16colo.rs Browser";
+            SixteenColorsBrowserWindow::Callbacks cbs;
+            cbs.create_canvas = [&](AnsiCanvas&& c)
+            {
+                CanvasWindow canvas_window;
+                canvas_window.open = true;
+                canvas_window.id = next_canvas_id++;
+                canvas_window.canvas = std::move(c);
+                canvases.push_back(std::move(canvas_window));
+                last_active_canvas_id = canvases.back().id;
+            };
+            cbs.create_image = [&](SixteenColorsBrowserWindow::Callbacks::LoadedImage&& li)
+            {
+                ImageWindow img;
+                img.id = next_image_id++;
+                img.path = std::move(li.path);
+                img.width = li.width;
+                img.height = li.height;
+                img.pixels = std::move(li.pixels);
+                img.open = true;
+                images.push_back(std::move(img));
+            };
+            sixteen_browser.Render(name, &show_16colors_browser_window, cbs,
+                                   &session_state, should_apply_placement(name));
+        }
+
         // Settings window (extendable tabs; includes Key Bindings editor).
         if (show_settings_window)
         {
@@ -1857,6 +1899,7 @@ int main(int, char**)
             st.show_tool_palette_window = show_tool_palette_window;
             st.show_preview_window = show_preview_window;
             st.show_settings_window = show_settings_window;
+            st.show_16colors_browser_window = show_16colors_browser_window;
 
             // Xterm-256 picker UI state
             st.xterm_color_picker.fg[0] = fg_color.x;

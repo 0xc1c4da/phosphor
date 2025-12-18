@@ -1,5 +1,6 @@
 #include "io/image_loader.h"
 
+#include <cstdint>
 #include <cstring>
 
 // stb_image implementation must live in exactly one translation unit.
@@ -45,6 +46,54 @@ bool LoadImageAsRgba32(const std::string& path,
     out_pixels.resize(pixel_bytes);
     std::memcpy(out_pixels.data(), data, pixel_bytes);
 
+    stbi_image_free(data);
+    return true;
+}
+
+bool LoadImageFromMemoryAsRgba32(const std::vector<std::uint8_t>& bytes,
+                                 int& out_width,
+                                 int& out_height,
+                                 std::vector<unsigned char>& out_pixels,
+                                 std::string& err)
+{
+    err.clear();
+    out_width = 0;
+    out_height = 0;
+    out_pixels.clear();
+
+    if (bytes.empty())
+    {
+        err = "Empty image buffer.";
+        return false;
+    }
+
+    int w = 0;
+    int h = 0;
+    int channels_in_file = 0;
+    unsigned char* data = stbi_load_from_memory(
+        reinterpret_cast<const stbi_uc*>(bytes.data()),
+        (int)bytes.size(),
+        &w, &h, &channels_in_file,
+        4);
+    if (!data)
+    {
+        err = std::string("Failed to decode image: ") + (stbi_failure_reason() ? stbi_failure_reason() : "unknown error");
+        return false;
+    }
+
+    if (w <= 0 || h <= 0)
+    {
+        stbi_image_free(data);
+        err = "Invalid image dimensions.";
+        return false;
+    }
+
+    out_width = w;
+    out_height = h;
+
+    const size_t pixel_bytes = static_cast<size_t>(w) * static_cast<size_t>(h) * 4u;
+    out_pixels.resize(pixel_bytes);
+    std::memcpy(out_pixels.data(), data, pixel_bytes);
     stbi_image_free(data);
     return true;
 }

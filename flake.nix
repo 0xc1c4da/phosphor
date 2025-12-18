@@ -26,6 +26,7 @@
           nlohmann_json
           chafa
           stb
+          curl
           glib
           icu67.dev
           luajit

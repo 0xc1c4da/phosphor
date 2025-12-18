@@ -40,6 +40,8 @@ SOURCES  = \
            src/ui/settings.cpp \
            src/ui/sauce_editor_dialog.cpp \
            src/ui/tool_palette.cpp \
+           src/ui/sixteen_colors_browser.cpp \
+           src/io/http_client.cpp \
            src/io/ansi_importer.cpp \
            src/io/sauce.cpp \
            src/io/binary_codec.cpp \
@@ -82,8 +84,8 @@ DEPS     = $(OBJS:.o=.d)
 
 # SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd) -ldl
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd libcurl)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl) -ldl
 
 # Optional, provided by the Nix dev shell (see flake.nix).
 # libnoise in nixpkgs is static-only, so we link it explicitly via these env vars.

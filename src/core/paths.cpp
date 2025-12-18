@@ -18,4 +18,18 @@ std::string PhosphorAssetPath(const std::string& relative)
     return (fs::path(GetPhosphorAssetsDir()) / relative).string();
 }
 
+std::string GetPhosphorCacheDir()
+{
+    namespace fs = std::filesystem;
+    return (fs::path(GetPhosphorConfigDir()) / "cache").string();
+}
+
+std::string PhosphorCachePath(const std::string& relative)
+{
+    namespace fs = std::filesystem;
+    if (relative.empty())
+        return GetPhosphorCacheDir();
+    return (fs::path(GetPhosphorCacheDir()) / relative).string();
+}
+
 

@@ -1871,6 +1871,16 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGui::PushID(id);
         bool status_editing = false;
 
+        // With the canvas window rendered full-bleed (zero WindowPadding), add a tiny
+        // amount of breathing room for the status line only.
+        const ImGuiStyle& style_status = ImGui::GetStyle();
+        const float status_pad_x = std::max(0.0f, style_status.FramePadding.x);
+        const float status_pad_y = std::max(0.0f, style_status.FramePadding.y * 0.5f);
+        if (status_pad_y > 0.0f)
+            ImGui::Dummy(ImVec2(0.0f, status_pad_y));
+        if (status_pad_x > 0.0f)
+            ImGui::Indent(status_pad_x);
+
         const ImGuiInputTextFlags num_flags =
             ImGuiInputTextFlags_CharsDecimal |
             ImGuiInputTextFlags_AutoSelectAll;
@@ -2056,6 +2066,11 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         if (status_editing)
             m_has_focus = false;
 
+        if (status_pad_x > 0.0f)
+            ImGui::Unindent(status_pad_x);
+        if (status_pad_y > 0.0f)
+            ImGui::Dummy(ImVec2(0.0f, status_pad_y));
+
         ImGui::PopID();
     }
 
@@ -2089,7 +2104,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // child window background (covers areas outside the grid, e.g. when the canvas is small).
     const ImVec4 canvas_bg = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, canvas_bg);
-    if (!ImGui::BeginChild(child_id.c_str(), ImVec2(0, 0), true, child_flags))
+    // No child border: it reads as a margin/frame around the canvas, especially on white.
+    if (!ImGui::BeginChild(child_id.c_str(), ImVec2(0, 0), false, child_flags))
     {
         ImGui::EndChild();
         ImGui::PopStyleColor();

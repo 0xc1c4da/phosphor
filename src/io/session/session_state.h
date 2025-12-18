@@ -92,6 +92,7 @@ struct SessionState
     bool show_tool_palette_window = true;
     bool show_preview_window = true;
     bool show_settings_window = false;
+    bool show_16colors_browser_window = false;
 
     // UI skin/theme (ImGui style). Persisted in session.json.
     // Stable ids are defined in ui/skin.h (e.g. "moonlight", "cherry").
