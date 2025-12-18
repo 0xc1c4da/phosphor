@@ -8,3 +8,4 @@ phosphor
 *.jpg
 *.png
 *.phos
+!dist/**
