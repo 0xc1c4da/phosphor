@@ -55,7 +55,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 6;
+    j["schema_version"] = 7;
 
     json win;
     win["w"] = st.window_w;
@@ -117,8 +117,15 @@ static json ToJson(const SessionState& st)
         json jc;
         jc["id"] = c.id;
         jc["open"] = c.open;
-        jc["project_cbor_size"] = c.project_cbor_size;
-        jc["project_cbor_zstd_b64"] = c.project_cbor_zstd_b64;
+        if (!c.project_phos_cache_rel.empty())
+            jc["project_phos_cache_rel"] = c.project_phos_cache_rel;
+
+        // Legacy embedded payload (only write if cache path is absent).
+        if (c.project_phos_cache_rel.empty())
+        {
+            jc["project_cbor_size"] = c.project_cbor_size;
+            jc["project_cbor_zstd_b64"] = c.project_cbor_zstd_b64;
+        }
         jc["zoom"] = c.zoom;
         jc["scroll_x"] = c.scroll_x;
         jc["scroll_y"] = c.scroll_y;
@@ -283,6 +290,8 @@ static void FromJson(const json& j, SessionState& out)
                 SessionState::OpenCanvas oc;
                 if (jc.contains("id") && jc["id"].is_number_integer()) oc.id = jc["id"].get<int>();
                 if (jc.contains("open") && jc["open"].is_boolean()) oc.open = jc["open"].get<bool>();
+                if (jc.contains("project_phos_cache_rel") && jc["project_phos_cache_rel"].is_string())
+                    oc.project_phos_cache_rel = jc["project_phos_cache_rel"].get<std::string>();
                 if (jc.contains("project_cbor_size") && (jc["project_cbor_size"].is_number_unsigned() || jc["project_cbor_size"].is_number_integer()))
                     oc.project_cbor_size = jc["project_cbor_size"].get<std::uint64_t>();
                 if (jc.contains("project_cbor_zstd_b64") && jc["project_cbor_zstd_b64"].is_string())
@@ -385,7 +394,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

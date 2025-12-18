@@ -49,7 +49,7 @@
 #include "io/session/session_state.h"
 #include "io/session/imgui_persistence.h"
 #include "io/session/open_canvas_codec.h"
-#include "io/session/open_canvas_codec.h"
+#include "io/session/open_canvas_cache.h"
 
 #include "io/file_dialog_tags.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -406,6 +406,12 @@ struct CanvasWindow
     int  id   = 0;
     AnsiCanvas canvas;
     SauceEditorDialog sauce_dialog;
+
+    // Session restore: project is loaded lazily from a cached .phos file.
+    bool restore_pending = false;
+    bool restore_attempted = false;
+    std::string restore_phos_cache_rel;
+    std::string restore_error;
 };
 
 // Main code
@@ -693,17 +699,33 @@ int main(int, char**)
         cw.open = oc.open;
         cw.id = (oc.id > 0) ? oc.id : next_canvas_id++;
 
-        AnsiCanvas::ProjectState ps;
-        std::string derr;
-        if (open_canvas_codec::DecodeProjectState(oc, ps, derr))
+        // Prefer cache-backed restore (fast session.json parse, project loaded lazily).
+        if (!oc.project_phos_cache_rel.empty())
         {
-            std::string apply_err;
-            if (!cw.canvas.SetProjectState(ps, apply_err))
-                std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, apply_err.c_str());
+            cw.restore_pending = true;
+            cw.restore_attempted = false;
+            cw.restore_phos_cache_rel = oc.project_phos_cache_rel;
+            cw.restore_error.clear();
+
+            // Provide a sane blank canvas until the cached project is loaded.
+            cw.canvas.SetColumns(80);
+            cw.canvas.EnsureRowsPublic(25);
         }
-        else if (!oc.project_cbor_zstd_b64.empty())
+        else
         {
-            std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, derr.c_str());
+            // Legacy embedded restore.
+            AnsiCanvas::ProjectState ps;
+            std::string derr;
+            if (open_canvas_codec::DecodeProjectState(oc, ps, derr))
+            {
+                std::string apply_err;
+                if (!cw.canvas.SetProjectState(ps, apply_err))
+                    std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, apply_err.c_str());
+            }
+            else if (!oc.project_cbor_zstd_b64.empty())
+            {
+                std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, derr.c_str());
+            }
         }
 
         cw.canvas.SetZoom(oc.zoom);
@@ -801,11 +823,13 @@ int main(int, char**)
         // Determine which canvas should receive keyboard-only actions (Undo/Redo shortcuts).
         // "Focused" is tracked by each AnsiCanvas instance (grid focus).
         AnsiCanvas* focused_canvas = nullptr;
+        CanvasWindow* focused_canvas_window = nullptr;
         for (auto& c : canvases)
         {
             if (c.open && c.canvas.HasFocus())
             {
                 focused_canvas = &c.canvas;
+                focused_canvas_window = &c;
                 last_active_canvas_id = c.id;
                 break;
             }
@@ -815,6 +839,7 @@ int main(int, char**)
         // - otherwise use the last active canvas window
         // - otherwise fall back to the first open canvas
         AnsiCanvas* active_canvas = focused_canvas;
+        CanvasWindow* active_canvas_window = focused_canvas_window;
         if (!focused_canvas && last_active_canvas_id != -1)
         {
             for (auto& c : canvases)
@@ -822,6 +847,7 @@ int main(int, char**)
                 if (c.open && c.id == last_active_canvas_id)
                 {
                     active_canvas = &c.canvas;
+                    active_canvas_window = &c;
                     break;
                 }
             }
@@ -833,10 +859,33 @@ int main(int, char**)
                 if (c.open)
                 {
                     active_canvas = &c.canvas;
+                    active_canvas_window = &c;
                     break;
                 }
             }
         }
+
+        auto try_restore_canvas_from_cache = [&](CanvasWindow& cw) {
+            if (!cw.restore_pending || cw.restore_attempted || cw.restore_phos_cache_rel.empty())
+                return;
+            if (frame_counter <= 1)
+                return; // keep first frame snappy
+
+            cw.restore_attempted = true;
+            cw.restore_error.clear();
+
+            std::string rerr;
+            if (!open_canvas_cache::LoadCanvasFromSessionCachePhos(cw.restore_phos_cache_rel, cw.canvas, rerr))
+            {
+                cw.restore_error = rerr.empty() ? "Failed to restore cached project." : rerr;
+                return;
+            }
+            cw.restore_pending = false;
+        };
+
+        // Restore the most relevant canvas automatically after the first frame.
+        if (frame_counter == 2 && active_canvas_window)
+            try_restore_canvas_from_cache(*active_canvas_window);
 
         // Main menu bar: File > New Canvas, Quit
         auto create_new_canvas = [&]()
@@ -1588,6 +1637,14 @@ int main(int, char**)
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
                 last_active_canvas_id = canvas.id;
 
+            // Lazy restore: load cached project when the window is focused (user intent),
+            // and only after the first frame has rendered.
+            if (canvas.restore_pending && !canvas.restore_attempted &&
+                ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            {
+                try_restore_canvas_from_cache(canvas);
+            }
+
             // Each canvas gets its own unique ImGui ID for the canvas component.
             char id_buf[32];
             snprintf(id_buf, sizeof(id_buf), "canvas_%d", canvas.id);
@@ -1929,6 +1986,8 @@ int main(int, char**)
 
             st.open_canvases.clear();
             st.open_canvases.reserve(canvases.size());
+            std::vector<std::string> keep_session_canvas_cache;
+            keep_session_canvas_cache.reserve(canvases.size());
             for (const auto& cw : canvases)
             {
                 SessionState::OpenCanvas oc;
@@ -1942,14 +2001,44 @@ int main(int, char**)
                     oc.scroll_y = vs.scroll_y;
                 }
 
-                std::string enc_err;
-                if (!open_canvas_codec::EncodeProjectState(cw.canvas.GetProjectState(), oc, enc_err))
+                // Prefer caching session canvas state as a .phos project under <config>/cache/,
+                // and store only the cache path in session.json.
+                //
+                // IMPORTANT: If the canvas is still pending restore (never loaded), do NOT
+                // overwrite the cache file with a blank placeholder.
+                if (cw.restore_pending && !cw.restore_attempted && !cw.restore_phos_cache_rel.empty())
                 {
-                    std::fprintf(stderr, "[session] encode canvas %d failed: %s\n", cw.id, enc_err.c_str());
+                    oc.project_phos_cache_rel = cw.restore_phos_cache_rel;
+                    keep_session_canvas_cache.push_back(oc.project_phos_cache_rel);
+                }
+                else
+                {
+                    std::string cache_err;
+                    std::string rel;
+                    if (open_canvas_cache::SaveCanvasToSessionCachePhos(cw.id, cw.canvas, rel, cache_err))
+                    {
+                        oc.project_phos_cache_rel = rel;
+                        keep_session_canvas_cache.push_back(oc.project_phos_cache_rel);
+                    }
+                    else
+                    {
+                        // Fall back to legacy embedded payload so we don't lose work if cache IO fails.
+                        std::string enc_err;
+                        if (!open_canvas_codec::EncodeProjectState(cw.canvas.GetProjectState(), oc, enc_err))
+                        {
+                            std::fprintf(stderr, "[session] encode canvas %d failed: %s\n", cw.id, enc_err.c_str());
+                        }
+                        else
+                        {
+                            std::fprintf(stderr, "[session] cache save canvas %d failed: %s (embedded as fallback)\n",
+                                         cw.id, cache_err.c_str());
+                        }
+                    }
                 }
 
                 st.open_canvases.push_back(std::move(oc));
             }
+            open_canvas_cache::PruneSessionCanvasCache(keep_session_canvas_cache);
 
             st.open_images.clear();
             st.open_images.reserve(images.size());

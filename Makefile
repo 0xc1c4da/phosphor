@@ -47,8 +47,10 @@ SOURCES  = \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
            src/io/io_manager.cpp \
+           src/io/project_file.cpp \
            src/io/sdl_file_dialog_queue.cpp \
            src/io/session/imgui_persistence.cpp \
+           src/io/session/open_canvas_cache.cpp \
            src/io/session/open_canvas_codec.cpp \
            src/io/session/project_state_json.cpp \
            src/io/session/session_state.cpp

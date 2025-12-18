@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 
@@ -469,11 +470,45 @@ void CharacterSetWindow::RenderSlots()
 
     selected_slot_ = std::clamp(selected_slot_, 0, 11);
 
-    // Layout: 12 buttons in a row (wrap if window too narrow). Each shows the glyph.
+    // Layout: adaptive grid of 12 square buttons, scaled to fit available window area,
+    // similar to ToolPalette's fit-to-window sizing.
     const ImGuiStyle& style = ImGui::GetStyle();
-    const float cell = std::max(28.0f, ImGui::GetFrameHeight() * 1.4f);
-    const float avail_w = ImGui::GetContentRegionAvail().x;
-    const int cols = std::max(1, (int)std::floor((avail_w + style.ItemSpacing.x) / (cell + style.ItemSpacing.x)));
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const int count = 12;
+
+    int best_cols = 1;
+    float best_size = 0.0f;
+    if (count > 0 && avail.x > 1.0f)
+    {
+        for (int cols = 1; cols <= count; ++cols)
+        {
+            const float total_spacing_x = style.ItemSpacing.x * (cols - 1);
+            const float width_limit = (avail.x - total_spacing_x) / (float)cols;
+            if (width_limit <= 1.0f)
+                break;
+
+            const int rows = (count + cols - 1) / cols;
+            float button_size = width_limit;
+            if (avail.y > 1.0f)
+            {
+                const float total_spacing_y = style.ItemSpacing.y * (rows - 1);
+                const float height_limit = (avail.y - total_spacing_y) / (float)rows;
+                if (height_limit <= 1.0f)
+                    continue;
+                button_size = std::min(width_limit, height_limit);
+            }
+
+            if (button_size > best_size)
+            {
+                best_size = button_size;
+                best_cols = cols;
+            }
+        }
+    }
+
+    // Keep a reasonable minimum so glyphs remain usable.
+    const float cell = std::max(28.0f, best_size > 0.0f ? best_size : (style.FramePadding.y * 2.0f + 8.0f));
+    const int cols = std::max(1, best_cols);
 
     for (int i = 0; i < 12; ++i)
     {

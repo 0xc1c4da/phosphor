@@ -57,7 +57,13 @@ struct SessionState
         int id = 0;
         bool open = true;
 
+        // Preferred persistence for session restore: a cached .phos project stored under
+        // <config_dir>/cache (see core/paths.cpp).
+        // Stored as a cache-relative path like "session_canvases/canvas_12.phos".
+        std::string project_phos_cache_rel;
+
         // Canvas project state encoded as: zstd-compressed CBOR (nlohmann::json::to_cbor) then base64.
+        // Legacy fallback (schema <= 6) or when cache writes fail.
         std::string project_cbor_zstd_b64;
         std::uint64_t project_cbor_size = 0; // uncompressed CBOR size in bytes
 
