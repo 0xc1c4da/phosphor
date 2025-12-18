@@ -452,6 +452,9 @@ private:
     // Zoom and last captured viewport metrics.
     float    m_zoom = 1.0f;
     ViewState m_last_view;
+    // Zoom stabilization: keep certain layout decisions stable for a few frames after zoom changes
+    // to avoid scrollbar/clip-rect churn (visible as flicker/jitter).
+    int m_zoom_stabilize_frames = 0;
 
     // Canvas base background fill (not theme-driven).
     bool m_canvas_bg_white = false;

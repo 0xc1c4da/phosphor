@@ -1172,7 +1172,7 @@ int main(int, char**)
             }
         }
 
-        // Character Palette window (loads assets/palettes.json via nlohmann_json)
+        // Character Palette window (loads assets/character-palettes.json via nlohmann_json)
         if (show_character_palette_window)
         {
             const char* name = "Character Palette";
@@ -1305,7 +1305,7 @@ int main(int, char**)
             ApplyImGuiWindowChromeZOrder(&session_state, name);
             RenderImGuiWindowChromeMenu(&session_state, name);
 
-            // Load palettes from assets/colours.json (with a default HSV fallback).
+            // Load palettes from assets/color-palettes.json (with a default HSV fallback).
             static bool                         palettes_loaded    = false;
             static std::vector<ColourPaletteDef> palettes;
             static std::string                  palettes_error;
@@ -1314,7 +1314,7 @@ int main(int, char**)
 
             if (!palettes_loaded)
             {
-                LoadColourPalettesFromJson(PhosphorAssetPath("colours.json").c_str(), palettes, palettes_error);
+                LoadColourPalettesFromJson(PhosphorAssetPath("color-palettes.json").c_str(), palettes, palettes_error);
                 palettes_loaded = true;
 
                 // Fallback if loading failed or file empty: single default HSV palette.

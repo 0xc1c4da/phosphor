@@ -59,7 +59,7 @@ bool LoadColourPalettesFromJson(const char* path,
 
     if (!j.is_array())
     {
-        error = "Expected top-level JSON array in colours.json";
+        error = "Expected top-level JSON array in color-palettes.json";
         return false;
     }
 
@@ -93,7 +93,7 @@ bool LoadColourPalettesFromJson(const char* path,
 
     if (out.empty())
     {
-        error = "No valid palettes found in colours.json";
+        error = "No valid palettes found in color-palettes.json";
         return false;
     }
 

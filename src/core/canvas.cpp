@@ -1959,6 +1959,16 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     EnsureDocument();
 
+    // Zoom stabilization:
+    // Track whether zoom changed recently, and keep layout decisions stable for a few frames.
+    // This prevents scrollbar toggling on rounding thresholds (InnerClipRect changes => flicker/jitter).
+    const bool zoom_changed_since_last_frame = (m_last_view.valid && m_last_view.zoom != m_zoom);
+    if (zoom_changed_since_last_frame)
+        m_zoom_stabilize_frames = 6; // ~100ms at 60fps; enough to cover discrete trackpad steps
+    else if (m_zoom_stabilize_frames > 0)
+        --m_zoom_stabilize_frames;
+    const bool zoom_stabilizing = (m_zoom_stabilize_frames > 0);
+
     // Base cell size from the current font (Unscii is monospaced).
     // We intentionally *do not auto-fit to window width*; the user controls zoom explicitly.
     const float font_size = ImGui::GetFontSize();
@@ -2199,6 +2209,14 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGuiWindowFlags_HorizontalScrollbar |
         ImGuiWindowFlags_NoNavInputs |
         ImGuiWindowFlags_NoNavFocus;
+    // During zoom changes, force scrollbars to remain present so the viewport (InnerClipRect)
+    // dimensions stay stable. This avoids a common flicker source where the vertical scrollbar
+    // toggles on/off across rounding thresholds.
+    if (zoom_stabilizing)
+    {
+        child_flags |= ImGuiWindowFlags_AlwaysVerticalScrollbar;
+        child_flags |= ImGuiWindowFlags_AlwaysHorizontalScrollbar;
+    }
     // Canvas "paper" background is independent of the UI theme, so also override the
     // child window background (covers areas outside the grid, e.g. when the canvas is small).
     const ImVec4 canvas_bg = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
@@ -2217,6 +2235,15 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     // Ctrl+MouseWheel zoom on the canvas (like a typical editor).
     // We also adjust scroll so the point under the mouse stays stable.
+    // NOTE: We apply the zoom immediately (so sizing updates this frame), but we defer the
+    // scroll correction until after the canvas InvisibleButton is created, because the
+    // correct "origin" for mouse anchoring is GetItemRectMin() (the actual canvas item rect),
+    // not GetCursorScreenPos() (which can drift with child scrolling/scrollbars).
+    bool  wheel_zoom_this_frame = false;
+    float wheel_zoom_ratio = 1.0f; // ratio between snapped scales (new/old)
+    float wheel_pre_scroll_x = 0.0f;
+    float wheel_pre_scroll_y = 0.0f;
+    ImVec2 wheel_mouse_pos(0.0f, 0.0f);
     {
         ImGuiIO& io = ImGui::GetIO();
         if (io.KeyCtrl && io.MouseWheel != 0.0f &&
@@ -2228,31 +2255,23 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                 float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
                 if (snapped_cell_w < 1.0f)
                     snapped_cell_w = 1.0f;
-                return snapped_cell_w / base_cell_w;
+                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
             };
 
             const float old_zoom = m_zoom;
             const float old_scale = snapped_scale_for_zoom(old_zoom);
+
+            wheel_pre_scroll_x = ImGui::GetScrollX();
+            wheel_pre_scroll_y = ImGui::GetScrollY();
+            wheel_mouse_pos = io.MousePos;
 
             const float factor = (io.MouseWheel > 0.0f) ? 1.10f : (1.0f / 1.10f);
             SetZoom(old_zoom * factor);
 
             const float new_zoom = m_zoom;
             const float new_scale = snapped_scale_for_zoom(new_zoom);
-            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
-
-            // The canvas origin in screen space is the current cursor position in the child.
-            // (We don't add any other widgets before the InvisibleButton.)
-            const ImVec2 origin = ImGui::GetCursorScreenPos();
-            const float local_x = io.MousePos.x - origin.x;
-            const float local_y = io.MousePos.y - origin.y;
-
-            const float world_x = ImGui::GetScrollX() + local_x;
-            const float world_y = ImGui::GetScrollY() + local_y;
-
-            const float new_scroll_x = world_x * ratio - local_x;
-            const float new_scroll_y = world_y * ratio - local_y;
-            RequestScrollPixels(new_scroll_x, new_scroll_y);
+            wheel_zoom_ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+            wheel_zoom_this_frame = true;
         }
     }
 
@@ -2334,6 +2353,69 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     ImVec2 origin = ImGui::GetItemRectMin();
     origin.x = std::floor(origin.x);
     origin.y = std::floor(origin.y);
+
+    // If we zoomed this frame via Ctrl+MouseWheel, correct scroll so the point under the mouse
+    // stays stable in *canvas pixel space*.
+    //
+    // This must happen AFTER InvisibleButton() so we can use GetItemRectMin() as the true origin.
+    if (wheel_zoom_this_frame && wheel_zoom_ratio > 0.0f)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        const ImRect clip = w ? w->InnerClipRect : ImRect(0, 0, 0, 0);
+        const float view_w = clip.GetWidth();
+        const float view_h = clip.GetHeight();
+
+        // We'll adjust scroll *now* (after InvisibleButton exists), but that means the
+        // screen-space position of the canvas item changes immediately with scroll.
+        // If we don't compensate, we'll draw one frame with an origin computed under
+        // the old scroll, then the next frame under the new scroll -> visible flicker.
+        const float scroll_before_x = ImGui::GetScrollX();
+        const float scroll_before_y = ImGui::GetScrollY();
+
+        // Choose anchor point:
+        // - prefer the real mouse position if it's inside the visible canvas viewport
+        // - otherwise fall back to viewport center (more robust when wheel comes from scrollbars)
+        float local_x = (wheel_mouse_pos.x - origin.x);
+        float local_y = (wheel_mouse_pos.y - origin.y);
+        const bool mouse_in_view =
+            (wheel_mouse_pos.x >= clip.Min.x && wheel_mouse_pos.x <= clip.Max.x &&
+             wheel_mouse_pos.y >= clip.Min.y && wheel_mouse_pos.y <= clip.Max.y);
+        if (!mouse_in_view)
+        {
+            local_x = view_w * 0.5f;
+            local_y = view_h * 0.5f;
+        }
+        local_x = std::clamp(local_x, 0.0f, std::max(0.0f, view_w));
+        local_y = std::clamp(local_y, 0.0f, std::max(0.0f, view_h));
+
+        const float world_x = wheel_pre_scroll_x + local_x;
+        const float world_y = wheel_pre_scroll_y + local_y;
+
+        float new_scroll_x = world_x * wheel_zoom_ratio - local_x;
+        float new_scroll_y = world_y * wheel_zoom_ratio - local_y;
+
+        // Clamp to scrollable bounds for the new canvas size.
+        const float max_x = std::max(0.0f, canvas_size.x - view_w);
+        const float max_y = std::max(0.0f, canvas_size.y - view_h);
+        if (new_scroll_x < 0.0f) new_scroll_x = 0.0f;
+        if (new_scroll_y < 0.0f) new_scroll_y = 0.0f;
+        if (new_scroll_x > max_x) new_scroll_x = max_x;
+        if (new_scroll_y > max_y) new_scroll_y = max_y;
+
+        ImGui::SetScrollX(new_scroll_x);
+        ImGui::SetScrollY(new_scroll_y);
+
+        // Compensate origin for the scroll we just applied so drawing uses the correct
+        // screen-space origin for this same frame.
+        const float dx = new_scroll_x - scroll_before_x;
+        const float dy = new_scroll_y - scroll_before_y;
+        origin.x -= dx;
+        origin.y -= dy;
+        origin.x = std::floor(origin.x);
+        origin.y = std::floor(origin.y);
+
+        suppress_caret_autoscroll = true; // avoid “fight” between zoom anchoring and caret-follow
+    }
 
     // Base canvas background is NOT theme-driven; it's a fixed black/white fill so
     // the editing "paper" stays consistent regardless of UI skin.

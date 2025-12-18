@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-// Colour palette definition loaded from assets/colours.json:
+// Colour palette definition loaded from assets/color-palettes.json:
 // [
 //   { "title": "Name", "colors": ["#RRGGBB", "#RRGGBBAA", ...] },
 //   ...

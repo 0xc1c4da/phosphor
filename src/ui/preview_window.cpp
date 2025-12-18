@@ -105,6 +105,12 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     map1.x = std::floor(map1.x);
     map1.y = std::floor(map1.y);
 
+    // IMPORTANT: after snapping map0/map1 to pixel boundaries, recompute the actual drawn size.
+    // Using the pre-snap floating `map_w/map_h` for coordinate transforms causes subtle mismatch
+    // between the minimap image and the viewport rectangle (visible as jitter during zoom).
+    const float map_w_px = std::max(1.0f, map1.x - map0.x);
+    const float map_h_px = std::max(1.0f, map1.y - map0.y);
+
     dl->PushClipRect(inner0, inner1, true);
 
     // Minimap image:
@@ -172,10 +178,10 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     }
 
     // Viewport rectangle in minimap space.
-    const float vx0 = (vs.scroll_x / vs.canvas_w) * map_w;
-    const float vy0 = (vs.scroll_y / vs.canvas_h) * map_h;
-    const float vw  = (vs.view_w   / vs.canvas_w) * map_w;
-    const float vh  = (vs.view_h   / vs.canvas_h) * map_h;
+    const float vx0 = (vs.scroll_x / vs.canvas_w) * map_w_px;
+    const float vy0 = (vs.scroll_y / vs.canvas_h) * map_h_px;
+    const float vw  = (vs.view_w   / vs.canvas_w) * map_w_px;
+    const float vh  = (vs.view_h   / vs.canvas_h) * map_h_px;
 
     ImVec2 rect0(map0.x + vx0, map0.y + vy0);
     ImVec2 rect1(rect0.x + vw, rect0.y + vh);
@@ -194,13 +200,54 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     dl->PopClipRect();
 
     // Interaction: wheel zoom (over minimap) -> canvas zoom.
-    if (hovered)
+    if (hovered && canvas && vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
     {
         const float wheel = ImGui::GetIO().MouseWheel;
         if (wheel != 0.0f)
         {
+            // Zoom, but keep a stable "focus area" by also adjusting canvas scroll.
+            //
+            // - If the mouse is over the minimap content, zoom focuses that point (recenters viewport there).
+            // - Otherwise, zoom focuses the current viewport center.
+            //
+            // IMPORTANT: match the snapping logic used by AnsiCanvas::Render() (snap based on base_cell_w).
+            auto snapped_scale_for_zoom = [&](float zoom) -> float
+            {
+                const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
+                if (snapped_cell_w < 1.0f)
+                    snapped_cell_w = 1.0f;
+                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
+            };
+
+            const float old_zoom = canvas->GetZoom();
+            const float old_scale = snapped_scale_for_zoom(old_zoom);
+
             const float factor = (wheel > 0.0f) ? 1.10f : (1.0f / 1.10f);
-            canvas->SetZoom(canvas->GetZoom() * factor);
+            canvas->SetZoom(old_zoom * factor);
+
+            const float new_zoom = canvas->GetZoom();
+            const float new_scale = snapped_scale_for_zoom(new_zoom);
+            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+
+            // Pick focus point in old canvas pixel space.
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            float focus_world_x = vs.scroll_x + vs.view_w * 0.5f;
+            float focus_world_y = vs.scroll_y + vs.view_h * 0.5f;
+            if (PointInRect(mouse, map0, map1) && map_w_px > 0.0f && map_h_px > 0.0f)
+            {
+                const float mx = std::clamp(mouse.x, map0.x, map1.x);
+                const float my = std::clamp(mouse.y, map0.y, map1.y);
+                const float nx = (mx - map0.x) / map_w_px;
+                const float ny = (my - map0.y) / map_h_px;
+                focus_world_x = nx * vs.canvas_w;
+                focus_world_y = ny * vs.canvas_h;
+            }
+
+            // Recenter viewport so the focused world point stays in view after zoom.
+            const float new_scroll_x = focus_world_x * ratio - vs.view_w * 0.5f;
+            const float new_scroll_y = focus_world_y * ratio - vs.view_h * 0.5f;
+            canvas->RequestScrollPixels(new_scroll_x, new_scroll_y);
         }
     }
 
@@ -223,8 +270,8 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
         {
             const float mx = std::clamp(mouse.x, map0.x, map1.x);
             const float my = std::clamp(mouse.y, map0.y, map1.y);
-            const float nx = (mx - map0.x) / map_w;
-            const float ny = (my - map0.y) / map_h;
+            const float nx = (mx - map0.x) / map_w_px;
+            const float ny = (my - map0.y) / map_h_px;
             const float target_x = nx * vs.canvas_w - vs.view_w * 0.5f;
             const float target_y = ny * vs.canvas_h - vs.view_h * 0.5f;
             canvas->RequestScrollPixels(target_x, target_y);
@@ -245,8 +292,8 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
             rx = std::clamp(rx, map0.x, map1.x - (rect1.x - rect0.x));
             ry = std::clamp(ry, map0.y, map1.y - (rect1.y - rect0.y));
 
-            const float nx = (rx - map0.x) / map_w;
-            const float ny = (ry - map0.y) / map_h;
+            const float nx = (rx - map0.x) / map_w_px;
+            const float ny = (ry - map0.y) / map_h_px;
 
             const float target_x = nx * vs.canvas_w;
             const float target_y = ny * vs.canvas_h;

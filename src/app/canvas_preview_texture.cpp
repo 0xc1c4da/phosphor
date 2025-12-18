@@ -168,6 +168,10 @@ struct CanvasPreviewTexture::Impl
     double last_upload_s = -1.0;
     const char* debug_name = "CanvasPreviewTexture";
 
+    // Cache last known *base* cell aspect (unscaled font metrics).
+    // This keeps preview dimensions stable even if ViewState isn't valid yet.
+    float last_base_aspect = 0.0f;
+
     bool InitUploadObjects()
     {
         // Command pool for one-off transfers.
@@ -528,8 +532,10 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
             atlas_h = atlas->TexData->Height;
             atlas_bpp = atlas->TexData->BytesPerPixel;
         }
-        if (!atlas_rgba || atlas_w <= 0 || atlas_h <= 0 || atlas_bpp != 4)
-            atlas->GetTexDataAsRGBA32(&atlas_rgba, &atlas_w, &atlas_h, &atlas_bpp);
+        // IMPORTANT: avoid forcing atlas (re)builds from the preview path.
+        // If TexData isn't available, fall back to a conservative behavior (treat glyphs as solid fg)
+        // rather than calling GetTexDataAsRGBA32() every frame, which can be expensive and may cause
+        // visual instability depending on backend/font atlas lifecycle.
     }
 
     auto unpack = [](ImU32 c, int& r, int& g, int& b, int& a) {
@@ -704,21 +710,28 @@ void CanvasPreviewTexture::Update(AnsiCanvas* canvas, int max_dim, double now_s)
         return;
     }
 
-    // Throttle uploads: preview can look great at ~20-30fps during painting.
+    // Throttle uploads: preview can look great at ~15-20fps during painting.
     // IMPORTANT: do NOT throttle canvas switches or dimension changes, otherwise the
     // minimap can show a warped previous canvas.
-    const double min_dt = 1.0 / 30.0;
+    const double min_dt = 1.0 / 20.0;
     const uint64_t rev = canvas->GetContentRevision();
     const bool canvas_changed = (m->last_canvas != canvas);
 
     max_dim = std::clamp(max_dim, 64, 1024);
 
-    // Match canvas aspect if we can. We prefer the last captured Render() view metrics,
-    // because those are derived from the actual font in use.
-    float aspect = canvas->GetLastCellAspect();
+    // Match canvas aspect if we can. Prefer the last captured Render() view metrics,
+    // because those are derived from the actual font in use and are stable across zoom.
+    float aspect = 0.0f;
     const AnsiCanvas::ViewState& vs = canvas->GetLastViewState();
     if (vs.valid && vs.base_cell_h > 0.0f && vs.base_cell_w > 0.0f)
+    {
         aspect = vs.base_cell_w / vs.base_cell_h;
+        if (aspect > 0.0f)
+            m->last_base_aspect = aspect;
+    }
+    // If we don't have view metrics yet, fall back to the last known base aspect (stable).
+    if (!(aspect > 0.0f) && m->last_base_aspect > 0.0f)
+        aspect = m->last_base_aspect;
     if (!(aspect > 0.0f))
         aspect = 0.5f;
 

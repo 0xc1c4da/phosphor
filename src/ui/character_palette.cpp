@@ -33,7 +33,7 @@ static std::string TrimCopy(const std::string& s)
 
 CharacterPalette::CharacterPalette()
 {
-    file_path_ = PhosphorAssetPath("palettes.json");
+    file_path_ = PhosphorAssetPath("character-palettes.json");
 }
 CharacterPalette::~CharacterPalette() = default;
 
@@ -196,7 +196,7 @@ bool CharacterPalette::LoadFromFile(const char* path, std::string& error)
 
     if (!j.is_array())
     {
-        error = "Expected top-level JSON array in palettes.json";
+        error = "Expected top-level JSON array in character-palettes.json";
         return false;
     }
 
@@ -232,7 +232,7 @@ bool CharacterPalette::LoadFromFile(const char* path, std::string& error)
 
     if (parsed.empty())
     {
-        error = "No valid palettes found in palettes.json";
+        error = "No valid palettes found in character-palettes.json";
         return false;
     }
 

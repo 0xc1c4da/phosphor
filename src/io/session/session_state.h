@@ -42,7 +42,7 @@ struct SessionState
         // 0 = Hue Bar, 1 = Hue Wheel
         int picker_mode = 0;
 
-        // Palette UI state (assets/colours.json)
+        // Palette UI state (assets/color-palettes.json)
         int selected_palette = 0;
 
         // Which color the picker reticle is currently previewing (0 = fg, 1 = bg).
