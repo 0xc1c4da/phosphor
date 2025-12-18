@@ -2,11 +2,12 @@
 
 namespace ui
 {
-// Stable theme ids (persisted in session.json)
-inline constexpr const char* kThemeMoonlight = "moonlight";
+// Theme ids (persisted in session.json)
 inline constexpr const char* kThemeCherry    = "cherry";
+inline constexpr const char* kThemeGrape    = "grape";
+inline constexpr const char* kThemeCharcoal = "charcoal";
 
-// Returns the default theme id (Moonlight).
+// Returns the default theme id.
 const char* DefaultThemeId();
 
 // Applies the named theme to ImGui::GetStyle() and then scales style sizes for HiDPI.

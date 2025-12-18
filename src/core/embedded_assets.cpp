@@ -268,7 +268,8 @@ bool EnsureBundledAssetsExtracted(std::string& error)
         fs::exists(dest_root / "palettes.json") &&
         fs::exists(dest_root / "colours.json") &&
         fs::exists(dest_root / "key-bindings.json") &&
-        fs::exists(dest_root / "character-sets.json"))
+        fs::exists(dest_root / "character-sets.json") &&
+        fs::exists(dest_root / "session.json"))
     {
         return true;
     }

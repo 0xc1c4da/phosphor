@@ -1,4 +1,4 @@
-// Xterm-256 discrete color pickers (HueBar and HueWheel variants) built on top of Dear ImGui.
+// Colour Picker (Xterm-256) discrete pickers (HueBar and HueWheel variants) built on top of Dear ImGui.
 // The interaction is continuous in HSV/RGB space, but all rendered colors are snapped
 // to the nearest xterm-256 entry so the visuals are strictly palette-based.
 

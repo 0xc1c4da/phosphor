@@ -5,7 +5,7 @@
 namespace ImGui
 {
 
-// Xterm-256 discrete color pickers with continuous HSV interaction.
+// Colour Picker (Xterm-256) discrete pickers with continuous HSV interaction.
 // - HueBar: SV square + vertical hue bar (+ optional alpha bar).
 // - HueWheel: Hue wheel + SV triangle (+ optional alpha bar).
 

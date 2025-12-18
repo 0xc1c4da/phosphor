@@ -1,5 +1,7 @@
 #include "io/session/session_state.h"
 
+#include "core/paths.h"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -377,7 +379,47 @@ bool LoadSessionState(SessionState& out, std::string& err)
 
     std::ifstream f(path);
     if (!f)
-        return true; // missing is OK; use defaults
+    {
+        // If the user session file doesn't exist yet (first run), load the bundled defaults
+        // from "<config_dir>/assets/session.json" if available.
+        std::error_code ec;
+        const bool user_session_exists = fs::exists(path, ec);
+        if (user_session_exists && !ec)
+        {
+            err = std::string("Failed to open session state file for reading: ") + path;
+            return false;
+        }
+
+        const std::string default_path = PhosphorAssetPath("session.json");
+        std::ifstream df(default_path);
+        if (!df)
+            return true; // no user session and no default; use hardcoded defaults
+
+        json dj;
+        try
+        {
+            df >> dj;
+        }
+        catch (const std::exception& e)
+        {
+            err = std::string("Failed to parse default session state (") + default_path + "): " + e.what();
+            return false;
+        }
+
+        // Basic schema check (but keep it forgiving).
+        if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
+        {
+            const int ver = dj["schema_version"].get<int>();
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7)
+            {
+                // Unknown schema: ignore file rather than failing startup.
+                return true;
+            }
+        }
+
+        FromJson(dj, out);
+        return true;
+    }
 
     json j;
     try

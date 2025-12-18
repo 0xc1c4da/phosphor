@@ -510,6 +510,32 @@ void CharacterSetWindow::RenderSlots()
     const float cell = std::max(28.0f, best_size > 0.0f ? best_size : (style.FramePadding.y * 2.0f + 8.0f));
     const int cols = std::max(1, best_cols);
 
+    auto draw_centered_scaled_text = [&](const ImVec2& item_min, const ImVec2& item_max, const std::string& text) {
+        if (text.empty())
+            return;
+        const ImGuiStyle& s = ImGui::GetStyle();
+        const ImVec2 sz(item_max.x - item_min.x, item_max.y - item_min.y);
+        const float max_w = std::max(1.0f, sz.x - s.FramePadding.x * 2.0f);
+        const float max_h = std::max(1.0f, sz.y - s.FramePadding.y * 2.0f);
+
+        ImFont* font = ImGui::GetFont();
+        // Start large and shrink-to-fit.
+        float font_size = std::max(1.0f, std::min(max_w, max_h) * 0.70f);
+        ImVec2 ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+        if (ts.x > max_w || ts.y > max_h)
+        {
+            const float sx = max_w / std::max(1.0f, ts.x);
+            const float sy = max_h / std::max(1.0f, ts.y);
+            font_size *= std::min(sx, sy);
+            ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+        }
+
+        const ImVec2 pos(item_min.x + (sz.x - ts.x) * 0.5f, item_min.y + (sz.y - ts.y) * 0.5f);
+        ImGui::GetWindowDrawList()->AddText(font, font_size, pos,
+                                           ImGui::GetColorU32(ImGuiCol_Text),
+                                           text.c_str());
+    };
+
     for (int i = 0; i < 12; ++i)
     {
         if (i % cols != 0)
@@ -520,17 +546,19 @@ void CharacterSetWindow::RenderSlots()
         if (glyph.empty())
             glyph = " ";
 
-        std::string label = glyph;
-        if (label.size() > 8)
-            label = label.substr(0, 8);
-
         ImGui::PushID(i);
         const bool is_sel = (i == selected_slot_);
         if (is_sel)
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 
-        if (ImGui::Button(label.c_str(), ImVec2(cell, cell)))
+        // Render a normal button for interaction/styling, then overlay scaled glyph text.
+        if (ImGui::Button("##slot_btn", ImVec2(cell, cell)))
             selected_slot_ = i;
+        {
+            const ImVec2 item_min = ImGui::GetItemRectMin();
+            const ImVec2 item_max = ImGui::GetItemRectMax();
+            draw_centered_scaled_text(item_min, item_max, glyph);
+        }
 
         const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary);
         if (hovered)

@@ -240,26 +240,34 @@ void SettingsWindow::RenderTab_Skin()
     ImGui::TextUnformatted("Theme");
     ImGui::Separator();
 
-    const char* items[] = { "Moonlight", "Cherry" };
-    int idx = 0;
-    if (session_->ui_theme == ui::kThemeCherry)
-        idx = 1;
-    else
-        idx = 0; // Moonlight default / unknown
-
-    ImGui::SetNextItemWidth(240.0f);
-    if (ImGui::Combo("##theme", &idx, items, IM_ARRAYSIZE(items)))
+    ImGui::SetNextItemWidth(260.0f);
+    const char* current_label = ui::ThemeDisplayName(session_->ui_theme.c_str());
+    if (ImGui::BeginCombo("##theme", current_label))
     {
-        session_->ui_theme = (idx == 1) ? ui::kThemeCherry : ui::kThemeMoonlight;
-        ui::ApplyTheme(session_->ui_theme.c_str(), main_scale_);
+        for (int i = 0; i < ui::ThemeCount(); ++i)
+        {
+            const char* id = ui::ThemeIdByIndex(i);
+            const bool selected = (session_->ui_theme == id);
+            if (ImGui::Selectable(ui::ThemeDisplayName(id), selected))
+            {
+                session_->ui_theme = id;
+                ui::ApplyTheme(session_->ui_theme.c_str(), main_scale_);
+            }
+            if (selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
     }
 
     ImGui::Spacing();
     ImGui::TextDisabled("Theme is saved in session.json and restored on startup.");
 
-    if (ImGui::Button("Reset to default (Cherry)"))
+    const char* default_id = ui::DefaultThemeId();
+    const std::string reset_label =
+        std::string("Reset to default (") + ui::ThemeDisplayName(default_id) + ")";
+    if (ImGui::Button(reset_label.c_str()))
     {
-        session_->ui_theme = ui::kThemeCherry;
+        session_->ui_theme = default_id;
         ui::ApplyTheme(session_->ui_theme.c_str(), main_scale_);
     }
 }

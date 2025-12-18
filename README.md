@@ -4,7 +4,7 @@ A native UTF‑8 ANSI / text-mode art editor.
 
 Phosphor stores glyphs as Unicode codepoints based on the [Unscii](http://viznut.fi/unscii/) 8×16 font, and focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, and browsing 16colo.rs packs.
 
-![Phosphor Screenshot](dist/screenshot.png)
+![Phosphor Screenshot](dist/phosphor.png)
 
 ## Features
 

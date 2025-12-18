@@ -422,6 +422,32 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     const int cols = best_cols;
     const ImVec2 button_size(best_size, best_size);
 
+    auto draw_centered_scaled_text = [&](const ImVec2& item_min, const ImVec2& item_max, const std::string& text) {
+        if (text.empty())
+            return;
+        const ImGuiStyle& s = ImGui::GetStyle();
+        const ImVec2 sz(item_max.x - item_min.x, item_max.y - item_min.y);
+        const float max_w = std::max(1.0f, sz.x - s.FramePadding.x * 2.0f);
+        const float max_h = std::max(1.0f, sz.y - s.FramePadding.y * 2.0f);
+
+        ImFont* font = ImGui::GetFont();
+        // Start large and shrink-to-fit.
+        float font_size = std::max(1.0f, std::min(max_w, max_h) * 0.70f);
+        ImVec2 ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+        if (ts.x > max_w || ts.y > max_h)
+        {
+            const float sx = max_w / std::max(1.0f, ts.x);
+            const float sy = max_h / std::max(1.0f, ts.y);
+            font_size *= std::min(sx, sy);
+            ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+        }
+
+        const ImVec2 pos(item_min.x + (sz.x - ts.x) * 0.5f, item_min.y + (sz.y - ts.y) * 0.5f);
+        ImGui::GetWindowDrawList()->AddText(font, font_size, pos,
+                                           ImGui::GetColorU32(ImGuiCol_Text),
+                                           text.c_str());
+    };
+
     for (int i = 0; i < (int)tools_.size(); ++i)
     {
         if (i % cols != 0)
@@ -433,7 +459,8 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
 
         const std::string& icon = tools_[(size_t)i].icon;
-        if (ImGui::Button(icon.empty() ? "?" : icon.c_str(), button_size))
+        // Render a normal button for interaction/styling, then overlay scaled icon text.
+        if (ImGui::Button("##tool_btn", button_size))
         {
             if (active_index_ != i)
             {
@@ -441,6 +468,11 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
                 active_changed_ = true;
                 changed_this_frame = true;
             }
+        }
+        {
+            const ImVec2 item_min = ImGui::GetItemRectMin();
+            const ImVec2 item_max = ImGui::GetItemRectMax();
+            draw_centered_scaled_text(item_min, item_max, icon.empty() ? "?" : icon);
         }
         if (ImGui::IsItemHovered())
         {

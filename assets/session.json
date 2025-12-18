@@ -1,0 +1,129 @@
+{
+  "content": {
+    "active_tool_path": "/home/j/.config/phosphor/assets/tools/edit.lua",
+    "last_active_canvas_id": -1,
+    "next_canvas_id": 1,
+    "next_image_id": 1,
+    "open_canvases": [],
+    "open_images": []
+  },
+  "imgui_window_chrome": {},
+  "imgui_windows": {
+    "16colo.rs Browser": {
+      "collapsed": false,
+      "h": 941.0,
+      "w": 809.0,
+      "x": 259.0,
+      "y": 165.0
+    },
+    "ANSL Editor": {
+      "collapsed": false,
+      "h": 1079.0,
+      "w": 612.0,
+      "x": 1673.0,
+      "y": 33.0
+    },
+    "Character Palette": {
+      "collapsed": false,
+      "h": 403.0,
+      "w": 1795.0,
+      "x": 260.0,
+      "y": 1119.0
+    },
+    "Character Sets": {
+      "collapsed": false,
+      "h": 129.0,
+      "w": 944.0,
+      "x": 734.0,
+      "y": 36.0
+    },
+    "Colour Picker": {
+      "collapsed": false,
+      "h": 1486.0,
+      "w": 253.0,
+      "x": 3.0,
+      "y": 36.0
+    },
+    "Layer Manager": {
+      "collapsed": false,
+      "h": 397.0,
+      "w": 507.0,
+      "x": 2066.0,
+      "y": 1114.0
+    },
+    "Preview": {
+      "collapsed": false,
+      "h": 1076.0,
+      "w": 278.0,
+      "x": 2288.0,
+      "y": 33.0
+    },
+    "Tool Palette": {
+      "collapsed": false,
+      "h": 125.0,
+      "w": 469.0,
+      "x": 262.0,
+      "y": 39.0
+    },
+    "Unicode Character Picker": {
+      "collapsed": false,
+      "h": 947.0,
+      "w": 608.0,
+      "x": 1070.0,
+      "y": 163.0
+    },
+    "Xterm-256 Color Picker": {
+      "collapsed": false,
+      "h": 1476.0,
+      "w": 249.0,
+      "x": 7.0,
+      "y": 38.0
+    }
+  },
+  "schema_version": 7,
+  "ui": {
+    "canvas_bg_white": false,
+    "character_palette_settings_open": false,
+    "show_16colors_browser_window": true,
+    "show_ansl_editor_window": true,
+    "show_character_palette_window": true,
+    "show_character_picker_window": true,
+    "show_character_sets_window": true,
+    "show_color_picker_window": true,
+    "show_layer_manager_window": true,
+    "show_preview_window": true,
+    "show_settings_window": false,
+    "show_tool_palette_window": true,
+    "theme": "cherry",
+    "xterm_color_picker": {
+      "active_fb": 0,
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "last_hue": 0.0,
+      "picker_mode": 0,
+      "picker_preview_fb": 0,
+      "selected_palette": 0
+    }
+  },
+  "window": {
+    "h": 1522,
+    "maximized": true,
+    "pos_valid": true,
+    "w": 2560,
+    "x": 0,
+    "y": 78
+  },
+  "workspace": {
+    "last_import_image_dir": "/home/j/experiments/phosphor"
+  }
+}

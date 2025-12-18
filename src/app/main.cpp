@@ -421,19 +421,20 @@ int main(int, char**)
     // of abruptly killing the process (which can upset Vulkan/SDL).
     std::signal(SIGINT, HandleInterruptSignal);
 
-    // Load persisted session state (window geometry + tool window toggles).
-    SessionState session_state;
-    {
-        std::string err;
-        if (!LoadSessionState(session_state, err) && !err.empty())
-            std::fprintf(stderr, "[session] %s\n", err.c_str());
-    }
-
     // Extract embedded default assets to the user's config directory on first run.
     {
         std::string err;
         if (!EnsureBundledAssetsExtracted(err))
             std::fprintf(stderr, "[assets] %s\n", err.c_str());
+    }
+
+    // Load persisted session state (window geometry + tool window toggles).
+    // If no user session exists yet, this may fall back to assets/session.json.
+    SessionState session_state;
+    {
+        std::string err;
+        if (!LoadSessionState(session_state, err) && !err.empty())
+            std::fprintf(stderr, "[session] %s\n", err.c_str());
     }
 
     // Setup SDL
@@ -970,7 +971,7 @@ int main(int, char**)
 
             if (ImGui::BeginMenu("Window"))
             {
-                ImGui::MenuItem("Xterm-256 Color Picker", nullptr, &show_color_picker_window);
+                ImGui::MenuItem("Colour Picker", nullptr, &show_color_picker_window);
                 ImGui::MenuItem("Unicode Character Picker", nullptr, &show_character_picker_window);
                 ImGui::MenuItem("Character Palette", nullptr, &show_character_palette_window);
                 ImGui::MenuItem("Character Sets", nullptr, &show_character_sets_window);
@@ -1231,15 +1232,15 @@ int main(int, char**)
                 insert_cp_into_canvas(active_canvas, cp);
         }
 
-        // Xterm-256 color picker showcase window with layout inspired by the ImGui demo.
+        // Colour picker showcase window with layout inspired by the ImGui demo.
         if (show_color_picker_window)
         {
-            const char* name = "Xterm-256 Color Picker";
+            const char* name = "Colour Picker";
             ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
-            ImGui::Begin("Xterm-256 Color Picker", &show_color_picker_window, flags);
+            ImGui::Begin("Colour Picker", &show_color_picker_window, flags);
             CaptureImGuiWindowPlacement(session_state, name);
             ApplyImGuiWindowChromeZOrder(&session_state, name);
             RenderImGuiWindowChromeMenu(&session_state, name);
