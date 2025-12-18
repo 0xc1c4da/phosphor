@@ -323,8 +323,14 @@ void AnsiCanvas::PrepareUndoSnapshot()
 {
     if (m_undo_applying_snapshot)
         return;
+    // Many callers mutate canvas content from outside AnsiCanvas::Render() (e.g. ANSL scripts).
+    // Those mutations still need to bump the content revision so dependent UI caches (minimap
+    // texture, previews) update immediately, even if we're not currently capturing an undo step.
     if (!m_undo_capture_active)
+    {
+        TouchContent();
         return;
+    }
 
     if (!m_undo_capture_has_snapshot)
     {
