@@ -53,9 +53,9 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
 {
     m_last_error.clear();
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;png;jpg;jpeg;gif;bmp"},
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;nfo;diz;png;jpg;jpeg;gif;bmp"},
         {"Phosphor Project (*.phos)", "phos"},
-        {"ANSI / Text (*.ans;*.asc;*.txt)", "ans;asc;txt"},
+        {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", "ans;asc;txt;nfo;diz"},
         {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
         {"All files", "*"},
     };
@@ -199,7 +199,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
 
         // Fast-path by file extension.
         const bool looks_project = is_ext({"phos"});
-        const bool looks_ansi = is_ext({"ans", "asc", "txt"});
+        const bool looks_ansi = is_ext({"ans", "asc", "txt", "nfo", "diz"});
         const bool looks_image = is_ext({"png", "jpg", "jpeg", "gif", "bmp"});
 
         auto try_load_project = [&]() -> bool

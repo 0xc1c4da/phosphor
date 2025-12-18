@@ -311,7 +311,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             const bool is_image =
                 (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "bmp");
             const bool is_textish =
-                (ext == "ans" || ext == "asc" || ext == "txt");
+                (ext == "ans" || ext == "asc" || ext == "txt" || ext == "nfo" || ext == "diz");
 
             if (is_image)
             {
