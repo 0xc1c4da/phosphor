@@ -4,6 +4,7 @@
 #include "core/paths.h"
 #include "core/key_bindings.h"
 #include "io/session/imgui_persistence.h"
+#include "ui/skin.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
 
@@ -136,6 +137,12 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
     tabs_registered_ = true;
 
     RegisterTab(Tab{
+        .id = "skin",
+        .title = "Skin",
+        .render = [this]() { RenderTab_Skin(); },
+    });
+
+    RegisterTab(Tab{
         .id = "key_bindings",
         .title = "Key Bindings",
         .render = [this]() { RenderTab_KeyBindings(); },
@@ -160,6 +167,7 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
         return;
 
     EnsureDefaultTabsRegistered();
+    session_ = session;
 
     // Provide a reasonable default size for first-time users, but prefer persisted placements.
     if (session && apply_placement_this_frame)
@@ -218,6 +226,42 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
 
     ImGui::End();
     PopImGuiWindowChromeAlpha(alpha_pushed);
+}
+
+void SettingsWindow::RenderTab_Skin()
+{
+    if (!session_)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Session state not attached; cannot persist theme.");
+        return;
+    }
+
+    ImGui::TextUnformatted("Theme");
+    ImGui::Separator();
+
+    const char* items[] = { "Moonlight", "Cherry" };
+    int idx = 0;
+    if (session_->ui_theme == ui::kThemeCherry)
+        idx = 1;
+    else
+        idx = 0; // Moonlight default / unknown
+
+    ImGui::SetNextItemWidth(240.0f);
+    if (ImGui::Combo("##theme", &idx, items, IM_ARRAYSIZE(items)))
+    {
+        session_->ui_theme = (idx == 1) ? ui::kThemeCherry : ui::kThemeMoonlight;
+        ui::ApplyTheme(session_->ui_theme.c_str(), main_scale_);
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Theme is saved in session.json and restored on startup.");
+
+    if (ImGui::Button("Reset to default (Cherry)"))
+    {
+        session_->ui_theme = ui::kThemeCherry;
+        ui::ApplyTheme(session_->ui_theme.c_str(), main_scale_);
+    }
 }
 
 void SettingsWindow::RenderTab_KeyBindings()

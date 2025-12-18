@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <locale>
+#include <limits>
 #include <string_view>
 #include <string>
 #include <vector>
@@ -190,6 +191,7 @@ void AnsiCanvas::ApplySnapshot(const Snapshot& s)
     m_undo_applying_snapshot = true;
 
     m_columns = (s.columns > 0) ? s.columns : 80;
+    if (m_columns > 4096) m_columns = 4096;
     m_rows    = (s.rows > 0) ? s.rows : 1;
     m_layers  = s.layers;
     m_active_layer = s.active_layer;
@@ -820,6 +822,11 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
     if (!id)
         return;
 
+    // If the user is editing the status bar (Cols/Rows/Caret), don't run the hidden text input
+    // widget at all. This prevents it from competing for ActiveId / keyboard focus.
+    if (m_status_bar_editing)
+        return;
+
     // SDL3 backend only emits text input events when ImGui indicates it wants text input.
     // The most robust way to do that is to keep a focused InputText widget.
     // We render it "invisible" and use a char-filter callback to apply typed characters
@@ -875,7 +882,14 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
         ImGui::IsMouseReleased(ImGuiMouseButton_Middle);
     const bool any_mouse_interaction = any_mouse_down || any_mouse_click || any_mouse_release;
 
+    // Avoid stealing focus from other UI elements (including our own status-line fields).
+    // If another widget is active, don't force focus back to the hidden InputText.
+    const ImGuiID hidden_id = ImGui::GetID(input_id.c_str());
+    const ImGuiID active_id = ImGui::GetActiveID();
+    const bool other_widget_active = (active_id != 0 && active_id != hidden_id);
+
     if (m_has_focus &&
+        !other_widget_active &&
         !any_mouse_interaction &&
         ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
         ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
@@ -1062,6 +1076,8 @@ void AnsiCanvas::SetColumns(int columns)
 {
     if (columns <= 0)
         return;
+    if (columns > 4096)
+        columns = 4096;
     EnsureDocument();
 
     if (columns == m_columns)
@@ -1108,6 +1124,97 @@ void AnsiCanvas::SetColumns(int columns)
         m_caret_col = m_columns - 1;
     if (m_caret_col < 0)
         m_caret_col = 0;
+
+    // If a floating move is active, cancel it (cropping/resize is simpler than re-mapping).
+    if (m_move.active)
+    {
+        m_move = MoveState{};
+        m_selection = SelectionState{};
+    }
+    else if (HasSelection())
+    {
+        // Clamp selection to new bounds.
+        const int max_x = m_columns - 1;
+        const int max_y = m_rows - 1;
+        if (max_x < 0 || max_y < 0)
+        {
+            m_selection = SelectionState{};
+        }
+        else
+        {
+            int x0 = m_selection.x;
+            int y0 = m_selection.y;
+            int x1 = m_selection.x + m_selection.w - 1;
+            int y1 = m_selection.y + m_selection.h - 1;
+            x0 = std::clamp(x0, 0, max_x);
+            x1 = std::clamp(x1, 0, max_x);
+            y0 = std::clamp(y0, 0, max_y);
+            y1 = std::clamp(y1, 0, max_y);
+            if (x1 < x0 || y1 < y0)
+                m_selection = SelectionState{};
+            else
+                SetSelectionCorners(x0, y0, x1, y1);
+        }
+    }
+}
+
+void AnsiCanvas::SetRows(int rows)
+{
+    if (rows <= 0)
+        return;
+    EnsureDocument();
+
+    if (rows == m_rows)
+        return;
+
+    PrepareUndoSnapshot();
+    m_rows = rows;
+
+    const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
+    for (Layer& layer : m_layers)
+    {
+        layer.cells.resize(need, U' ');
+        layer.fg.resize(need, 0);
+        layer.bg.resize(need, 0);
+    }
+
+    // Clamp caret to new height.
+    if (m_caret_row >= m_rows)
+        m_caret_row = m_rows - 1;
+    if (m_caret_row < 0)
+        m_caret_row = 0;
+
+    // Cancel an active floating move (simpler/safer than trying to crop the in-flight payload).
+    if (m_move.active)
+    {
+        m_move = MoveState{};
+        m_selection = SelectionState{};
+    }
+    else if (HasSelection())
+    {
+        // Clamp selection to new bounds.
+        const int max_x = m_columns - 1;
+        const int max_y = m_rows - 1;
+        if (max_x < 0 || max_y < 0)
+        {
+            m_selection = SelectionState{};
+        }
+        else
+        {
+            int x0 = m_selection.x;
+            int y0 = m_selection.y;
+            int x1 = m_selection.x + m_selection.w - 1;
+            int y1 = m_selection.y + m_selection.h - 1;
+            x0 = std::clamp(x0, 0, max_x);
+            x1 = std::clamp(x1, 0, max_x);
+            y0 = std::clamp(y0, 0, max_y);
+            y1 = std::clamp(y1, 0, max_y);
+            if (x1 < x0 || y1 < y0)
+                m_selection = SelectionState{};
+            else
+                SetSelectionCorners(x0, y0, x1, y1);
+        }
+    }
 }
 
 bool AnsiCanvas::LoadFromFile(const std::string& path)
@@ -1661,7 +1768,10 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             char buf[5] = {0, 0, 0, 0, 0};
             EncodeUtf8(cp, buf);
             ImVec2 text_pos(cell_min.x, cell_min.y);
-            const ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : ImGui::GetColorU32(ImGuiCol_Text);
+            // Canvas background is a fixed black/white fill (not theme-driven), so the
+            // "default" foreground must remain readable regardless of UI skin.
+            const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+            const ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : default_fg;
             draw_list->AddText(font, font_size, text_pos,
                                fg_col,
                                buf, nullptr);
@@ -1706,7 +1816,8 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 {
                     char buf[5] = {0, 0, 0, 0, 0};
                     EncodeUtf8(c.cp, buf);
-                    const ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : ImGui::GetColorU32(ImGuiCol_Text);
+                    const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+                    const ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : default_fg;
                     draw_list->AddText(font, font_size, cell_min, fg_col, buf, nullptr);
                 }
             }
@@ -1756,9 +1867,197 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const float cell_h = font_size;
 
     // Quick status line (foundation for future toolbars).
-    ImGui::Text("Cols: %d  Rows: %d  Cursor: (%d, %d)%s",
-                m_columns, m_rows, m_caret_row, m_caret_col,
-                m_has_focus ? "  [editing]" : "");
+    {
+        ImGui::PushID(id);
+        bool status_editing = false;
+
+        const ImGuiInputTextFlags num_flags =
+            ImGuiInputTextFlags_CharsDecimal |
+            ImGuiInputTextFlags_AutoSelectAll;
+
+        auto sync_buf = [&](const char* label, char* buf, size_t buf_sz, int value)
+        {
+            const ImGuiID wid = ImGui::GetID(label);
+            if (ImGui::GetActiveID() == wid)
+                return;
+            std::snprintf(buf, buf_sz, "%d", value);
+        };
+
+        auto parse_int = [&](const char* buf, int& out) -> bool
+        {
+            if (!buf || !*buf)
+                return false;
+            char* end = nullptr;
+            long v = std::strtol(buf, &end, 10);
+            if (end == buf)
+                return false;
+            if (v < (long)std::numeric_limits<int>::min()) v = (long)std::numeric_limits<int>::min();
+            if (v > (long)std::numeric_limits<int>::max()) v = (long)std::numeric_limits<int>::max();
+            out = (int)v;
+            return true;
+        };
+
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float w_int =
+            std::max(90.0f,
+                     ImGui::CalcTextSize("000000").x + style.FramePadding.x * 2.0f);
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Cols:");
+        ImGui::SameLine();
+        ImGui::PushItemWidth(w_int);
+        sync_buf("##cols", m_status_cols_buf, sizeof(m_status_cols_buf), m_columns);
+        ImGui::InputText("##cols", m_status_cols_buf, sizeof(m_status_cols_buf), num_flags);
+        ImGui::PopItemWidth();
+        status_editing = status_editing || ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit())
+        {
+            int v = m_columns;
+            if (parse_int(m_status_cols_buf, v))
+            {
+                if (v < 1) v = 1;
+                if (v != m_columns)
+                    SetColumns(v);
+                std::snprintf(m_status_cols_buf, sizeof(m_status_cols_buf), "%d", m_columns);
+            }
+            else
+            {
+                std::snprintf(m_status_cols_buf, sizeof(m_status_cols_buf), "%d", m_columns);
+            }
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Rows:");
+        ImGui::SameLine();
+        ImGui::PushItemWidth(w_int);
+        sync_buf("##rows", m_status_rows_buf, sizeof(m_status_rows_buf), m_rows);
+        ImGui::InputText("##rows", m_status_rows_buf, sizeof(m_status_rows_buf), num_flags);
+        ImGui::PopItemWidth();
+        status_editing = status_editing || ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit())
+        {
+            int v = m_rows;
+            if (parse_int(m_status_rows_buf, v))
+            {
+                if (v < 1) v = 1;
+                if (v != m_rows)
+                    SetRows(v);
+                std::snprintf(m_status_rows_buf, sizeof(m_status_rows_buf), "%d", m_rows);
+            }
+            else
+            {
+                std::snprintf(m_status_rows_buf, sizeof(m_status_rows_buf), "%d", m_rows);
+            }
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Caret:");
+        ImGui::SameLine();
+        ImGui::TextUnformatted("(");
+        ImGui::SameLine();
+
+        ImGui::PushItemWidth(w_int);
+        sync_buf("##caret_x", m_status_caret_x_buf, sizeof(m_status_caret_x_buf), m_caret_col);
+        ImGui::InputText("##caret_x", m_status_caret_x_buf, sizeof(m_status_caret_x_buf), num_flags);
+        ImGui::PopItemWidth();
+        status_editing = status_editing || ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit())
+        {
+            int x = m_caret_col;
+            if (parse_int(m_status_caret_x_buf, x))
+            {
+                if (x < 0) x = 0;
+                if (m_columns > 0 && x >= m_columns) x = m_columns - 1;
+                SetCaretCell(x, m_caret_row);
+                std::snprintf(m_status_caret_x_buf, sizeof(m_status_caret_x_buf), "%d", m_caret_col);
+            }
+            else
+            {
+                std::snprintf(m_status_caret_x_buf, sizeof(m_status_caret_x_buf), "%d", m_caret_col);
+            }
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted(",");
+        ImGui::SameLine();
+
+        ImGui::PushItemWidth(w_int);
+        sync_buf("##caret_y", m_status_caret_y_buf, sizeof(m_status_caret_y_buf), m_caret_row);
+        ImGui::InputText("##caret_y", m_status_caret_y_buf, sizeof(m_status_caret_y_buf), num_flags);
+        ImGui::PopItemWidth();
+        status_editing = status_editing || ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit())
+        {
+            int y = m_caret_row;
+            if (parse_int(m_status_caret_y_buf, y))
+            {
+                if (y < 0) y = 0;
+                // Keep caret within current canvas rows; resize first if you want to move beyond.
+                if (m_rows > 0 && y >= m_rows) y = m_rows - 1;
+                SetCaretCell(m_caret_col, y);
+                std::snprintf(m_status_caret_y_buf, sizeof(m_status_caret_y_buf), "%d", m_caret_row);
+            }
+            else
+            {
+                std::snprintf(m_status_caret_y_buf, sizeof(m_status_caret_y_buf), "%d", m_caret_row);
+            }
+        }
+
+        ImGui::SameLine();
+        ImGui::TextUnformatted(")");
+
+        // Right-aligned "Edit SAUCE…" button (requested).
+        {
+            const char* btn_label = "Edit SAUCE...";
+            const float btn_w = ImGui::CalcTextSize(btn_label).x + style.FramePadding.x * 2.0f;
+            const float right_x = ImGui::GetWindowContentRegionMax().x; // window-local
+
+            ImGui::SameLine();
+            // Canvas background toggle square (black/white) lives just left of the SAUCE button.
+            const float sq = ImGui::GetFrameHeight();
+            const float total_w = sq + style.ItemSpacing.x + btn_w;
+
+            float x = right_x - total_w;
+            // Avoid going backwards too aggressively; this is a best-effort alignment.
+            if (x > ImGui::GetCursorPosX())
+                ImGui::SetCursorPosX(x);
+
+            const ImVec4 bg_col = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
+            ImGuiColorEditFlags cflags =
+                ImGuiColorEditFlags_NoTooltip |
+                ImGuiColorEditFlags_NoAlpha |
+                ImGuiColorEditFlags_NoPicker |
+                ImGuiColorEditFlags_NoDragDrop;
+            if (ImGui::ColorButton("##canvas_bg", bg_col, cflags, ImVec2(sq, sq)))
+            {
+                ToggleCanvasBackgroundWhite();
+                status_editing = true; // prevent the hidden input widget from stealing focus this frame
+            }
+            // Outline for visibility regardless of theme.
+            {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ImVec2 p0 = ImGui::GetItemRectMin();
+                const ImVec2 p1 = ImGui::GetItemRectMax();
+                const ImU32 outline = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+                dl->AddRect(p0, p1, outline);
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button(btn_label))
+            {
+                m_request_open_sauce_editor = true;
+                status_editing = true; // prevent the hidden input widget from stealing focus this frame
+            }
+        }
+
+        // Tell the hidden canvas text-input widget to stand down while the user edits these fields.
+        // Also drop canvas focus so tools don't react to keystrokes during numeric entry.
+        m_status_bar_editing = status_editing;
+        if (status_editing)
+            m_has_focus = false;
+
+        ImGui::PopID();
+    }
 
     // Hidden input widget to reliably receive UTF-8 text events from SDL3.
     //
@@ -1766,8 +2065,17 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // forcing keyboard focus to it (SetKeyboardFocusHere) will cause ImGui to scroll
     // the child to reveal the focused item, which feels like the canvas "jumps" to
     // the top when you click/paint while scrolled.
-    ImGui::SameLine();
-    HandleCharInputWidget(id);
+    //
+    // Also IMPORTANT: do not let this widget alter layout or become visible (caret '|').
+    // We render it off-screen and restore cursor pos so the canvas placement is unchanged.
+    if (!m_status_bar_editing)
+    {
+        const ImVec2 saved = ImGui::GetCursorPos();
+        const float line_h = ImGui::GetFrameHeightWithSpacing();
+        ImGui::SetCursorPos(ImVec2(-10000.0f, saved.y - line_h));
+        HandleCharInputWidget(id);
+        ImGui::SetCursorPos(saved);
+    }
 
     // Layer GUI lives in the LayerManager component (see layer_manager.*).
 
@@ -1777,9 +2085,14 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGuiWindowFlags_HorizontalScrollbar |
         ImGuiWindowFlags_NoNavInputs |
         ImGuiWindowFlags_NoNavFocus;
+    // Canvas "paper" background is independent of the UI theme, so also override the
+    // child window background (covers areas outside the grid, e.g. when the canvas is small).
+    const ImVec4 canvas_bg = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, canvas_bg);
     if (!ImGui::BeginChild(child_id.c_str(), ImVec2(0, 0), true, child_flags))
     {
         ImGui::EndChild();
+        ImGui::PopStyleColor();
         return;
     }
 
@@ -1907,6 +2220,15 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     origin.x = std::floor(origin.x);
     origin.y = std::floor(origin.y);
 
+    // Base canvas background is NOT theme-driven; it's a fixed black/white fill so
+    // the editing "paper" stays consistent regardless of UI skin.
+    {
+        const ImU32 bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
+        draw_list->AddRectFilled(origin,
+                                 ImVec2(origin.x + canvas_size.x, origin.y + canvas_size.y),
+                                 bg);
+    }
+
     // Focus rules:
     // - click inside the grid to focus
     // - click elsewhere *within the same canvas window* to defocus
@@ -1990,6 +2312,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
 
     ImGui::EndChild();
+    ImGui::PopStyleColor();
 }
 
 AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
@@ -2020,7 +2343,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 1;
+    out.version = 2;
+    out.sauce = m_sauce;
     out.current = to_project_snapshot(MakeSnapshot());
     out.undo_limit = m_undo_limit;
 
@@ -2066,6 +2390,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     auto to_internal_snapshot = [&](const ProjectSnapshot& s, Snapshot& out, std::string& err) -> bool
     {
         out.columns = (s.columns > 0) ? s.columns : 80;
+        if (out.columns > 4096) out.columns = 4096;
         out.rows = (s.rows > 0) ? s.rows : 1;
         out.active_layer = s.active_layer;
         out.caret_row = s.caret_row;
@@ -2122,6 +2447,9 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     m_undo_limit = (state.undo_limit > 0) ? state.undo_limit : 256;
     m_undo_stack = std::move(undo_internal);
     m_redo_stack = std::move(redo_internal);
+
+    // Metadata (non-undoable, persisted).
+    m_sauce = state.sauce;
 
     ApplySnapshot(current_internal);
 

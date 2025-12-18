@@ -93,6 +93,13 @@ struct SessionState
     bool show_preview_window = true;
     bool show_settings_window = false;
 
+    // UI skin/theme (ImGui style). Persisted in session.json.
+    // Stable ids are defined in ui/skin.h (e.g. "moonlight", "cherry").
+    std::string ui_theme = "cherry";
+
+    // Canvas background (independent of ImGui theme). False = black, true = white.
+    bool canvas_bg_white = false;
+
     // Per-tool UI state
     bool character_palette_settings_open = true;
     XtermColorPickerState xterm_color_picker;

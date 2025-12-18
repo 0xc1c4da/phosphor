@@ -30,6 +30,9 @@ public:
     // Set the fixed number of columns in the grid.
     // Rows are dynamic and grow as needed ("infinite rows").
     void SetColumns(int columns);
+    // Sets the allocated number of rows in the grid (>= 1).
+    // Unlike EnsureRows(), this can also SHRINK (crop) the document.
+    void SetRows(int rows);
     int  GetColumns() const { return m_columns; }
     int  GetRows() const { return m_rows; } // allocated rows (>= 1)
 
@@ -149,6 +152,33 @@ public:
     struct ProjectState
     {
         int                     version = 1;
+
+        // Optional SAUCE metadata associated with this canvas/project.
+        // This is persisted in .phos and session state, and may be populated when importing
+        // SAUCEd files (e.g. .ans). It is not currently used by the renderer.
+        struct SauceMeta
+        {
+            bool present = false;
+            std::string title;
+            std::string author;
+            std::string group;
+            std::string date; // "CCYYMMDD" (raw string, may be empty)
+
+            // Raw SAUCE fields for round-tripping.
+            std::uint32_t file_size = 0;
+            std::uint8_t  data_type = 1;
+            std::uint8_t  file_type = 1;
+            std::uint16_t tinfo1 = 0;
+            std::uint16_t tinfo2 = 0;
+            std::uint16_t tinfo3 = 0;
+            std::uint16_t tinfo4 = 0;
+            std::uint8_t  tflags = 0;
+            std::string   tinfos; // font name (SAUCE TInfoS)
+            std::vector<std::string> comments;
+        };
+
+        SauceMeta               sauce;
+
         ProjectSnapshot         current;
         std::vector<ProjectSnapshot> undo;
         std::vector<ProjectSnapshot> redo;
@@ -160,6 +190,19 @@ public:
     // Returns false on validation failure and leaves the canvas unchanged.
     bool SetProjectState(const ProjectState& state, std::string& out_error);
 
+    // SAUCE metadata accessors (stored alongside the canvas, persisted via ProjectState).
+    const ProjectState::SauceMeta& GetSauceMeta() const { return m_sauce; }
+    void SetSauceMeta(const ProjectState::SauceMeta& meta) { m_sauce = meta; }
+
+    // UI hook: raised when the canvas status bar "Edit SAUCE…" button is clicked.
+    // This allows UI code (in src/ui) to show a dialog without introducing a core->ui dependency.
+    bool TakeOpenSauceEditorRequest()
+    {
+        const bool v = m_request_open_sauce_editor;
+        m_request_open_sauce_editor = false;
+        return v;
+    }
+
     // Render the canvas inside the current ImGui window.
     // `id` must be unique within the window (used for ImGui item id).
     void Render(const char* id);
@@ -169,6 +212,13 @@ public:
     //    (so row growth affects scroll range immediately).
     //  - phase=1 (mouse): after the canvas InvisibleButton updates cursor state for this frame.
     void Render(const char* id, const std::function<void(AnsiCanvas& canvas, int phase)>& tool_runner = {});
+
+    // ---------------------------------------------------------------------
+    // Canvas background (view preference; independent of ImGui theme)
+    // ---------------------------------------------------------------------
+    bool IsCanvasBackgroundWhite() const { return m_canvas_bg_white; }
+    void SetCanvasBackgroundWhite(bool white) { m_canvas_bg_white = white; }
+    void ToggleCanvasBackgroundWhite() { m_canvas_bg_white = !m_canvas_bg_white; }
 
     // ---------------------------------------------------------------------
     // Public layer editing API (used by tools/scripts)
@@ -354,6 +404,14 @@ private:
     float    m_zoom = 1.0f;
     ViewState m_last_view;
 
+    // Canvas base background fill (not theme-driven).
+    bool m_canvas_bg_white = false;
+
+    // Optional SAUCE metadata associated with this canvas (persisted).
+    ProjectState::SauceMeta m_sauce;
+
+    bool m_request_open_sauce_editor = false;
+
     // Deferred scroll request (applied during next Render() when child is active).
     bool  m_scroll_request_valid = false;
     float m_scroll_request_x = 0.0f;
@@ -405,6 +463,13 @@ private:
         std::vector<ClipCell> cells; // size w*h
     };
     MoveState m_move;
+
+    // Status-line edit buffers (so inline numeric InputText can be edited across frames).
+    char m_status_cols_buf[16] = {};
+    char m_status_rows_buf[16] = {};
+    char m_status_caret_x_buf[16] = {};
+    char m_status_caret_y_buf[16] = {};
+    bool m_status_bar_editing = false;
 
     // Undo/Redo stacks. Each entry is a full document snapshot.
     std::vector<Snapshot> m_undo_stack;

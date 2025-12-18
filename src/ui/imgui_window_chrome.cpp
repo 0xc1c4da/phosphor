@@ -146,8 +146,6 @@ void ApplyImGuiWindowChromeGlobalZOrder(const SessionState& session)
             ImGuiWindow* w = g.Windows[i];
             if (!w)
                 continue;
-            if (!w->WasActive)
-                continue;
             const ImGuiWindowFlags wf = w->Flags;
             if (wf & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Modal | ImGuiWindowFlags_Tooltip))
                 overlays.push_back(w);

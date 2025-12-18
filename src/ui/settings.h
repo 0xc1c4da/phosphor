@@ -32,6 +32,9 @@ public:
     // The window does not own the engine.
     void SetKeyBindingsEngine(kb::KeyBindingsEngine* engine) { keybinds_ = engine; }
 
+    // Provides the current UI scale factor so style/theme application can re-scale correctly.
+    void SetMainScale(float scale) { main_scale_ = scale; }
+
     // Extendable: allows future subsystems to register additional tabs/panels.
     // If a tab with the same id exists, it is replaced.
     void RegisterTab(const Tab& tab);
@@ -43,6 +46,7 @@ public:
 private:
     void EnsureDefaultTabsRegistered();
     void RenderTab_KeyBindings();
+    void RenderTab_Skin();
 
 private:
     bool open_ = false;
@@ -54,6 +58,12 @@ private:
 
     // Key bindings model lives in core; UI just edits it.
     kb::KeyBindingsEngine* keybinds_ = nullptr;
+
+    // Session state (non-owning) provided by Render().
+    SessionState*          session_ = nullptr;
+
+    // UI scale factor (HiDPI). Set by the app.
+    float                 main_scale_ = 1.0f;
 
     // UI state
     std::string           filter_text_;

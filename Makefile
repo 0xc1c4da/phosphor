@@ -23,6 +23,7 @@ SOURCES  = \
            src/ansl/ansl_script_engine.cpp \
            src/ansl/ansl_luajit.cpp \
            src/ansl/ansl_sort.cpp \
+           src/ui/ImGuiDatePicker.cpp \
            src/ui/ansl_editor.cpp \
            src/ui/ansl_params_ui.cpp \
            src/ui/character_palette.cpp \
@@ -35,9 +36,12 @@ SOURCES  = \
            src/ui/image_to_chafa_dialog.cpp \
            src/ui/layer_manager.cpp \
            src/ui/preview_window.cpp \
+           src/ui/skin.cpp \
            src/ui/settings.cpp \
+           src/ui/sauce_editor_dialog.cpp \
            src/ui/tool_palette.cpp \
            src/io/ansi_importer.cpp \
+           src/io/sauce.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
            src/io/io_manager.cpp \

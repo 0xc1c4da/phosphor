@@ -55,7 +55,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 4;
+    j["schema_version"] = 6;
 
     json win;
     win["w"] = st.window_w;
@@ -76,6 +76,9 @@ static json ToJson(const SessionState& st)
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
     ui["show_preview_window"] = st.show_preview_window;
     ui["show_settings_window"] = st.show_settings_window;
+    if (!st.ui_theme.empty())
+        ui["theme"] = st.ui_theme;
+    ui["canvas_bg_white"] = st.canvas_bg_white;
     ui["character_palette_settings_open"] = st.character_palette_settings_open;
 
     // Xterm-256 picker UI state
@@ -213,6 +216,10 @@ static void FromJson(const json& j, SessionState& out)
             out.show_preview_window = ui["show_preview_window"].get<bool>();
         if (ui.contains("show_settings_window") && ui["show_settings_window"].is_boolean())
             out.show_settings_window = ui["show_settings_window"].get<bool>();
+        if (ui.contains("theme") && ui["theme"].is_string())
+            out.ui_theme = ui["theme"].get<std::string>();
+        if (ui.contains("canvas_bg_white") && ui["canvas_bg_white"].is_boolean())
+            out.canvas_bg_white = ui["canvas_bg_white"].get<bool>();
         if (ui.contains("character_palette_settings_open") && ui["character_palette_settings_open"].is_boolean())
             out.character_palette_settings_open = ui["character_palette_settings_open"].get<bool>();
 
@@ -375,7 +382,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

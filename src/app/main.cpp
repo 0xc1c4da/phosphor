@@ -41,6 +41,8 @@
 #include "ui/settings.h"
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
+#include "ui/skin.h"
+#include "ui/sauce_editor_dialog.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
 #include "io/session/session_state.h"
@@ -402,6 +404,7 @@ struct CanvasWindow
     bool open = true;
     int  id   = 0;
     AnsiCanvas canvas;
+    SauceEditorDialog sauce_dialog;
 };
 
 // Main code
@@ -510,13 +513,10 @@ int main(int, char**)
     // Load Unscii as the default font (mono, great for UTF‑8 art).
     io.Fonts->AddFontFromFileTTF(PhosphorAssetPath("unscii-16-full.ttf").c_str(), 16.0f);
 
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-
-    // Setup scaling
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.ScaleAllSizes(main_scale);
-    style.FontScaleDpi = main_scale;
+    // Setup Dear ImGui style (theme + HiDPI scaling).
+    if (session_state.ui_theme.empty())
+        session_state.ui_theme = ui::DefaultThemeId();
+    ui::ApplyTheme(session_state.ui_theme.c_str(), main_scale);
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForVulkan(window);
@@ -551,6 +551,7 @@ int main(int, char**)
     bool   show_settings_window = session_state.show_settings_window;
     SettingsWindow settings_window;
     settings_window.SetOpen(show_settings_window);
+    settings_window.SetMainScale(main_scale);
 
     // Key bindings engine (shared across app shortcuts + ANSL tool hotkeys + Settings UI).
     kb::KeyBindingsEngine keybinds;
@@ -839,9 +840,11 @@ int main(int, char**)
             canvas_window.open = true;
             canvas_window.id = next_canvas_id++;
 
-            // Load test.ans into the new canvas. If it fails, the canvas starts empty.
+            // Create a new blank canvas with a single base layer.
+            // The canvas uses a fixed column count with rows that grow on demand, so we
+            // preallocate a sensible default document size (80x25) for new files.
             canvas_window.canvas.SetColumns(80);
-            canvas_window.canvas.LoadFromFile("test.ans");
+            canvas_window.canvas.EnsureRowsPublic(25);
 
             canvases.push_back(canvas_window);
             last_active_canvas_id = canvas_window.id;
@@ -1504,6 +1507,62 @@ int main(int, char**)
             std::string title = "Canvas " + std::to_string(canvas.id) +
                                 "##canvas" + std::to_string(canvas.id);
 
+            // First-time canvas window placement: size to the grid (cols x rows) at the
+            // current font + zoom, and center it. Persisted placements still win.
+            {
+                const auto it = session_state.imgui_windows.find(title);
+                const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
+                if (!has_saved)
+                {
+                    ImGuiViewport* vp = ImGui::GetMainViewport();
+                    const ImVec2 work_pos  = vp ? vp->WorkPos  : ImVec2(0, 0);
+                    const ImVec2 work_size = vp ? vp->WorkSize : ImVec2(1280, 720);
+                    const ImVec2 center(work_pos.x + work_size.x * 0.5f,
+                                        work_pos.y + work_size.y * 0.5f);
+
+                    // Match the canvas' internal cell sizing logic.
+                    ImFont* font = ImGui::GetFont();
+                    const float font_size = ImGui::GetFontSize();
+                    const float base_cell_w = font ? font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, "M", "M" + 1).x : 8.0f;
+                    const float base_cell_h = font_size;
+                    const float zoom = canvas.canvas.GetZoom();
+
+                    float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
+                    if (snapped_cell_w < 1.0f) snapped_cell_w = 1.0f;
+                    const float snapped_scale = (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
+                    float scaled_cell_w = snapped_cell_w;
+                    float scaled_cell_h = std::floor(base_cell_h * snapped_scale + 0.5f);
+                    if (scaled_cell_h < 1.0f) scaled_cell_h = 1.0f;
+
+                    const int cols = canvas.canvas.GetColumns();
+                    const int rows = canvas.canvas.GetRows();
+                    const ImVec2 grid_px(scaled_cell_w * (float)cols,
+                                         scaled_cell_h * (float)rows);
+
+                    // Canvas UI has a single status line above the scrollable grid.
+                    const float status_h =
+                        std::max(ImGui::GetTextLineHeightWithSpacing(),
+                                 ImGui::GetFrameHeightWithSpacing());
+
+                    const ImGuiStyle& style = ImGui::GetStyle();
+                    ImVec2 desired(grid_px.x + style.WindowPadding.x * 2.0f + 2.0f,
+                                   status_h + grid_px.y + style.WindowPadding.y * 2.0f + 2.0f);
+
+                    // Clamp to viewport so large canvases don't create absurd windows.
+                    const float margin = 40.0f;
+                    const ImVec2 max_sz(std::max(200.0f, work_size.x - margin),
+                                        std::max(150.0f, work_size.y - margin));
+                    if (desired.x > max_sz.x) desired.x = max_sz.x;
+                    if (desired.y > max_sz.y) desired.y = max_sz.y;
+
+                    // Slight diagonal offset per canvas id so multiple new canvases don't perfectly overlap.
+                    const float offset = 18.0f * (float)((canvas.id - 1) % 10);
+                    const ImVec2 pos(center.x + offset, center.y + offset);
+                    ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+                    ImGui::SetNextWindowSize(desired, ImGuiCond_Appearing);
+                }
+            }
+
             ApplyImGuiWindowPlacement(session_state, title.c_str(), should_apply_placement(title.c_str()));
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
@@ -1634,7 +1693,19 @@ int main(int, char**)
                 }
             };
 
+            // Apply global session canvas background preference, but allow the canvas UI
+            // to toggle it (we read back after render to persist).
+            canvas.canvas.SetCanvasBackgroundWhite(session_state.canvas_bg_white);
             canvas.canvas.Render(id_buf, tool_runner);
+            session_state.canvas_bg_white = canvas.canvas.IsCanvasBackgroundWhite();
+
+            // SAUCE editor dialog (opened via the canvas status bar button).
+            if (canvas.canvas.TakeOpenSauceEditorRequest())
+                canvas.sauce_dialog.OpenFromCanvas(canvas.canvas);
+
+            char sauce_popup_id[64];
+            snprintf(sauce_popup_id, sizeof(sauce_popup_id), "Edit SAUCE##sauce_%d", canvas.id);
+            canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id);
 
             ImGui::End();
             PopImGuiWindowChromeAlpha(alpha_pushed);

@@ -8,12 +8,31 @@ void ApplyImGuiWindowPlacement(const SessionState& session, const char* window_n
         return;
 
     auto it = session.imgui_windows.find(window_name);
-    if (it == session.imgui_windows.end())
+    if (it == session.imgui_windows.end() || !it->second.valid)
+    {
+        // No persisted placement yet (first time this window is created this session).
+        // Provide a sane default so windows don't spawn tiny at (0,0).
+        ImGuiViewport* vp = ImGui::GetMainViewport();
+        const ImVec2 work_pos  = vp ? vp->WorkPos  : ImVec2(0, 0);
+        const ImVec2 work_size = vp ? vp->WorkSize : ImVec2(1280, 720);
+        const ImVec2 center(work_pos.x + work_size.x * 0.5f,
+                            work_pos.y + work_size.y * 0.5f);
+
+        // Reasonable generic default size; specialized windows (e.g. canvases) can override
+        // by calling SetNextWindowSize/Pos before this helper.
+        const float margin = 40.0f;
+        ImVec2 default_size(720.0f, 520.0f);
+        if (default_size.x > work_size.x - margin) default_size.x = work_size.x - margin;
+        if (default_size.y > work_size.y - margin) default_size.y = work_size.y - margin;
+        if (default_size.x < 200.0f) default_size.x = 200.0f;
+        if (default_size.y < 150.0f) default_size.y = 150.0f;
+
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(default_size, ImGuiCond_Appearing);
         return;
+    }
 
     const ImGuiWindowPlacement& p = it->second;
-    if (!p.valid)
-        return;
 
     // Only apply on the designated frame (typically first frame) so we don't
     // fight user interaction.

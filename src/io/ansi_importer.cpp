@@ -1,6 +1,7 @@
 #include "io/ansi_importer.h"
 
 #include "core/xterm256_palette.h"
+#include "io/sauce.h"
 
 #include <algorithm>
 #include <cctype>
@@ -196,51 +197,35 @@ static bool LooksLikeUtf8Text(const std::vector<std::uint8_t>& bytes)
     return ratio >= 0.95 && ok >= 4;
 }
 
-struct SauceInfo
+static void GetSauceDimensions(const sauce::Parsed& sp, int& out_cols, int& out_rows)
 {
-    bool valid = false;
-    int  columns = 0;
-    int  rows = 0;
-};
+    out_cols = 0;
+    out_rows = 0;
+    if (!sp.record.present)
+        return;
 
-static SauceInfo ParseSauce(const std::vector<std::uint8_t>& bytes)
-{
-    // SAUCE record is 128 bytes at EOF, preceded by optional 0x1A.
-    // Layout: "SAUCE" + version + title/author/group/date + datatype/filetype + tinfo1/tinfo2...
-    // For ANSI, tinfo1 = columns, tinfo2 = rows, little-endian 16-bit.
-    SauceInfo out;
-    if (bytes.size() < 128)
-        return out;
-
-    const size_t sauce_off = bytes.size() - 128;
-    if (!(bytes[sauce_off + 0] == 'S' &&
-          bytes[sauce_off + 1] == 'A' &&
-          bytes[sauce_off + 2] == 'U' &&
-          bytes[sauce_off + 3] == 'C' &&
-          bytes[sauce_off + 4] == 'E'))
-        return out;
-
-    auto u16le = [&](size_t off) -> int
+    const std::uint8_t dt = sp.record.data_type;
+    if (dt == (std::uint8_t)sauce::DataType::BinaryText)
     {
-        const std::uint16_t v = (std::uint16_t)bytes[sauce_off + off + 0] |
-                                ((std::uint16_t)bytes[sauce_off + off + 1] << 8);
-        return (int)v;
-    };
-
-    // SAUCE spec offsets (within the 128-byte record):
-    // - DataType:  90 (1 byte)
-    // - FileType:  91 (1 byte)
-    // - TInfo1:    92..93 (u16 LE)  -> columns (for ANSI)
-    // - TInfo2:    94..95 (u16 LE)  -> rows    (for ANSI)
-    const int cols = u16le(92);
-    const int rows = u16le(94);
-    if (cols > 0 && cols <= 4096)
-    {
-        out.valid = true;
-        out.columns = cols;
-        out.rows = (rows > 0 && rows <= 16384) ? rows : 0;
+        // For BinaryText, SAUCE stores width in FileType as "half the width" (even widths only).
+        const int cols = (int)sp.record.file_type * 2;
+        if (cols > 0)
+        {
+            out_cols = cols;
+            // Best-effort: infer height from payload length (char/attr pairs).
+            const size_t bytes_per_row = (size_t)cols * 2;
+            if (bytes_per_row > 0)
+                out_rows = (int)(sp.payload_size / bytes_per_row);
+        }
+        return;
     }
-    return out;
+
+    if (dt == (std::uint8_t)sauce::DataType::Character || dt == (std::uint8_t)sauce::DataType::XBin)
+    {
+        out_cols = (int)sp.record.tinfo1;
+        out_rows = (int)sp.record.tinfo2;
+        return;
+    }
 }
 
 static void ParseParams(std::string_view s, std::vector<int>& out)
@@ -349,16 +334,23 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     err.clear();
 
     // Prefer SAUCE columns only when caller requests "auto" columns.
-    const SauceInfo sauce = ParseSauce(bytes);
+    sauce::Parsed sp;
+    std::string serr;
+    (void)sauce::ParseFromBytes(bytes, sp, serr, true /* SAUCE fields are spec'd as CP437 */);
+    int sauce_cols = 0;
+    int sauce_rows = 0;
+    GetSauceDimensions(sp, sauce_cols, sauce_rows);
     int columns = ClampColumns(options.columns > 0 ? options.columns : 80);
-    if (sauce.valid && options.columns <= 0)
-        columns = ClampColumns(sauce.columns);
+    if (sauce_cols > 0 && options.columns <= 0)
+        columns = ClampColumns(sauce_cols);
     if (bytes.empty())
     {
         out_canvas = AnsiCanvas(columns);
         out_canvas.EnsureRowsPublic(1);
         return true;
     }
+
+    const size_t parse_len = sp.record.present ? std::min(sp.payload_size, bytes.size()) : bytes.size();
 
     // Document state we build and apply as a ProjectState for efficient import.
     int row = 0;
@@ -467,7 +459,7 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         return p[idx];
     };
 
-    while (i < bytes.size() && state != State::End)
+    while (i < parse_len && state != State::End)
     {
         if (options.wrap_policy == Options::WrapPolicy::LibAnsiLoveEager)
         {
@@ -814,7 +806,7 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     ensure_rows(out_rows);
 
     AnsiCanvas::ProjectState st;
-    st.version = 1;
+    st.version = 2;
     st.undo_limit = 256;
     st.current.columns = out_cols;
     st.current.rows = out_rows;
@@ -828,6 +820,26 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].cells = std::move(cells);
     st.current.layers[0].fg = std::move(fg);
     st.current.layers[0].bg = std::move(bg);
+
+    // Preserve SAUCE metadata (if present) in the project state so exports and .phos saves can reuse it.
+    if (sp.record.present)
+    {
+        st.sauce.present = true;
+        st.sauce.title = sp.record.title;
+        st.sauce.author = sp.record.author;
+        st.sauce.group = sp.record.group;
+        st.sauce.date = sp.record.date;
+        st.sauce.file_size = sp.record.file_size;
+        st.sauce.data_type = sp.record.data_type;
+        st.sauce.file_type = sp.record.file_type;
+        st.sauce.tinfo1 = sp.record.tinfo1;
+        st.sauce.tinfo2 = sp.record.tinfo2;
+        st.sauce.tinfo3 = sp.record.tinfo3;
+        st.sauce.tinfo4 = sp.record.tinfo4;
+        st.sauce.tflags = sp.record.tflags;
+        st.sauce.tinfos = sp.record.tinfos;
+        st.sauce.comments = sp.record.comments;
+    }
 
     AnsiCanvas canvas(out_cols);
     std::string apply_err;
