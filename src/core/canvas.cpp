@@ -30,6 +30,17 @@ struct GlobalClipboard
 static GlobalClipboard g_clipboard;
 } // namespace
 
+// IMPORTANT:
+// Many parts of this app implement per-window opacity via PushImGuiWindowChromeAlpha(),
+// which multiplies ImGuiStyleVar_Alpha. ImDrawList primitives that use raw IM_COL32 /
+// raw ImU32 colors bypass that multiplication unless we apply it manually.
+static inline ImU32 ApplyCurrentStyleAlpha(ImU32 col)
+{
+    // Convert to float4 (includes original alpha), then let ImGui re-pack while applying style.Alpha.
+    const ImVec4 v = ImGui::ColorConvertU32ToFloat4(col);
+    return ImGui::GetColorU32(v);
+}
+
 // Utility: encode a single UTF-32 codepoint into UTF-8.
 static int EncodeUtf8(char32_t cp, char out[5])
 {
@@ -1751,7 +1762,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             // Background fill (if set).
             if (cell.bg != 0)
             {
-                draw_list->AddRectFilled(cell_min, cell_max, (ImU32)cell.bg);
+                draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha((ImU32)cell.bg));
             }
 
             // Caret highlight.
@@ -1773,7 +1784,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
             const ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : default_fg;
             draw_list->AddText(font, font_size, text_pos,
-                               fg_col,
+                               ApplyCurrentStyleAlpha(fg_col),
                                buf, nullptr);
         }
     }
@@ -1811,14 +1822,14 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 ImVec2 cell_max(cell_min.x + cell_w,
                                 cell_min.y + cell_h);
                 if (c.bg != 0)
-                    draw_list->AddRectFilled(cell_min, cell_max, (ImU32)c.bg);
+                    draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha((ImU32)c.bg));
                 if (c.cp != U' ')
                 {
                     char buf[5] = {0, 0, 0, 0, 0};
                     EncodeUtf8(c.cp, buf);
                     const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
                     const ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : default_fg;
-                    draw_list->AddText(font, font_size, cell_min, fg_col, buf, nullptr);
+                    draw_list->AddText(font, font_size, cell_min, ApplyCurrentStyleAlpha(fg_col), buf, nullptr);
                 }
             }
         }
@@ -2049,7 +2060,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                 const ImVec2 p0 = ImGui::GetItemRectMin();
                 const ImVec2 p1 = ImGui::GetItemRectMax();
                 const ImU32 outline = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
-                dl->AddRect(p0, p1, outline);
+                dl->AddRect(p0, p1, ApplyCurrentStyleAlpha(outline));
             }
 
             ImGui::SameLine();
@@ -2242,7 +2253,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         const ImU32 bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
         draw_list->AddRectFilled(origin,
                                  ImVec2(origin.x + canvas_size.x, origin.y + canvas_size.y),
-                                 bg);
+                                 ApplyCurrentStyleAlpha(bg));
     }
 
     // Focus rules:

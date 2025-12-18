@@ -27,6 +27,18 @@ public:
 
     explicit AnsiCanvas(int columns = 80);
 
+    // ---------------------------------------------------------------------
+    // Document identity (UI/session metadata; not part of the editable project state)
+    // ---------------------------------------------------------------------
+    // This is the user-facing file path associated with this canvas, if any.
+    // - Set by IoManager on successful Load/Save (can be a URL for remote imports)
+    // - Persisted by session.json so window titles restore meaningfully
+    // - NOT included in ProjectState (.phos) and NOT tracked by undo/redo
+    void SetFilePath(const std::string& path) { m_file_path = path; }
+    void ClearFilePath() { m_file_path.clear(); }
+    bool HasFilePath() const { return !m_file_path.empty(); }
+    const std::string& GetFilePath() const { return m_file_path; }
+
     // Set the fixed number of columns in the grid.
     // Rows are dynamic and grow as needed ("infinite rows").
     void SetColumns(int columns);
@@ -392,6 +404,9 @@ private:
 
     int m_columns = 80;
     int m_rows    = 1; // allocated rows (always >= 1)
+
+    // User-facing document path (see SetFilePath()).
+    std::string m_file_path;
 
     std::vector<Layer> m_layers;
     int                m_active_layer = 0;

@@ -111,7 +111,13 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
             unsigned char b = image.pixels[base + 2];
             unsigned char a = image.pixels[base + 3];
 
-            ImU32 col = IM_COL32(r, g, b, a);
+            // IMPORTANT: apply current style alpha (which includes per-window opacity via PushImGuiWindowChromeAlpha()).
+            // Using raw IM_COL32 would bypass style.Alpha and make content ignore the window opacity setting.
+            const ImVec4 v(static_cast<float>(r) / 255.0f,
+                           static_cast<float>(g) / 255.0f,
+                           static_cast<float>(b) / 255.0f,
+                           static_cast<float>(a) / 255.0f);
+            const ImU32 col = ImGui::GetColorU32(v);
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
         }
     }

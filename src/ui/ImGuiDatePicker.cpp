@@ -265,27 +265,6 @@ namespace ImGui
         const ImVec2 windowSize = ImVec2(274.5f, 301.5f);
         SetNextWindowSize(windowSize);
 
-        // This widget lives inside a combo popup, so it is impacted by both ImGuiCol_* alpha and ImGuiStyleVar_Alpha.
-        // Some themes / app-level chrome can make popups extremely transparent. Make this dropdown readable without
-        // changing any global theme settings.
-        auto Opaque = [](ImVec4 c) { c.w = 1.0f; return c; };
-
-        // Force popup/window + common interactive elements to be fully opaque.
-        PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
-        PushStyleColor(ImGuiCol_PopupBg,        Opaque(GetStyleColorVec4(ImGuiCol_PopupBg)));
-        PushStyleColor(ImGuiCol_Border,         Opaque(GetStyleColorVec4(ImGuiCol_Border)));
-        PushStyleColor(ImGuiCol_Text,           Opaque(GetStyleColorVec4(ImGuiCol_Text)));
-        PushStyleColor(ImGuiCol_FrameBg,        Opaque(GetStyleColorVec4(ImGuiCol_FrameBg)));
-        PushStyleColor(ImGuiCol_FrameBgHovered, Opaque(GetStyleColorVec4(ImGuiCol_FrameBgHovered)));
-        PushStyleColor(ImGuiCol_FrameBgActive,  Opaque(GetStyleColorVec4(ImGuiCol_FrameBgActive)));
-        PushStyleColor(ImGuiCol_Button,         Opaque(GetStyleColorVec4(ImGuiCol_Button)));
-        PushStyleColor(ImGuiCol_ButtonHovered,  Opaque(GetStyleColorVec4(ImGuiCol_ButtonHovered)));
-        PushStyleColor(ImGuiCol_ButtonActive,   Opaque(GetStyleColorVec4(ImGuiCol_ButtonActive)));
-        PushStyleColor(ImGuiCol_Header,         Opaque(GetStyleColorVec4(ImGuiCol_Header)));
-        PushStyleColor(ImGuiCol_HeaderHovered,  Opaque(GetStyleColorVec4(ImGuiCol_HeaderHovered)));
-        PushStyleColor(ImGuiCol_HeaderActive,   Opaque(GetStyleColorVec4(ImGuiCol_HeaderActive)));
-        PushStyleColor(ImGuiCol_TableHeaderBg,  Opaque(GetStyleColorVec4(ImGuiCol_TableHeaderBg)));
-
         const bool comboOpen = BeginCombo(std::string("##" + myLabel).c_str(), TimePointToLongString(v).c_str());
         if (comboOpen)
         {
@@ -432,8 +411,6 @@ namespace ImGui
 
             EndCombo();
         }
-        PopStyleColor(13);
-        PopStyleVar();   // ImGuiStyleVar_Alpha
 
         return res;
     }

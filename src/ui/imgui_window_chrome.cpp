@@ -77,18 +77,6 @@ void RenderImGuiWindowChromeMenu(SessionState* session, const char* window_name)
     st.opacity = std::clamp(st.opacity, kMinWindowOpacity, 1.0f);
     st.z_order = std::clamp(st.z_order, 0, 2);
 
-    // Ensure the popup itself is always drawn at full opacity (relative to the global style alpha),
-    // even if the host window is translucent. We undo the per-window opacity multiplication here.
-    bool popup_alpha_pushed = false;
-    const float window_opacity = std::clamp(st.opacity, kMinWindowOpacity, 1.0f);
-    if (window_opacity != 1.0f)
-    {
-        const float cur_alpha = ImGui::GetStyle().Alpha; // already multiplied by window opacity
-        const float base_alpha = cur_alpha / window_opacity;
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, base_alpha);
-        popup_alpha_pushed = true;
-    }
-
     int z = st.z_order;
     if (ImGui::RadioButton("Z-order: Normal", z == 0)) z = 0;
     if (ImGui::RadioButton("Z-order: Pin to Front", z == 1)) z = 1;
@@ -106,9 +94,6 @@ void RenderImGuiWindowChromeMenu(SessionState* session, const char* window_name)
     // Keep the session map small: drop default entries.
     if (st.opacity == 1.0f && st.z_order == 0)
         session->imgui_window_chrome.erase(window_name);
-
-    if (popup_alpha_pushed)
-        ImGui::PopStyleVar();
 
     ImGui::EndPopup();
 }
