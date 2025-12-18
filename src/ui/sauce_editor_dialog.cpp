@@ -561,12 +561,27 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         ClampAndSanitizeForSauce(meta);
 
         // Auto-manage "present": if the user saved any meaningful SAUCE content, mark present.
-        meta.present = !(meta.title.empty() &&
-                         meta.author.empty() &&
-                         meta.group.empty() &&
-                         meta.date.empty() &&
-                         meta.tinfos.empty() &&
-                         meta.comments.empty());
+        //
+        // Important: non-text fields (DataType/FileType/TInfo/TFlags) are meaningful too.
+        // Otherwise a user can set (or we can auto-fill) cols/rows but still end up with
+        // `present=false`, which prevents writing SAUCE on export.
+        const bool any_text =
+            !(meta.title.empty() &&
+              meta.author.empty() &&
+              meta.group.empty() &&
+              meta.date.empty() &&
+              meta.tinfos.empty() &&
+              meta.comments.empty());
+        const bool any_numeric =
+            meta.file_size != 0 ||
+            meta.data_type != 0 ||
+            meta.file_type != 0 ||
+            meta.tinfo1 != 0 ||
+            meta.tinfo2 != 0 ||
+            meta.tinfo3 != 0 ||
+            meta.tinfo4 != 0 ||
+            meta.tflags != 0;
+        meta.present = any_text || any_numeric;
         canvas.SetSauceMeta(meta);
 
         ImGui::CloseCurrentPopup();

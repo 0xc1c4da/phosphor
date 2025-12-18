@@ -11,6 +11,7 @@
 #include <iterator>
 #include <locale>
 #include <limits>
+#include <ctime>
 #include <string_view>
 #include <string>
 #include <vector>
@@ -29,6 +30,63 @@ struct GlobalClipboard
 
 static GlobalClipboard g_clipboard;
 } // namespace
+
+static std::string TodayYYYYMMDD()
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tmv{};
+#if defined(_WIN32)
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%04d%02d%02d",
+                  tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday);
+    return std::string(buf);
+}
+
+static inline std::uint16_t ClampU16FromInt(int v)
+{
+    if (v < 0) return 0;
+    if (v > 65535) return 65535;
+    return (std::uint16_t)v;
+}
+
+static void EnsureSauceDefaultsAndSyncGeometry(AnsiCanvas::ProjectState::SauceMeta& s,
+                                              int cols,
+                                              int rows)
+{
+    // Defaults: for our editor, treat canvases as Character/ANSi unless the user explicitly
+    // chose a different datatype in the SAUCE editor.
+    if (s.data_type == 0)
+        s.data_type = 1; // Character
+    if (s.data_type == 1 && s.file_type == 0)
+        s.file_type = 1; // ANSi
+
+    // Ensure a sane creation date for new canvases.
+    if (s.date.empty())
+        s.date = TodayYYYYMMDD();
+
+    // Best-effort font name hint (SAUCE TInfoS). Keep it short and ASCII.
+    if (s.tinfos.empty())
+        s.tinfos = "unscii-16-full";
+
+    // Keep geometry in sync when SAUCE is describing character-based content.
+    if (s.data_type == 1 /* Character */ || s.data_type == 6 /* XBin */ || s.data_type == 0)
+    {
+        s.tinfo1 = ClampU16FromInt(cols);
+        s.tinfo2 = ClampU16FromInt(rows);
+    }
+
+    // If we have any meaningful auto-filled fields, ensure the record is treated as present.
+    // (Important for future exporters and for UI expectations.)
+    if (!s.present)
+    {
+        if (s.tinfo1 != 0 || s.tinfo2 != 0 || !s.date.empty() || !s.tinfos.empty())
+            s.present = true;
+    }
+}
 
 // IMPORTANT:
 // Many parts of this app implement per-window opacity via PushImGuiWindowChromeAlpha(),
@@ -148,6 +206,9 @@ static void DecodeUtf8(const std::string& bytes, std::vector<char32_t>& out_code
 AnsiCanvas::AnsiCanvas(int columns)
     : m_columns(columns > 0 ? columns : 80)
 {
+    // New canvases should start with consistent SAUCE defaults (even before the user opens the editor).
+    // Rows are always >= 1.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 void AnsiCanvas::SetZoom(float zoom)
@@ -222,6 +283,9 @@ void AnsiCanvas::ApplySnapshot(const Snapshot& s)
     if (m_caret_col >= m_columns) m_caret_col = m_columns - 1;
 
     m_undo_applying_snapshot = false;
+
+    // Keep SAUCE geometry in sync with the restored document.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 void AnsiCanvas::BeginUndoCapture()
@@ -1167,6 +1231,9 @@ void AnsiCanvas::SetColumns(int columns)
                 SetSelectionCorners(x0, y0, x1, y1);
         }
     }
+
+    // Keep SAUCE metadata consistent with the document geometry.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 void AnsiCanvas::SetRows(int rows)
@@ -1226,6 +1293,9 @@ void AnsiCanvas::SetRows(int rows)
                 SetSelectionCorners(x0, y0, x1, y1);
         }
     }
+
+    // Keep SAUCE metadata consistent with the document geometry.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 bool AnsiCanvas::LoadFromFile(const std::string& path)
@@ -1303,6 +1373,9 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
 
     m_caret_row = 0;
     m_caret_col = 0;
+
+    // Loaded content establishes a concrete geometry; reflect it in SAUCE.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
     return true;
 }
 
@@ -1342,6 +1415,9 @@ void AnsiCanvas::EnsureDocument()
         m_active_layer = 0;
     if (m_active_layer >= (int)m_layers.size())
         m_active_layer = (int)m_layers.size() - 1;
+
+    // Ensure SAUCE defaults exist even for canvases created via bare constructor.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 void AnsiCanvas::EnsureRows(int rows_needed)
@@ -1362,6 +1438,9 @@ void AnsiCanvas::EnsureRows(int rows_needed)
         layer.fg.resize(need, 0);
         layer.bg.resize(need, 0);
     }
+
+    // Row growth should always be reflected in SAUCE (screen height hint).
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 size_t AnsiCanvas::CellIndex(int row, int col) const
@@ -2486,5 +2565,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
 
     // Clamp active layer and ensure we have at least one layer even for malformed saves.
     EnsureDocument();
+
+    // Post-load: ensure SAUCE defaults and geometry are consistent with the applied snapshot.
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
     return true;
 }
