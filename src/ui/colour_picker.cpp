@@ -11,10 +11,8 @@
 #include <cmath>
 #include <cfloat>
 
-static inline ImU32 ToCol32XtermRgb(const ImVec4& c_in, float alpha_mul = 1.0f)
+static inline ImVec4 SnapRgbToXterm256(const ImVec4& c_in)
 {
-    // Editor colors are RGB-only. We still allow ImGui style alpha to fade UI.
-    const float a = ImGui::GetStyle().Alpha * alpha_mul;
     const int r = (int)std::lround(c_in.x * 255.0f);
     const int g = (int)std::lround(c_in.y * 255.0f);
     const int b = (int)std::lround(c_in.z * 255.0f);
@@ -22,8 +20,60 @@ static inline ImU32 ToCol32XtermRgb(const ImVec4& c_in, float alpha_mul = 1.0f)
                                           (std::uint8_t)ImClamp(g, 0, 255),
                                           (std::uint8_t)ImClamp(b, 0, 255));
     const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
+    ImVec4 out = c_in;
+    out.x = rgb.r / 255.0f;
+    out.y = rgb.g / 255.0f;
+    out.z = rgb.b / 255.0f;
+    return out;
+}
+
+static inline ImVec4 SnapRgbToPalette(const ImVec4& c_in, const ImVec4* palette, int palette_count)
+{
+    if (!palette || palette_count <= 0)
+        return c_in;
+
+    int best_i = 0;
+    float best_d2 = FLT_MAX;
+    for (int i = 0; i < palette_count; ++i)
+    {
+        const float dr = c_in.x - palette[i].x;
+        const float dg = c_in.y - palette[i].y;
+        const float db = c_in.z - palette[i].z;
+        const float d2 = dr * dr + dg * dg + db * db;
+        if (d2 < best_d2)
+        {
+            best_d2 = d2;
+            best_i = i;
+        }
+    }
+
+    ImVec4 out = palette[best_i];
+    // Preserve caller alpha (our editor model is effectively RGB-only).
+    out.w = c_in.w;
+    return out;
+}
+
+static inline ImVec4 SnapRgbDiscrete(const ImVec4& c_in, const ImVec4* palette, int palette_count)
+{
+    if (palette && palette_count > 0)
+        return SnapRgbToPalette(c_in, palette, palette_count);
+    return SnapRgbToXterm256(c_in);
+}
+
+static inline ImU32 ToCol32DiscreteRgb(const ImVec4& c_in, float alpha_mul,
+                                       const ImVec4* palette, int palette_count)
+{
+    // Editor colors are RGB-only. We still allow ImGui style alpha to fade UI.
+    const float a = ImGui::GetStyle().Alpha * alpha_mul;
+    const ImVec4 snapped = SnapRgbDiscrete(c_in, palette, palette_count);
+    const int r = (int)std::lround(snapped.x * 255.0f);
+    const int g = (int)std::lround(snapped.y * 255.0f);
+    const int b = (int)std::lround(snapped.z * 255.0f);
     const int ai = (int)ImClamp(a * 255.0f, 0.0f, 255.0f);
-    return IM_COL32(rgb.r, rgb.g, rgb.b, ai);
+    return IM_COL32((int)ImClamp(r, 0, 255),
+                    (int)ImClamp(g, 0, 255),
+                    (int)ImClamp(b, 0, 255),
+                    ai);
 }
 
 // ------------------------------------------------------------
@@ -80,7 +130,8 @@ static void RenderArrowsForVerticalBar(ImDrawList* draw_list, ImVec2 pos, ImVec2
 
 // Hue-bar variant: SV square + vertical hue bar + optional alpha bar.
 // Returns true when col[] changed by user interaction.
-bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha, bool* out_used_right_click, float* inout_last_hue)
+bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha, bool* out_used_right_click,
+                                  float* inout_last_hue, const ImVec4* palette, int palette_count)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -93,15 +144,50 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     BeginGroup();
     PushID(label);
 
-    // Derive HSV from input RGB
-    float H = 0.0f, S = 0.0f, V = 0.0f;
-    ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
+    // Derive HSV from input RGB, but keep a persistent "cursor" HSV so the reticle
+    // can move even when palette quantization keeps the resulting RGB unchanged.
+    float H_from_rgb = 0.0f, S_from_rgb = 0.0f, V_from_rgb = 0.0f;
+    ColorConvertRGBtoHSV(col[0], col[1], col[2], H_from_rgb, S_from_rgb, V_from_rgb);
 
     // Preserve hue when the color is grayscale/black (S == 0 or V == 0) because RGB->HSV
     // yields an undefined hue in that case (usually returning H=0). Without this, dragging
     // the hue bar while starting from white will "snap back" to red next frame.
     ImGuiStorage* storage = GetStateStorage();
     const ImGuiID hue_state_id = window->GetID("##last_hue");
+
+    // Persistent HSV cursor + last RGB (detect external changes, e.g. palette button click).
+    const ImGuiID hsv_h_id = window->GetID("##hsv_h");
+    const ImGuiID hsv_s_id = window->GetID("##hsv_s");
+    const ImGuiID hsv_v_id = window->GetID("##hsv_v");
+    const ImGuiID rgb_r_id = window->GetID("##rgb_r");
+    const ImGuiID rgb_g_id = window->GetID("##rgb_g");
+    const ImGuiID rgb_b_id = window->GetID("##rgb_b");
+
+    const float last_r = storage->GetFloat(rgb_r_id, col[0]);
+    const float last_g = storage->GetFloat(rgb_g_id, col[1]);
+    const float last_b = storage->GetFloat(rgb_b_id, col[2]);
+    const bool rgb_changed_externally =
+        (std::fabs(col[0] - last_r) > 1e-6f) ||
+        (std::fabs(col[1] - last_g) > 1e-6f) ||
+        (std::fabs(col[2] - last_b) > 1e-6f);
+
+    float H = storage->GetFloat(hsv_h_id, H_from_rgb);
+    float S = storage->GetFloat(hsv_s_id, S_from_rgb);
+    float V = storage->GetFloat(hsv_v_id, V_from_rgb);
+
+    if (rgb_changed_externally)
+    {
+        H = H_from_rgb;
+        S = S_from_rgb;
+        V = V_from_rgb;
+        storage->SetFloat(hsv_h_id, H);
+        storage->SetFloat(hsv_s_id, S);
+        storage->SetFloat(hsv_v_id, V);
+        storage->SetFloat(rgb_r_id, col[0]);
+        storage->SetFloat(rgb_g_id, col[1]);
+        storage->SetFloat(rgb_b_id, col[2]);
+    }
+
     if (inout_last_hue)
     {
         if (S == 0.0f || V == 0.0f)
@@ -127,7 +213,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     float bar0_pos_x = picker_pos.x + sv_picker_size + style.ItemInnerSpacing.x;
     // float bar1_pos_x = bar0_pos_x + bars_width + style.ItemInnerSpacing.x; // (alpha disabled)
 
-    bool value_changed = false;
+    bool interacted = false;
 
     // --- SV square interaction ---
     {
@@ -141,7 +227,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
             float v = 1.0f - (p.y - picker_pos.y) / (sv_picker_size - 1.0f);
             S = Clamp01(s);
             V = Clamp01(v);
-            value_changed = true;
+            interacted = true;
         }
     }
 
@@ -154,7 +240,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
         {
             float h = (io.MousePos.y - picker_pos.y) / (sv_picker_size - 1.0f);
             H = Clamp01(h);
-            value_changed = true;
+            interacted = true;
             if (inout_last_hue)
                 *inout_last_hue = H;
             else
@@ -162,25 +248,53 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
         }
     }
 
+    // Persist cursor HSV whenever the user interacts, even if the snapped RGB doesn't change.
+    if (interacted)
+    {
+        storage->SetFloat(hsv_h_id, H);
+        storage->SetFloat(hsv_s_id, S);
+        storage->SetFloat(hsv_v_id, V);
+    }
+
     // Alpha is intentionally not part of our editor model; keep optional UI disabled by default.
     (void)show_alpha;
 
     // --- Convert HSV back to RGB for storage ---
-    if (value_changed)
+    if (interacted)
     {
         if (inout_last_hue)
             *inout_last_hue = H;
         else
             storage->SetFloat(hue_state_id, H);
     }
-    ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
+    const float prev_r = col[0];
+    const float prev_g = col[1];
+    const float prev_b = col[2];
+    ImVec4 rgb(col[0], col[1], col[2], col[3]);
+    ColorConvertHSVtoRGB(H, S, V, rgb.x, rgb.y, rgb.z);
+    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count);
+    col[0] = snapped.x;
+    col[1] = snapped.y;
+    col[2] = snapped.z;
+    // Alpha is not part of the editor model; preserve existing alpha.
+    col[3] = rgb.w;
+
+    const bool value_changed =
+        (std::fabs(col[0] - prev_r) > 1e-6f) ||
+        (std::fabs(col[1] - prev_g) > 1e-6f) ||
+        (std::fabs(col[2] - prev_b) > 1e-6f);
 
     // Report which mouse button was used for the interaction that changed the color.
-    if (value_changed && out_used_right_click)
+    if (interacted && out_used_right_click)
     {
         *out_used_right_click = io.MouseDown[ImGuiMouseButton_Right] ||
                                 io.MouseClicked[ImGuiMouseButton_Right];
     }
+
+    // Track last snapped RGB so external changes can be detected next frame.
+    storage->SetFloat(rgb_r_id, col[0]);
+    storage->SetFloat(rgb_g_id, col[1]);
+    storage->SetFloat(rgb_b_id, col[2]);
 
     // --- Rendering: discrete SV square ---
     ImDrawList* draw_list = window->DrawList;
@@ -204,7 +318,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
     }
@@ -228,7 +342,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
         ImVec4 c;
         ColorConvertHSVtoRGB(h0, 1.0f, 1.0f, c.x, c.y, c.z);
-        ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
+        ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
         draw_list->AddRectFilled(ImVec2(bar0_pos_x, y0), ImVec2(bar0_pos_x + bars_width, y1), col32);
     }
     float hue_line_y = picker_pos.y + Clamp01(H) * sv_picker_size;
@@ -249,11 +363,15 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     if (value_changed && g_ctx.LastItemData.ID != 0)
         MarkItemEdited(g_ctx.LastItemData.ID);
 
-    return value_changed;
+    // In palette-constrained mode, allow returning true even when the snapped color doesn't
+    // change so the caller can react (e.g. keep "preview fb" tracking clicks correctly).
+    const bool report_changed = (palette && palette_count > 0) ? interacted : value_changed;
+    return report_changed;
 }
 
 // Hue-wheel variant: hue ring + SV triangle + optional alpha bar.
-bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha, bool* out_used_right_click, float* inout_last_hue)
+bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha, bool* out_used_right_click,
+                                    float* inout_last_hue, const ImVec4* palette, int palette_count)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -266,13 +384,48 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     BeginGroup();
     PushID(label);
 
-    // Derive HSV from input RGB
-    float H = 0.0f, S = 0.0f, V = 0.0f;
-    ColorConvertRGBtoHSV(col[0], col[1], col[2], H, S, V);
+    // Derive HSV from input RGB, but keep a persistent "cursor" HSV so the reticle
+    // can move even when palette quantization keeps the resulting RGB unchanged.
+    float H_from_rgb = 0.0f, S_from_rgb = 0.0f, V_from_rgb = 0.0f;
+    ColorConvertRGBtoHSV(col[0], col[1], col[2], H_from_rgb, S_from_rgb, V_from_rgb);
 
     // Same hue preservation as the hue-bar picker: keep the last hue when S==0 or V==0.
     ImGuiStorage* storage = GetStateStorage();
     const ImGuiID hue_state_id = window->GetID("##last_hue");
+
+    // Persistent HSV cursor + last RGB (detect external changes, e.g. palette button click).
+    const ImGuiID hsv_h_id = window->GetID("##hsv_h");
+    const ImGuiID hsv_s_id = window->GetID("##hsv_s");
+    const ImGuiID hsv_v_id = window->GetID("##hsv_v");
+    const ImGuiID rgb_r_id = window->GetID("##rgb_r");
+    const ImGuiID rgb_g_id = window->GetID("##rgb_g");
+    const ImGuiID rgb_b_id = window->GetID("##rgb_b");
+
+    const float last_r = storage->GetFloat(rgb_r_id, col[0]);
+    const float last_g = storage->GetFloat(rgb_g_id, col[1]);
+    const float last_b = storage->GetFloat(rgb_b_id, col[2]);
+    const bool rgb_changed_externally =
+        (std::fabs(col[0] - last_r) > 1e-6f) ||
+        (std::fabs(col[1] - last_g) > 1e-6f) ||
+        (std::fabs(col[2] - last_b) > 1e-6f);
+
+    float H = storage->GetFloat(hsv_h_id, H_from_rgb);
+    float S = storage->GetFloat(hsv_s_id, S_from_rgb);
+    float V = storage->GetFloat(hsv_v_id, V_from_rgb);
+
+    if (rgb_changed_externally)
+    {
+        H = H_from_rgb;
+        S = S_from_rgb;
+        V = V_from_rgb;
+        storage->SetFloat(hsv_h_id, H);
+        storage->SetFloat(hsv_s_id, S);
+        storage->SetFloat(hsv_v_id, V);
+        storage->SetFloat(rgb_r_id, col[0]);
+        storage->SetFloat(rgb_g_id, col[1]);
+        storage->SetFloat(rgb_b_id, col[2]);
+    }
+
     if (inout_last_hue)
     {
         if (S == 0.0f || V == 0.0f)
@@ -306,7 +459,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     ImVec2 triangle_pb = ImVec2(triangle_r * -0.5f, triangle_r * -0.866025f); // Black
     ImVec2 triangle_pc = ImVec2(triangle_r * -0.5f, triangle_r * +0.866025f); // White
 
-    bool value_changed = false;
+    bool interacted = false;
 
     // --- Interaction: hue wheel + SV triangle ---
     {
@@ -329,7 +482,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
                 if (angle < 0.0f)
                     angle += 2.0f * IM_PI;
                 H = angle / (2.0f * IM_PI);
-                value_changed = true;
+                    interacted = true;
                 if (inout_last_hue)
                     *inout_last_hue = H;
                 else
@@ -352,10 +505,18 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
                     float S_new = Clamp01(uu / (V_new > 0.0001f ? V_new : 0.0001f));
                     S = S_new;
                     V = V_new;
-                    value_changed = true;
+                    interacted = true;
                 }
             }
         }
+    }
+
+    // Persist cursor HSV whenever the user interacts, even if the snapped RGB doesn't change.
+    if (interacted)
+    {
+        storage->SetFloat(hsv_h_id, H);
+        storage->SetFloat(hsv_s_id, S);
+        storage->SetFloat(hsv_v_id, V);
     }
 
     // Alpha is intentionally not part of our editor model; keep optional UI disabled by default.
@@ -364,21 +525,40 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     (void)show_alpha;
 
     // Convert back HSV -> RGB
-    if (value_changed)
+    if (interacted)
     {
         if (inout_last_hue)
             *inout_last_hue = H;
         else
             storage->SetFloat(hue_state_id, H);
     }
-    ColorConvertHSVtoRGB(H, S, V, col[0], col[1], col[2]);
+    const float prev_r = col[0];
+    const float prev_g = col[1];
+    const float prev_b = col[2];
+    ImVec4 rgb(col[0], col[1], col[2], col[3]);
+    ColorConvertHSVtoRGB(H, S, V, rgb.x, rgb.y, rgb.z);
+    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count);
+    col[0] = snapped.x;
+    col[1] = snapped.y;
+    col[2] = snapped.z;
+    col[3] = rgb.w;
+
+    const bool value_changed =
+        (std::fabs(col[0] - prev_r) > 1e-6f) ||
+        (std::fabs(col[1] - prev_g) > 1e-6f) ||
+        (std::fabs(col[2] - prev_b) > 1e-6f);
 
     // Report which mouse button was used for the interaction that changed the color.
-    if (value_changed && out_used_right_click)
+    if (interacted && out_used_right_click)
     {
         *out_used_right_click = io.MouseDown[ImGuiMouseButton_Right] ||
                                 io.MouseClicked[ImGuiMouseButton_Right];
     }
+
+    // Track last snapped RGB so external changes can be detected next frame.
+    storage->SetFloat(rgb_r_id, col[0]);
+    storage->SetFloat(rgb_g_id, col[1]);
+    storage->SetFloat(rgb_b_id, col[2]);
 
     ImDrawList* draw_list = window->DrawList;
 
@@ -408,7 +588,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
             ImVec4 c;
             float h_sample = am / (2.0f * IM_PI);
             ColorConvertHSVtoRGB(h_sample, 1.0f, 1.0f, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
 
             draw_list->AddQuadFilled(ImVec2(x00, y00), ImVec2(x01, y01),
                                      ImVec2(x11, y11), ImVec2(x10, y10), col32);
@@ -452,7 +632,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32XtermRgb(c, 1.0f);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
 
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
@@ -484,7 +664,8 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     if (value_changed && g_ctx2.LastItemData.ID != 0)
         MarkItemEdited(g_ctx2.LastItemData.ID);
 
-    return value_changed;
+    const bool report_changed = (palette && palette_count > 0) ? interacted : value_changed;
+    return report_changed;
 }
 
 // -------------------------------------------------------------------------
@@ -524,14 +705,14 @@ bool XtermForegroundBackgroundWidget(const char* label,
     ImVec2 bg_max = ImVec2(bg_min.x + sz, bg_min.y + sz);
 
     // Background square (bottom layer)
-    ImU32 bg_col = ToCol32XtermRgb(background, 1.0f);
+    ImU32 bg_col = ToCol32DiscreteRgb(background, 1.0f, nullptr, 0);
     draw_list->AddRectFilled(bg_min, bg_max, bg_col, style.FrameRounding);
     draw_list->AddRect(bg_min, bg_max,
                        GetColorU32(ImVec4(1,1,1,1)),
                        style.FrameRounding, 0, 1.5f);
 
     // Foreground square (same size, overlapping top-right)
-    ImU32 fg_col = ToCol32XtermRgb(foreground, 1.0f);
+    ImU32 fg_col = ToCol32DiscreteRgb(foreground, 1.0f, nullptr, 0);
     draw_list->AddRectFilled(fg_min, fg_max, fg_col, style.FrameRounding);
     draw_list->AddRect(fg_min, fg_max,
                        GetColorU32(ImVec4(0,0,0,1)),

@@ -1,5 +1,6 @@
 #include "ui/preview_window.h"
 
+#include "app/canvas_preview_texture.h"
 #include "core/canvas.h"
 
 #include "imgui.h"
@@ -15,6 +16,7 @@ static bool PointInRect(const ImVec2& p, const ImVec2& a, const ImVec2& b)
 }
 
 bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
+                           const CanvasPreviewTextureView* minimap_texture,
                            SessionState* session, bool apply_placement_this_frame)
 {
     if (!p_open || !*p_open)
@@ -86,75 +88,86 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     const float inner_w = inner1.x - inner0.x;
     const float inner_h = inner1.y - inner0.y;
 
-    // Scale full canvas into inner rect.
-    //
-    // We must NOT scale beyond the preview width (no horizontal cropping),
-    // so we use fit-to-width scaling:
-    //   scale = sx
+    // Scale full canvas into inner rect (fit to both width and height).
     const float sx = inner_w / vs.canvas_w;
     const float sy = inner_h / vs.canvas_h;
-    (void)sy;
-    const float scale = sx;
+    const float scale = std::min(sx, sy);
 
     const float map_w = vs.canvas_w * scale;
     const float map_h = vs.canvas_h * scale;
-    // Anchor minimap to the TOP of the preview area (no vertical centering),
-    // so it never extends above the window when map_h > inner_h.
-    const ImVec2 map0(inner0.x + (inner_w - map_w) * 0.5f,
-                      inner0.y);
-    const ImVec2 map1(map0.x + map_w, map0.y + map_h);
+    // Center minimap within the preview area.
+    // Snap to pixel boundaries for crisper sampling (esp. with NEAREST sampler).
+    ImVec2 map0(inner0.x + (inner_w - map_w) * 0.5f,
+                inner0.y + (inner_h - map_h) * 0.5f);
+    ImVec2 map1(map0.x + map_w, map0.y + map_h);
+    map0.x = std::floor(map0.x);
+    map0.y = std::floor(map0.y);
+    map1.x = std::floor(map1.x);
+    map1.y = std::floor(map1.y);
 
     dl->PushClipRect(inner0, inner1, true);
 
-    // Minimap: sample the canvas into a coarse grid so it stays fast.
-    const int max_grid_dim = 180;
-    int grid_w = vs.columns;
-    int grid_h = vs.rows;
-    if (grid_w > max_grid_dim || grid_h > max_grid_dim)
+    // Minimap image:
+    // - Prefer the Vulkan-backed texture (higher resolution + proper filtering).
+    // - Fallback to a coarse sampled grid if texture isn't available.
+    const bool has_tex = minimap_texture && minimap_texture->Valid();
+    if (has_tex)
     {
-        if (vs.columns >= vs.rows)
-        {
-            grid_w = max_grid_dim;
-            grid_h = std::max(1, (int)std::lround((double)vs.rows * ((double)grid_w / (double)vs.columns)));
-        }
-        else
-        {
-            grid_h = max_grid_dim;
-            grid_w = std::max(1, (int)std::lround((double)vs.columns * ((double)grid_h / (double)vs.rows)));
-        }
+        dl->AddImage(minimap_texture->texture_id, map0, map1, minimap_texture->uv0, minimap_texture->uv1);
     }
-    grid_w = std::max(1, grid_w);
-    grid_h = std::max(1, grid_h);
-
-    const float cell_pw = map_w / (float)grid_w;
-    const float cell_ph = map_h / (float)grid_h;
-
-    for (int gy = 0; gy < grid_h; ++gy)
+    else
     {
-        const float y0 = map0.y + gy * cell_ph;
-        const float y1 = y0 + cell_ph;
-        const int src_row = std::clamp((int)std::floor(((gy + 0.5f) * (float)vs.rows) / (float)grid_h), 0, vs.rows - 1);
-
-        for (int gx = 0; gx < grid_w; ++gx)
+        // Fallback: sample the canvas into a coarse grid so it stays fast.
+        const int max_grid_dim = 180;
+        int grid_w = vs.columns;
+        int grid_h = vs.rows;
+        if (grid_w > max_grid_dim || grid_h > max_grid_dim)
         {
-            const float x0 = map0.x + gx * cell_pw;
-            const float x1 = x0 + cell_pw;
-            const int src_col = std::clamp((int)std::floor(((gx + 0.5f) * (float)vs.columns) / (float)grid_w), 0, vs.columns - 1);
-
-            char32_t cp = U' ';
-            AnsiCanvas::Color32 fg = 0;
-            AnsiCanvas::Color32 bg = 0;
-            canvas->GetCompositeCellPublic(src_row, src_col, cp, fg, bg);
-
-            ImU32 col = 0;
-            if (bg != 0)
-                col = (ImU32)bg;
-            else if (cp != U' ')
-                col = (fg != 0) ? (ImU32)fg : IM_COL32(220, 220, 230, 255);
+            if (vs.columns >= vs.rows)
+            {
+                grid_w = max_grid_dim;
+                grid_h = std::max(1, (int)std::lround((double)vs.rows * ((double)grid_w / (double)vs.columns)));
+            }
             else
-                col = IM_COL32(14, 14, 16, 255);
+            {
+                grid_h = max_grid_dim;
+                grid_w = std::max(1, (int)std::lround((double)vs.columns * ((double)grid_h / (double)vs.rows)));
+            }
+        }
+        grid_w = std::max(1, grid_w);
+        grid_h = std::max(1, grid_h);
 
-            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+        const float cell_pw = map_w / (float)grid_w;
+        const float cell_ph = map_h / (float)grid_h;
+
+        const ImU32 paper = canvas->IsCanvasBackgroundWhite() ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
+        const ImU32 default_fg = canvas->IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+
+        for (int gy = 0; gy < grid_h; ++gy)
+        {
+            const float y0 = map0.y + gy * cell_ph;
+            const float y1 = y0 + cell_ph;
+            const int src_row = std::clamp((int)std::floor(((gy + 0.5f) * (float)vs.rows) / (float)grid_h), 0, vs.rows - 1);
+
+            for (int gx = 0; gx < grid_w; ++gx)
+            {
+                const float x0 = map0.x + gx * cell_pw;
+                const float x1 = x0 + cell_pw;
+                const int src_col = std::clamp((int)std::floor(((gx + 0.5f) * (float)vs.columns) / (float)grid_w), 0, vs.columns - 1);
+
+                char32_t cp = U' ';
+                AnsiCanvas::Color32 fg = 0;
+                AnsiCanvas::Color32 bg = 0;
+                canvas->GetCompositeCellPublic(src_row, src_col, cp, fg, bg);
+
+                ImU32 col = paper;
+                if (bg != 0)
+                    col = (ImU32)bg;
+                else if (cp != U' ')
+                    col = (fg != 0) ? (ImU32)fg : default_fg;
+
+                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+            }
         }
     }
 
@@ -206,10 +219,10 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
             m_drag_off_x = mouse.x - rect0.x;
             m_drag_off_y = mouse.y - rect0.y;
         }
-        else if (PointInRect(mouse, inner0, inner1))
+        else if (PointInRect(mouse, map0, map1))
         {
-            const float mx = std::clamp(mouse.x, inner0.x, inner1.x);
-            const float my = std::clamp(mouse.y, inner0.y, inner1.y);
+            const float mx = std::clamp(mouse.x, map0.x, map1.x);
+            const float my = std::clamp(mouse.y, map0.y, map1.y);
             const float nx = (mx - map0.x) / map_w;
             const float ny = (my - map0.y) / map_h;
             const float target_x = nx * vs.canvas_w - vs.view_w * 0.5f;

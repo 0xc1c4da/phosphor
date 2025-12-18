@@ -3,12 +3,16 @@
 // Shows a small overview of the whole canvas and a rectangle representing the
 // current visible viewport. The rectangle can be dragged to pan the canvas.
 // Mouse wheel zooms the canvas in/out.
-// NOTE: This is an ImGui-only component (no Vulkan textures required).
+// NOTE:
+// The window can render either:
+//  - a Vulkan-backed minimap texture (preferred, higher quality), or
+//  - a fallback immediate-mode sampled grid (no texture plumbing required).
 
 #pragma once
 
 class AnsiCanvas;
 struct SessionState;
+struct CanvasPreviewTextureView;
 
 class PreviewWindow
 {
@@ -17,6 +21,7 @@ public:
 
     // Render the preview window. Returns true if it was drawn (visible).
     bool Render(const char* title, bool* p_open, AnsiCanvas* canvas,
+                const CanvasPreviewTextureView* minimap_texture,
                 SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 private:

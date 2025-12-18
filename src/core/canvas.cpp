@@ -286,6 +286,9 @@ void AnsiCanvas::ApplySnapshot(const Snapshot& s)
 
     // Keep SAUCE geometry in sync with the restored document.
     EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+
+    // Snapshot application always changes visible content (Undo/Redo/load).
+    TouchContent();
 }
 
 void AnsiCanvas::BeginUndoCapture()
@@ -329,6 +332,9 @@ void AnsiCanvas::PrepareUndoSnapshot()
         m_undo_capture_has_snapshot = true;
     }
     m_undo_capture_modified = true;
+
+    // Content is changing within this capture scope.
+    TouchContent();
 }
 
 bool AnsiCanvas::CanUndo() const
@@ -1095,7 +1101,10 @@ bool AnsiCanvas::SetLayerVisible(int index, bool visible)
     EnsureDocument();
     if (index < 0 || index >= static_cast<int>(m_layers.size()))
         return false;
+    if (m_layers[static_cast<size_t>(index)].visible == visible)
+        return true;
     m_layers[static_cast<size_t>(index)].visible = visible;
+    TouchContent();
     return true;
 }
 

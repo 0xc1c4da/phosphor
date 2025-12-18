@@ -92,6 +92,13 @@ public:
     bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const;
 
     // ---------------------------------------------------------------------
+    // Content revision (for minimaps/caches)
+    // ---------------------------------------------------------------------
+    // Monotonically increasing counter bumped when visible canvas content changes.
+    // Intended for UI caches such as the Preview minimap texture.
+    std::uint64_t GetContentRevision() const { return m_content_revision; }
+
+    // ---------------------------------------------------------------------
     // Layers (foundation)
     // ---------------------------------------------------------------------
     int         GetLayerCount() const;
@@ -229,8 +236,18 @@ public:
     // Canvas background (view preference; independent of ImGui theme)
     // ---------------------------------------------------------------------
     bool IsCanvasBackgroundWhite() const { return m_canvas_bg_white; }
-    void SetCanvasBackgroundWhite(bool white) { m_canvas_bg_white = white; }
-    void ToggleCanvasBackgroundWhite() { m_canvas_bg_white = !m_canvas_bg_white; }
+    void SetCanvasBackgroundWhite(bool white)
+    {
+        if (m_canvas_bg_white == white)
+            return;
+        m_canvas_bg_white = white;
+        TouchContent();
+    }
+    void ToggleCanvasBackgroundWhite()
+    {
+        m_canvas_bg_white = !m_canvas_bg_white;
+        TouchContent();
+    }
 
     // ---------------------------------------------------------------------
     // Public layer editing API (used by tools/scripts)
@@ -439,6 +456,9 @@ private:
     // Canvas base background fill (not theme-driven).
     bool m_canvas_bg_white = false;
 
+    // Monotonic content revision for caches (minimap texture).
+    std::uint64_t m_content_revision = 1;
+
     // Optional SAUCE metadata associated with this canvas (persisted).
     ProjectState::SauceMeta m_sauce;
 
@@ -516,6 +536,13 @@ private:
     Snapshot m_undo_capture_snapshot;
 
     // Internal helpers
+    void TouchContent()
+    {
+        // Avoid wrap to 0 (treat 0 as "uninitialized" in some callers).
+        ++m_content_revision;
+        if (m_content_revision == 0)
+            ++m_content_revision;
+    }
     void EnsureDocument();
     void EnsureRows(int rows_needed);
     size_t CellIndex(int row, int col) const;

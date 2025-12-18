@@ -38,6 +38,7 @@
 #include "io/image_loader.h"
 #include "ui/image_to_chafa_dialog.h"
 #include "ui/preview_window.h"
+#include "app/canvas_preview_texture.h"
 #include "ui/settings.h"
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
@@ -670,11 +671,23 @@ int main(int, char**)
 
     // Canvas preview (minimap)
     PreviewWindow preview_window;
+    CanvasPreviewTexture preview_texture;
 
     // 16colo.rs browser
     SixteenColorsBrowserWindow sixteen_browser;
 
     namespace fs = std::filesystem;
+
+    // Initialize the Vulkan-backed preview texture after the ImGui Vulkan backend is initialized.
+    {
+        CanvasPreviewTexture::InitInfo pi;
+        pi.device = (void*)g_Device;
+        pi.physical_device = (void*)g_PhysicalDevice;
+        pi.queue = (void*)g_Queue;
+        pi.queue_family = g_QueueFamily;
+        pi.allocator = (void*)g_Allocator;
+        (void)preview_texture.Init(pi);
+    }
 
     // SDL native file dialogs (async -> polled queue).
     SdlFileDialogQueue file_dialogs;
@@ -895,9 +908,31 @@ int main(int, char**)
             cw.restore_pending = false;
         };
 
-        // Restore the most relevant canvas automatically after the first frame.
-        if (frame_counter == 2 && active_canvas_window)
-            try_restore_canvas_from_cache(*active_canvas_window);
+        // Session restore (cached .phos projects):
+        //
+        // Canvases may be restored lazily from disk to keep startup snappy. However, gating restore
+        // on window focus causes an unfortunate UX regression: background canvas windows appear blank
+        // until clicked/focused.
+        //
+        // Fix: time-slice restore across frames (after the first frame), restoring at most one
+        // pending canvas per frame. Prioritize the active canvas first.
+        if (frame_counter >= 2)
+        {
+            if (active_canvas_window)
+                try_restore_canvas_from_cache(*active_canvas_window);
+
+            // Restore one additional pending (open) canvas per frame.
+            for (auto& cw : canvases)
+            {
+                if (!cw.open)
+                    continue;
+                if (cw.restore_pending && !cw.restore_attempted && !cw.restore_phos_cache_rel.empty())
+                {
+                    try_restore_canvas_from_cache(cw);
+                    break;
+                }
+            }
+        }
 
         // Main menu bar: File > New Canvas, Quit
         auto create_new_canvas = [&]()
@@ -1350,9 +1385,13 @@ int main(int, char**)
             bool    value_changed = false;
             bool    used_right = false;
             if (xterm_picker_mode == 0)
-                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false, &used_right, &xterm_picker_last_hue);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false,
+                                                                   &used_right, &xterm_picker_last_hue,
+                                                                   saved_palette.data(), (int)saved_palette.size());
             else
-                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false, &used_right, &xterm_picker_last_hue);
+                value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false,
+                                                                     &used_right, &xterm_picker_last_hue,
+                                                                     saved_palette.data(), (int)saved_palette.size());
 
             if (value_changed)
             {
@@ -1709,11 +1748,9 @@ int main(int, char**)
 
             // Lazy restore: load cached project when the window is focused (user intent),
             // and only after the first frame has rendered.
-            if (canvas.restore_pending && !canvas.restore_attempted &&
-                ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-            {
-                try_restore_canvas_from_cache(canvas);
-            }
+            //
+            // NOTE: restore is now time-sliced globally above (not focus-gated), so canvases don't
+            // appear blank until clicked. Keep this block removed to avoid double-loading.
 
             // Each canvas gets its own unique ImGui ID for the canvas component.
             char id_buf[32];
@@ -2010,7 +2047,10 @@ int main(int, char**)
         if (show_preview_window)
         {
             const char* name = "Preview";
-            preview_window.Render(name, &show_preview_window, active_canvas,
+            // Higher max dimension improves detail; throttling + revision gating keeps it cheap.
+            preview_texture.Update(active_canvas, 768, ImGui::GetTime());
+            const CanvasPreviewTextureView pv_view = preview_texture.View();
+            preview_window.Render(name, &show_preview_window, active_canvas, &pv_view,
                                   &session_state, should_apply_placement(name));
         }
 
@@ -2219,6 +2259,9 @@ int main(int, char**)
             if (!SaveSessionState(st, err) && !err.empty())
                 std::fprintf(stderr, "[session] save failed: %s\n", err.c_str());
         }
+
+    // Destroy preview texture before tearing down the ImGui Vulkan backend / Vulkan device.
+    preview_texture.Shutdown();
 
     // During a Ctrl+C shutdown the Vulkan device might already be in a bad
     // state; don't abort the whole process just because vkDeviceWaitIdle()
