@@ -51,7 +51,7 @@
       "x": 2066.0,
       "y": 1114.0
     },
-    "Preview": {
+    "Minimap": {
       "collapsed": false,
       "h": 1076.0,
       "w": 278.0,
@@ -80,7 +80,7 @@
       "y": 38.0
     }
   },
-  "schema_version": 7,
+  "schema_version": 10,
   "ui": {
     "canvas_bg_white": false,
     "character_palette_settings_open": false,
@@ -91,7 +91,7 @@
     "show_character_sets_window": true,
     "show_color_picker_window": true,
     "show_layer_manager_window": true,
-    "show_preview_window": true,
+    "show_minimap_window": true,
     "show_settings_window": false,
     "show_tool_palette_window": true,
     "theme": "cherry",

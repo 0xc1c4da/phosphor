@@ -90,8 +90,8 @@
       "category": "Edit",
       "description": "Undo last operation.",
       "bindings": [
-        { "enabled": true, "chord": "Ctrl+Z", "context": "editor", "platform": "any" },
-        { "enabled": true, "chord": "Cmd+Z", "context": "editor", "platform": "macos" }
+        { "enabled": true, "chord": "Ctrl+Z", "context": "editor", "platform": "any", "repeat": true },
+        { "enabled": true, "chord": "Cmd+Z", "context": "editor", "platform": "macos", "repeat": true }
       ]
     },
     {
@@ -100,9 +100,9 @@
       "category": "Edit",
       "description": "Redo last undone operation.",
       "bindings": [
-        { "enabled": true, "chord": "Ctrl+Shift+Z", "context": "editor", "platform": "any" },
-        { "enabled": true, "chord": "Ctrl+Y", "context": "editor", "platform": "windows" },
-        { "enabled": true, "chord": "Cmd+Shift+Z", "context": "editor", "platform": "macos" }
+        { "enabled": true, "chord": "Ctrl+Shift+Z", "context": "editor", "platform": "any", "repeat": true },
+        { "enabled": true, "chord": "Ctrl+Y", "context": "editor", "platform": "windows", "repeat": true },
+        { "enabled": true, "chord": "Cmd+Shift+Z", "context": "editor", "platform": "macos", "repeat": true }
       ]
     },
     {

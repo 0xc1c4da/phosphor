@@ -36,7 +36,7 @@ SOURCES  = \
            src/ui/image_window.cpp \
            src/ui/image_to_chafa_dialog.cpp \
            src/ui/layer_manager.cpp \
-           src/ui/preview_window.cpp \
+           src/ui/minimap_window.cpp \
            src/ui/skin.cpp \
            src/ui/settings.cpp \
            src/ui/sauce_editor_dialog.cpp \

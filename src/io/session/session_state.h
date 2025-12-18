@@ -106,7 +106,7 @@ struct SessionState
     bool show_layer_manager_window = true;
     bool show_ansl_editor_window = true;
     bool show_tool_palette_window = true;
-    bool show_preview_window = true;
+    bool show_minimap_window = true;
     bool show_settings_window = false;
     bool show_16colors_browser_window = false;
 

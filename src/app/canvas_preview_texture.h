@@ -1,4 +1,4 @@
-// Vulkan-backed minimap texture for PreviewWindow.
+// Vulkan-backed minimap texture for MinimapWindow.
 //
 // This intentionally keeps Vulkan types out of the header so UI code can
 // depend on the "view" (ImTextureID + size) without including Vulkan headers.

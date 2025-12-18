@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 9;
+    j["schema_version"] = 10;
 
     json win;
     win["w"] = st.window_w;
@@ -77,7 +77,7 @@ static json ToJson(const SessionState& st)
     ui["show_layer_manager_window"] = st.show_layer_manager_window;
     ui["show_ansl_editor_window"] = st.show_ansl_editor_window;
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
-    ui["show_preview_window"] = st.show_preview_window;
+    ui["show_minimap_window"] = st.show_minimap_window;
     ui["show_settings_window"] = st.show_settings_window;
     ui["show_16colors_browser_window"] = st.show_16colors_browser_window;
     if (!st.ui_theme.empty())
@@ -227,8 +227,11 @@ static void FromJson(const json& j, SessionState& out)
             out.show_ansl_editor_window = ui["show_ansl_editor_window"].get<bool>();
         if (ui.contains("show_tool_palette_window") && ui["show_tool_palette_window"].is_boolean())
             out.show_tool_palette_window = ui["show_tool_palette_window"].get<bool>();
-        if (ui.contains("show_preview_window") && ui["show_preview_window"].is_boolean())
-            out.show_preview_window = ui["show_preview_window"].get<bool>();
+        // Rename/migration: Preview -> Minimap
+        if (ui.contains("show_minimap_window") && ui["show_minimap_window"].is_boolean())
+            out.show_minimap_window = ui["show_minimap_window"].get<bool>();
+        else if (ui.contains("show_preview_window") && ui["show_preview_window"].is_boolean())
+            out.show_minimap_window = ui["show_preview_window"].get<bool>();
         if (ui.contains("show_settings_window") && ui["show_settings_window"].is_boolean())
             out.show_settings_window = ui["show_settings_window"].get<bool>();
         if (ui.contains("show_16colors_browser_window") && ui["show_16colors_browser_window"].is_boolean())
@@ -379,6 +382,23 @@ static void FromJson(const json& j, SessionState& out)
                 out.imgui_window_chrome[it.key()] = c;
         }
     }
+
+    // Rename/migration: "Preview" window -> "Minimap"
+    // - Move placement/chrome state so we don't keep stale keys forever.
+    {
+        auto migrate_key = [](auto& map, const char* old_key, const char* new_key)
+        {
+            const auto it_old = map.find(old_key);
+            const auto it_new = map.find(new_key);
+            if (it_old != map.end() && it_new == map.end())
+            {
+                map[new_key] = it_old->second;
+                map.erase(it_old);
+            }
+        };
+        migrate_key(out.imgui_windows, "Preview", "Minimap");
+        migrate_key(out.imgui_window_chrome, "Preview", "Minimap");
+    }
 }
 
 bool LoadSessionState(SessionState& out, std::string& err)
@@ -419,7 +439,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -445,7 +465,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

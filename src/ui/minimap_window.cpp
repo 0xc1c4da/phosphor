@@ -1,4 +1,4 @@
-#include "ui/preview_window.h"
+#include "ui/minimap_window.h"
 
 #include "app/canvas_preview_texture.h"
 #include "core/canvas.h"
@@ -15,14 +15,14 @@ static bool PointInRect(const ImVec2& p, const ImVec2& a, const ImVec2& b)
     return (p.x >= a.x && p.y >= a.y && p.x <= b.x && p.y <= b.y);
 }
 
-bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
+bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                            const CanvasPreviewTextureView* minimap_texture,
                            SessionState* session, bool apply_placement_this_frame)
 {
     if (!p_open || !*p_open)
         return false;
 
-    const char* win_name = title ? title : "Preview";
+    const char* win_name = title ? title : "Minimap";
     if (session)
         ApplyImGuiWindowPlacement(*session, win_name, apply_placement_this_frame);
 
@@ -54,7 +54,7 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     const float min_h = 160.0f;
     ImVec2 draw_size(std::max(min_w, avail.x), std::max(min_h, avail.y));
 
-    ImGui::InvisibleButton("##preview_canvas", draw_size,
+    ImGui::InvisibleButton("##minimap_canvas", draw_size,
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
     const bool hovered = ImGui::IsItemHovered();
     const bool active = ImGui::IsItemActive();
@@ -67,7 +67,7 @@ bool PreviewWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 24, 255), 4.0f);
     dl->AddRect(p0, p1, IM_COL32(90, 90, 105, 255), 4.0f);
 
-    // If we don't have a valid canvas view yet, show the empty preview area only.
+    // If we don't have a valid canvas view yet, show the empty minimap area only.
     if (!canvas || !vs.valid || vs.columns <= 0 || vs.rows <= 0 || vs.canvas_w <= 0.0f || vs.canvas_h <= 0.0f)
     {
         ImGui::End();

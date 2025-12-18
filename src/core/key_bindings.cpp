@@ -147,15 +147,15 @@ static bool ModExactMatch(const Mods& m, const ImGuiIO& io)
     return true;
 }
 
-static bool IsChordPressed(const ParsedChord& chord, const ImGuiIO& io)
+static bool IsChordPressed(const ParsedChord& chord, const ImGuiIO& io, bool repeat)
 {
     if (chord.key == ImGuiKey_None)
         return false;
     if (!ModExactMatch(chord.mods, io))
         return false;
     if (chord.any_enter)
-        return ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
-    return ImGui::IsKeyPressed(chord.key, false);
+        return ImGui::IsKeyPressed(ImGuiKey_Enter, repeat) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, repeat);
+    return ImGui::IsKeyPressed(chord.key, repeat);
 }
 
 static bool KeyBindingToJson(const KeyBinding& b, json& out)
@@ -165,6 +165,7 @@ static bool KeyBindingToJson(const KeyBinding& b, json& out)
     out["chord"] = b.chord;
     out["context"] = b.context.empty() ? "global" : b.context;
     out["platform"] = b.platform.empty() ? "any" : b.platform;
+    out["repeat"] = b.repeat;
     return true;
 }
 
@@ -189,6 +190,16 @@ static bool KeyBindingFromJson(const json& jb, KeyBinding& out, std::string& err
         out.platform = jb["platform"].get<std::string>();
     else
         out.platform = "any";
+    if (jb.contains("repeat") && jb["repeat"].is_boolean())
+    {
+        out.repeat = jb["repeat"].get<bool>();
+        out.repeat_set = true;
+    }
+    else
+    {
+        out.repeat = false;
+        out.repeat_set = false;
+    }
 
     if (out.context.empty()) out.context = "global";
     if (out.platform.empty()) out.platform = "any";
@@ -438,7 +449,35 @@ std::vector<Action> KeyBindingsEngine::MergeDefaultsWithFile(const std::vector<A
         if (!fa.title.empty()) dst.title = fa.title;
         if (!fa.category.empty()) dst.category = fa.category;
         if (!fa.description.empty()) dst.description = fa.description;
+        // Merge bindings with backward-compatible inheritance of new fields:
+        // - Older key-bindings.json files won't include "repeat".
+        // - If a file binding does not explicitly set repeat, inherit it from the matching default binding
+        //   (by chord+context+platform), otherwise fall back to false.
+        const std::vector<KeyBinding> defaults_bindings = dst.bindings;
         dst.bindings = fa.bindings;
+        for (auto& b : dst.bindings)
+        {
+            if (b.repeat_set)
+                continue;
+
+            // Find a matching default binding to inherit from.
+            bool inherited = false;
+            for (const auto& db : defaults_bindings)
+            {
+                if (db.chord != b.chord) continue;
+                if (db.context != b.context) continue;
+                if (db.platform != b.platform) continue;
+                b.repeat = db.repeat;
+                b.repeat_set = true; // make it explicit going forward
+                inherited = true;
+                break;
+            }
+            if (!inherited)
+            {
+                b.repeat = false;
+                // keep repeat_set=false to indicate "unspecified"; it may be written out as false later.
+            }
+        }
     }
 
     return merged;
@@ -601,6 +640,7 @@ void KeyBindingsEngine::RebuildRuntime() const
             rb.ctx = ContextFromString(b.context);
             rb.platform = PlatformFromString(b.platform);
             rb.chord_text = b.chord;
+            rb.repeat = b.repeat;
 
             std::string perr;
             if (!b.chord.empty() && ParseChordString(b.chord, rb.chord, perr))
@@ -638,7 +678,9 @@ bool KeyBindingsEngine::ActionPressed(std::string_view action_id, const EvalCont
             continue;
         if (!ContextAllowed(b.ctx, ctx))
             continue;
-        if (IsChordPressed(b.chord, io))
+        // Repeat behavior is per-binding. Most actions should remain single-shot on press;
+        // Undo/Redo (and other similar actions) opt into repeat for "hold to repeat".
+        if (IsChordPressed(b.chord, io, b.repeat))
             return true;
     }
     return false;
@@ -770,17 +812,17 @@ std::vector<Action> DefaultActions()
             .id="edit.undo", .title="Undo", .category="Edit",
             .description="Undo last operation.",
             .bindings={
-                {.enabled=true, .chord="Ctrl+Z", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Cmd+Z", .context="editor", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+Z", .context="editor", .platform="any", .repeat=true, .repeat_set=true},
+                {.enabled=true, .chord="Cmd+Z", .context="editor", .platform="macos", .repeat=true, .repeat_set=true},
             }
         },
         {
             .id="edit.redo", .title="Redo", .category="Edit",
             .description="Redo last undone operation.",
             .bindings={
-                {.enabled=true, .chord="Ctrl+Shift+Z", .context="editor", .platform="any"},
-                {.enabled=true, .chord="Ctrl+Y", .context="editor", .platform="windows"},
-                {.enabled=true, .chord="Cmd+Shift+Z", .context="editor", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+Shift+Z", .context="editor", .platform="any", .repeat=true, .repeat_set=true},
+                {.enabled=true, .chord="Ctrl+Y", .context="editor", .platform="windows", .repeat=true, .repeat_set=true},
+                {.enabled=true, .chord="Cmd+Shift+Z", .context="editor", .platform="macos", .repeat=true, .repeat_set=true},
             }
         },
         {

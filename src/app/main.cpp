@@ -37,7 +37,7 @@
 #include "io/io_manager.h"
 #include "io/image_loader.h"
 #include "ui/image_to_chafa_dialog.h"
-#include "ui/preview_window.h"
+#include "ui/minimap_window.h"
 #include "app/canvas_preview_texture.h"
 #include "ui/settings.h"
 #include "ui/image_window.h"
@@ -560,7 +560,7 @@ int main(int, char**)
     bool   show_layer_manager_window = session_state.show_layer_manager_window;
     bool   show_ansl_editor_window = session_state.show_ansl_editor_window;
     bool   show_tool_palette_window = session_state.show_tool_palette_window;
-    bool   show_preview_window = session_state.show_preview_window;
+    bool   show_minimap_window = session_state.show_minimap_window;
     bool   show_settings_window = session_state.show_settings_window;
     bool   show_16colors_browser_window = session_state.show_16colors_browser_window;
     bool   window_fullscreen = session_state.window_fullscreen;
@@ -669,8 +669,8 @@ int main(int, char**)
     // Image -> ANSI (Chafa) conversion dialog
     ImageToChafaDialog image_to_chafa_dialog;
 
-    // Canvas preview (minimap)
-    PreviewWindow preview_window;
+    // Canvas minimap window
+    MinimapWindow minimap_window;
     CanvasPreviewTexture preview_texture;
 
     // 16colo.rs browser
@@ -1024,7 +1024,7 @@ int main(int, char**)
                 ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
                 ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
                 ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
-                ImGui::MenuItem("Preview", nullptr, &show_preview_window);
+                ImGui::MenuItem("Minimap", nullptr, &show_minimap_window);
                 ImGui::MenuItem("16colo.rs Browser", nullptr, &show_16colors_browser_window);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Fullscreen", nullptr, &window_fullscreen))
@@ -2043,14 +2043,14 @@ int main(int, char**)
                               &session_state, should_apply_placement(title.c_str()));
         }
 
-        // Preview window for the active canvas (minimap + viewport rectangle).
-        if (show_preview_window)
+        // Minimap window for the active canvas (overview + viewport rectangle).
+        if (show_minimap_window)
         {
-            const char* name = "Preview";
+            const char* name = "Minimap";
             // Higher max dimension improves detail; throttling + revision gating keeps it cheap.
             preview_texture.Update(active_canvas, 768, ImGui::GetTime());
             const CanvasPreviewTextureView pv_view = preview_texture.View();
-            preview_window.Render(name, &show_preview_window, active_canvas, &pv_view,
+            minimap_window.Render(name, &show_minimap_window, active_canvas, &pv_view,
                                   &session_state, should_apply_placement(name));
         }
 
@@ -2155,7 +2155,7 @@ int main(int, char**)
             st.show_layer_manager_window = show_layer_manager_window;
             st.show_ansl_editor_window = show_ansl_editor_window;
             st.show_tool_palette_window = show_tool_palette_window;
-            st.show_preview_window = show_preview_window;
+            st.show_minimap_window = show_minimap_window;
             st.show_settings_window = show_settings_window;
             st.show_16colors_browser_window = show_16colors_browser_window;
 

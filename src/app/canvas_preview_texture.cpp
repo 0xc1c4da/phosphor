@@ -521,7 +521,7 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
         atlas = ImGui::GetIO().Fonts;
 
     unsigned char* atlas_rgba = nullptr;
-    int atlas_w = 0, atlas_h = 0, atlas_bpp = 0;
+    int atlas_w = 0, atlas_h = 0;
     if (atlas)
     {
         // Prefer already-built RGBA32 data when available (matches this app's Vulkan backend expectations).
@@ -530,7 +530,6 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
             atlas_rgba = atlas->TexData->Pixels;
             atlas_w = atlas->TexData->Width;
             atlas_h = atlas->TexData->Height;
-            atlas_bpp = atlas->TexData->BytesPerPixel;
         }
         // IMPORTANT: avoid forcing atlas (re)builds from the preview path.
         // If TexData isn't available, fall back to a conservative behavior (treat glyphs as solid fg)
@@ -706,7 +705,7 @@ void CanvasPreviewTexture::Update(AnsiCanvas* canvas, int max_dim, double now_s)
 
     if (!canvas)
     {
-        // Keep last texture around (PreviewWindow can decide how to handle null canvas).
+        // Keep last texture around (MinimapWindow can decide how to handle null canvas).
         return;
     }
 
@@ -762,7 +761,7 @@ void CanvasPreviewTexture::Update(AnsiCanvas* canvas, int max_dim, double now_s)
     const bool rev_changed = (rev != m->last_canvas_rev);
 
     // Backing texture is square (max_dim x max_dim). We render into a sub-rect (w x h)
-    // and expose UVs so PreviewWindow preserves aspect without reallocating GPU objects.
+    // and expose UVs so MinimapWindow preserves aspect without reallocating GPU objects.
     if (!m->EnsureBacking(max_dim))
         return;
 

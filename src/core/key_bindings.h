@@ -39,6 +39,14 @@ struct KeyBinding
     std::string chord;    // e.g. "Ctrl+Shift+Z", "Alt+B", "Left", "F1"
     std::string context;  // "global", "editor", "selection", "canvas"
     std::string platform; // "any", "windows", "linux", "macos"
+    // If true, treat this binding as "repeat while held" using ImGui's key-repeat timing
+    // (ImGuiIO::KeyRepeatDelay / ImGuiIO::KeyRepeatRate).
+    //
+    // Important for actions like Undo/Redo: holding Ctrl+Z should repeatedly undo after a short delay.
+    bool repeat = false;
+    // Internal: distinguishes "repeat was specified in JSON" vs inherited/defaulted.
+    // This allows older key-bindings.json files (without a repeat field) to inherit new defaults.
+    bool repeat_set = false;
 };
 
 struct Action
@@ -131,6 +139,7 @@ private:
         Context     ctx = Context::Global;
         Platform    platform = Platform::Any;
         ParsedChord chord;
+        bool        repeat = false;
         std::string chord_text; // for debugging/errors (optional)
     };
 
