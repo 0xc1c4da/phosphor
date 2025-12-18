@@ -31,7 +31,7 @@ public:
     // Render the component. `id` must be unique within the current ImGui window.
     // `flags` are passed through to ImGui::InputTextMultiline.
     void Render(const char* id,
-                const std::vector<LayerManagerCanvasRef>& canvases,
+                AnsiCanvas* active_canvas,
                 AnslScriptEngine& engine,
                 int current_fg_xterm = -1,
                 int current_bg_xterm = -1,
@@ -52,7 +52,6 @@ private:
     std::string text_;
 
     // Target selection
-    int target_canvas_id_ = 0;
     bool clear_layer_each_frame_ = true;
 
     // Example scripts dropdown

@@ -10,7 +10,7 @@
 
 void LayerManager::Render(const char* title,
                           bool* p_open,
-                          const std::vector<LayerManagerCanvasRef>& canvases,
+                          AnsiCanvas* active_canvas,
                           SessionState* session,
                           bool apply_placement_this_frame)
 {
@@ -39,58 +39,15 @@ void LayerManager::Render(const char* title,
         RenderImGuiWindowChromeMenu(session, title);
     }
 
-    if (canvases.empty())
+    if (!active_canvas)
     {
-        ImGui::TextUnformatted("No canvases open.");
+        ImGui::TextUnformatted("No active canvas.");
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
 
-    // Select target canvas by id.
-    if (selected_canvas_id_ == 0)
-        selected_canvas_id_ = canvases.front().id;
-
-    std::vector<std::string> canvas_strings;
-    std::vector<const char*> canvas_labels;
-    canvas_strings.reserve(canvases.size());
-    canvas_labels.reserve(canvases.size());
-    for (const auto& c : canvases)
-    {
-        canvas_strings.push_back("Canvas " + std::to_string(c.id));
-    }
-    for (const std::string& s : canvas_strings)
-        canvas_labels.push_back(s.c_str());
-
-    int canvas_index = 0;
-    bool canvas_id_found = false;
-    for (size_t i = 0; i < canvases.size(); ++i)
-    {
-        if (canvases[i].id == selected_canvas_id_)
-        {
-            canvas_index = static_cast<int>(i);
-            canvas_id_found = true;
-            break;
-        }
-    }
-    if (!canvas_id_found)
-    {
-        canvas_index = 0;
-        selected_canvas_id_ = canvases.front().id;
-    }
-
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::Combo("Target", &canvas_index, canvas_labels.data(), (int)canvas_labels.size()))
-        selected_canvas_id_ = canvases[(size_t)canvas_index].id;
-
-    AnsiCanvas* canvas = canvases[(size_t)canvas_index].canvas;
-    if (!canvas)
-    {
-        ImGui::TextUnformatted("Selected canvas is null.");
-        ImGui::End();
-        PopImGuiWindowChromeAlpha(alpha_pushed);
-        return;
-    }
+    AnsiCanvas* canvas = active_canvas;
 
     ImGui::Separator();
 
@@ -160,17 +117,8 @@ void LayerManager::Render(const char* title,
     if (ImGui::BeginPopupModal("Rename Layer", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         // Verify the target canvas still exists this frame (avoid dangling pointer).
-        bool target_alive = false;
-        for (const auto& c : canvases)
-        {
-            if (c.canvas == rename_target_canvas_)
-            {
-                target_alive = true;
-                break;
-            }
-        }
-
-        if (!target_alive || !rename_target_canvas_)
+        const bool target_alive = (rename_target_canvas_ != nullptr) && (rename_target_canvas_ == active_canvas);
+        if (!target_alive)
         {
             ImGui::TextUnformatted("Target canvas no longer exists.");
         }
@@ -185,7 +133,7 @@ void LayerManager::Render(const char* title,
 
         if (ImGui::Button("OK"))
         {
-            if (target_alive && rename_target_canvas_ && rename_target_layer_index_ >= 0)
+            if (target_alive && rename_target_layer_index_ >= 0)
                 rename_target_canvas_->SetLayerName(rename_target_layer_index_, std::string(rename_buf_));
             rename_target_canvas_ = nullptr;
             rename_target_layer_index_ = -1;

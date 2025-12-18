@@ -390,7 +390,6 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     }
 
     // Top controls
-    ImGui::TextUnformatted("API: https://api.16colo.rs (browse packs, then click files to import)");
     ImGui::Separator();
 
     bool list_settings_changed = false;

@@ -4,7 +4,7 @@
 //  - rendering the grid
 //  - editing primitives
 //
-// The LayerManager window can target one of multiple canvases.
+// The LayerManager window targets the app's current "active" canvas (decided by the main loop).
 
 #pragma once
 
@@ -24,12 +24,11 @@ class LayerManager
 public:
     void Render(const char* title,
                 bool* p_open,
-                const std::vector<LayerManagerCanvasRef>& canvases,
+                AnsiCanvas* active_canvas,
                 SessionState* session = nullptr,
                 bool apply_placement_this_frame = false);
 
 private:
-    int selected_canvas_id_ = 0;
     char rename_buf_[256] = {0};
 
     // Rename popup state (kept so the modal can remain open across frames).

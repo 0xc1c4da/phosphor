@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 7;
+    j["schema_version"] = 8;
 
     json win;
     win["w"] = st.window_w;
@@ -66,6 +66,7 @@ static json ToJson(const SessionState& st)
     win["y"] = st.window_y;
     win["pos_valid"] = st.window_pos_valid;
     win["maximized"] = st.window_maximized;
+    win["fullscreen"] = st.window_fullscreen;
     j["window"] = std::move(win);
 
     json ui;
@@ -131,6 +132,7 @@ static json ToJson(const SessionState& st)
         jc["zoom"] = c.zoom;
         jc["scroll_x"] = c.scroll_x;
         jc["scroll_y"] = c.scroll_y;
+        jc["canvas_bg_white"] = c.canvas_bg_white;
         canvases.push_back(std::move(jc));
     }
     content["open_canvases"] = std::move(canvases);
@@ -203,6 +205,7 @@ static void FromJson(const json& j, SessionState& out)
         if (w.contains("y") && w["y"].is_number_integer()) out.window_y = w["y"].get<int>();
         if (w.contains("pos_valid") && w["pos_valid"].is_boolean()) out.window_pos_valid = w["pos_valid"].get<bool>();
         if (w.contains("maximized") && w["maximized"].is_boolean()) out.window_maximized = w["maximized"].get<bool>();
+        if (w.contains("fullscreen") && w["fullscreen"].is_boolean()) out.window_fullscreen = w["fullscreen"].get<bool>();
     }
 
     if (j.contains("ui") && j["ui"].is_object())
@@ -301,6 +304,8 @@ static void FromJson(const json& j, SessionState& out)
                 if (jc.contains("zoom") && jc["zoom"].is_number()) oc.zoom = jc["zoom"].get<float>();
                 if (jc.contains("scroll_x") && jc["scroll_x"].is_number()) oc.scroll_x = jc["scroll_x"].get<float>();
                 if (jc.contains("scroll_y") && jc["scroll_y"].is_number()) oc.scroll_y = jc["scroll_y"].get<float>();
+                if (jc.contains("canvas_bg_white") && jc["canvas_bg_white"].is_boolean())
+                    oc.canvas_bg_white = jc["canvas_bg_white"].get<bool>();
 
                 if (oc.id > 0)
                     out.open_canvases.push_back(std::move(oc));
@@ -410,7 +415,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -436,7 +441,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

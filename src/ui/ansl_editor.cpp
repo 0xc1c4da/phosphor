@@ -145,7 +145,7 @@ AnslEditor::AnslEditor()
 }
 
 void AnslEditor::Render(const char* id,
-                        const std::vector<LayerManagerCanvasRef>& canvases,
+                        AnsiCanvas* active_canvas,
                         AnslScriptEngine& engine,
                         int current_fg_xterm,
                         int current_bg_xterm,
@@ -182,40 +182,13 @@ void AnslEditor::Render(const char* id,
 
     ImGui::Separator();
 
-    if (canvases.empty())
+    if (!active_canvas)
     {
         ImGui::TextUnformatted("Open a Canvas window to run scripts.");
     }
     else
     {
-        // Target canvas selection.
-        if (target_canvas_id_ == 0)
-            target_canvas_id_ = canvases.front().id;
-
-        std::vector<std::string> canvas_strings;
-        std::vector<const char*> canvas_labels;
-        canvas_strings.reserve(canvases.size());
-        canvas_labels.reserve(canvases.size());
-        for (const auto& c : canvases)
-            canvas_strings.push_back("Canvas " + std::to_string(c.id));
-        for (const std::string& s : canvas_strings)
-            canvas_labels.push_back(s.c_str());
-
-        int canvas_index = 0;
-        for (size_t i = 0; i < canvases.size(); ++i)
-        {
-            if (canvases[i].id == target_canvas_id_)
-            {
-                canvas_index = (int)i;
-                break;
-            }
-        }
-
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::Combo("Target Canvas", &canvas_index, canvas_labels.data(), (int)canvas_labels.size()))
-            target_canvas_id_ = canvases[(size_t)canvas_index].id;
-
-        AnsiCanvas* canvas = canvases[(size_t)canvas_index].canvas;
+        AnsiCanvas* canvas = active_canvas;
         // Always target the canvas's active ("current") layer.
         const int active_layer = canvas ? canvas->GetActiveLayerIndex() : 0;
         ImGui::Text("Target Layer: %d (active)", active_layer);

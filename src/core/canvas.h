@@ -257,6 +257,21 @@ public:
     void GetCaretCell(int& out_x, int& out_y) const { out_x = m_caret_col; out_y = m_caret_row; }
     void SetCaretCell(int x, int y);
     bool HasFocus() const { return m_has_focus; }
+    // Forcefully clears focus (used by the app to ensure focus is exclusive across canvases).
+    void ClearFocus()
+    {
+        m_has_focus = false;
+        m_mouse_capture = false;
+        m_cursor_valid = false;
+        m_focus_gained = false;
+    }
+    // Returns true exactly once when this canvas gains focus via a click inside the grid.
+    bool TakeFocusGained()
+    {
+        const bool v = m_focus_gained;
+        m_focus_gained = false;
+        return v;
+    }
 
     // ---------------------------------------------------------------------
     // Input events captured during Render() for tools/scripts to consume.
@@ -387,6 +402,8 @@ private:
 
     // Whether this canvas currently has keyboard focus.
     bool m_has_focus = false;
+    // Transient: set during Render() when focus becomes true due to a click in the grid.
+    bool m_focus_gained = false;
     // Last known mouse cursor state in cell space (updated during Render()).
     bool m_cursor_valid = false;
     int  m_cursor_col = 0;

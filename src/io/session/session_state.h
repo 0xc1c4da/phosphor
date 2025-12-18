@@ -71,6 +71,10 @@ struct SessionState
         float zoom = 1.0f;
         float scroll_x = 0.0f;
         float scroll_y = 0.0f;
+
+        // Canvas background (independent of ImGui theme). False = black, true = white.
+        // Per-canvas-window instance setting (so multiple open canvases can differ).
+        bool canvas_bg_white = false;
     };
 
     struct OpenImage
@@ -87,6 +91,7 @@ struct SessionState
     int window_y = 0;
     bool window_pos_valid = false;
     bool window_maximized = false;
+    bool window_fullscreen = false;
 
     // Tool window visibility toggles
     bool show_color_picker_window = true;

@@ -502,6 +502,10 @@ int main(int, char**)
     else
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
+    // Restore fullscreen/maximized state (best-effort; may be denied by the WM).
+    if (session_state.window_fullscreen)
+        (void)SDL_SetWindowFullscreen(window, true);
+
     if (session_state.window_maximized)
         SDL_MaximizeWindow(window);
 
@@ -558,6 +562,7 @@ int main(int, char**)
     bool   show_preview_window = session_state.show_preview_window;
     bool   show_settings_window = session_state.show_settings_window;
     bool   show_16colors_browser_window = session_state.show_16colors_browser_window;
+    bool   window_fullscreen = session_state.window_fullscreen;
     SettingsWindow settings_window;
     settings_window.SetOpen(show_settings_window);
     settings_window.SetMainScale(main_scale);
@@ -728,6 +733,10 @@ int main(int, char**)
                 std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, derr.c_str());
             }
         }
+
+        // Per-canvas background (do this early so the placeholder canvas matches too).
+        // Legacy sessions (no per-canvas field) will use the global default.
+        cw.canvas.SetCanvasBackgroundWhite(oc.canvas_bg_white || session_state.canvas_bg_white);
 
         cw.canvas.SetZoom(oc.zoom);
         cw.canvas.RequestScrollPixels(oc.scroll_x, oc.scroll_y);
@@ -980,6 +989,20 @@ int main(int, char**)
                 ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
                 ImGui::MenuItem("Preview", nullptr, &show_preview_window);
                 ImGui::MenuItem("16colo.rs Browser", nullptr, &show_16colors_browser_window);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Fullscreen", nullptr, &window_fullscreen))
+                {
+                    if (!SDL_SetWindowFullscreen(window, window_fullscreen))
+                    {
+                        // Revert UI state if the window manager denies the request.
+                        window_fullscreen = !window_fullscreen;
+                    }
+                    else
+                    {
+                        // Persist immediately in-memory; file is written at shutdown.
+                        session_state.window_fullscreen = window_fullscreen;
+                    }
+                }
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -1638,6 +1661,18 @@ int main(int, char**)
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
                 last_active_canvas_id = canvas.id;
 
+            // Also treat *clicking anywhere inside the canvas window* (including the grid/child)
+            // as making it the active canvas for auxiliary panels (Layer Manager, etc).
+            // This avoids cases where multiple AnsiCanvas instances still report HasFocus().
+            {
+                const bool any_click =
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Middle);
+                if (any_click && ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
+                    last_active_canvas_id = canvas.id;
+            }
+
             // Lazy restore: load cached project when the window is focused (user intent),
             // and only after the first frame has rendered.
             if (canvas.restore_pending && !canvas.restore_attempted &&
@@ -1764,10 +1799,29 @@ int main(int, char**)
             };
 
             // Apply global session canvas background preference, but allow the canvas UI
-            // to toggle it (we read back after render to persist).
-            canvas.canvas.SetCanvasBackgroundWhite(session_state.canvas_bg_white);
+            // to toggle it.
+            const bool bg_before = canvas.canvas.IsCanvasBackgroundWhite();
             canvas.canvas.Render(id_buf, tool_runner);
-            session_state.canvas_bg_white = canvas.canvas.IsCanvasBackgroundWhite();
+            const bool bg_after = canvas.canvas.IsCanvasBackgroundWhite();
+            // Update global default for *new* canvases if the user toggled background in any canvas.
+            // (But do not force it onto other already-open canvases.)
+            if (bg_after != bg_before)
+                session_state.canvas_bg_white = bg_after;
+            // Ensure only one canvas reports HasFocus() at a time.
+            // Without this, multiple canvases can remain "focused" and undo/redo routing
+            // will consistently pick the first one in the list.
+            if (canvas.canvas.TakeFocusGained())
+            {
+                last_active_canvas_id = canvas.id;
+                for (auto& other : canvases)
+                {
+                    if (!other.open)
+                        continue;
+                    if (other.id == canvas.id)
+                        continue;
+                    other.canvas.ClearFocus();
+                }
+            }
 
             // SAUCE editor dialog (opened via the canvas status bar button).
             if (canvas.canvas.TakeOpenSauceEditorRequest())
@@ -1786,15 +1840,46 @@ int main(int, char**)
         if (show_layer_manager_window)
         {
             const char* name = "Layer Manager";
-            std::vector<LayerManagerCanvasRef> refs;
-            refs.reserve(canvases.size());
-            for (auto& c : canvases)
+
+            // Recompute the "current" canvas for UI panels *after* rendering canvas windows,
+            // so it tracks the most recently focused canvas window in the same frame.
+            AnsiCanvas* ui_active_canvas = nullptr;
+            if (!ui_active_canvas && last_active_canvas_id != -1)
             {
-                if (!c.open)
-                    continue;
-                refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
+                for (auto& c : canvases)
+                {
+                    if (c.open && c.id == last_active_canvas_id)
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
             }
-            layer_manager.Render(name, &show_layer_manager_window, refs,
+            // Fallback: if we don't have a valid last_active_canvas_id yet, pick a focused grid.
+            if (!ui_active_canvas)
+            {
+                for (auto& c : canvases)
+                {
+                    if (c.open && c.canvas.HasFocus())
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
+            }
+            if (!ui_active_canvas)
+            {
+                for (auto& c : canvases)
+                {
+                    if (c.open)
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
+            }
+
+            layer_manager.Render(name, &show_layer_manager_window, ui_active_canvas,
                                  &session_state, should_apply_placement(name));
         }
 
@@ -1810,14 +1895,6 @@ int main(int, char**)
             CaptureImGuiWindowPlacement(session_state, name);
             ApplyImGuiWindowChromeZOrder(&session_state, name);
             RenderImGuiWindowChromeMenu(&session_state, name);
-            std::vector<LayerManagerCanvasRef> refs;
-            refs.reserve(canvases.size());
-            for (auto& c : canvases)
-            {
-                if (!c.open)
-                    continue;
-                refs.push_back(LayerManagerCanvasRef{c.id, &c.canvas});
-            }
             auto to_idx = [](const ImVec4& c) -> int {
                 const int r = (int)std::lround(c.x * 255.0f);
                 const int g = (int)std::lround(c.y * 255.0f);
@@ -1828,7 +1905,43 @@ int main(int, char**)
             };
             const int fg_idx = to_idx(fg_color);
             const int bg_idx = to_idx(bg_color);
-            ansl_editor.Render("ansl_editor", refs, ansl_engine, fg_idx, bg_idx, ImGuiInputTextFlags_AllowTabInput);
+            // Use the same active-canvas selection rules as other panels (Layer Manager, etc).
+            AnsiCanvas* ui_active_canvas = nullptr;
+            if (last_active_canvas_id != -1)
+            {
+                for (auto& c : canvases)
+                {
+                    if (c.open && c.id == last_active_canvas_id)
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
+            }
+            if (!ui_active_canvas)
+            {
+                for (auto& c : canvases)
+                {
+                    if (c.open && c.canvas.HasFocus())
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
+            }
+            if (!ui_active_canvas)
+            {
+                for (auto& c : canvases)
+                {
+                    if (c.open)
+                    {
+                        ui_active_canvas = &c.canvas;
+                        break;
+                    }
+                }
+            }
+
+            ansl_editor.Render("ansl_editor", ui_active_canvas, ansl_engine, fg_idx, bg_idx, ImGuiInputTextFlags_AllowTabInput);
             ImGui::End();
             PopImGuiWindowChromeAlpha(alpha_pushed);
         }
@@ -1947,6 +2060,7 @@ int main(int, char**)
 
             const SDL_WindowFlags wf = SDL_GetWindowFlags(window);
             st.window_maximized = (wf & SDL_WINDOW_MAXIMIZED) != 0;
+            st.window_fullscreen = (wf & SDL_WINDOW_FULLSCREEN) != 0;
 
             st.show_color_picker_window = show_color_picker_window;
             st.show_character_picker_window = show_character_picker_window;
@@ -1995,6 +2109,7 @@ int main(int, char**)
                 oc.id = cw.id;
                 oc.open = cw.open;
                 oc.zoom = cw.canvas.GetZoom();
+                oc.canvas_bg_white = cw.canvas.IsCanvasBackgroundWhite();
                 const auto& vs = cw.canvas.GetLastViewState();
                 if (vs.valid)
                 {

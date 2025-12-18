@@ -2251,6 +2251,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     //
     // IMPORTANT: don't defocus on global UI clicks (e.g. main menu bar) so menu actions
     // like File/Save and Edit/Undo can still target the active canvas.
+    m_focus_gained = false; // transient per-frame
+    const bool was_focused = m_has_focus;
     const bool any_click = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
     if (ImGui::IsItemHovered() && any_click)
         m_has_focus = true;
@@ -2261,6 +2263,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
             m_has_focus = false;
     }
+    if (!was_focused && m_has_focus)
+        m_focus_gained = true;
 
     HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
 
