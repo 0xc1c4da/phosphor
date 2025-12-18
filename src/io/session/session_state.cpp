@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 8;
+    j["schema_version"] = 9;
 
     json win;
     win["w"] = st.window_w;
@@ -120,6 +120,8 @@ static json ToJson(const SessionState& st)
         json jc;
         jc["id"] = c.id;
         jc["open"] = c.open;
+        if (!c.file_path.empty())
+            jc["file_path"] = c.file_path;
         if (!c.project_phos_cache_rel.empty())
             jc["project_phos_cache_rel"] = c.project_phos_cache_rel;
 
@@ -295,6 +297,8 @@ static void FromJson(const json& j, SessionState& out)
                 SessionState::OpenCanvas oc;
                 if (jc.contains("id") && jc["id"].is_number_integer()) oc.id = jc["id"].get<int>();
                 if (jc.contains("open") && jc["open"].is_boolean()) oc.open = jc["open"].get<bool>();
+                if (jc.contains("file_path") && jc["file_path"].is_string())
+                    oc.file_path = jc["file_path"].get<std::string>();
                 if (jc.contains("project_phos_cache_rel") && jc["project_phos_cache_rel"].is_string())
                     oc.project_phos_cache_rel = jc["project_phos_cache_rel"].get<std::string>();
                 if (jc.contains("project_cbor_size") && (jc["project_cbor_size"].is_number_unsigned() || jc["project_cbor_size"].is_number_integer()))
@@ -415,7 +419,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -441,7 +445,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

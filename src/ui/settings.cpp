@@ -154,9 +154,10 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
         .title = "About",
         .render = []()
         {
-            ImGui::TextUnformatted("Phosphor");
+            ImGui::TextUnformatted("Phosphor by 0xc1c4da");
             ImGui::Separator();
-            ImGui::TextUnformatted("Settings tabs are designed to be extendable.");
+            ImGui::TextUnformatted("A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font.");
+          
         },
     });
 }
@@ -209,11 +210,9 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
     {
         for (auto& tab : tabs_)
         {
-            ImGuiTabItemFlags flags = ImGuiTabItemFlags_None;
-            if (!active_tab_id_.empty() && tab.id == active_tab_id_)
-                flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(tab.title.c_str(), nullptr, flags))
+            // Don't force selection every frame: doing so prevents the user from switching tabs.
+            // Let ImGui manage selection; we just observe which tab is active.
+            if (ImGui::BeginTabItem(tab.title.c_str()))
             {
                 active_tab_id_ = tab.id;
                 if (tab.render)

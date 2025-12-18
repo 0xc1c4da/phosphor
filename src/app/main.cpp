@@ -704,6 +704,8 @@ int main(int, char**)
         CanvasWindow cw;
         cw.open = oc.open;
         cw.id = (oc.id > 0) ? oc.id : next_canvas_id++;
+        if (!oc.file_path.empty())
+            cw.canvas.SetFilePath(oc.file_path);
 
         // Prefer cache-backed restore (fast session.json parse, project loaded lazily).
         if (!oc.project_phos_cache_rel.empty())
@@ -1583,8 +1585,40 @@ int main(int, char**)
             if (!canvas.open)
                 continue;
 
-            std::string title = "Canvas " + std::to_string(canvas.id) +
-                                "##canvas" + std::to_string(canvas.id);
+        auto sanitize_imgui_id = [](std::string s) -> std::string
+        {
+            // ImGui uses "##" to split label from identifier. Ensure user-provided paths
+            // can't accidentally terminate the visible label.
+            for (;;)
+            {
+                const size_t pos = s.find("##");
+                if (pos == std::string::npos)
+                    break;
+                s.replace(pos, 2, "#");
+            }
+            return s;
+        };
+
+        // Window title / identity:
+        // - Prefer the user-visible file path (set on successful Save/Load).
+        // - Otherwise show the on-disk session cache file path (since unsaved canvases still persist there).
+        std::string canvas_path;
+        if (canvas.canvas.HasFilePath())
+        {
+            canvas_path = canvas.canvas.GetFilePath();
+        }
+        else if (!canvas.restore_phos_cache_rel.empty())
+        {
+            canvas_path = PhosphorCachePath(canvas.restore_phos_cache_rel);
+        }
+        else
+        {
+            const std::string rel = "session_canvases/canvas_" + std::to_string(canvas.id) + ".phos";
+            canvas_path = PhosphorCachePath(rel);
+        }
+
+        const std::string canvas_id = "canvas:" + sanitize_imgui_id(canvas_path) + "#" + std::to_string(canvas.id);
+        std::string title = canvas_path + "##" + canvas_id;
 
             // First-time canvas window placement: size to the grid (cols x rows) at the
             // current font + zoom, and center it. Persisted placements still win.
@@ -1953,8 +1987,20 @@ int main(int, char**)
             if (!img.open)
                 continue;
 
-            std::string title = "Image " + std::to_string(img.id) +
-                                "##image" + std::to_string(img.id);
+        std::string img_path = img.path.empty()
+            ? ("untitled://image/" + std::to_string(img.id))
+            : img.path;
+        // Avoid accidental ImGui label/id splitting from exotic paths.
+        for (;;)
+        {
+            const size_t pos = img_path.find("##");
+            if (pos == std::string::npos)
+                break;
+            img_path.replace(pos, 2, "#");
+        }
+        // Keep the window identity stable even if two images share the same filename.
+        const std::string img_id = "image:" + img_path + "#" + std::to_string(img.id);
+        std::string title = img_path + "##" + img_id;
 
             RenderImageWindow(title.c_str(), img, image_to_chafa_dialog,
                               &session_state, should_apply_placement(title.c_str()));
@@ -2108,6 +2154,7 @@ int main(int, char**)
                 SessionState::OpenCanvas oc;
                 oc.id = cw.id;
                 oc.open = cw.open;
+                oc.file_path = cw.canvas.GetFilePath();
                 oc.zoom = cw.canvas.GetZoom();
                 oc.canvas_bg_white = cw.canvas.IsCanvasBackgroundWhite();
                 const auto& vs = cw.canvas.GetLastViewState();

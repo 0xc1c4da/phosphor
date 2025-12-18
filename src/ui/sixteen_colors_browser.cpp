@@ -353,6 +353,8 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                     m_last_error = ierr;
                     continue;
                 }
+                // Use the URL as a stable "path" identity for window titles and session restore.
+                imported.SetFilePath(display_path);
                 cb.create_canvas(std::move(imported));
                 m_last_error.clear();
             }

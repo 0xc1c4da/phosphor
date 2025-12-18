@@ -153,11 +153,7 @@ bool RenderImageWindow(const char* title, ImageWindow& image, ImageToChafaDialog
         RenderImGuiWindowChromeMenu(session, title);
     }
 
-    // Display basic metadata and then the scalable preview.
-    ImGui::Text("Path: %s", image.path.c_str());
-    ImGui::Text("Size: %dx%d", image.width, image.height);
-    ImGui::Separator();
-
+    // Scalable preview (context menu is on the preview region).
     RenderImageWindowContents(image, dialog);
 
     ImGui::End();

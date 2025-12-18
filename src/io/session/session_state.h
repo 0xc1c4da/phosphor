@@ -57,6 +57,11 @@ struct SessionState
         int id = 0;
         bool open = true;
 
+        // User-facing document identity for this canvas (typically an absolute file path,
+        // but can also be a URL-like string for remote imports). Empty means "not explicitly saved/opened".
+        // The UI uses this for window titles when available.
+        std::string file_path;
+
         // Preferred persistence for session restore: a cached .phos project stored under
         // <config_dir>/cache (see core/paths.cpp).
         // Stored as a cache-relative path like "session_canvases/canvas_12.phos".

@@ -155,6 +155,8 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
 
         if (project_file::SaveProjectToFile(path, *focused_canvas, err))
         {
+            // Treat successful save as establishing the document's canonical file path.
+            focused_canvas->SetFilePath(path);
             m_last_error.clear();
         }
         else
@@ -210,6 +212,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             AnsiCanvas loaded;
             if (project_file::LoadProjectFromFile(chosen, loaded, err))
             {
+                loaded.SetFilePath(chosen);
                 cb.create_canvas(std::move(loaded));
                 m_last_error.clear();
                 return true;
@@ -228,6 +231,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             std::string ierr;
             if (ansi_importer::ImportAnsiFileToCanvas(chosen, imported, ierr))
             {
+                imported.SetFilePath(chosen);
                 cb.create_canvas(std::move(imported));
                 m_last_error.clear();
                 return true;
