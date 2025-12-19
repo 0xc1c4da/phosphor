@@ -2,16 +2,20 @@
 
 A native UTF‑8 ANSI / text-mode art editor.
 
-Phosphor stores glyphs as Unicode codepoints based on the [Unscii](http://viznut.fi/unscii/) 8×16 font, and focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, and browsing 16colo.rs packs.
+Phosphor stores glyphs as Unicode codepoints (UTF‑8 canvas), but can render canvases using multiple classic bitmap fonts (DOS/Amiga/etc) as well as Unicode atlas rendering. It focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, import/export, and a full featured 16colo.rs browser.
 
 ![Phosphor Screenshot](dist/phosphor.png)
 
 ## Features
 
-- Native UTF‑8 canvas: store and edit Unicode codepoints directly (Unscii-backed).
+- Native UTF‑8 canvas: store and edit Unicode codepoints directly.
+- Multiple fonts + rendering:
+  - Per-canvas font selection (persisted via SAUCE `TInfoS` / FontName and used on export).
+  - Unicode atlas rendering (Unscii for UI; canvases can render via an atlas font too).
+  - Indexed/bitmap rendering for classic textmode fonts (CP437-ordered glyph tables), including support for embedded bitmap fonts (e.g. XBin embedded font chunks) and built-in fonts (IBM VGA codepages, Amiga Topaz/MicroKnight, Terminus, Spleen).
 - Layers: add/remove, reorder, rename, and toggle visibility.
 - Undo/redo: project-aware undo history persisted inside `.phos`.
-- Color tools: xterm‑256 color picker + standard palette browser/management.
+- Colour tools: Discrete colour picker + standard palette browser/management.
 - Character tools:
   - Unicode Character Picker (ICU-backed) with search and metadata.
   - Character Palettes + Character Sets.
@@ -21,9 +25,15 @@ Phosphor stores glyphs as Unicode codepoints based on the [Unscii](http://viznut
 - Image support:
   - Open common images (`.png/.jpg/.gif/.bmp`) and preview them.
   - Convert images to ANSI-like character art via Chafa (“Convert to ANSI…” creates a new canvas).
-- 16colo.rs browser:
-  - Browse packs, thumbnails, and download/open remote artwork.
+- Import/export:
+  - ANSI, plaintext, XBin, and raster image export (with presets + detailed options via a tabbed Export dialog).
+  - Import `.phos` projects, common ANSI/text files, XBin, and images.
+- 16colo.rs browser (API-backed):
+  - Browse Packs / Groups / Artists / Years / Latest releases.
+  - Thumbnail gallery + filtering, with one-click open for remote ANSI/text and images.
   - HTTP responses are cached on disk for speed/offline-ish reuse.
+- Skins:
+  - Built-in UI themes (Cherry, Grape, Charcoal) + UI scale.
 - SAUCE metadata:
   - Parse SAUCE when importing ANSI/text where present.
   - Edit SAUCE fields in-app and persist them in `.phos` project files.
@@ -32,27 +42,36 @@ Phosphor stores glyphs as Unicode codepoints based on the [Unscii](http://viznut
 
 - Project: `.phos`
   - Stored as CBOR, compressed with zstd.
-  - Includes layers, colors, caret state, undo/redo history, and SAUCE metadata snapshot.
+  - Includes layers, colours, caret state, undo/redo history, and SAUCE metadata snapshot.
 - Import:
-  - ANSI / text: `.ans`, `.asc`, `.txt` (with UTF‑8 vs CP437 detection).
+  - ANSI-ish textmode: `.ans`, `.nfo`, `.diz`.
+  - Plaintext: `.txt`, `.asc`.
+  - XBin: `.xb`.
   - Images: `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`.
 - Export:
-  - Not implemented yet (menu item exists, but saving/exporting `.ans` is currently a stub).
+  - ANSI: `.ans` (presets + options for encoding, newlines, colour modes including ANSI16/xterm‑256/truecolour SGR, optional SAUCE).
+  - Plaintext: `.txt`, `.asc` (no ANSI escapes; encoding/newline options).
+  - XBin: `.xb` (optional palette chunk, RLE compression, NonBlink/iCE flag; optional SAUCE).
+  - Images: `.png`, `.jpg` (rendered from the canvas; supports truecolour and indexed palette modes).
 
 ## UI windows
 
 From the menu you can toggle:
 
-- Xterm‑256 Color Picker
+- Discrete Colour Picker (up to 256 colours)
 - Unicode Character Picker
-- Character Palettes
+- Character Palette
 - Character Sets
 - Layer Manager
 - ANSL Editor
 - Tool Palette
-- Preview (minimap with pan/zoom interaction)
+- Minimap (pan/zoom interaction)
 - 16colo.rs Browser
-- Settings (theme + key bindings editor)
+- Settings (skin/theme + UI scale + key bindings editor)
+
+From the **File** menu:
+
+- Export… (tabbed Export dialog: ANSI / Plaintext / Image / XBin)
 
 ## Configuration + data directories (Linux)
 
@@ -99,11 +118,12 @@ nix run
 
 ### Without Nix
 
-- Install dependencies for: SDL3, Vulkan, Dear ImGui, Chafa, ICU, LuaJIT, zstd, libcurl, nlohmann_json, and stb headers.
-- Set `IMGUI_DIR` to a checkout of `ocornut/imgui` or checkout in `vendor/imgui`:
+- Install dependencies for: SDL3, Vulkan, Dear ImGui, Chafa, ICU, LuaJIT, zstd, libcurl, nlohmann_json, lodepng, and stb headers.
+- Set `IMGUI_DIR` to a checkout of `ocornut/imgui` (or checkout in `vendor/imgui`).
+- Set `LDEPNG_DIR` to your LodePNG include directory (the build uses `-I$(LDEPNG_DIR)`).
 
 ```bash
-make IMGUI_DIR=/path/to/imgui
+make IMGUI_DIR=/path/to/imgui LDEPNG_DIR=/path/to/lodepng
 ```
 
 ## License
@@ -114,3 +134,11 @@ MIT License. See [LICENSE](LICENSE).
 
 - Unscii font: [http://viznut.fi/unscii/](http://viznut.fi/unscii/)
 - ANSI art resources: [https://16colo.rs/](https://16colo.rs/)
+- Ansilove (formats + fonts): [https://www.ansilove.org/](https://www.ansilove.org/)
+
+Inspirations / related tools:
+
+- Moebius: [https://blocktronics.github.io/moebius/](https://blocktronics.github.io/moebius/)
+- PabloDraw: [https://github.com/cwensley/pablodraw/](https://github.com/cwensley/pablodraw/)
+- Icy Draw: [https://github.com/mkrueger/icy_tools/tree/master/crates/icy_draw](https://github.com/mkrueger/icy_tools/tree/master/crates/icy_draw)
+- DurDraw: [https://github.com/cmang/durdraw](https://github.com/cmang/durdraw)
