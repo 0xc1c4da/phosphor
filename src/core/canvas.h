@@ -28,6 +28,43 @@ public:
     //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
     using Color32 = std::uint32_t;
 
+    // Embedded bitmap font support (used by XBin and other binary formats).
+    //
+    // Some formats (notably XBin) can embed a raw 1bpp bitmap font table where the on-disk
+    // character byte is a glyph *index* (0..255 or 0..511), not a Unicode codepoint.
+    //
+    // To represent this in our Unicode canvas, we map glyph indices into the Private Use Area:
+    //   U+E000 + glyph_index
+    // and store the font bitmap alongside the canvas so rendering can be faithful.
+    static constexpr char32_t kEmbeddedGlyphBase = (char32_t)0xE000;
+
+    struct EmbeddedBitmapFont
+    {
+        int cell_w = 8;   // XBin fonts are 8 pixels wide
+        int cell_h = 16;  // 1..32
+        int glyph_count = 256; // 256 or 512
+        bool vga_9col_dup = false;
+
+        // Glyph-major, one byte per row, MSB is leftmost pixel.
+        // Size must be glyph_count * cell_h.
+        std::vector<std::uint8_t> bitmap;
+    };
+
+    bool HasEmbeddedFont() const { return m_embedded_font.has_value(); }
+    const EmbeddedBitmapFont* GetEmbeddedFont() const { return m_embedded_font ? &(*m_embedded_font) : nullptr; }
+    void SetEmbeddedFont(EmbeddedBitmapFont font)
+    {
+        m_embedded_font = std::move(font);
+        TouchContent();
+    }
+    void ClearEmbeddedFont()
+    {
+        if (!m_embedded_font)
+            return;
+        m_embedded_font.reset();
+        TouchContent();
+    }
+
     explicit AnsiCanvas(int columns = 80);
 
     // ---------------------------------------------------------------------
@@ -475,6 +512,9 @@ private:
 
     // Optional SAUCE metadata associated with this canvas (persisted).
     ProjectState::SauceMeta m_sauce;
+
+    // Optional embedded bitmap font (not currently serialized into .phos; supplied by some importers like XBin).
+    std::optional<EmbeddedBitmapFont> m_embedded_font;
 
     bool m_request_open_sauce_editor = false;
 

@@ -3,9 +3,10 @@ result/
 references/
 build/
 phosphor
-phosphor-imtui
+phosphor-tui
 *.ini
 *.ans
+*.xb
 *.jpg
 *.png
 *.phos

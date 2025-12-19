@@ -4,6 +4,7 @@
 #include "io/formats/ansi.h"
 #include "io/formats/image.h"
 #include "io/formats/plaintext.h"
+#include "io/formats/xbin.h"
 #include "io/image_loader.h"
 #include "io/project_file.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -99,20 +100,26 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(text_exts_v, formats::plaintext::ImportExtensions());
     const std::string text_exts = JoinExtsForDialog(text_exts_v);
 
+    std::vector<std::string_view> xbin_exts_v;
+    AppendUnique(xbin_exts_v, formats::xbin::ImportExtensions());
+    const std::string xbin_exts = JoinExtsForDialog(xbin_exts_v);
+
     const std::string image_exts = JoinExtsForDialog(std::vector<std::string_view>(formats::image::ImportExtensions().begin(),
                                                                                    formats::image::ImportExtensions().end()));
 
     std::vector<std::string_view> supported_exts_v;
     supported_exts_v.push_back("phos");
     AppendUnique(supported_exts_v, text_exts_v);
+    AppendUnique(supported_exts_v, xbin_exts_v);
     // Keep the same image list for "Supported files".
     AppendUnique(supported_exts_v, formats::image::ImportExtensions());
     const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
         {"Phosphor Project (*.phos)", "phos"},
         {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", text_exts},
+        {"XBin (*.xb)", xbin_exts},
         {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", image_exts},
         {"All files", "*"},
     };
@@ -126,10 +133,11 @@ void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialog
     std::vector<std::string_view> exts_v;
     AppendUnique(exts_v, formats::ansi::ExportExtensions());
     AppendUnique(exts_v, formats::plaintext::ExportExtensions());
+    AppendUnique(exts_v, formats::xbin::ExportExtensions());
     const std::string exts = JoinExtsForDialog(exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"ANSI / Text (*.ans;*.txt;*.asc)", exts},
+        {"Export (*.ans;*.txt;*.asc;*.xb)", exts},
         {"All files", "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
@@ -285,6 +293,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         const bool looks_plaintext = ExtIn(ext, formats::plaintext::ImportExtensions());
         const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
         const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
+        const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
 
         auto try_load_project = [&]() -> bool
         {
@@ -348,6 +357,26 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             return false;
         };
 
+        auto try_import_xbin = [&]() -> bool
+        {
+            if (!cb.create_canvas)
+            {
+                m_last_error = "Internal error: create_canvas callback not set.";
+                return true; // handled (as error)
+            }
+            AnsiCanvas imported;
+            std::string ierr;
+            if (formats::xbin::ImportFileToCanvas(chosen, imported, ierr))
+            {
+                imported.SetFilePath(chosen);
+                cb.create_canvas(std::move(imported));
+                m_last_error.clear();
+                return true;
+            }
+            err = ierr;
+            return false;
+        };
+
         auto try_load_image = [&]() -> bool
         {
             if (!cb.create_image)
@@ -380,12 +409,14 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             handled = try_import_plaintext();
         else if (looks_ansi)
             handled = try_import_ansi();
+        else if (looks_xbin)
+            handled = try_import_xbin();
         else if (looks_image)
             handled = try_load_image();
         else
         {
             // Unknown extension (or URI). Try in descending order of likelihood.
-            handled = try_load_project() || try_import_ansi() || try_import_plaintext() || try_load_image();
+            handled = try_load_project() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
         }
 
         if (!handled)
@@ -435,6 +466,16 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
                 opt = preset->export_;
             ok = formats::plaintext::ExportCanvasToFile(path, *focused_canvas, err, opt);
         }
+        else if (ExtIn(ext, formats::xbin::ExportExtensions()))
+        {
+            formats::xbin::ExportOptions opt;
+            opt.source = formats::xbin::ExportOptions::Source::Composite;
+            opt.include_palette = true;
+            opt.compress = true;
+            opt.nonblink = true;
+            opt.write_sauce = false;
+            ok = formats::xbin::ExportCanvasToFile(path, *focused_canvas, err, opt);
+        }
         else
         {
             // Goal: reasonable terminal-friendly output with xterm256 colors.
@@ -473,7 +514,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         formats::image::ExportOptions opt;
         opt.scale = 2;
         opt.transparent_unset_bg = false;
-        opt.png_bit_depth = 32;
+        opt.png_format = formats::image::ExportOptions::PngFormat::Indexed8;
         opt.png_compression = 6;
         opt.jpg_quality = 95;
 

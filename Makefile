@@ -50,6 +50,7 @@ SOURCES  = \
            src/io/formats/image.cpp \
            src/io/formats/plaintext.cpp \
            src/io/formats/sauce.cpp \
+           src/io/formats/xbin.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
            src/io/image_writer.cpp \

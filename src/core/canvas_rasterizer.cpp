@@ -35,11 +35,31 @@ static inline void BlendOver(ImU32& dst, ImU32 src)
     UnpackImGui(dst, dr, dg, db, da);
     UnpackImGui(src, sr, sg, sb, sa);
 
-    const float a = (float)sa / 255.0f;
-    const int out_a = (int)std::lround((double)da + (double)(255 - da) * (double)a);
-    const int out_r = (int)std::lround((double)dr + ((double)sr - (double)dr) * (double)a);
-    const int out_g = (int)std::lround((double)dg + ((double)sg - (double)dg) * (double)a);
-    const int out_b = (int)std::lround((double)db + ((double)sb - (double)db) * (double)a);
+    // Straight alpha "source over" blend.
+    const double sA = (double)sa / 255.0;
+    const double dA = (double)da / 255.0;
+    const double oA = sA + dA * (1.0 - sA);
+    if (oA <= 0.0)
+    {
+        dst = 0;
+        return;
+    }
+
+    // Compute in premultiplied space, then unpremultiply.
+    const double sR = (double)sr * sA;
+    const double sG = (double)sg * sA;
+    const double sB = (double)sb * sA;
+    const double dR = (double)dr * dA;
+    const double dG = (double)dg * dA;
+    const double dB = (double)db * dA;
+
+    const double oR = (sR + dR * (1.0 - sA)) / oA;
+    const double oG = (sG + dG * (1.0 - sA)) / oA;
+    const double oB = (sB + dB * (1.0 - sA)) / oA;
+    const int out_a = (int)std::lround(oA * 255.0);
+    const int out_r = (int)std::lround(oR);
+    const int out_g = (int)std::lround(oG);
+    const int out_b = (int)std::lround(oB);
     dst = PackImGui(out_r, out_g, out_b, out_a);
 }
 } // namespace
@@ -67,29 +87,41 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
     const int scale = std::clamp(opt.scale, 1, 16);
 
     const fonts::FontInfo& finfo = fonts::Get(canvas.GetFontId());
-    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+    const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
     // Determine base cell size.
     // - Unscii / ImGuiAtlas fonts: derive from the active ImGui font.
-    // - Bitmap fonts: use the font's textmode metrics, scaled by ImGui font size for HiDPI consistency.
-    ImFont* font = ImGui::GetFont();
-    if (!font)
-    {
-        err = "No active ImGui font.";
-        return false;
-    }
-
-    const float base_font_size = ImGui::GetFontSize();
+    // - Bitmap fonts: use the font's textmode metrics directly (ImGui not required).
+    ImFont* font = nullptr;
+    float base_font_size = 0.0f;
     int cell_w = 0;
     int cell_h = 0;
     if (bitmap_font)
     {
-        const float base_scale = base_font_size / 16.0f;
-        cell_w = std::max(1, (int)std::lround((double)((float)finfo.cell_w * base_scale)));
-        cell_h = std::max(1, (int)std::lround((double)((float)finfo.cell_h * base_scale)));
+        if (embedded_font)
+        {
+            cell_w = std::max(1, ef->cell_w);
+            cell_h = std::max(1, ef->cell_h);
+        }
+        else
+        {
+            cell_w = std::max(1, finfo.cell_w);
+            cell_h = std::max(1, finfo.cell_h);
+        }
     }
     else
     {
+        font = ImGui::GetFont();
+        if (!font)
+        {
+            err = "No active ImGui font.";
+            return false;
+        }
+        base_font_size = ImGui::GetFontSize();
         const float cell_w_f = font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
         const float cell_h_f = base_font_size;
         cell_w = std::max(1, (int)std::lround((double)cell_w_f));
@@ -249,36 +281,77 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
             }
             else
             {
-                std::uint8_t glyph = 0;
-                if (!fonts::UnicodeToCp437Byte(cp, glyph))
+                int glyph_cell_w = finfo.cell_w;
+                int glyph_cell_h = finfo.cell_h;
+                bool vga_dup = finfo.vga_9col_dup;
+
+                std::uint16_t glyph_index = 0;
+                if (embedded_font)
                 {
-                    std::uint8_t q = 0;
-                    glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                    glyph_cell_w = ef->cell_w;
+                    glyph_cell_h = ef->cell_h;
+                    vga_dup = ef->vga_9col_dup;
+
+                    if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
+                        cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
+                    {
+                        glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
+                    }
+                    else
+                    {
+                        // Best-effort: treat as CP437-ordered.
+                        std::uint16_t gi = 0;
+                        if (fonts::UnicodeToGlyphIndex(finfo.id, cp, gi))
+                            glyph_index = gi;
+                        else
+                            glyph_index = (std::uint16_t)'?';
+                    }
+                }
+                else
+                {
+                    if (!fonts::UnicodeToGlyphIndex(finfo.id, cp, glyph_index))
+                    {
+                        if (!fonts::UnicodeToGlyphIndex(finfo.id, U'?', glyph_index))
+                            glyph_index = (std::uint16_t)' ';
+                    }
                 }
 
-                const int px_w = std::max(1, (cell_w * scale) / finfo.cell_w);
-                const int px_h = std::max(1, (cell_h * scale) / finfo.cell_h);
+                auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
+                {
+                    if (embedded_font)
+                    {
+                        if (gi >= (std::uint16_t)ef->glyph_count) return 0;
+                        if (yy < 0 || yy >= ef->cell_h) return 0;
+                        return ef->bitmap[(size_t)gi * (size_t)ef->cell_h + (size_t)yy];
+                    }
+                    return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
+                };
+
+                const std::uint8_t glyph = (std::uint8_t)(glyph_index & 0xFFu);
+
+                const int px_w = std::max(1, (cell_w * scale) / std::max(1, glyph_cell_w));
+                const int px_h = std::max(1, (cell_h * scale) / std::max(1, glyph_cell_h));
 
                 // Render each row as runs of set bits.
-                for (int yy = 0; yy < finfo.cell_h; ++yy)
+                for (int yy = 0; yy < glyph_cell_h; ++yy)
                 {
-                    const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                    const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
                     int run_start = -1;
                     auto bit_set = [&](int x) -> bool
                     {
                         if (x < 8)
                             return (bits & (std::uint8_t)(0x80u >> x)) != 0;
-                        if (x == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                        if (x == 8 && vga_dup && glyph_cell_w == 9 && glyph >= 192 && glyph <= 223)
                             return (bits & 0x01u) != 0;
                         return false;
                     };
 
-                    for (int xx = 0; xx < finfo.cell_w; ++xx)
+                    for (int xx = 0; xx < glyph_cell_w; ++xx)
                     {
                         const bool on = bit_set(xx);
                         if (on && run_start < 0)
                             run_start = xx;
-                        if ((!on || xx == finfo.cell_w - 1) && run_start >= 0)
+                        if ((!on || xx == glyph_cell_w - 1) && run_start >= 0)
                         {
                             const int run_end = on ? (xx + 1) : xx; // exclusive
                             const int dx0 = cell_x0 + run_start * px_w;

@@ -1838,7 +1838,11 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
         return;
 
     const fonts::FontInfo& finfo = fonts::Get(GetFontId());
-    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+    const EmbeddedBitmapFont* ef = GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
     // Compute visible cell range based on ImGui's actual clipping rectangle.
     // Using GetWindowContentRegionMin/Max is tempting but becomes subtly wrong under
@@ -1904,22 +1908,65 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
             else
             {
-                // Bitmap path: map Unicode -> CP437 glyph index (0..255), then draw 1bpp pixels.
-                std::uint8_t glyph = 0;
-                if (!fonts::UnicodeToCp437Byte(cp, glyph))
+                // Bitmap path:
+                // - If an embedded font is present, interpret U+E000.. as glyph indices.
+                // - Otherwise map Unicode -> CP437 glyph index (0..255) in the selected bitmap font.
+                int glyph_cell_w = finfo.cell_w;
+                int glyph_cell_h = finfo.cell_h;
+                bool vga_dup = finfo.vga_9col_dup;
+
+                std::uint16_t glyph_index = 0;
+                if (embedded_font)
                 {
-                    // Fallbacks: prefer '?' if representable, otherwise space.
-                    std::uint8_t q = 0;
-                    glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                    glyph_cell_w = ef->cell_w;
+                    glyph_cell_h = ef->cell_h;
+                    vga_dup = ef->vga_9col_dup;
+
+                    if (cp >= kEmbeddedGlyphBase && cp < (kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
+                    {
+                        glyph_index = (std::uint16_t)(cp - kEmbeddedGlyphBase);
+                    }
+                    else
+                    {
+                        // Best-effort: if the embedded font is CP437-ordered, map Unicode to CP437.
+                        std::uint8_t b = 0;
+                        if (fonts::UnicodeToCp437Byte(cp, b))
+                            glyph_index = (std::uint16_t)b;
+                        else
+                            glyph_index = (std::uint16_t)'?';
+                    }
+                }
+                else
+                {
+                    std::uint8_t glyph = 0;
+                    if (!fonts::UnicodeToCp437Byte(cp, glyph))
+                    {
+                        // Fallbacks: prefer '?' if representable, otherwise space.
+                        std::uint8_t q = 0;
+                        glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                    }
+                    glyph_index = (std::uint16_t)glyph;
                 }
 
-                const float px_w = cell_w / (float)finfo.cell_w;
-                const float px_h = cell_h / (float)finfo.cell_h;
-                const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
-
-                for (int yy = 0; yy < finfo.cell_h; ++yy)
+                auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
                 {
-                    const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                    if (embedded_font)
+                    {
+                        if (gi >= (std::uint16_t)ef->glyph_count) return 0;
+                        if (yy < 0 || yy >= ef->cell_h) return 0;
+                        return ef->bitmap[(size_t)gi * (size_t)ef->cell_h + (size_t)yy];
+                    }
+                    return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
+                };
+
+                const float px_w = cell_w / (float)std::max(1, glyph_cell_w);
+                const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
+                const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+                const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
+
+                for (int yy = 0; yy < glyph_cell_h; ++yy)
+                {
+                    const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
                     int run_start = -1;
                     auto bit_set = [&](int x) -> bool
                     {
@@ -1927,24 +1974,28 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                             return false;
                         if (x < 8)
                             return (bits & (std::uint8_t)(0x80u >> x)) != 0;
-                        if (x == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                        if (x == 8 && vga_dup && glyph_cell_w == 9 && glyph8 >= 192 && glyph8 <= 223)
                             return (bits & 0x01u) != 0; // x==7 is LSB when shifting 0x80>>7
                         return false;
                     };
 
-                    for (int xx = 0; xx < finfo.cell_w; ++xx)
+                    for (int xx = 0; xx < glyph_cell_w; ++xx)
                     {
                         const bool on = bit_set(xx);
                         if (on && run_start < 0)
                             run_start = xx;
-                        if ((!on || xx == finfo.cell_w - 1) && run_start >= 0)
+                        if ((!on || xx == glyph_cell_w - 1) && run_start >= 0)
                         {
                             const int run_end = on ? (xx + 1) : xx; // exclusive
                             const float x0 = cell_min.x + (float)run_start * px_w;
                             const float x1 = cell_min.x + (float)run_end * px_w;
                             const float y0 = cell_min.y + (float)yy * px_h;
                             const float y1 = cell_min.y + (float)(yy + 1) * px_h;
-                            draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+                            (void)y0;
+                            (void)y1;
+                            draw_list->AddRectFilled(ImVec2(x0, cell_min.y + (float)yy * px_h),
+                                                     ImVec2(x1, cell_min.y + (float)(yy + 1) * px_h),
+                                                     col);
                             run_start = -1;
                         }
                     }
@@ -1967,7 +2018,11 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
         return;
 
     const fonts::FontInfo& finfo = fonts::Get(GetFontId());
-    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+    const EmbeddedBitmapFont* ef = GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
     // Floating selection preview (drawn above the document).
     if (m_move.active && m_move.w > 0 && m_move.h > 0 && (int)m_move.cells.size() == m_move.w * m_move.h)
@@ -2003,20 +2058,57 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     }
                     else
                     {
-                        std::uint8_t glyph = 0;
-                        if (!fonts::UnicodeToCp437Byte(c.cp, glyph))
+                        int glyph_cell_w = finfo.cell_w;
+                        int glyph_cell_h = finfo.cell_h;
+                        bool vga_dup = finfo.vga_9col_dup;
+
+                        std::uint16_t glyph_index = 0;
+                        if (embedded_font)
                         {
-                            std::uint8_t q = 0;
-                            glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                            glyph_cell_w = ef->cell_w;
+                            glyph_cell_h = ef->cell_h;
+                            vga_dup = ef->vga_9col_dup;
+                            if (c.cp >= kEmbeddedGlyphBase && c.cp < (kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
+                                glyph_index = (std::uint16_t)(c.cp - kEmbeddedGlyphBase);
+                            else
+                            {
+                                std::uint8_t b = 0;
+                                if (fonts::UnicodeToCp437Byte(c.cp, b))
+                                    glyph_index = (std::uint16_t)b;
+                                else
+                                    glyph_index = (std::uint16_t)'?';
+                            }
+                        }
+                        else
+                        {
+                            std::uint8_t glyph = 0;
+                            if (!fonts::UnicodeToCp437Byte(c.cp, glyph))
+                            {
+                                std::uint8_t q = 0;
+                                glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                            }
+                            glyph_index = (std::uint16_t)glyph;
                         }
 
-                        const float px_w = cell_w / (float)finfo.cell_w;
-                        const float px_h = cell_h / (float)finfo.cell_h;
-                        const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
-
-                        for (int yy = 0; yy < finfo.cell_h; ++yy)
+                        auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
                         {
-                            const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                            if (embedded_font)
+                            {
+                                if (gi >= (std::uint16_t)ef->glyph_count) return 0;
+                                if (yy < 0 || yy >= ef->cell_h) return 0;
+                                return ef->bitmap[(size_t)gi * (size_t)ef->cell_h + (size_t)yy];
+                            }
+                            return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
+                        };
+
+                        const float px_w = cell_w / (float)std::max(1, glyph_cell_w);
+                        const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
+                        const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+                        const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
+
+                        for (int yy = 0; yy < glyph_cell_h; ++yy)
+                        {
+                            const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
                             int run_start = -1;
                             auto bit_set = [&](int x) -> bool
                             {
@@ -2024,24 +2116,24 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                                     return false;
                                 if (x < 8)
                                     return (bits & (std::uint8_t)(0x80u >> x)) != 0;
-                                if (x == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                                if (x == 8 && vga_dup && glyph_cell_w == 9 && glyph8 >= 192 && glyph8 <= 223)
                                     return (bits & 0x01u) != 0;
                                 return false;
                             };
 
-                            for (int xx = 0; xx < finfo.cell_w; ++xx)
+                            for (int xx = 0; xx < glyph_cell_w; ++xx)
                             {
                                 const bool on = bit_set(xx);
                                 if (on && run_start < 0)
                                     run_start = xx;
-                                if ((!on || xx == finfo.cell_w - 1) && run_start >= 0)
+                                if ((!on || xx == glyph_cell_w - 1) && run_start >= 0)
                                 {
                                     const int run_end = on ? (xx + 1) : xx; // exclusive
                                     const float x0 = cell_min.x + (float)run_start * px_w;
                                     const float x1 = cell_min.x + (float)run_end * px_w;
-                                    const float y0 = cell_min.y + (float)yy * px_h;
-                                    const float y1 = cell_min.y + (float)(yy + 1) * px_h;
-                                    draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+                                    draw_list->AddRectFilled(ImVec2(x0, cell_min.y + (float)yy * px_h),
+                                                             ImVec2(x1, cell_min.y + (float)(yy + 1) * px_h),
+                                                             col);
                                     run_start = -1;
                                 }
                             }
@@ -2106,9 +2198,19 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // We intentionally *do not auto-fit to window width*; the user controls zoom explicitly.
     const float base_font_size = ImGui::GetFontSize();
     const fonts::FontInfo& finfo = fonts::Get(GetFontId());
+    const EmbeddedBitmapFont* ef = GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
     float cell_w = 0.0f;
     float cell_h = 0.0f;
-    if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
+    if (embedded_font)
+    {
+        const float base_scale = base_font_size / 16.0f;
+        cell_w = (float)ef->cell_w * base_scale;
+        cell_h = (float)ef->cell_h * base_scale;
+    }
+    else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
     {
         const float base_scale = base_font_size / 16.0f;
         cell_w = (float)finfo.cell_w * base_scale;

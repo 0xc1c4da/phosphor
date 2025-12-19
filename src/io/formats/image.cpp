@@ -9,7 +9,7 @@
 #include <cctype>
 #include <filesystem>
 
-// LodePNG (provided via Nix flake input; compiled via src/third_party/lodepng_impl.cpp).
+// LodePNG (provided via Nix flake input; compiled via src/io/lodepng_unit.cpp).
 #include <lodepng.h>
 
 namespace formats
@@ -48,6 +48,24 @@ static inline void UnpackImGui(std::uint32_t c, std::uint8_t& r, std::uint8_t& g
     g = (std::uint8_t)((c >> 8) & 0xFF);
     b = (std::uint8_t)((c >> 16) & 0xFF);
     a = (std::uint8_t)((c >> 24) & 0xFF);
+}
+
+static void ConfigurePngCompression(LodePNGState& state, int compression)
+{
+    // lodepng doesn't expose a single "compression level" knob like zlib, so we approximate.
+    const int lvl = std::clamp(compression, 0, 9);
+    if (lvl <= 0)
+    {
+        state.encoder.zlibsettings.btype = 0;    // uncompressed blocks
+        state.encoder.zlibsettings.use_lz77 = 0; // no LZ77
+        return;
+    }
+    state.encoder.zlibsettings.btype = 2; // dynamic Huffman
+    state.encoder.zlibsettings.use_lz77 = 1;
+    state.encoder.zlibsettings.windowsize = (lvl >= 6) ? 32768u : 2048u;
+    state.encoder.zlibsettings.minmatch = 3;
+    state.encoder.zlibsettings.nicematch = (lvl >= 7) ? 258u : 128u;
+    state.encoder.zlibsettings.lazymatching = 1;
 }
 
 static void QuantizeToXterm16(const std::vector<std::uint8_t>& rgba,
@@ -135,6 +153,59 @@ static void QuantizeToXterm256(const std::vector<std::uint8_t>& rgba,
     }
 }
 
+static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
+                                   int w, int h,
+                                   std::vector<std::uint8_t>& out_idx,
+                                   std::vector<std::uint8_t>& out_palette_rgba)
+{
+    // Palette entries correspond to xterm indices 16..255 (240 colors).
+    out_idx.assign((size_t)w * (size_t)h, 0u);
+    out_palette_rgba.clear();
+    out_palette_rgba.resize(240u * 4u, 255u);
+
+    for (int i = 0; i < 240; ++i)
+    {
+        const int xterm_index = 16 + i;
+        const std::uint32_t c = xterm256::Color32ForIndex(xterm_index);
+        std::uint8_t r, g, b, a;
+        UnpackImGui(c, r, g, b, a);
+        out_palette_rgba[(size_t)i * 4u + 0] = r;
+        out_palette_rgba[(size_t)i * 4u + 1] = g;
+        out_palette_rgba[(size_t)i * 4u + 2] = b;
+        out_palette_rgba[(size_t)i * 4u + 3] = 255;
+    }
+
+    // Quantize each pixel to nearest among xterm indices 16..255.
+    for (int y = 0; y < h; ++y)
+    {
+        for (int x = 0; x < w; ++x)
+        {
+            const size_t si = ((size_t)y * (size_t)w + (size_t)x) * 4u;
+            const std::uint8_t r = rgba[si + 0];
+            const std::uint8_t g = rgba[si + 1];
+            const std::uint8_t b = rgba[si + 2];
+
+            int best = 0; // palette index 0..239
+            int best_d2 = 0x7fffffff;
+            for (int i = 0; i < 240; ++i)
+            {
+                const int xterm_index = 16 + i;
+                const xterm256::Rgb& p = xterm256::RgbForIndex(xterm_index);
+                const int dr = (int)r - (int)p.r;
+                const int dg = (int)g - (int)p.g;
+                const int db = (int)b - (int)p.b;
+                const int d2 = dr * dr + dg * dg + db * db;
+                if (d2 < best_d2)
+                {
+                    best_d2 = d2;
+                    best = i;
+                }
+            }
+            out_idx[(size_t)y * (size_t)w + (size_t)x] = (std::uint8_t)best;
+        }
+    }
+}
+
 static bool WritePngIndexed(const std::string& path,
                             int w,
                             int h,
@@ -174,25 +245,7 @@ static bool WritePngIndexed(const std::string& path,
     state.info_raw.colortype = LCT_PALETTE;
     state.info_raw.bitdepth = (unsigned)bitdepth;
 
-    // Compression config.
-    //
-    // This lodepng version does not expose a single "compression level" knob.
-    // We approximate a 0..9 setting by toggling LZ77 and a few zlib parameters.
-    const int lvl = std::clamp(compression, 0, 9);
-    if (lvl <= 0)
-    {
-        state.encoder.zlibsettings.btype = 0;     // uncompressed blocks
-        state.encoder.zlibsettings.use_lz77 = 0;  // no LZ77
-    }
-    else
-    {
-        state.encoder.zlibsettings.btype = 2;     // dynamic Huffman
-        state.encoder.zlibsettings.use_lz77 = 1;
-        state.encoder.zlibsettings.windowsize = (lvl >= 6) ? 32768u : 2048u;
-        state.encoder.zlibsettings.minmatch = 3;
-        state.encoder.zlibsettings.nicematch = (lvl >= 7) ? 258u : 128u;
-        state.encoder.zlibsettings.lazymatching = 1;
-    }
+    ConfigurePngCompression(state, compression);
 
     const size_t pal_n = palette_rgba.size() / 4u;
     for (size_t i = 0; i < pal_n; ++i)
@@ -276,28 +329,13 @@ static bool WritePngTruecolor(const std::string& path,
     // Use lodepng's convenience API for truecolor paths.
     if (with_alpha)
     {
-        // lodepng_encode32_file uses default settings; to control compression, use state.
         LodePNGState state;
         lodepng_state_init(&state);
         state.info_raw.colortype = LCT_RGBA;
         state.info_raw.bitdepth = 8;
         state.info_png.color.colortype = LCT_RGBA;
         state.info_png.color.bitdepth = 8;
-        const int lvl = std::clamp(compression, 0, 9);
-        if (lvl <= 0)
-        {
-            state.encoder.zlibsettings.btype = 0;
-            state.encoder.zlibsettings.use_lz77 = 0;
-        }
-        else
-        {
-            state.encoder.zlibsettings.btype = 2;
-            state.encoder.zlibsettings.use_lz77 = 1;
-            state.encoder.zlibsettings.windowsize = (lvl >= 6) ? 32768u : 2048u;
-            state.encoder.zlibsettings.minmatch = 3;
-            state.encoder.zlibsettings.nicematch = (lvl >= 7) ? 258u : 128u;
-            state.encoder.zlibsettings.lazymatching = 1;
-        }
+        ConfigurePngCompression(state, compression);
 
         unsigned char* out = nullptr;
         size_t out_size = 0;
@@ -341,21 +379,7 @@ static bool WritePngTruecolor(const std::string& path,
         state.info_raw.bitdepth = 8;
         state.info_png.color.colortype = LCT_RGB;
         state.info_png.color.bitdepth = 8;
-        const int lvl = std::clamp(compression, 0, 9);
-        if (lvl <= 0)
-        {
-            state.encoder.zlibsettings.btype = 0;
-            state.encoder.zlibsettings.use_lz77 = 0;
-        }
-        else
-        {
-            state.encoder.zlibsettings.btype = 2;
-            state.encoder.zlibsettings.use_lz77 = 1;
-            state.encoder.zlibsettings.windowsize = (lvl >= 6) ? 32768u : 2048u;
-            state.encoder.zlibsettings.minmatch = 3;
-            state.encoder.zlibsettings.nicematch = (lvl >= 7) ? 258u : 128u;
-            state.encoder.zlibsettings.lazymatching = 1;
-        }
+        ConfigurePngCompression(state, compression);
 
         unsigned char* out = nullptr;
         size_t out_size = 0;
@@ -435,34 +459,56 @@ bool ExportCanvasToFile(const std::string& path,
 
     if (ext == "jpg" || ext == "jpeg")
     {
+        if (options.transparent_unset_bg)
+        {
+            err = "JPEG does not support transparency. Export as PNG (32-bit) instead.";
+            return false;
+        }
         return image_writer::WriteJpgFromRgba32(path, w, h, rgba, options.jpg_quality, err);
     }
     else if (ext == "png")
     {
-        const int mode = options.png_bit_depth;
-        if (mode == 24)
+        const ExportOptions::PngFormat mode = options.png_format;
+
+        if (options.transparent_unset_bg &&
+            (mode == ExportOptions::PngFormat::Rgb24 || mode == ExportOptions::PngFormat::Indexed4 ||
+             mode == ExportOptions::PngFormat::Indexed8))
+        {
+            err = "Selected PNG format does not support transparency. Use PNG RGBA (32-bit) instead.";
+            return false;
+        }
+
+        if (mode == ExportOptions::PngFormat::Rgb24)
         {
             return WritePngTruecolor(path, w, h, rgba, /*with_alpha=*/false, options.png_compression, err);
         }
-        if (mode == 32)
+        if (mode == ExportOptions::PngFormat::Rgba32)
         {
             return WritePngTruecolor(path, w, h, rgba, /*with_alpha=*/true, options.png_compression, err);
         }
-        if (mode == 8)
+        if (mode == ExportOptions::PngFormat::Indexed8)
         {
             std::vector<std::uint8_t> idx;
             std::vector<std::uint8_t> pal;
-            QuantizeToXterm256(rgba, w, h, idx, pal);
-            return WritePngIndexed(path, w, h, idx, pal, /*bitdepth=*/8, options.png_compression, err);
+            if (options.xterm_240_safe)
+            {
+                QuantizeToXterm240Safe(rgba, w, h, idx, pal);
+                return WritePngIndexed(path, w, h, idx, pal, /*bitdepth=*/8, options.png_compression, err);
+            }
+            else
+            {
+                QuantizeToXterm256(rgba, w, h, idx, pal);
+                return WritePngIndexed(path, w, h, idx, pal, /*bitdepth=*/8, options.png_compression, err);
+            }
         }
-        if (mode == 4)
+        if (mode == ExportOptions::PngFormat::Indexed4)
         {
             std::vector<std::uint8_t> idx;
             std::vector<std::uint8_t> pal;
             QuantizeToXterm16(rgba, w, h, idx, pal);
             return WritePngIndexed(path, w, h, idx, pal, /*bitdepth=*/4, options.png_compression, err);
         }
-        err = "Unsupported PNG bit depth option.";
+        err = "Unsupported PNG format option.";
         return false;
     }
 

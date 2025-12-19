@@ -37,6 +37,26 @@ bool ImportFileToRgba(const std::string& path, RgbaImage& out, std::string& err)
 // ---------------------------------------------------------------------------
 struct ExportOptions
 {
+    enum class PngFormat : int
+    {
+        Rgb24 = 24,   // RGB truecolor (opaque)
+        Rgba32 = 32,  // RGBA truecolor
+        // Indexed palette (default: xterm-256 quantized).
+        //
+        // Terminology:
+        // - "xterm256" means the standard 256-color xterm palette indices 0..255.
+        // - "xterm240" commonly refers to the "safe" subset indices 16..255 (i.e. avoiding 0..15),
+        //   because terminals may remap the low 16 colors via user theme config.
+        //
+        // NOTE: Whether we quantize to full xterm256 vs the 240-safe subset is controlled by
+        // `xterm_240_safe` below.
+        Indexed8 = 8,
+
+        // Indexed palette (16 colors).
+        // This uses ANSI16 / iCE.
+        Indexed4 = 4,
+    };
+
     // Integer scale applied to the base 8x16 cell size (derived from ImGui font).
     // User does not select explicit output dimensions; they select the scale.
     int scale = 2;
@@ -44,14 +64,17 @@ struct ExportOptions
     // Background policy: if true, bg==0 becomes transparent.
     bool transparent_unset_bg = false;
 
-    // PNG bit depth mode:
-    // - 24: RGB truecolor (opaque)
-    // - 32: RGBA truecolor
-    // - 8:  indexed palette (xterm256 quantized)
-    // - 4:  indexed palette (xterm16 quantized)
-    int png_bit_depth = 32;
+    // PNG format mode.
+    //
+    // Default is Indexed8.
+    PngFormat png_format = PngFormat::Indexed8;
 
-    // PNG compression level (lodepng zlib setting; 0..9).
+    // Only meaningful when png_format == Indexed8:
+    // If true, quantize into the 240-color subset (xterm indices 16..255), avoiding 0..15.
+    // This mirrors the "xterm_240_safe" idea used in ANSI export profiles.
+    bool xterm_240_safe = false;
+
+    // PNG compression level (lodepng zlib settings; 0..9).
     int png_compression = 6;
 
     // JPEG quality 1..100.
