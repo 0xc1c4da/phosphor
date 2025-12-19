@@ -23,6 +23,15 @@ static bool RenderParamRow(const AnslParamSpec& spec, AnslScriptEngine& engine)
             }
             break;
         }
+        case AnslParamType::Button:
+        {
+            if (ImGui::Button(label))
+            {
+                (void)engine.FireParamButton(spec.key);
+                changed = true;
+            }
+            break;
+        }
         case AnslParamType::Int:
         {
             int v = 0;
@@ -144,11 +153,15 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
     ImGui::Separator();
 
     const auto& specs = engine.GetParamSpecs();
+    bool have_prev = false;
     for (const auto& s : specs)
     {
+        if (have_prev && s.same_line)
+            ImGui::SameLine();
         ImGui::PushID(s.key.c_str());
         changed = RenderParamRow(s, engine) || changed;
         ImGui::PopID();
+        have_prev = true;
     }
 
     ImGui::PopID();

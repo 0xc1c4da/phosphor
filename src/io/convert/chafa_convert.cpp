@@ -190,7 +190,6 @@ static ChafaSymbolTags PresetToSymbolTags(int preset)
 static bool ApplySelectorsOrPreset(ChafaSymbolMap* map,
                                   const std::string& selectors,
                                   int preset,
-                                  bool allow_space,
                                   std::string& out_err)
 {
     if (!map)
@@ -216,8 +215,13 @@ static bool ApplySelectorsOrPreset(ChafaSymbolMap* map,
         chafa_symbol_map_add_by_tags(map, PresetToSymbolTags(preset));
     }
 
-    if (!allow_space)
-        chafa_symbol_map_remove_by_tags(map, CHAFA_SYMBOL_TAG_SPACE);
+    // Compatibility: sextant/octant are non-BMP Unicode (Symbols for Legacy Computing).
+    // They are great for fidelity, but they are not part of CP437 and can render
+    // inconsistently depending on the rendering stack. To keep output predictable:
+    // - If the user provided explicit selectors, do NOT override them.
+    // - Otherwise, for "All" and "Blocks" presets, exclude sextant+octant by default.
+    if (selectors.empty() && (preset == 0 /* All */ || preset == 1 /* Blocks */))
+        chafa_symbol_map_remove_by_tags(map, (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_SEXTANT | CHAFA_SYMBOL_TAG_OCTANT));
 
     return true;
 }
@@ -326,7 +330,7 @@ bool ConvertRgbaToAnsiCanvas(const ImageRgba& src, const Settings& s, AnsiCanvas
     if (sym && fill)
     {
         std::string sel_err;
-        if (!ApplySelectorsOrPreset(sym, s.symbols_selectors, s.symbol_preset, s.allow_space, sel_err))
+        if (!ApplySelectorsOrPreset(sym, s.symbols_selectors, s.symbol_preset, sel_err))
         {
             out_err = sel_err.empty() ? "Invalid symbol selection." : sel_err;
             chafa_symbol_map_unref(sym);
@@ -346,7 +350,7 @@ bool ConvertRgbaToAnsiCanvas(const ImageRgba& src, const Settings& s, AnsiCanvas
         else
         {
             std::string fill_err;
-            if (!ApplySelectorsOrPreset(fill, s.fill_selectors, s.symbol_preset, s.allow_space, fill_err))
+            if (!ApplySelectorsOrPreset(fill, s.fill_selectors, s.symbol_preset, fill_err))
             {
                 out_err = fill_err.empty() ? "Invalid fill selection." : fill_err;
                 chafa_symbol_map_unref(sym);

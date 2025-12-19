@@ -282,7 +282,8 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     const float pad = 8.0f;
 
     // Approximate size for pinning/clamping before we know the actual size.
-    const ImVec2 approx_size(420.0f, 640.0f);
+    // Make settings panel ~20% larger (requested) while keeping pinning logic the same.
+    const ImVec2 approx_size(504.0f, 768.0f);
     ImVec2 desired(preview_win_x_ + preview_win_w_ + pad, preview_win_y_);
     if (vp)
     {
@@ -416,14 +417,83 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
 
         if (ImGui::CollapsingHeader("Symbols", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            const char* sym_items[] = {"All", "Blocks", "ASCII", "Braille"};
-            conversion_changed |= ImGui::Combo("Preset", &settings_.symbol_preset, sym_items, IM_ARRAYSIZE(sym_items));
+            // Chafa selector helper: selecting from a dropdown writes into the text field so
+            // the active selector is always visible, and editing the text triggers re-render.
+            auto selector_index_for_value = [](const std::string& v, const char* const* items, int n_items) -> int
+            {
+                for (int i = 0; i < n_items; ++i)
+                    if (v == items[i])
+                        return i;
+                return -1;
+            };
 
-            conversion_changed |= ImGui::Checkbox("Allow SPACE glyph", &settings_.allow_space);
-            ImGui::TextDisabled("Tip: SPACE often acts like 'invisible ink' in this editor unless it has BG fill.");
+            // Accepted selector classes (from chafa CLI help): can be combined with + and -.
+            static const char* kSelectorClasses[] = {
+                "all", "ascii", "braille", "extra", "narrow", "solid",
+                "alnum", "bad", "diagonal", "geometric", "inverted", "none", "space", "vhalf",
+                "alpha", "block", "digit", "half", "latin", "quad", "stipple", "wedge",
+                "ambiguous", "border", "dot", "hhalf", "legacy", "sextant", "technical", "wide",
+            };
 
-            conversion_changed |= ImGui::InputTextWithHint("Symbols selectors", "e.g. block+border-diagonal", &settings_.symbols_selectors);
-            conversion_changed |= ImGui::InputTextWithHint("Fill selectors", "(blank = same as symbols)", &settings_.fill_selectors);
+            // Symbols Class
+            {
+                const int idx = selector_index_for_value(settings_.symbols_selectors, kSelectorClasses, IM_ARRAYSIZE(kSelectorClasses));
+                const char* preview = (settings_.symbols_selectors.empty()) ? "(empty)" : (idx >= 0 ? kSelectorClasses[idx] : "(custom)");
+
+                if (ImGui::BeginCombo("Symbols Class", preview))
+                {
+                    if (ImGui::Selectable("(empty)", settings_.symbols_selectors.empty()))
+                    {
+                        settings_.symbols_selectors.clear();
+                        conversion_changed = true;
+                    }
+                    for (int i = 0; i < (int)IM_ARRAYSIZE(kSelectorClasses); ++i)
+                    {
+                        const bool selected = (!settings_.symbols_selectors.empty() && settings_.symbols_selectors == kSelectorClasses[i]);
+                        if (ImGui::Selectable(kSelectorClasses[i], selected))
+                        {
+                            settings_.symbols_selectors = kSelectorClasses[i];
+                            conversion_changed = true;
+                        }
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            // Symbols Selectors
+            conversion_changed |= ImGui::InputTextWithHint("Symbols Selectors", "e.g. block+border-diagonal", &settings_.symbols_selectors);
+
+            // Fill Class
+            {
+                const int idx = selector_index_for_value(settings_.fill_selectors, kSelectorClasses, IM_ARRAYSIZE(kSelectorClasses));
+                const char* preview = (settings_.fill_selectors.empty()) ? "(same as symbols)" : (idx >= 0 ? kSelectorClasses[idx] : "(custom)");
+
+                if (ImGui::BeginCombo("Fill Class", preview))
+                {
+                    if (ImGui::Selectable("(same as symbols)", settings_.fill_selectors.empty()))
+                    {
+                        settings_.fill_selectors.clear();
+                        conversion_changed = true;
+                    }
+                    for (int i = 0; i < (int)IM_ARRAYSIZE(kSelectorClasses); ++i)
+                    {
+                        const bool selected = (!settings_.fill_selectors.empty() && settings_.fill_selectors == kSelectorClasses[i]);
+                        if (ImGui::Selectable(kSelectorClasses[i], selected))
+                        {
+                            settings_.fill_selectors = kSelectorClasses[i];
+                            conversion_changed = true;
+                        }
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            // Fill Selectors
+            conversion_changed |= ImGui::InputTextWithHint("Fill Selectors", "(blank = same as symbols)", &settings_.fill_selectors);
             ImGui::TextDisabled("Selectors follow chafa CLI syntax: combine with + and -, e.g. all-wide or block+border-diagonal.");
         }
 

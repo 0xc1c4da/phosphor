@@ -14,6 +14,7 @@ enum class AnslParamType
     Int,
     Float,
     Enum,
+    Button, // edge-triggered; true only for the frame it is clicked
 };
 
 struct AnslParamSpec
@@ -21,6 +22,14 @@ struct AnslParamSpec
     std::string key;   // lua identifier under ctx.params.<key>
     std::string label; // human-friendly label for UI (optional)
     AnslParamType type = AnslParamType::Bool;
+
+    // Optional layout hints for the host parameter UI.
+    // If true, render this parameter on the same line as the previous one.
+    bool same_line = false;
+
+    // Optional explicit ordering. If multiple params share the same order, we fall back to label/key.
+    int  order = 0;
+    bool order_set = false;
 
     // Int/Float ranges (optional; if min==max, UI may choose a simple input widget).
     int   int_min = 0;
@@ -269,6 +278,7 @@ public:
     bool SetParamInt(const std::string& key, int v);
     bool SetParamFloat(const std::string& key, float v);
     bool SetParamEnum(const std::string& key, std::string v);
+    bool FireParamButton(const std::string& key); // sets a button param true for the next frame
 
     void ResetParamsToDefaults();
 

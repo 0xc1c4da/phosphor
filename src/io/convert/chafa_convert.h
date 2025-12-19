@@ -57,10 +57,6 @@ struct Settings
     std::string symbols_selectors;
     std::string fill_selectors; // empty => defaults to symbols selection
 
-    // NOTE: our renderer historically skips drawing spaces unless they have a bg fill.
-    // Default: disallow spaces as chosen symbols, to ensure visible glyph output.
-    bool allow_space = false;
-
     // --- Dithering ---
     int   dither_mode = 2; // 0=None,1=Ordered,2=Diffusion,3=Noise
     int   dither_grain = 4; // 1,2,4,8 (grain size in 1/8ths of a cell)

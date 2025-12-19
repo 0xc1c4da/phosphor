@@ -1089,6 +1089,15 @@ static bool ReadScriptParams(lua_State* L,
 
         // label (optional)
         (void)LuaIsStringField(L, -1, "label", spec.label);
+        // layout hints (optional)
+        (void)LuaIsBoolField(L, -1, "sameLine", spec.same_line);
+        // ordering (optional)
+        lua_Number ordn = 0;
+        if (LuaIsNumberField(L, -1, "order", ordn))
+        {
+            spec.order = (int)std::llround(ordn);
+            spec.order_set = true;
+        }
 
         // type (required)
         std::string type_s;
@@ -1114,6 +1123,13 @@ static bool ReadScriptParams(lua_State* L,
             bool dv = false;
             (void)LuaIsBoolField(L, -1, "default", dv);
             def.b = dv;
+        }
+        else if (type_s == "button")
+        {
+            // Edge-triggered button. Default is always false; host sets it true for one frame on click.
+            spec.type = AnslParamType::Button;
+            def.type = AnslParamType::Button;
+            def.b = false;
         }
         else if (type_s == "int" || type_s == "integer")
         {
@@ -1205,6 +1221,11 @@ static bool ReadScriptParams(lua_State* L,
 
     // stable order so UI doesn't jump around
     std::sort(out_specs.begin(), out_specs.end(), [](const AnslParamSpec& a, const AnslParamSpec& b) {
+        // Prefer explicit ordering when provided.
+        if (a.order_set || b.order_set)
+        {
+            if (a.order != b.order) return a.order < b.order;
+        }
         if (a.label != b.label) return a.label < b.label;
         return a.key < b.key;
     });
@@ -1652,13 +1673,19 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
             auto it = impl_->param_values.find(s.key);
             if (it == impl_->param_values.end())
                 continue;
-            const AnslParamValue& v = it->second;
+            AnslParamValue& v = it->second;
             switch (v.type)
             {
                 case AnslParamType::Bool:  lua_pushboolean(L, v.b ? 1 : 0); break;
                 case AnslParamType::Int:   lua_pushinteger(L, (lua_Integer)v.i); break;
                 case AnslParamType::Float: lua_pushnumber(L, (lua_Number)v.f); break;
                 case AnslParamType::Enum:  lua_pushlstring(L, v.s.c_str(), v.s.size()); break;
+                case AnslParamType::Button:
+                {
+                    lua_pushboolean(L, v.b ? 1 : 0);
+                    // Button is edge-triggered: reset immediately after exposing it to ctx.params.
+                    v.b = false;
+                } break;
             }
             lua_setfield(L, -2, s.key.c_str());
         }
@@ -2033,6 +2060,17 @@ bool AnslScriptEngine::SetParamEnum(const std::string& key, std::string v)
     if (it == impl_->param_values.end() || it->second.type != AnslParamType::Enum)
         return false;
     it->second.s = std::move(v);
+    return true;
+}
+
+bool AnslScriptEngine::FireParamButton(const std::string& key)
+{
+    if (!impl_ || !impl_->initialized)
+        return false;
+    auto it = impl_->param_values.find(key);
+    if (it == impl_->param_values.end() || it->second.type != AnslParamType::Button)
+        return false;
+    it->second.b = true;
     return true;
 }
 

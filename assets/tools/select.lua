@@ -5,6 +5,7 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
+    -- Stable ordering for host UI.
     copyMode = { type = "enum", label = "Copy Mode", items = { "layer", "composite" }, default = "layer" },
     pasteMode = { type = "enum", label = "Paste Mode", items = { "both", "char", "color" }, default = "both" },
     transparentSpaces = { type = "bool", label = "Paste: Transparent spaces", default = false },
@@ -14,16 +15,16 @@ settings = {
       type = "enum",
       label = "Transform",
       items = { "none", "rotate_cw", "flip_x", "flip_y", "center", "crop_to_selection" },
-      default = "none"
+      default = "none",
+      order = 50,
     },
-    applyTransform = { type = "bool", label = "Apply Transform", default = false },
+    applyTransform = { type = "button", label = "Apply", sameLine = true, order = 51 },
   },
 }
 
 local selecting = false
 local sel_x0 = 0
 local sel_y0 = 0
-local last_apply_transform = false
 
 local function is_table(t) return type(t) == "table" end
 
@@ -262,9 +263,8 @@ function render(ctx, layer)
 
   -- Phase 0: keyboard shortcuts.
   if phase == 0 then
-    -- UI-driven transforms (apply on rising edge of checkbox).
-    local apply = (p.applyTransform == true)
-    if apply and not last_apply_transform and canvas:hasSelection() then
+    -- UI-driven transforms (button).
+    if (p.applyTransform == true) and canvas:hasSelection() then
       local op = p.transform
       if type(op) ~= "string" then op = "none" end
       if op == "rotate_cw" then
@@ -284,7 +284,6 @@ function render(ctx, layer)
       end
       selecting = false
     end
-    last_apply_transform = apply
 
     -- Cancel / clear.
     if hotkeys.cancel or actions["selection.clear_or_cancel"] then
