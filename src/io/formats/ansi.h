@@ -6,11 +6,22 @@
 #include <string>
 #include <vector>
 
-namespace ansi_importer
+// Canonical ANSI format module (import/export).
+//
+// This file is the single authority for the ANSI "format backend":
+// - how we decode ANSI-like byte streams into an AnsiCanvas
+// - (future) how we encode an AnsiCanvas back into an ANSI-like byte stream
+//
+// Higher-level UI/IO code (IoManager, dialogs, etc.) should depend on this module,
+// not on ad-hoc importer/exporter files.
+namespace formats
+{
+namespace ansi
 {
 struct Options
 {
     // Logical column count. Most ANSI art targets 80.
+    // If <= 0, importer will default to 80 but may use SAUCE width when present.
     int columns = 80;
 
     // If true, SGR 5 (blink) is interpreted as "bright background" (ICE colors),
@@ -53,19 +64,20 @@ struct Options
 };
 
 // Import ANSI/UTF-8 byte stream into a new AnsiCanvas.
-// This is the core importer used by ImportAnsiFileToCanvas(), exposed so callers
-// can import ANSI generated in-memory (e.g. from Chafa) without writing temp files.
-bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
-                             AnsiCanvas& out_canvas,
-                             std::string& err,
-                             const Options& options = {});
+// This is the core importer used by ImportFileToCanvas(), exposed so callers can import ANSI
+// generated in-memory (e.g. from Chafa) without writing temp files.
+bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
+                         AnsiCanvas& out_canvas,
+                         std::string& err,
+                         const Options& options = {});
 
 // Import an ANSI (.ans) file into a new AnsiCanvas.
 // Produces a single-layer canvas sized to `options.columns` x detected rows.
-bool ImportAnsiFileToCanvas(const std::string& path,
-                            AnsiCanvas& out_canvas,
-                            std::string& err,
-                            const Options& options = {});
-} // namespace ansi_importer
+bool ImportFileToCanvas(const std::string& path,
+                        AnsiCanvas& out_canvas,
+                        std::string& err,
+                        const Options& options = {});
+} // namespace ansi
+} // namespace formats
 
 

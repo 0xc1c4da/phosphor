@@ -1,7 +1,7 @@
 #include "io/io_manager.h"
 
-#include "io/ansi_importer.h"
 #include "io/file_dialog_tags.h"
+#include "io/formats/ansi.h"
 #include "io/image_loader.h"
 #include "io/project_file.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -229,7 +229,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             }
             AnsiCanvas imported;
             std::string ierr;
-            if (ansi_importer::ImportAnsiFileToCanvas(chosen, imported, ierr))
+            if (formats::ansi::ImportFileToCanvas(chosen, imported, ierr))
             {
                 imported.SetFilePath(chosen);
                 cb.create_canvas(std::move(imported));

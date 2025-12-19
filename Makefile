@@ -43,7 +43,7 @@ SOURCES  = \
            src/ui/tool_palette.cpp \
            src/ui/sixteen_colors_browser.cpp \
            src/io/http_client.cpp \
-           src/io/ansi_importer.cpp \
+           src/io/formats/ansi.cpp \
            src/io/formats/sauce.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \

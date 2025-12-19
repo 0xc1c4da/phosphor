@@ -2,7 +2,7 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
-#include "io/ansi_importer.h"
+#include "io/formats/ansi.h"
 
 #include "imgui.h"
 
@@ -292,7 +292,7 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
     }
     g_string_free(gs, TRUE);
 
-    ansi_importer::Options opt;
+    formats::ansi::Options opt;
     opt.columns = (int)out_w;
     // Force UTF-8 decoding even though the stream contains ESC sequences.
     // Chafa's docs guarantee UTF-8 output regardless of locale.
@@ -301,11 +301,11 @@ static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
     opt.default_bg_unset = true;
     // Avoid libansilove-style eager wrap for generated output; chafa may emit explicit
     // newlines at the row boundary, which would double-advance with eager wrapping.
-    opt.wrap_policy = ansi_importer::Options::WrapPolicy::PutOnly;
+    opt.wrap_policy = formats::ansi::Options::WrapPolicy::PutOnly;
 
     AnsiCanvas imported;
     std::string ierr;
-    if (!ansi_importer::ImportAnsiBytesToCanvas(bytes, imported, ierr, opt))
+    if (!formats::ansi::ImportBytesToCanvas(bytes, imported, ierr, opt))
     {
         out_err = ierr.empty() ? "ANSI import failed." : ierr;
         return false;

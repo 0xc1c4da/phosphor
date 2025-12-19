@@ -1,4 +1,4 @@
-#include "io/ansi_importer.h"
+#include "io/formats/ansi.h"
 
 #include "core/xterm256_palette.h"
 #include "io/formats/sauce.h"
@@ -11,7 +11,9 @@
 #include <string_view>
 #include <vector>
 
-namespace ansi_importer
+namespace formats
+{
+namespace ansi
 {
 namespace
 {
@@ -326,10 +328,10 @@ static inline bool DecodeTextUtf8(const Options& opt, const std::vector<std::uin
 }
 } // namespace
 
-bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
-                            AnsiCanvas& out_canvas,
-                            std::string& err,
-                            const Options& options)
+bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
+                         AnsiCanvas& out_canvas,
+                         std::string& err,
+                         const Options& options)
 {
     err.clear();
 
@@ -382,7 +384,7 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         {
             cells.resize(need, U' ');
             fg.resize(need, 0);
-            bg.resize(need, pen.bg); // default background (black)
+            bg.resize(need, pen.bg); // default background
         }
     };
 
@@ -854,7 +856,7 @@ bool ImportAnsiBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     return true;
 }
 
-bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const Options& options)
+bool ImportFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const Options& options)
 {
     err.clear();
 
@@ -865,8 +867,9 @@ bool ImportAnsiFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std
         err = rerr;
         return false;
     }
-    return ImportAnsiBytesToCanvas(bytes, out_canvas, err, options);
+    return ImportBytesToCanvas(bytes, out_canvas, err, options);
 }
-} // namespace ansi_importer
+} // namespace ansi
+} // namespace formats
 
 

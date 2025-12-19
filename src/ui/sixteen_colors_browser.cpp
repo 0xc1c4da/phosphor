@@ -3,7 +3,7 @@
 #include "imgui.h"
 #include "misc/cpp/imgui_stdlib.h"
 
-#include "io/ansi_importer.h"
+#include "io/formats/ansi.h"
 #include "io/http_client.h"
 #include "io/image_loader.h"
 #include "io/session/imgui_persistence.h"
@@ -505,7 +505,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
 
                 AnsiCanvas imported;
                 std::string ierr;
-                if (!ansi_importer::ImportAnsiBytesToCanvas(dr.bytes, imported, ierr))
+                if (!formats::ansi::ImportBytesToCanvas(dr.bytes, imported, ierr))
                 {
                     m_last_error = ierr;
                     continue;
