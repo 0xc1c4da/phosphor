@@ -305,6 +305,21 @@ bool ParseChordString(const std::string& chord, ParsedChord& out, std::string& e
         }
         parts.push_back(cur);
     }
+    // Collapse consecutive empty tokens.
+    // Example: "Ctrl++" initially yields ["Ctrl", "", ""] which previously caused a
+    // "multiple keys" parse error. After collapsing -> ["Ctrl", ""] which maps to '+'.
+    if (parts.size() >= 2)
+    {
+        std::vector<std::string> collapsed;
+        collapsed.reserve(parts.size());
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            if (!collapsed.empty() && collapsed.back().empty() && parts[i].empty())
+                continue;
+            collapsed.push_back(std::move(parts[i]));
+        }
+        parts = std::move(collapsed);
+    }
 
     Mods mods;
     std::optional<ImGuiKey> key;
@@ -704,6 +719,25 @@ std::vector<Action> DefaultActions()
     // This is a curated set of common concepts; bindings include platform variants where known.
     // Note: This list intentionally matches the default `assets/key-bindings.json` shipped in-repo.
     return {
+        // --- Menu bar navigation (keyboard) ---
+        // Note: Many apps use F10 to focus/open the menu bar, but Phosphor reserves F1..F12
+        // (including F10) for Character Set insertion, so we use Alt-based bindings instead.
+        {
+            .id="menu.open.file", .title="Open File Menu", .category="Menu",
+            .description="Open the File menu (keyboard navigation).",
+            .bindings={ {.enabled=true, .chord="Alt+F", .context="global", .platform="any"} }
+        },
+        {
+            .id="menu.open.edit", .title="Open Edit Menu", .category="Menu",
+            .description="Open the Edit menu (keyboard navigation).",
+            .bindings={ {.enabled=true, .chord="Alt+E", .context="global", .platform="any"} }
+        },
+        {
+            .id="menu.open.window", .title="Open Window Menu", .category="Menu",
+            .description="Open the Window menu (keyboard navigation).",
+            .bindings={ {.enabled=true, .chord="Alt+W", .context="global", .platform="any"} }
+        },
+
         // --- File ---
         {
             .id="app.file.new", .title="New", .category="File",
@@ -749,7 +783,7 @@ std::vector<Action> DefaultActions()
         // Note: Moebius defaults conflict with our current Export ANSI binding; keep disabled until we reconcile.
         {
             .id="app.file.export_png", .title="Export PNG…", .category="File",
-            .description="Export the active canvas as a PNG image. TODO(support/wire).",
+            .description="Export the active canvas as a PNG image.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Shift+E", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Shift+E", .context="global", .platform="macos"},
@@ -757,7 +791,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="app.file.export_apng", .title="Export Animated PNG…", .category="File",
-            .description="Export animation as APNG. TODO(support/wire).",
+            .description="Export animation as APNG. TODO(support).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Shift+A", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Shift+A", .context="global", .platform="macos"},
@@ -765,20 +799,20 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="app.file.export_utf8", .title="Export UTF-8…", .category="File",
-            .description="Export as UTF-8 text. TODO(support/wire).",
+            .description="Export as UTF-8 text.",
             .bindings={
-                {.enabled=false, .chord="Ctrl+Shift+U", .context="global", .platform="any"},
-                {.enabled=false, .chord="Cmd+Shift+U", .context="global", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+Shift+U", .context="global", .platform="any"},
+                {.enabled=true, .chord="Cmd+Shift+U", .context="global", .platform="macos"},
             }
         },
         // TODO(support): SAUCE metadata editor is common in ANSI editors.
         {
             .id="app.file.edit_sauce", .title="Edit SAUCE…", .category="File",
-            .description="Edit SAUCE metadata. TODO(support/wire).",
+            .description="Edit SAUCE metadata.",
             .bindings={
-                {.enabled=false, .chord="Ctrl+I", .context="global", .platform="any"},
-                {.enabled=false, .chord="Cmd+I", .context="global", .platform="macos"},
-                {.enabled=false, .chord="Ctrl+F11", .context="global", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+I", .context="global", .platform="any"},
+                {.enabled=true, .chord="Cmd+I", .context="global", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+F11", .context="global", .platform="windows"},
             }
         },
         {
@@ -1233,7 +1267,8 @@ std::vector<Action> DefaultActions()
         {
             .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
             .bindings={
-                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
+                // Note: Ctrl+0 conflicts with our Ctrl+0 Character Set insert mapping; use Ctrl+Alt+0 instead.
+                {.enabled=true, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
             }
         },
@@ -1265,10 +1300,10 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="ui.toggle_status_bar", .title="Toggle Status Bar", .category="UI",
-            .description="Show/hide status bar. TODO(wire).",
+            .description="Show/hide status bar.",
             .bindings={
-                {.enabled=false, .chord="Ctrl+/", .context="global", .platform="any"},
-                {.enabled=false, .chord="Cmd+/", .context="global", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+/", .context="global", .platform="any"},
+                {.enabled=true, .chord="Cmd+/", .context="global", .platform="macos"},
             }
         },
         {

@@ -63,6 +63,7 @@
           makeFlags = [
             "CXX=${pkgs.stdenv.cc}/bin/c++"
             "IMGUI_DIR=${imgui}"
+            "LDEPNG_DIR=${./references/chafa/lodepng}"
           ];
 
           installPhase = ''

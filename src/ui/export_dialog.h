@@ -31,6 +31,23 @@ public:
         requested_tab_ = tab;
         apply_requested_tab_ = true;
     }
+    void OpenPlaintextPreset(formats::plaintext::PresetId preset_id)
+    {
+        open_ = true;
+        requested_tab_ = Tab::Plaintext;
+        apply_requested_tab_ = true;
+
+        const auto& presets = formats::plaintext::Presets();
+        for (size_t i = 0; i < presets.size(); ++i)
+        {
+            if (presets[i].id == preset_id)
+            {
+                text_preset_idx_ = (int)i;
+                text_opt_ = presets[i].export_;
+                break;
+            }
+        }
+    }
     void SetOpen(bool open) { open_ = open; }
     bool IsOpen() const { return open_; }
 

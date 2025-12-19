@@ -162,21 +162,27 @@ void IoManager::RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialo
     dialogs.ShowSaveFileDialog(kDialog_ExportImage, window, filters, suggested.string());
 }
 
-void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb)
+void IoManager::RenderFileMenu(SDL_Window* window,
+                               SdlFileDialogQueue& dialogs,
+                               AnsiCanvas* focused_canvas,
+                               const Callbacks& cb,
+                               const ShortcutProvider& shortcut_for_action)
 {
     const bool has_focus_canvas = (focused_canvas != nullptr);
 
     // Save requires a focused canvas (for now).
     if (!has_focus_canvas)
         ImGui::BeginDisabled();
-    if (ImGui::MenuItem("Save..."))
+    const std::string sc_save = shortcut_for_action ? shortcut_for_action("app.file.save") : std::string{};
+    if (ImGui::MenuItem("Save...", sc_save.empty() ? nullptr : sc_save.c_str()))
     {
         RequestSaveProject(window, dialogs);
     }
     if (!has_focus_canvas)
         ImGui::EndDisabled();
 
-    if (ImGui::MenuItem("Load..."))
+    const std::string sc_load = shortcut_for_action ? shortcut_for_action("app.file.open") : std::string{};
+    if (ImGui::MenuItem("Load...", sc_load.empty() ? nullptr : sc_load.c_str()))
     {
         RequestLoadFile(window, dialogs);
     }

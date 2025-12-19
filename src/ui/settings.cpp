@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
+#include <unordered_set>
 #include <string>
 
 namespace
@@ -417,6 +419,293 @@ void SettingsWindow::RenderTab_KeyBindings()
         }
 
         ImGui::EndPopup();
+    }
+
+    // ---------------------------------------------------------------------
+    // Collision / invalid-binding report
+    // ---------------------------------------------------------------------
+    // Goal: surface ambiguous keybindings so users can resolve them without guesswork.
+    //
+    // Notes:
+    // - The runtime engine can allow multiple contexts at once (global+editor+canvas+selection),
+    //   so identical chords across contexts can fire multiple actions in the same frame.
+    // - Platform "any" overlaps all concrete platforms.
+    // - We compare chords by parsed/normalized representation (mods + key + "any_enter").
+    struct ChordSig
+    {
+        int  key = (int)ImGuiKey_None;
+        bool any_enter = false;
+        bool ctrl = false;
+        bool shift = false;
+        bool alt = false;
+        bool super = false;
+
+        bool operator==(const ChordSig& o) const
+        {
+            return key == o.key &&
+                   any_enter == o.any_enter &&
+                   ctrl == o.ctrl &&
+                   shift == o.shift &&
+                   alt == o.alt &&
+                   super == o.super;
+        }
+    };
+    struct ChordSigHash
+    {
+        size_t operator()(const ChordSig& s) const
+        {
+            size_t h = 1469598103934665603ull;
+            auto mix = [&](size_t v) {
+                h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+            };
+            mix((size_t)s.key);
+            mix((size_t)s.any_enter);
+            mix((size_t)s.ctrl);
+            mix((size_t)s.shift);
+            mix((size_t)s.alt);
+            mix((size_t)s.super);
+            return h;
+        }
+    };
+    struct BindingRef
+    {
+        size_t action_idx = 0;
+        size_t binding_idx = 0;
+        std::string action_id;
+        std::string action_title;
+        std::string chord_text;
+        std::string context;
+    };
+    auto platform_expansion = [](const std::string& p) -> std::vector<std::string_view>
+    {
+        if (p == "any" || p.empty())
+            return { "windows", "linux", "macos" };
+        if (p == "windows") return { "windows" };
+        if (p == "linux") return { "linux" };
+        if (p == "macos") return { "macos" };
+        // Unknown: treat as "any" for collision visibility.
+        return { "windows", "linux", "macos" };
+    };
+
+    std::string conflicts_report;
+    {
+        const auto& actions_ro = keybinds_->Actions();
+
+        // Key: (platform, chord signature) -> all bindings using it.
+        struct Key
+        {
+            std::string platform;
+            ChordSig sig;
+            bool operator==(const Key& o) const { return platform == o.platform && sig == o.sig; }
+        };
+        struct KeyHash
+        {
+            size_t operator()(const Key& k) const
+            {
+                size_t h = std::hash<std::string>{}(k.platform);
+                h ^= ChordSigHash{}(k.sig) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+                return h;
+            }
+        };
+
+        std::unordered_map<Key, std::vector<BindingRef>, KeyHash> groups;
+        groups.reserve(actions_ro.size() * 2);
+
+        std::vector<std::string> invalid;
+
+        for (size_t ai = 0; ai < actions_ro.size(); ++ai)
+        {
+            const auto& a = actions_ro[ai];
+            for (size_t bi = 0; bi < a.bindings.size(); ++bi)
+            {
+                const auto& b = a.bindings[bi];
+                if (!b.enabled)
+                    continue;
+                if (b.chord.empty())
+                    continue;
+
+                kb::ParsedChord pc;
+                std::string perr;
+                if (!kb::ParseChordString(b.chord, pc, perr))
+                {
+                    invalid.push_back(a.id + " (" + a.title + "): '" + b.chord + "' -> " + perr);
+                    continue;
+                }
+
+                ChordSig sig;
+                sig.key = (int)pc.key;
+                sig.any_enter = pc.any_enter;
+                sig.ctrl = pc.mods.ctrl;
+                sig.shift = pc.mods.shift;
+                sig.alt = pc.mods.alt;
+                sig.super = pc.mods.super;
+
+                BindingRef ref;
+                ref.action_idx = ai;
+                ref.binding_idx = bi;
+                ref.action_id = a.id;
+                ref.action_title = a.title;
+                ref.chord_text = b.chord;
+                ref.context = b.context.empty() ? "global" : b.context;
+
+                for (std::string_view plat : platform_expansion(b.platform))
+                {
+                    Key k;
+                    k.platform = std::string(plat);
+                    k.sig = sig;
+                    groups[k].push_back(ref);
+                }
+            }
+        }
+
+        // Build human-readable report.
+        // Keep it stable-ish by sorting keys by platform then chord string.
+        struct GroupOut
+        {
+            std::string platform;
+            std::string chord;
+            std::vector<BindingRef> refs;
+        };
+        std::vector<GroupOut> outs;
+        outs.reserve(groups.size());
+        for (auto& it : groups)
+        {
+            auto& refs = it.second;
+            if (refs.size() < 2)
+                continue;
+            // Prefer sorting refs by category-ish: action title then id then context.
+            std::sort(refs.begin(), refs.end(), [](const BindingRef& a, const BindingRef& b) {
+                if (a.action_title != b.action_title) return a.action_title < b.action_title;
+                if (a.action_id != b.action_id) return a.action_id < b.action_id;
+                return a.context < b.context;
+            });
+
+            GroupOut g;
+            g.platform = it.first.platform;
+            // Use the first chord string as a representative label (may differ in spelling but same parsed chord).
+            g.chord = refs.front().chord_text;
+            g.refs = refs;
+            outs.push_back(std::move(g));
+        }
+
+        std::sort(outs.begin(), outs.end(), [](const GroupOut& a, const GroupOut& b) {
+            if (a.platform != b.platform) return a.platform < b.platform;
+            return a.chord < b.chord;
+        });
+
+        if (!outs.empty() || !invalid.empty())
+        {
+            // Compact report:
+            // One line per collision, grouping platforms when the collision set is the same.
+            conflicts_report.reserve(4096);
+
+            // Build merge key: (chord, refs list) -> platforms set
+            struct MergeKey
+            {
+                std::string chord;
+                std::string refs_key;
+                bool operator==(const MergeKey& o) const { return chord == o.chord && refs_key == o.refs_key; }
+            };
+            struct MergeKeyHash
+            {
+                size_t operator()(const MergeKey& k) const
+                {
+                    size_t h = std::hash<std::string>{}(k.chord);
+                    h ^= std::hash<std::string>{}(k.refs_key) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+                    return h;
+                }
+            };
+            std::unordered_map<MergeKey, std::vector<std::string>, MergeKeyHash> merged_platforms;
+            std::unordered_map<MergeKey, std::vector<BindingRef>, MergeKeyHash> merged_refs;
+
+            for (const auto& g : outs)
+            {
+                std::string refs_key;
+                refs_key.reserve(g.refs.size() * 48);
+                for (const auto& r : g.refs)
+                {
+                    refs_key += r.action_id;
+                    refs_key += "|";
+                    refs_key += r.context;
+                    refs_key += ";";
+                }
+
+                MergeKey mk;
+                mk.chord = g.chord;
+                mk.refs_key = std::move(refs_key);
+                merged_platforms[mk].push_back(g.platform);
+                merged_refs[mk] = g.refs;
+            }
+
+            // Emit collisions (sorted).
+            struct Row { std::string chord; std::vector<std::string> plats; std::vector<BindingRef> refs; };
+            std::vector<Row> rows;
+            rows.reserve(merged_platforms.size());
+            for (auto& it : merged_platforms)
+            {
+                Row r;
+                r.chord = it.first.chord;
+                r.plats = std::move(it.second);
+                std::sort(r.plats.begin(), r.plats.end());
+                r.plats.erase(std::unique(r.plats.begin(), r.plats.end()), r.plats.end());
+                r.refs = merged_refs[it.first];
+                rows.push_back(std::move(r));
+            }
+            std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+                if (a.chord != b.chord) return a.chord < b.chord;
+                return a.plats < b.plats;
+            });
+
+            if (!rows.empty())
+            {
+                conflicts_report += "Conflicts:\n";
+                for (const auto& r : rows)
+                {
+                    // platforms joined by '/'
+                    std::string plats;
+                    for (size_t i = 0; i < r.plats.size(); ++i)
+                    {
+                        if (i) plats += "/";
+                        plats += r.plats[i];
+                    }
+                    conflicts_report += r.chord + " [" + plats + "]: ";
+                    for (size_t i = 0; i < r.refs.size(); ++i)
+                    {
+                        const auto& br = r.refs[i];
+                        if (i) conflicts_report += ", ";
+                        conflicts_report += br.action_id;
+                        conflicts_report += " (";
+                        conflicts_report += br.context;
+                        conflicts_report += ")";
+                    }
+                    conflicts_report += "\n";
+                }
+            }
+
+            if (!invalid.empty())
+            {
+                if (!conflicts_report.empty()) conflicts_report += "\n";
+                conflicts_report += "Invalid chords:\n";
+                std::sort(invalid.begin(), invalid.end());
+                invalid.erase(std::unique(invalid.begin(), invalid.end()), invalid.end());
+                for (const auto& s : invalid)
+                {
+                    conflicts_report += s;
+                    conflicts_report += "\n";
+                }
+            }
+        }
+    }
+
+    if (!conflicts_report.empty())
+    {
+        ImGui::SeparatorText("Keybinding Conflicts");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // Read-only multiline textbox (easy to copy/paste).
+        ImGui::InputTextMultiline("##kb_conflicts", &conflicts_report,
+                                  ImVec2(-FLT_MIN, ImGui::GetTextLineHeightWithSpacing() * 7.0f),
+                                  ImGuiInputTextFlags_ReadOnly);
+        ImGui::Separator();
     }
 
     // Sort a view (stable) by category/title for nicer display.

@@ -43,7 +43,12 @@ public:
     void RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialogs);
 
     // Call from within the "File" menu.
-    void RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb);
+    using ShortcutProvider = std::function<std::string(std::string_view action_id)>;
+    void RenderFileMenu(SDL_Window* window,
+                        SdlFileDialogQueue& dialogs,
+                        AnsiCanvas* focused_canvas,
+                        const Callbacks& cb,
+                        const ShortcutProvider& shortcut_for_action = {});
 
     // Handle a completed SDL file dialog (polled from SdlFileDialogQueue).
     void HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb);

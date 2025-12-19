@@ -20,6 +20,8 @@ struct ImVec2;
 struct ImDrawList;
 struct ImGuiInputTextCallbackData;
 
+namespace kb { class KeyBindingsEngine; }
+
 class AnsiCanvas
 {
 public:
@@ -96,6 +98,17 @@ public:
     float GetZoom() const { return m_zoom; }
     void  SetZoom(float zoom);
 
+    // Optional: attach a key bindings engine so navigation/edit keys captured for
+    // tools/scripts can be resolved via configurable action IDs.
+    //
+    // If not attached, AnsiCanvas falls back to fixed physical keys (arrows/home/end/etc).
+    void SetKeyBindingsEngine(kb::KeyBindingsEngine* engine) { m_keybinds = engine; }
+
+    // Optional: status line visibility (Cols/Rows/Caret + font picker + SAUCE button).
+    bool IsStatusLineVisible() const { return m_status_line_visible; }
+    void SetStatusLineVisible(bool v) { m_status_line_visible = v; }
+    void ToggleStatusLineVisible() { m_status_line_visible = !m_status_line_visible; }
+
     // Request a scroll position in *canvas pixel space* (child window scroll).
     // Applied on next Render() call.
     void RequestScrollPixels(float scroll_x, float scroll_y);
@@ -126,6 +139,12 @@ public:
 
     // Returns the last captured viewport state from Render().
     const ViewState& GetLastViewState() const { return m_last_view; }
+
+    // If enabled, the canvas auto-scrolls to keep the caret visible when navigating/typing.
+    // Tools/scripts can still request explicit scroll positions via RequestScrollPixels().
+    bool IsFollowCaretEnabled() const { return m_follow_caret; }
+    void SetFollowCaretEnabled(bool enabled) { m_follow_caret = enabled; }
+    void ToggleFollowCaretEnabled() { m_follow_caret = !m_follow_caret; }
 
     // Composite cell sampling (used by preview/minimap).
     // Returns false if out of bounds.
@@ -500,6 +519,7 @@ private:
     // Zoom and last captured viewport metrics.
     float    m_zoom = 1.0f;
     ViewState m_last_view;
+    bool     m_follow_caret = true;
     // Zoom stabilization: keep certain layout decisions stable for a few frames after zoom changes
     // to avoid scrollbar/clip-rect churn (visible as flicker/jitter).
     int m_zoom_stabilize_frames = 0;
@@ -530,6 +550,10 @@ private:
     // Input captured from ImGui:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
+    kb::KeyBindingsEngine* m_keybinds = nullptr; // not owned
+
+    // UI visibility toggles (canvas-local).
+    bool m_status_line_visible = true;
 
     // Selection state (per-canvas, transient; not serialized).
     struct SelectionState

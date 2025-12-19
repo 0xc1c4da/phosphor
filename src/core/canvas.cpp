@@ -1,6 +1,7 @@
 #include "core/canvas.h"
 
 #include "core/fonts.h"
+#include "core/key_bindings.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -1021,15 +1022,48 @@ void AnsiCanvas::CaptureKeyEvents()
         return;
 
     // Match previous behavior: discrete press events.
-    m_key_events.left      = ImGui::IsKeyPressed(ImGuiKey_LeftArrow);
-    m_key_events.right     = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
-    m_key_events.up        = ImGui::IsKeyPressed(ImGuiKey_UpArrow);
-    m_key_events.down      = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
-    m_key_events.home      = ImGui::IsKeyPressed(ImGuiKey_Home);
-    m_key_events.end       = ImGui::IsKeyPressed(ImGuiKey_End);
-    m_key_events.backspace = ImGui::IsKeyPressed(ImGuiKey_Backspace);
-    m_key_events.del       = ImGui::IsKeyPressed(ImGuiKey_Delete);
-    m_key_events.enter     = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+    //
+    // If a key bindings engine is attached, resolve navigation/edit keys through action IDs
+    // so tools/scripts can be remapped without editing Lua.
+    if (m_keybinds)
+    {
+        kb::EvalContext kctx;
+        kctx.global = true;
+        kctx.editor = true;
+        kctx.canvas = true;
+        kctx.selection = HasSelection();
+        kctx.platform = kb::RuntimePlatform();
+
+        m_key_events.left  = m_keybinds->ActionPressed("nav.caret_left", kctx);
+        m_key_events.right = m_keybinds->ActionPressed("nav.caret_right", kctx);
+        m_key_events.up    = m_keybinds->ActionPressed("nav.caret_up", kctx);
+        m_key_events.down  = m_keybinds->ActionPressed("nav.caret_down", kctx);
+        m_key_events.home  = m_keybinds->ActionPressed("nav.home", kctx);
+        m_key_events.end   = m_keybinds->ActionPressed("nav.end", kctx);
+
+        m_key_events.backspace = m_keybinds->ActionPressed("editor.backspace", kctx);
+
+        // "Delete" is ambiguous: when selection exists, treat it as "delete selection";
+        // otherwise allow the (optional) forward-delete editor action.
+        if (kctx.selection)
+            m_key_events.del = m_keybinds->ActionPressed("selection.delete", kctx);
+        else
+            m_key_events.del = m_keybinds->ActionPressed("editor.delete_forward", kctx);
+
+        m_key_events.enter = m_keybinds->ActionPressed("editor.new_line", kctx);
+    }
+    else
+    {
+        m_key_events.left      = ImGui::IsKeyPressed(ImGuiKey_LeftArrow);
+        m_key_events.right     = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
+        m_key_events.up        = ImGui::IsKeyPressed(ImGuiKey_UpArrow);
+        m_key_events.down      = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
+        m_key_events.home      = ImGui::IsKeyPressed(ImGuiKey_Home);
+        m_key_events.end       = ImGui::IsKeyPressed(ImGuiKey_End);
+        m_key_events.backspace = ImGui::IsKeyPressed(ImGuiKey_Backspace);
+        m_key_events.del       = ImGui::IsKeyPressed(ImGuiKey_Delete);
+        m_key_events.enter     = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+    }
 
     // Selection/clipboard keys (used by tools; modifiers are checked separately via ImGuiIO in the host).
     m_key_events.c      = ImGui::IsKeyPressed(ImGuiKey_C, false);
@@ -2223,6 +2257,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
 
     // Quick status line (foundation for future toolbars).
+    if (m_status_line_visible)
     {
         ImGui::PushID(id);
         bool status_editing = false;
@@ -2733,7 +2768,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const bool caret_moved = (m_caret_row != caret_start_row) || (m_caret_col != caret_start_col);
     const bool mouse_painting = m_cursor_valid && (m_cursor_left_down || m_cursor_right_down);
     const bool should_follow_caret = had_key_input || had_typed_input || (caret_moved && mouse_painting);
-    if (m_has_focus && !suppress_caret_autoscroll && should_follow_caret)
+    if (m_has_focus && m_follow_caret && !suppress_caret_autoscroll && should_follow_caret)
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const ImRect clip_rect = window ? window->InnerClipRect : ImRect(0, 0, 0, 0);
