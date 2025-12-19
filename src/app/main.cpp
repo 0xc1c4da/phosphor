@@ -671,10 +671,6 @@ int main(int, char**)
         if (p.empty()) return false;
         return std::filesystem::path(p).filename().string() == "pipette.lua";
     };
-    auto is_edit_path = [](const std::string& p) -> bool {
-        if (p.empty()) return false;
-        return std::filesystem::path(p).filename().string() == "edit.lua";
-    };
 
     {
         if (const ToolSpec* t = tool_palette.GetActiveTool())

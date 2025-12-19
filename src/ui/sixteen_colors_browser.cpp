@@ -167,19 +167,6 @@ static int GuessYearFromPackName(const std::string& pack)
     return 0;
 }
 
-static const char* BrowseModeLabel(int mode)
-{
-    switch (mode)
-    {
-    case 0: return "Packs";
-    case 1: return "Groups";
-    case 2: return "Artists";
-    case 3: return "Years";
-    case 4: return "Latest";
-    default: return "Packs";
-    }
-}
-
 static std::string BuildPackListUrl(int page, int pagesize, bool groups, bool artists, const std::string& filter)
 {
     return ApiBase() + "/v1/pack/?page=" + std::to_string(std::max(1, page)) +
