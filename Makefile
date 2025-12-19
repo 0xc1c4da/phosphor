@@ -43,6 +43,7 @@ SOURCES  = \
            src/ui/minimap_window.cpp \
            src/ui/skin.cpp \
            src/ui/settings.cpp \
+           src/ui/export_dialog.cpp \
            src/ui/sauce_editor_dialog.cpp \
            src/ui/tool_palette.cpp \
            src/ui/sixteen_colors_browser.cpp \

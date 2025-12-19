@@ -181,20 +181,6 @@ void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, 
         RequestLoadFile(window, dialogs);
     }
 
-    if (ImGui::MenuItem("Export..."))
-    {
-        RequestExportAnsi(window, dialogs);
-    }
-
-    if (!has_focus_canvas)
-        ImGui::BeginDisabled();
-    if (ImGui::MenuItem("Export Image..."))
-    {
-        RequestExportImage(window, dialogs);
-    }
-    if (!has_focus_canvas)
-        ImGui::EndDisabled();
-
     (void)cb;
 }
 

@@ -81,6 +81,14 @@ struct ExportOptions
     int jpg_quality = 95;
 };
 
+// Compute the exported image dimensions in pixels for the given canvas/options.
+// This matches the size used by ExportCanvasToFile() (via canvas_rasterizer).
+bool ComputeExportDimensionsPx(const AnsiCanvas& canvas,
+                              int& out_w,
+                              int& out_h,
+                              std::string& err,
+                              const ExportOptions& options = {});
+
 bool ExportCanvasToFile(const std::string& path,
                         const AnsiCanvas& canvas,
                         std::string& err,

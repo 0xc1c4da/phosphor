@@ -41,6 +41,7 @@
 #include "ui/minimap_window.h"
 #include "app/canvas_preview_texture.h"
 #include "ui/settings.h"
+#include "ui/export_dialog.h"
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
 #include "ui/skin.h"
@@ -568,6 +569,9 @@ int main(int, char**)
     settings_window.SetOpen(show_settings_window);
     settings_window.SetMainScale(main_scale);
 
+    // Unified export dialog (tabs: ANSI / plaintext / image / XBin).
+    ExportDialog export_dialog;
+
     // Key bindings engine (shared across app shortcuts + ANSL tool hotkeys + Settings UI).
     kb::KeyBindingsEngine keybinds;
     keybinds.SetPath(PhosphorAssetPath("key-bindings.json"));
@@ -1090,6 +1094,20 @@ int main(int, char**)
                     io_manager.RenderFileMenu(window, file_dialogs, active_canvas, cbs);
                 }
 
+                // Unified Export menu (all formats share one tabbed dialog).
+                if (ImGui::BeginMenu("Export"))
+                {
+                    if (ImGui::MenuItem("ANSI…"))
+                        export_dialog.Open(ExportDialog::Tab::Ansi);
+                    if (ImGui::MenuItem("Plaintext…"))
+                        export_dialog.Open(ExportDialog::Tab::Plaintext);
+                    if (ImGui::MenuItem("Image…"))
+                        export_dialog.Open(ExportDialog::Tab::Image);
+                    if (ImGui::MenuItem("XBin…"))
+                        export_dialog.Open(ExportDialog::Tab::XBin);
+                    ImGui::EndMenu();
+                }
+
                 if (ImGui::MenuItem("Quit"))
                 {
                     done = true;
@@ -1176,12 +1194,18 @@ int main(int, char**)
             SdlFileDialogResult r;
             while (file_dialogs.Poll(r))
             {
+                if (export_dialog.HandleDialogResult(r, io_manager, active_canvas))
+                    continue;
                 io_manager.HandleDialogResult(r, active_canvas, cbs);
             }
         }
 
         // File IO feedback (success/error).
         io_manager.RenderStatusWindows(&session_state, should_apply_placement("File Error"));
+
+        // Export dialog (tabbed).
+        export_dialog.Render("Export", window, file_dialogs, io_manager, active_canvas,
+                             &session_state, should_apply_placement("Export"));
 
         // Keyboard shortcuts for Undo/Redo (only when a canvas is focused).
         {
@@ -1225,7 +1249,7 @@ int main(int, char**)
 
                 if (keybinds.ActionPressed("app.file.export_ansi", kctx) && active_canvas)
                 {
-                    io_manager.RequestExportAnsi(window, file_dialogs);
+                    export_dialog.Open(ExportDialog::Tab::Ansi);
                 }
 
                 if (keybinds.ActionPressed("app.quit", kctx))

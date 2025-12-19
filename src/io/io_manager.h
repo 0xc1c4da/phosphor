@@ -55,6 +55,10 @@ public:
     void SetLastDir(const std::string& dir) { m_last_dir = dir; }
     const std::string& GetLastDir() const { return m_last_dir; }
 
+    // Allow other UI subsystems (e.g. Export dialog) to surface IO errors in the standard place.
+    void SetLastError(const std::string& err) { m_last_error = err; }
+    void ClearLastError() { m_last_error.clear(); }
+
 private:
     std::string m_last_dir;
     std::string m_last_error;

@@ -21,6 +21,14 @@ struct Options
     bool transparent_unset_bg = false;
 };
 
+// Compute raster output dimensions for RasterizeCompositeToRgba32() without doing the rasterization.
+// This is cheap and suitable for UI previews.
+bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
+                               int& out_w,
+                               int& out_h,
+                               std::string& err,
+                               const Options& opt = {});
+
 // Rasterize the composited canvas (all visible layers) into an RGBA8 image.
 //
 // Font source:

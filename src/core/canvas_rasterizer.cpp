@@ -64,6 +64,73 @@ static inline void BlendOver(ImU32& dst, ImU32 src)
 }
 } // namespace
 
+bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
+                               int& out_w,
+                               int& out_h,
+                               std::string& err,
+                               const Options& opt)
+{
+    err.clear();
+    out_w = 0;
+    out_h = 0;
+
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    if (cols <= 0 || rows <= 0)
+    {
+        err = "Invalid canvas dimensions.";
+        return false;
+    }
+
+    const int scale = std::clamp(opt.scale, 1, 16);
+
+    const fonts::FontInfo& finfo = fonts::Get(canvas.GetFontId());
+    const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+
+    int cell_w = 0;
+    int cell_h = 0;
+    if (bitmap_font)
+    {
+        if (embedded_font)
+        {
+            cell_w = std::max(1, ef->cell_w);
+            cell_h = std::max(1, ef->cell_h);
+        }
+        else
+        {
+            cell_w = std::max(1, finfo.cell_w);
+            cell_h = std::max(1, finfo.cell_h);
+        }
+    }
+    else
+    {
+        ImFont* font = ImGui::GetFont();
+        if (!font)
+        {
+            err = "No active ImGui font.";
+            return false;
+        }
+        const float base_font_size = ImGui::GetFontSize();
+        const float cell_w_f = font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
+        const float cell_h_f = base_font_size;
+        cell_w = std::max(1, (int)std::lround((double)cell_w_f));
+        cell_h = std::max(1, (int)std::lround((double)cell_h_f));
+    }
+
+    out_w = cols * cell_w * scale;
+    out_h = rows * cell_h * scale;
+    if (out_w <= 0 || out_h <= 0)
+    {
+        err = "Invalid output dimensions.";
+        return false;
+    }
+    return true;
+}
+
 bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                                std::vector<std::uint8_t>& out_rgba,
                                int& out_w,

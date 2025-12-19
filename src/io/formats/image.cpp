@@ -415,6 +415,18 @@ const std::vector<std::string_view>& ExportExtensions()
     return exts;
 }
 
+bool ComputeExportDimensionsPx(const AnsiCanvas& canvas,
+                               int& out_w,
+                               int& out_h,
+                               std::string& err,
+                               const ExportOptions& options)
+{
+    canvas_rasterizer::Options ropt;
+    ropt.scale = options.scale;
+    ropt.transparent_unset_bg = options.transparent_unset_bg;
+    return canvas_rasterizer::ComputeCompositeRasterSize(canvas, out_w, out_h, err, ropt);
+}
+
 bool ImportFileToRgba(const std::string& path, RgbaImage& out, std::string& err)
 {
     err.clear();
