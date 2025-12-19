@@ -134,6 +134,30 @@ struct AnslFrameContext
 
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;
+
+    // ---------------------------------------------------------------------
+    // Tool writeback (Lua tool scripts -> host)
+    // ---------------------------------------------------------------------
+    // Tools can request changes by writing into ctx.pick = { fg=..., bg=..., brushCp=..., returnToPrevTool=true }.
+    // The host clears these fields each frame before running the tool, so tools should treat them as edge-triggered.
+    struct ToolWriteback
+    {
+        bool has_fg = false;
+        int  fg = -1; // xterm-256 index (0..255)
+
+        bool has_bg = false;
+        int  bg = -1; // xterm-256 index (0..255)
+
+        bool has_brush_cp = false;
+        int  brush_cp = 0; // Unicode scalar value (>=0)
+
+        bool return_to_prev_tool = false;
+    };
+
+    // If true, the engine will read ctx.pick.* after the script and fill `tool_writeback` if provided.
+    bool allow_tool_writeback = false;
+    // Optional: filled only when allow_tool_writeback=true and tool_writeback != nullptr.
+    ToolWriteback* tool_writeback = nullptr;
 };
 
 // Script-provided settings (optional).

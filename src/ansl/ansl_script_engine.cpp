@@ -170,6 +170,25 @@ static char32_t LuaCharArg(lua_State* L, int idx)
     return DecodeFirstUtf8Codepoint(s, len);
 }
 
+static int Color32ToXtermIndex(AnsiCanvas::Color32 c32)
+{
+    if (c32 == 0)
+        return -1;
+    // Build reverse lookup table (Color32 -> xterm index) once.
+    // All style values currently come from xterm256::Color32ForIndex(), so this is exact.
+    static const std::unordered_map<AnsiCanvas::Color32, int> kColor32ToXterm = []() {
+        std::unordered_map<AnsiCanvas::Color32, int> m;
+        m.reserve(256);
+        for (int i = 0; i <= 255; ++i)
+            m[(AnsiCanvas::Color32)xterm256::Color32ForIndex(i)] = i;
+        return m;
+    }();
+    auto it = kColor32ToXterm.find(c32);
+    if (it == kColor32ToXterm.end())
+        return -1;
+    return it->second;
+}
+
 struct LayerBinding
 {
     AnsiCanvas* canvas = nullptr;
@@ -213,6 +232,68 @@ static int l_canvas_getSelection(lua_State* L)
     lua_pushinteger(L, r.y);
     lua_pushinteger(L, r.w);
     lua_pushinteger(L, r.h);
+    return 4;
+}
+
+static int l_canvas_getCell(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+
+    // canvas:getCell(x, y, [mode], [layer])
+    // mode:
+    //   - "composite" (default): visible composited cell
+    //   - "layer": raw cell from a specific layer (defaults to active layer)
+    std::string mode;
+    int layer = -9999;
+    if (lua_gettop(L) >= 4 && !lua_isnil(L, 4))
+    {
+        if (lua_isstring(L, 4))
+            mode = LuaToString(L, 4);
+        else if (lua_isnumber(L, 4))
+            layer = (int)lua_tointeger(L, 4);
+    }
+    if (lua_gettop(L) >= 5 && !lua_isnil(L, 5))
+        layer = (int)luaL_checkinteger(L, 5);
+
+    const bool want_layer = (mode == "layer" || mode == "Layer");
+    char32_t cp = U' ';
+    AnsiCanvas::Color32 fg32 = 0;
+    AnsiCanvas::Color32 bg32 = 0;
+
+    if (want_layer || layer != -9999)
+    {
+        const int li = (layer == -9999) ? b->canvas->GetActiveLayerIndex() : layer;
+        cp = b->canvas->GetLayerCell(li, y, x);
+        (void)b->canvas->GetLayerCellColors(li, y, x, fg32, bg32);
+    }
+    else
+    {
+        // Composite is bounded and returns false if out-of-range.
+        if (!b->canvas->GetCompositeCellPublic(y, x, cp, fg32, bg32))
+        {
+            cp = U' ';
+            fg32 = 0;
+            bg32 = 0;
+        }
+    }
+
+    const std::string s = EncodeCodepointUtf8(cp);
+    lua_pushlstring(L, s.data(), s.size());
+
+    const int fg_idx = Color32ToXtermIndex(fg32);
+    const int bg_idx = Color32ToXtermIndex(bg32);
+    if (fg_idx >= 0) lua_pushinteger(L, fg_idx);
+    else lua_pushnil(L);
+    if (bg_idx >= 0) lua_pushinteger(L, bg_idx);
+    else lua_pushnil(L);
+
+    // Also return cp as an integer (handy for tools; safe additive API).
+    lua_pushinteger(L, (lua_Integer)cp);
     return 4;
 }
 
@@ -477,35 +558,17 @@ static int l_layer_get(lua_State* L)
     int bg_idx = -1;
     if (b->canvas->GetLayerCellColors(b->layer_index, y, x, fg32, bg32))
     {
-        // Build reverse lookup table (Color32 -> xterm index) once.
-        // All style values currently come from xterm256::Color32ForIndex(), so this is exact.
-        static const std::unordered_map<AnsiCanvas::Color32, int> kColor32ToXterm = []() {
-            std::unordered_map<AnsiCanvas::Color32, int> m;
-            m.reserve(256);
-            for (int i = 0; i <= 255; ++i)
-                m[(AnsiCanvas::Color32)xterm256::Color32ForIndex(i)] = i;
-            return m;
-        }();
-
-        if (fg32 != 0)
-        {
-            auto it = kColor32ToXterm.find(fg32);
-            if (it != kColor32ToXterm.end())
-                fg_idx = it->second;
-        }
-        if (bg32 != 0)
-        {
-            auto it = kColor32ToXterm.find(bg32);
-            if (it != kColor32ToXterm.end())
-                bg_idx = it->second;
-        }
+        fg_idx = Color32ToXtermIndex(fg32);
+        bg_idx = Color32ToXtermIndex(bg32);
     }
 
     if (fg_idx >= 0) lua_pushinteger(L, fg_idx);
     else lua_pushnil(L);
     if (bg_idx >= 0) lua_pushinteger(L, bg_idx);
     else lua_pushnil(L);
-    return 3;
+    // Also return cp as an integer (safe additive API).
+    lua_pushinteger(L, (lua_Integer)cp);
+    return 4;
 }
 
 static int l_layer_clear(lua_State* L)
@@ -686,6 +749,7 @@ static void EnsureCanvasMetatable(lua_State* L)
         lua_newtable(L); // __index
         lua_pushcfunction(L, l_canvas_hasSelection);      lua_setfield(L, -2, "hasSelection");
         lua_pushcfunction(L, l_canvas_getSelection);      lua_setfield(L, -2, "getSelection");
+        lua_pushcfunction(L, l_canvas_getCell);           lua_setfield(L, -2, "getCell");
         lua_pushcfunction(L, l_canvas_setSelection);      lua_setfield(L, -2, "setSelection");
         lua_pushcfunction(L, l_canvas_clearSelection);    lua_setfield(L, -2, "clearSelection");
         lua_pushcfunction(L, l_canvas_selectionContains); lua_setfield(L, -2, "selectionContains");
@@ -1294,6 +1358,10 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_rawgeti(impl_->L, LUA_REGISTRYINDEX, impl_->params_ref);
     lua_setfield(impl_->L, -2, "params"); // ctx.params = params
 
+    // Tool writeback (reused): ctx.pick = { fg=nil, bg=nil, brushCp=nil, returnToPrevTool=nil }
+    lua_newtable(impl_->L);
+    lua_setfield(impl_->L, -2, "pick");
+
     // Tool brush defaults
     lua_pushliteral(impl_->L, " ");
     lua_setfield(impl_->L, -2, "brush");
@@ -1678,6 +1746,20 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     }
     lua_pop(L, 1); // actions
 
+    // Tool writeback table: clear edge-triggered fields each frame.
+    if (frame_ctx.allow_tool_writeback)
+    {
+        lua_getfield(L, -1, "pick");
+        if (lua_istable(L, -1))
+        {
+            lua_pushnil(L); lua_setfield(L, -2, "fg");
+            lua_pushnil(L); lua_setfield(L, -2, "bg");
+            lua_pushnil(L); lua_setfield(L, -2, "brushCp");
+            lua_pushnil(L); lua_setfield(L, -2, "returnToPrevTool");
+        }
+        lua_pop(L, 1); // pick
+    }
+
     // typed codepoints -> ctx.typed = { "a", "中", ... }
     lua_newtable(L);
     if (frame_ctx.typed)
@@ -1720,6 +1802,49 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     // We still return the error message string.
     if (!PCallNoTraceback(L, 2, 0, error))
         return false;
+
+    // Tool writeback support: allow scripts to request host-side state changes via ctx.pick.
+    if (frame_ctx.allow_tool_writeback && frame_ctx.tool_writeback)
+    {
+        *frame_ctx.tool_writeback = AnslFrameContext::ToolWriteback{};
+
+        lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->ctx_ref);
+        lua_getfield(L, -1, "pick");
+        if (lua_istable(L, -1))
+        {
+            lua_getfield(L, -1, "fg");
+            if (lua_isnumber(L, -1))
+            {
+                frame_ctx.tool_writeback->has_fg = true;
+                frame_ctx.tool_writeback->fg = (int)lua_tointeger(L, -1);
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, -1, "bg");
+            if (lua_isnumber(L, -1))
+            {
+                frame_ctx.tool_writeback->has_bg = true;
+                frame_ctx.tool_writeback->bg = (int)lua_tointeger(L, -1);
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, -1, "brushCp");
+            if (lua_isnumber(L, -1))
+            {
+                frame_ctx.tool_writeback->has_brush_cp = true;
+                lua_Integer v = lua_tointeger(L, -1);
+                if (v < 0) v = 0;
+                frame_ctx.tool_writeback->brush_cp = (int)v;
+            }
+            lua_pop(L, 1);
+
+            lua_getfield(L, -1, "returnToPrevTool");
+            if (!lua_isnil(L, -1))
+                frame_ctx.tool_writeback->return_to_prev_tool = lua_toboolean(L, -1) != 0;
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 2); // pick, ctx
+    }
 
     // Tool support: allow scripts to write caret back via ctx.caret.{x,y}.
     if (frame_ctx.allow_caret_writeback)

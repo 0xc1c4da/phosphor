@@ -662,6 +662,43 @@ int main(int, char**)
         }
     }
 
+    // Track "previous tool" so the pipette can optionally return after sampling.
+    std::string last_active_tool_path;
+    std::string last_non_pipette_tool_path;
+    std::string prev_non_pipette_tool_path;
+
+    auto is_pipette_path = [](const std::string& p) -> bool {
+        if (p.empty()) return false;
+        return std::filesystem::path(p).filename().string() == "pipette.lua";
+    };
+    auto is_edit_path = [](const std::string& p) -> bool {
+        if (p.empty()) return false;
+        return std::filesystem::path(p).filename().string() == "edit.lua";
+    };
+
+    {
+        if (const ToolSpec* t = tool_palette.GetActiveTool())
+        {
+            last_active_tool_path = t->path;
+            if (!is_pipette_path(last_active_tool_path))
+                last_non_pipette_tool_path = last_active_tool_path;
+        }
+    }
+
+    auto compile_tool_script = [&](const std::string& tool_path) {
+        if (tool_path.empty())
+            return;
+        std::ifstream in(tool_path, std::ios::binary);
+        const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string err;
+        if (!tool_engine.CompileUserScript(src, err))
+            tool_compile_error = err;
+        else
+            tool_compile_error.clear();
+        if (const ToolSpec* t = tool_palette.GetActiveTool())
+            keybinds.SetToolActions(t->actions);
+    };
+
     // Image state
     std::vector<ImageWindow> images;
     int next_image_id = 1;
@@ -1547,6 +1584,14 @@ int main(int, char**)
             std::string tool_path;
             if (tool_palette.TakeActiveToolChanged(tool_path))
             {
+                // Remember a stable "last non-pipette tool" so pipette can return reliably,
+                // even if tool paths differ by symlink/canonicalization.
+                last_active_tool_path = tool_path;
+                if (!is_pipette_path(tool_path))
+                    last_non_pipette_tool_path = tool_path;
+                else if (!last_non_pipette_tool_path.empty())
+                    prev_non_pipette_tool_path = last_non_pipette_tool_path;
+
                 std::ifstream in(tool_path, std::ios::binary);
                 const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
                 std::string err;
@@ -1781,6 +1826,7 @@ int main(int, char**)
                     return;
 
                 AnslFrameContext ctx;
+                AnslFrameContext::ToolWriteback wb;
                 ctx.cols = c.GetColumns();
                 ctx.rows = c.GetRows();
                 ctx.frame = frame_counter;
@@ -1793,6 +1839,8 @@ int main(int, char**)
                 ctx.brush_utf8 = tool_brush_utf8;
                 ctx.brush_cp = (int)tool_brush_cp;
                 ctx.allow_caret_writeback = true;
+                ctx.allow_tool_writeback = true;
+                ctx.tool_writeback = &wb;
 
                 c.GetCaretCell(ctx.caret_x, ctx.caret_y);
 
@@ -1874,6 +1922,62 @@ int main(int, char**)
                 {
                     // Don't spam stderr every frame; stash message for UI.
                     tool_compile_error = err;
+                }
+                else
+                {
+                    // Apply tool writeback (pipette / sample tool, etc).
+                    if (wb.has_brush_cp && wb.brush_cp > 0)
+                    {
+                        const uint32_t cp = (uint32_t)wb.brush_cp;
+                        character_picker.JumpToCodePoint(cp);
+                        tool_brush_cp = cp;
+                        tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+                        character_palette.OnPickerSelectedCodePoint(cp);
+                        character_sets.OnExternalSelectedCodePoint(cp);
+                    }
+                    auto apply_idx_to_color = [&](int idx, ImVec4& dst) {
+                        idx = std::clamp(idx, 0, 255);
+                        const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
+                        dst.x = (float)rgb.r / 255.0f;
+                        dst.y = (float)rgb.g / 255.0f;
+                        dst.z = (float)rgb.b / 255.0f;
+                        dst.w = 1.0f;
+                    };
+                    if (wb.has_fg)
+                        apply_idx_to_color(wb.fg, fg_color);
+                    if (wb.has_bg)
+                        apply_idx_to_color(wb.bg, bg_color);
+
+                    if (wb.return_to_prev_tool && !prev_non_pipette_tool_path.empty())
+                    {
+                        // Choose a return target:
+                        // 1) explicit previous non-pipette tool
+                        // 2) last non-pipette tool observed
+                        // 3) fallback to edit.lua if present
+                        std::string target = prev_non_pipette_tool_path;
+                        if (target.empty())
+                            target = last_non_pipette_tool_path;
+                        if (target.empty())
+                        {
+                            if (const ToolSpec* at = tool_palette.GetActiveTool())
+                            {
+                                (void)at;
+                            }
+                            // Scan current tool list for edit.lua as a safe default.
+                            // (No direct accessor for the list; we can still find it by path via SetActiveToolByPath.)
+                            const std::string tools_dir = tool_palette.GetToolsDir().empty() ? PhosphorAssetPath("tools") : tool_palette.GetToolsDir();
+                            const std::string edit_path = (std::filesystem::path(tools_dir) / "edit.lua").string();
+                            target = edit_path;
+                        }
+
+                        if (!target.empty() && tool_palette.SetActiveToolByPath(target))
+                        {
+                            last_active_tool_path = target;
+                            if (!is_pipette_path(target))
+                                last_non_pipette_tool_path = target;
+                            compile_tool_script(target);
+                        }
+                    }
                 }
             };
 
