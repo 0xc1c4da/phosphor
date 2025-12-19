@@ -286,9 +286,35 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
     }
     else if (r.tag == kDialog_ExportAnsi)
     {
-        // Stub: UI contract only (we'll implement proper export later).
-        (void)chosen;
-        m_last_error = "Export is not implemented yet.";
+        if (!focused_canvas)
+        {
+            m_last_error = "No focused canvas to export.";
+            return;
+        }
+
+        std::string path = chosen;
+        if (!is_uri(path))
+        {
+            fs::path p(path);
+            // Default to .ans if user omitted extension.
+            if (p.extension().empty())
+                path += ".ans";
+        }
+
+        // Default export preset for now (until we add an Export dialog UI).
+        // Goal: reasonable terminal-friendly output with xterm256 colors.
+        formats::ansi::ExportOptions opt;
+        if (const auto* preset = formats::ansi::FindPreset(formats::ansi::PresetId::ModernUtf8_256))
+            opt = preset->export_;
+
+        if (formats::ansi::ExportCanvasToFile(path, *focused_canvas, err, opt))
+        {
+            m_last_error.clear();
+        }
+        else
+        {
+            m_last_error = err.empty() ? "Export failed." : err;
+        }
     }
 }
 

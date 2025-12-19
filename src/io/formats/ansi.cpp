@@ -4,9 +4,11 @@
 #include "io/formats/sauce.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <unordered_map>
 #include <limits>
 #include <string_view>
 #include <vector>
@@ -64,6 +66,183 @@ static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g,
 {
     // Dear ImGui IM_COL32 is ABGR.
     return 0xFF000000u | ((std::uint32_t)b << 16) | ((std::uint32_t)g << 8) | (std::uint32_t)r;
+}
+
+static inline void UnpackImGuiCol32(AnsiCanvas::Color32 c, std::uint8_t& out_r, std::uint8_t& out_g, std::uint8_t& out_b)
+{
+    // Dear ImGui IM_COL32 is ABGR.
+    out_r = (std::uint8_t)(c & 0xFFu);
+    out_g = (std::uint8_t)((c >> 8) & 0xFFu);
+    out_b = (std::uint8_t)((c >> 16) & 0xFFu);
+}
+
+static void Utf8Append(char32_t cp, std::vector<std::uint8_t>& out)
+{
+    if (cp <= 0x7F)
+    {
+        out.push_back((std::uint8_t)cp);
+        return;
+    }
+    if (cp <= 0x7FF)
+    {
+        out.push_back((std::uint8_t)(0xC0 | ((cp >> 6) & 0x1F)));
+        out.push_back((std::uint8_t)(0x80 | (cp & 0x3F)));
+        return;
+    }
+    if (cp <= 0xFFFF)
+    {
+        out.push_back((std::uint8_t)(0xE0 | ((cp >> 12) & 0x0F)));
+        out.push_back((std::uint8_t)(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back((std::uint8_t)(0x80 | (cp & 0x3F)));
+        return;
+    }
+    out.push_back((std::uint8_t)(0xF0 | ((cp >> 18) & 0x07)));
+    out.push_back((std::uint8_t)(0x80 | ((cp >> 12) & 0x3F)));
+    out.push_back((std::uint8_t)(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back((std::uint8_t)(0x80 | (cp & 0x3F)));
+}
+
+static std::uint8_t UnicodeToCp437Byte(char32_t cp)
+{
+    // Build a reverse mapping from our local kCp437 table.
+    // Note: this matches the mapping used by the importer.
+    static const std::unordered_map<char32_t, std::uint8_t> map = []() {
+        std::unordered_map<char32_t, std::uint8_t> m;
+        m.reserve(256);
+        for (size_t i = 0; i < 256; ++i)
+            m.emplace(kCp437[i], (std::uint8_t)i);
+        return m;
+    }();
+
+    auto it = map.find(cp);
+    return (it == map.end()) ? (std::uint8_t)'?' : it->second;
+}
+
+static void EmitCsi(std::vector<std::uint8_t>& out, std::string_view body, char final_byte)
+{
+    out.push_back(ESC);
+    out.push_back((std::uint8_t)'[');
+    out.insert(out.end(), body.begin(), body.end());
+    out.push_back((std::uint8_t)final_byte);
+}
+
+static void EmitSgr(std::vector<std::uint8_t>& out, std::string_view params)
+{
+    EmitCsi(out, params, 'm');
+}
+
+static int Digits10(int v)
+{
+    if (v < 10) return 1;
+    if (v < 100) return 2;
+    if (v < 1000) return 3;
+    if (v < 10000) return 4;
+    if (v < 100000) return 5;
+    if (v < 1000000) return 6;
+    return 7;
+}
+
+static bool IsBlankish(char32_t cp)
+{
+    return cp == U' ' || cp == U'\0' || cp == (char32_t)0xFF;
+}
+
+static AnsiCanvas::Color32 DefaultFgForExport(const ExportOptions& opt)
+{
+    if (opt.default_fg != 0)
+        return opt.default_fg;
+    return (AnsiCanvas::Color32)xterm256::Color32ForIndex(7);
+}
+
+static AnsiCanvas::Color32 DefaultBgForExport(const ExportOptions& opt)
+{
+    if (opt.default_bg != 0)
+        return opt.default_bg;
+    return (AnsiCanvas::Color32)xterm256::Color32ForIndex(0);
+}
+
+static int NearestAnsi16Index(AnsiCanvas::Color32 c)
+{
+    std::uint8_t r = 0, g = 0, b = 0;
+    UnpackImGuiCol32(c, r, g, b);
+    int best = 0;
+    int best_d = std::numeric_limits<int>::max();
+    for (int i = 0; i < 16; ++i)
+    {
+        const auto& prgb = xterm256::RgbForIndex(i);
+        const int dr = (int)r - (int)prgb.r;
+        const int dg = (int)g - (int)prgb.g;
+        const int db = (int)b - (int)prgb.b;
+        const int d = dr * dr + dg * dg + db * db;
+        if (d < best_d)
+        {
+            best_d = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static int NearestXtermIndex(AnsiCanvas::Color32 c)
+{
+    std::uint8_t r = 0, g = 0, b = 0;
+    UnpackImGuiCol32(c, r, g, b);
+    return xterm256::NearestIndex(r, g, b);
+}
+
+static int NearestXtermIndexInRange(AnsiCanvas::Color32 c, int lo, int hi)
+{
+    lo = std::clamp(lo, 0, 255);
+    hi = std::clamp(hi, 0, 255);
+    if (lo > hi) std::swap(lo, hi);
+    std::uint8_t r = 0, g = 0, b = 0;
+    UnpackImGuiCol32(c, r, g, b);
+
+    int best = lo;
+    int best_d = std::numeric_limits<int>::max();
+    for (int i = lo; i <= hi; ++i)
+    {
+        const auto& prgb = xterm256::RgbForIndex(i);
+        const int dr = (int)r - (int)prgb.r;
+        const int dg = (int)g - (int)prgb.g;
+        const int db = (int)b - (int)prgb.b;
+        const int d = dr * dr + dg * dg + db * db;
+        if (d < best_d)
+        {
+            best_d = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+struct ExportCell
+{
+    char32_t cp = U' ';
+    AnsiCanvas::Color32 fg = 0; // 0 means "unset"
+    AnsiCanvas::Color32 bg = 0; // 0 means "unset"
+};
+
+static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int row, int col, ExportCell& out)
+{
+    char32_t cp = U' ';
+    AnsiCanvas::Color32 fg = 0;
+    AnsiCanvas::Color32 bg = 0;
+    if (opt.source == ExportOptions::Source::Composite)
+    {
+        if (!canvas.GetCompositeCellPublic(row, col, cp, fg, bg))
+            return false;
+    }
+    else
+    {
+        const int layer = canvas.GetActiveLayerIndex();
+        cp = canvas.GetLayerCell(layer, row, col);
+        (void)canvas.GetLayerCellColors(layer, row, col, fg, bg);
+    }
+    out.cp = cp;
+    out.fg = fg;
+    out.bg = bg;
+    return true;
 }
 
 static std::vector<std::uint8_t> ReadAllBytes(const std::string& path, std::string& err)
@@ -285,7 +464,7 @@ static inline AnsiCanvas::Color32 ColorFromAnsi16(int idx)
     return (AnsiCanvas::Color32)xterm256::Color32ForIndex(std::clamp(idx, 0, 15));
 }
 
-static inline void ApplyDefaults(const Options& opt, Pen& pen)
+static inline void ApplyDefaults(const ImportOptions& opt, Pen& pen)
 {
     pen.bold = false;
     pen.blink = false;
@@ -303,7 +482,7 @@ static inline void ApplyDefaults(const Options& opt, Pen& pen)
     pen.bg = def_bg;
 }
 
-static inline char32_t DecodeTextCp(const Options& opt, const std::vector<std::uint8_t>& bytes, size_t& i)
+static inline char32_t DecodeTextCp(const ImportOptions& opt, const std::vector<std::uint8_t>& bytes, size_t& i)
 {
     (void)opt;
     const std::uint8_t b = bytes[i];
@@ -316,7 +495,7 @@ static inline char32_t DecodeTextCp(const Options& opt, const std::vector<std::u
     return kCp437[b];
 }
 
-static inline bool DecodeTextUtf8(const Options& opt, const std::vector<std::uint8_t>& bytes, size_t& i, char32_t& out_cp)
+static inline bool DecodeTextUtf8(const ImportOptions& opt, const std::vector<std::uint8_t>& bytes, size_t& i, char32_t& out_cp)
 {
     (void)opt;
     size_t before = i;
@@ -331,7 +510,7 @@ static inline bool DecodeTextUtf8(const Options& opt, const std::vector<std::uin
 bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                          AnsiCanvas& out_canvas,
                          std::string& err,
-                         const Options& options)
+                         const ImportOptions& options)
 {
     err.clear();
 
@@ -463,7 +642,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     while (i < parse_len && state != State::End)
     {
-        if (options.wrap_policy == Options::WrapPolicy::LibAnsiLoveEager)
+        if (options.wrap_policy == ImportOptions::WrapPolicy::LibAnsiLoveEager)
         {
             // libansilove wraps before processing the next character.
             if (state == State::Text && col == columns)
@@ -856,7 +1035,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     return true;
 }
 
-bool ImportFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const Options& options)
+bool ImportFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::string& err, const ImportOptions& options)
 {
     err.clear();
 
@@ -868,6 +1047,686 @@ bool ImportFileToCanvas(const std::string& path, AnsiCanvas& out_canvas, std::st
         return false;
     }
     return ImportBytesToCanvas(bytes, out_canvas, err, options);
+}
+
+// ---------------------------------------------------------------------------
+// Export implementation
+// ---------------------------------------------------------------------------
+bool ExportCanvasToBytes(const AnsiCanvas& canvas,
+                         std::vector<std::uint8_t>& out_bytes,
+                         std::string& err,
+                         const ExportOptions& options)
+{
+    err.clear();
+    out_bytes.clear();
+
+    const int cols = std::max(1, canvas.GetColumns());
+    const int rows = std::max(1, canvas.GetRows());
+
+    // Optional BOM.
+    if (options.text_encoding == ExportOptions::TextEncoding::Utf8Bom)
+    {
+        out_bytes.push_back(0xEF);
+        out_bytes.push_back(0xBB);
+        out_bytes.push_back(0xBF);
+    }
+
+    // Screen preparation.
+    if (options.screen_prep == ExportOptions::ScreenPrep::ClearScreen || options.screen_prep == ExportOptions::ScreenPrep::ClearAndHome)
+        EmitCsi(out_bytes, "2", 'J');
+    if (options.screen_prep == ExportOptions::ScreenPrep::Home || options.screen_prep == ExportOptions::ScreenPrep::ClearAndHome)
+        EmitCsi(out_bytes, "", 'H');
+
+    // Track current "pen" state for SGR diffing.
+    struct PenOut
+    {
+        bool bold = false;
+        bool blink = false;
+        bool invert = false;
+        bool has_fg = false;
+        bool has_bg = false;
+        bool fg_tc = false; // whether last-set fg was via Pablo `...t` truecolor overlay
+        bool bg_tc = false; // whether last-set bg was via Pablo `...t` truecolor overlay
+        int  fg_idx = 7;
+        int  bg_idx = 0;
+        AnsiCanvas::Color32 fg = 0;
+        AnsiCanvas::Color32 bg = 0;
+    };
+    PenOut pen{};
+
+    auto reset = [&]() {
+        EmitSgr(out_bytes, "0");
+        pen = PenOut{};
+    };
+
+    auto ensure_sgr_for_cell = [&](const ExportCell& c)
+    {
+        // Resolve unset -> default behavior.
+        const bool fg_unset = (c.fg == 0);
+        const bool bg_unset = (c.bg == 0);
+
+        const AnsiCanvas::Color32 want_fg = fg_unset ? DefaultFgForExport(options) : c.fg;
+        const AnsiCanvas::Color32 want_bg = bg_unset ? DefaultBgForExport(options) : c.bg;
+
+        // Pablo/Icy truecolor `...t` mode:
+        // Optionally emit an ANSI16 baseline and overlay `...t` only when needed.
+        if (options.color_mode == ExportOptions::ColorMode::TrueColorPabloT)
+        {
+            // First, optionally reset to defaults when colors are "unset" (no overlay for unset).
+            std::string reset_params;
+            if (fg_unset && options.use_default_fg_39 && (pen.has_fg || pen.fg_tc))
+            {
+                if (!reset_params.empty()) reset_params.push_back(';');
+                reset_params += "39";
+                pen.has_fg = false;
+                pen.fg_tc = false;
+            }
+            if (bg_unset && options.use_default_bg_49 && (pen.has_bg || pen.bg_tc))
+            {
+                if (!reset_params.empty()) reset_params.push_back(';');
+                reset_params += "49";
+                pen.has_bg = false;
+                pen.bg_tc = false;
+            }
+            if (!reset_params.empty())
+                EmitSgr(out_bytes, reset_params);
+
+            if (options.pablo_t_with_ansi16_fallback)
+            {
+                // ANSI16 baseline
+                const int fg16 = NearestAnsi16Index(want_fg);
+                const int bg16 = NearestAnsi16Index(want_bg);
+
+                bool want_bold = false;
+                bool want_blink = false;
+                int fg_base = fg16;
+                int bg_base = bg16;
+                if (options.ansi16_bright == ExportOptions::Ansi16Bright::BoldAndIceBlink)
+                {
+                    if (fg_base >= 8) { want_bold = true; fg_base -= 8; }
+                    if (options.icecolors && bg_base >= 8) { want_blink = true; bg_base -= 8; }
+                }
+
+                // If we need to turn attributes OFF, simplest is reset + rebuild.
+                if ((pen.bold && !want_bold) || (pen.blink && !want_blink))
+                    reset();
+
+                std::string params;
+                auto add = [&](int v) {
+                    if (!params.empty()) params.push_back(';');
+                    params += std::to_string(v);
+                };
+
+                if (options.ansi16_bright == ExportOptions::Ansi16Bright::Sgr90_100)
+                {
+                    const int fg_code = (fg16 < 8) ? (30 + fg16) : (90 + (fg16 - 8));
+                    const int bg_code = (bg16 < 8) ? (40 + bg16) : (100 + (bg16 - 8));
+
+                    // If we were previously in `...t` for this channel, we MUST emit the SGR baseline
+                    // to clear the truecolor override in consumers like libansilove/Pablo.
+                    if (pen.fg_tc || (!pen.has_fg || pen.fg_idx != fg16)) add(fg_code);
+                    if (pen.bg_tc || (!pen.has_bg || pen.bg_idx != bg16)) add(bg_code);
+                }
+                else
+                {
+                    if (want_bold && !pen.bold) add(1);
+                    if (want_blink && !pen.blink) add(5);
+                    if (pen.fg_tc || (!pen.has_fg || pen.fg_idx != fg16)) add(30 + fg_base);
+                    if (pen.bg_tc || (!pen.has_bg || pen.bg_idx != bg16)) add(40 + bg_base);
+                }
+
+                if (!params.empty())
+                    EmitSgr(out_bytes, params);
+
+                pen.bold = want_bold;
+                pen.blink = want_blink;
+                pen.has_fg = true;
+                pen.has_bg = true;
+                pen.fg_idx = fg16;
+                pen.bg_idx = bg16;
+                pen.fg = want_fg;
+                pen.bg = want_bg;
+                pen.fg_tc = false;
+                pen.bg_tc = false;
+
+                // Conditional `...t` overlay when the baseline doesn't match.
+                // (Exact equality check is fine because both are packed ABGR.)
+                if (!fg_unset)
+                {
+                    const auto base_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(std::clamp(fg16, 0, 15));
+                    if (want_fg != base_fg)
+                    {
+                        std::uint8_t r = 0, g = 0, b = 0;
+                        UnpackImGuiCol32(want_fg, r, g, b);
+                        out_bytes.push_back(ESC);
+                        out_bytes.push_back((std::uint8_t)'[');
+                        const std::string s = "1;" + std::to_string((int)r) + ";" + std::to_string((int)g) + ";" + std::to_string((int)b);
+                        out_bytes.insert(out_bytes.end(), s.begin(), s.end());
+                        out_bytes.push_back((std::uint8_t)'t');
+                        pen.fg_tc = true;
+                    }
+                }
+                if (!bg_unset)
+                {
+                    const auto base_bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(std::clamp(bg16, 0, 15));
+                    if (want_bg != base_bg)
+                    {
+                        std::uint8_t r = 0, g = 0, b = 0;
+                        UnpackImGuiCol32(want_bg, r, g, b);
+                        out_bytes.push_back(ESC);
+                        out_bytes.push_back((std::uint8_t)'[');
+                        const std::string s = "0;" + std::to_string((int)r) + ";" + std::to_string((int)g) + ";" + std::to_string((int)b);
+                        out_bytes.insert(out_bytes.end(), s.begin(), s.end());
+                        out_bytes.push_back((std::uint8_t)'t');
+                        pen.bg_tc = true;
+                    }
+                }
+            }
+            else
+            {
+                // Pure `...t` mode: only emit `...t` for non-unset channels.
+                if (!fg_unset && (!pen.has_fg || pen.fg != want_fg || !pen.fg_tc))
+                {
+                    std::uint8_t r = 0, g = 0, b = 0;
+                    UnpackImGuiCol32(want_fg, r, g, b);
+                    out_bytes.push_back(ESC);
+                    out_bytes.push_back((std::uint8_t)'[');
+                    const std::string s = "1;" + std::to_string((int)r) + ";" + std::to_string((int)g) + ";" + std::to_string((int)b);
+                    out_bytes.insert(out_bytes.end(), s.begin(), s.end());
+                    out_bytes.push_back((std::uint8_t)'t');
+                    pen.has_fg = true;
+                    pen.fg = want_fg;
+                    pen.fg_tc = true;
+                }
+                if (!bg_unset && (!pen.has_bg || pen.bg != want_bg || !pen.bg_tc))
+                {
+                    std::uint8_t r = 0, g = 0, b = 0;
+                    UnpackImGuiCol32(want_bg, r, g, b);
+                    out_bytes.push_back(ESC);
+                    out_bytes.push_back((std::uint8_t)'[');
+                    const std::string s = "0;" + std::to_string((int)r) + ";" + std::to_string((int)g) + ";" + std::to_string((int)b);
+                    out_bytes.insert(out_bytes.end(), s.begin(), s.end());
+                    out_bytes.push_back((std::uint8_t)'t');
+                    pen.has_bg = true;
+                    pen.bg = want_bg;
+                    pen.bg_tc = true;
+                }
+            }
+
+            return;
+        }
+
+        if (options.color_mode == ExportOptions::ColorMode::Ansi16)
+        {
+            const int fg16 = NearestAnsi16Index(want_fg);
+            const int bg16 = NearestAnsi16Index(want_bg);
+
+            // Map into classic SGR codes.
+            bool want_bold = false;
+            bool want_blink = false;
+            int fg_base = fg16;
+            int bg_base = bg16;
+
+            if (options.ansi16_bright == ExportOptions::Ansi16Bright::BoldAndIceBlink)
+            {
+                if (fg_base >= 8) { want_bold = true; fg_base -= 8; }
+                if (options.icecolors && bg_base >= 8) { want_blink = true; bg_base -= 8; }
+            }
+
+            // If we need to turn attributes OFF, simplest is reset + rebuild.
+            if ((pen.bold && !want_bold) || (pen.blink && !want_blink))
+            {
+                reset();
+            }
+
+            std::string params;
+            auto add = [&](int v) {
+                if (!params.empty()) params.push_back(';');
+                params += std::to_string(v);
+            };
+
+            if (options.ansi16_bright == ExportOptions::Ansi16Bright::Sgr90_100)
+            {
+                // Emit direct bright codes when needed; background uses 100-107.
+                const int fg_code = (fg16 < 8) ? (30 + fg16) : (90 + (fg16 - 8));
+                const int bg_code = (bg16 < 8) ? (40 + bg16) : (100 + (bg16 - 8));
+
+                if (!pen.has_fg || pen.fg_idx != fg16) add(fg_code);
+                if (!pen.has_bg || pen.bg_idx != bg16) add(bg_code);
+            }
+            else
+            {
+                if (want_bold && !pen.bold) add(1);
+                if (want_blink && !pen.blink) add(5);
+                if (!pen.has_fg || pen.fg_idx != fg16) add(30 + fg_base);
+                if (!pen.has_bg || pen.bg_idx != bg16) add(40 + bg_base);
+            }
+
+            if (!params.empty())
+                EmitSgr(out_bytes, params);
+
+            pen.bold = want_bold;
+            pen.blink = want_blink;
+            pen.has_fg = true;
+            pen.has_bg = true;
+            pen.fg_idx = fg16;
+            pen.bg_idx = bg16;
+            pen.fg = want_fg;
+            pen.bg = want_bg;
+            pen.fg_tc = false;
+            pen.bg_tc = false;
+            return;
+        }
+
+        // Modern modes: allow "default" resets for unset fg/bg.
+        std::string params;
+        auto add = [&](std::string_view s) {
+            if (!params.empty()) params.push_back(';');
+            params.append(s.begin(), s.end());
+        };
+        auto add_int = [&](int v) { add(std::to_string(v)); };
+
+        // Foreground
+        if (fg_unset && options.use_default_fg_39)
+        {
+            if (pen.has_fg)
+            {
+                add("39");
+                pen.has_fg = false;
+                pen.fg_tc = false;
+            }
+        }
+        else
+        {
+            if (!pen.has_fg || pen.fg != want_fg)
+            {
+                if (options.color_mode == ExportOptions::ColorMode::Xterm256)
+                {
+                    int idx = NearestXtermIndex(want_fg);
+                    if (options.xterm_240_safe && idx < 16)
+                        idx = NearestXtermIndexInRange(want_fg, 16, 255);
+                    add_int(38); add_int(5); add_int(idx);
+                }
+                else if (options.color_mode == ExportOptions::ColorMode::TrueColorSgr)
+                {
+                    std::uint8_t r = 0, g = 0, b = 0;
+                    UnpackImGuiCol32(want_fg, r, g, b);
+                    add_int(38); add_int(2); add_int(r); add_int(g); add_int(b);
+                }
+                pen.has_fg = true;
+                pen.fg = want_fg;
+                pen.fg_tc = false;
+            }
+        }
+
+        // Background
+        if (bg_unset && options.use_default_bg_49)
+        {
+            if (pen.has_bg)
+            {
+                add("49");
+                pen.has_bg = false;
+                pen.bg_tc = false;
+            }
+        }
+        else
+        {
+            if (!pen.has_bg || pen.bg != want_bg)
+            {
+                if (options.color_mode == ExportOptions::ColorMode::Xterm256)
+                {
+                    int idx = NearestXtermIndex(want_bg);
+                    if (options.xterm_240_safe && idx < 16)
+                        idx = NearestXtermIndexInRange(want_bg, 16, 255);
+                    add_int(48); add_int(5); add_int(idx);
+                }
+                else if (options.color_mode == ExportOptions::ColorMode::TrueColorSgr)
+                {
+                    std::uint8_t r = 0, g = 0, b = 0;
+                    UnpackImGuiCol32(want_bg, r, g, b);
+                    add_int(48); add_int(2); add_int(r); add_int(g); add_int(b);
+                }
+                pen.has_bg = true;
+                pen.bg = want_bg;
+                pen.bg_tc = false;
+            }
+        }
+
+        if (!params.empty())
+            EmitSgr(out_bytes, params);
+
+    };
+
+    auto emit_newline = [&]() {
+        if (options.newline == ExportOptions::Newline::CRLF)
+        {
+            out_bytes.push_back(CR);
+            out_bytes.push_back(LF);
+        }
+        else
+        {
+            out_bytes.push_back(LF);
+        }
+    };
+
+    // Export row-major.
+    for (int y = 0; y < rows; ++y)
+    {
+        int x_end = cols - 1;
+        if (!options.preserve_line_length)
+        {
+            // Trim trailing "safe blanks": blank-ish char and background effectively default.
+            x_end = -1;
+            for (int x = cols - 1; x >= 0; --x)
+            {
+                ExportCell c;
+                if (!SampleCell(canvas, options, y, x, c))
+                    continue;
+
+                const bool bg_defaultish = (c.bg == 0) || (c.bg == DefaultBgForExport(options));
+                const bool interesting = !IsBlankish(c.cp) || !bg_defaultish;
+                if (interesting)
+                {
+                    x_end = x;
+                    break;
+                }
+            }
+        }
+
+        int x = 0;
+        while (x <= x_end)
+        {
+            ExportCell c;
+            (void)SampleCell(canvas, options, y, x, c);
+
+            // Optional cursor-forward compression for safe space runs.
+            if (options.compress && options.use_cursor_forward)
+            {
+                const bool bg_defaultish = (c.bg == 0) || (c.bg == DefaultBgForExport(options));
+                if (c.cp == U' ' && bg_defaultish)
+                {
+                    int run = 1;
+                    while (x + run <= x_end)
+                    {
+                        ExportCell n;
+                        (void)SampleCell(canvas, options, y, x + run, n);
+                        const bool n_bg_defaultish = (n.bg == 0) || (n.bg == DefaultBgForExport(options));
+                        if (n.cp != U' ' || !n_bg_defaultish)
+                            break;
+                        run++;
+                    }
+
+                    // Only worthwhile if CSI n C is shorter than run spaces.
+                    const int esc_len = 3 + Digits10(run); // ESC[ + digits + 'C'
+                    if (esc_len < run)
+                    {
+                        // Ensure background/fg is reset to defaults for semantic equivalence.
+                        // For modern modes, prefer 39/49; otherwise use reset.
+                        if (options.color_mode == ExportOptions::ColorMode::Ansi16)
+                        {
+                            // We can only "skip painting" if pen bg is default (black).
+                            // Reset makes it so.
+                            if (pen.has_bg && pen.bg_idx != 0)
+                                reset();
+                        }
+                        else
+                        {
+                            std::string p;
+                            if (pen.has_fg && options.use_default_fg_39) { if (!p.empty()) p.push_back(';'); p += "39"; pen.has_fg = false; }
+                            if (pen.has_bg && options.use_default_bg_49) { if (!p.empty()) p.push_back(';'); p += "49"; pen.has_bg = false; }
+                            if (!p.empty()) EmitSgr(out_bytes, p);
+                        }
+
+                        EmitCsi(out_bytes, std::to_string(run), 'C');
+                        x += run;
+                        continue;
+                    }
+                }
+            }
+
+            ensure_sgr_for_cell(c);
+
+            // Emit glyph bytes.
+            if (options.text_encoding == ExportOptions::TextEncoding::Cp437)
+            {
+                const std::uint8_t b = UnicodeToCp437Byte(c.cp);
+                out_bytes.push_back(b);
+            }
+            else
+            {
+                // Filter ASCII control chars (except we never expect them in cells).
+                char32_t cp = c.cp;
+                if (cp < 0x20)
+                    cp = U' ';
+                Utf8Append(cp, out_bytes);
+            }
+
+            x++;
+        }
+
+        // End of row.
+        emit_newline();
+    }
+
+    if (options.final_reset)
+        reset();
+
+    // Optional SAUCE append.
+    if (options.write_sauce)
+    {
+        sauce::Record r;
+        // Prefer existing canvas SAUCE metadata, but ensure present and sane.
+        const auto& meta = canvas.GetSauceMeta();
+        r.present = true;
+        r.title = meta.title;
+        r.author = meta.author;
+        r.group = meta.group;
+        r.date = meta.date;
+        r.file_size = (std::uint32_t)out_bytes.size();
+        r.data_type = (std::uint8_t)sauce::DataType::Character;
+        r.file_type = 1; // ANSi
+        r.tinfo1 = (std::uint16_t)std::clamp(cols, 0, 65535);
+        r.tinfo2 = (std::uint16_t)std::clamp(rows, 0, 65535);
+        r.tinfo3 = meta.tinfo3;
+        r.tinfo4 = meta.tinfo4;
+        r.tflags = meta.tflags;
+        r.tinfos = meta.tinfos;
+        r.comments = meta.comments;
+
+        std::string serr;
+        const auto with_sauce = sauce::AppendToBytes(out_bytes, r, options.sauce_write_options, serr);
+        if (with_sauce.empty() && !serr.empty())
+        {
+            err = serr;
+            return false;
+        }
+        out_bytes = with_sauce;
+    }
+
+    return true;
+}
+
+bool ExportCanvasToFile(const std::string& path,
+                        const AnsiCanvas& canvas,
+                        std::string& err,
+                        const ExportOptions& options)
+{
+    err.clear();
+    std::vector<std::uint8_t> bytes;
+    if (!ExportCanvasToBytes(canvas, bytes, err, options))
+        return false;
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+    {
+        err = "Failed to open file for writing.";
+        return false;
+    }
+    if (!bytes.empty())
+        out.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
+    if (!out)
+    {
+        err = "Failed to write file contents.";
+        return false;
+    }
+    return true;
+}
+
+const std::vector<Preset>& Presets()
+{
+    static const std::vector<Preset> presets = []() {
+        std::vector<Preset> v;
+        v.reserve(16);
+
+        {
+            Preset p;
+            p.id = PresetId::SceneClassic;
+            p.name = "Scene Classic (CP437 + ANSI16)";
+            p.description = "Classic ANSI art interchange: CP437 bytes, 16-color SGR, CRLF, optional SAUCE.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
+            p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
+            p.export_.icecolors = true;
+            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.preserve_line_length = true;
+            p.export_.write_sauce = true;
+            p.export_.sauce_write_options.include_eof_byte = true;
+            p.export_.sauce_write_options.include_comments = true;
+            p.export_.sauce_write_options.encode_cp437 = true;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::ModernUtf8_240Safe;
+            p.name = "Modern Terminal (UTF-8 + 240-color safe)";
+            p.description = "UTF-8 text with xterm indexed colors, remapping low-16 palette to stable 16..255; LF; no SAUCE by default.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
+            p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.xterm_240_safe = true;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.preserve_line_length = false;
+            p.export_.write_sauce = false;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::ModernUtf8_256;
+            p.name = "Modern Terminal (UTF-8 + 256-color)";
+            p.description = "UTF-8 text with xterm indexed colors 0..255; LF; no SAUCE by default.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
+            p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.xterm_240_safe = false;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.preserve_line_length = false;
+            p.export_.write_sauce = false;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::TruecolorSgr_Utf8;
+            p.name = "Truecolor (UTF-8 + 38;2/48;2)";
+            p.description = "UTF-8 text with standard-ish truecolor SGR; LF; no SAUCE by default.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
+            p.export_.color_mode = ExportOptions::ColorMode::TrueColorSgr;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.preserve_line_length = false;
+            p.export_.write_sauce = false;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::TruecolorPabloT_Cp437;
+            p.name = "Pablo/Icy Truecolor (CP437 + ANSI16 fallback + ...t)";
+            p.description = "Scene-friendly: CP437 + ANSI16 baseline (bold/iCE), with Pablo/Icy `...t` RGB overlay when needed; CRLF; SAUCE on.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
+            p.export_.color_mode = ExportOptions::ColorMode::TrueColorPabloT;
+            p.export_.pablo_t_with_ansi16_fallback = true;
+            p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
+            p.export_.icecolors = true;
+            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.preserve_line_length = true;
+            p.export_.write_sauce = true;
+            p.export_.sauce_write_options.include_eof_byte = true;
+            p.export_.sauce_write_options.include_comments = true;
+            p.export_.sauce_write_options.encode_cp437 = true;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::Durdraw_Utf8_256;
+            p.name = "Durdraw (UTF-8 + 256-color)";
+            p.description = "Durdraw-style terminal output: UTF-8 + 38;5/48;5, LF, no SAUCE.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
+            p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.preserve_line_length = true; // Durdraw tends to be fixed-grid-ish per export.
+            p.export_.write_sauce = false;
+            p.export_.compress = false; // Durdraw emits attributes per cell; we won't mimic that here, but disable our compression.
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::Moebius_Classic;
+            p.name = "Moebius (Classic)";
+            p.description = "Moebius classic: CP437 + ANSI16 + CRLF + SAUCE (+^Z).";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
+            p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
+            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.write_sauce = true;
+            p.export_.sauce_write_options.include_eof_byte = true;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::PabloDraw_Classic;
+            p.name = "PabloDraw (Classic)";
+            p.description = "PabloDraw-friendly: CP437 + ANSI16; allow cursor-forward compression on safe spaces; CRLF; optional SAUCE.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
+            p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
+            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.preserve_line_length = false;
+            p.export_.compress = true;
+            p.export_.use_cursor_forward = true;
+            p.export_.write_sauce = true;
+            v.push_back(p);
+        }
+
+        {
+            Preset p;
+            p.id = PresetId::IcyDraw_Modern;
+            p.name = "Icy Draw (Modern)";
+            p.description = "Icy-style modern output: UTF-8 (BOM) + xterm256 or truecolor; LF; SAUCE optional.";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8Bom;
+            p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.preserve_line_length = false;
+            p.export_.compress = true;
+            p.export_.use_cursor_forward = true;
+            p.export_.write_sauce = false;
+            v.push_back(p);
+        }
+
+        return v;
+    }();
+    return presets;
+}
+
+const Preset* FindPreset(PresetId id)
+{
+    const auto& p = Presets();
+    for (const auto& it : p)
+        if (it.id == id)
+            return &it;
+    return nullptr;
 }
 } // namespace ansi
 } // namespace formats
