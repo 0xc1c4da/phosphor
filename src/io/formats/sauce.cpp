@@ -1,8 +1,11 @@
-#include "io/sauce.h"
+#include "io/formats/sauce.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <cstdio>
 #include <unordered_map>
 
 namespace sauce
@@ -221,7 +224,9 @@ static void ChunkAndAppendComments(const std::vector<std::string>& in, std::vect
         out.resize(255);
 }
 
-static inline void FilterControlChars(std::string& s)
+} // namespace
+
+void FilterControlChars(std::string& s)
 {
     // SAUCE "Character" fields are plain text; drop control chars (incl. newlines/tabs).
     // We keep bytes >= 0x20 as-is; UTF-8 multi-byte sequences are preserved.
@@ -235,7 +240,7 @@ static inline void FilterControlChars(std::string& s)
     s.swap(out);
 }
 
-static inline void KeepOnlyDigits(std::string& s)
+void KeepOnlyDigits(std::string& s)
 {
     std::string out;
     out.reserve(s.size());
@@ -247,6 +252,133 @@ static inline void KeepOnlyDigits(std::string& s)
     s.swap(out);
 }
 
+size_t Utf8CodepointCount(std::string_view s)
+{
+    size_t i = 0;
+    size_t cps = 0;
+    while (i < s.size())
+    {
+        unsigned char c = (unsigned char)s[i];
+        size_t len = 1;
+        if (c < 0x80) len = 1;
+        else if ((c & 0xE0) == 0xC0) len = 2;
+        else if ((c & 0xF0) == 0xE0) len = 3;
+        else if ((c & 0xF8) == 0xF0) len = 4;
+        else len = 1;
+        if (i + len > s.size())
+            break;
+        bool ok = true;
+        for (size_t k = 1; k < len; ++k)
+        {
+            unsigned char cc = (unsigned char)s[i + k];
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+        }
+        if (!ok) len = 1;
+        i += len;
+        ++cps;
+    }
+    return cps;
+}
+
+void TrimUtf8ToCodepoints(std::string& s, size_t max_codepoints)
+{
+    if (max_codepoints == 0)
+    {
+        s.clear();
+        return;
+    }
+
+    size_t i = 0;
+    size_t cps = 0;
+    const size_t n = s.size();
+    while (i < n && cps < max_codepoints)
+    {
+        unsigned char c = (unsigned char)s[i];
+        size_t len = 1;
+        if (c < 0x80)
+            len = 1;
+        else if ((c & 0xE0) == 0xC0)
+            len = 2;
+        else if ((c & 0xF0) == 0xE0)
+            len = 3;
+        else if ((c & 0xF8) == 0xF0)
+            len = 4;
+        else
+            len = 1; // invalid leading byte; treat as single byte
+
+        if (i + len > n)
+            break;
+
+        // Validate continuation bytes; if invalid, consume one byte.
+        bool ok = true;
+        for (size_t k = 1; k < len; ++k)
+        {
+            unsigned char cc = (unsigned char)s[i + k];
+            if ((cc & 0xC0) != 0x80)
+            {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok)
+            len = 1;
+
+        i += len;
+        ++cps;
+    }
+
+    if (i < s.size())
+        s.resize(i);
+}
+
+bool ParseDateYYYYMMDD(std::string_view s, int& y, int& m, int& d)
+{
+    if (s.size() != 8)
+        return false;
+    for (unsigned char c : s)
+        if (c < '0' || c > '9')
+            return false;
+
+    auto to_i = [](std::string_view sv) -> int { return std::atoi(std::string(sv).c_str()); };
+    y = to_i(s.substr(0, 4));
+    m = to_i(s.substr(4, 2));
+    d = to_i(s.substr(6, 2));
+    if (!(y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31))
+        return false;
+    auto is_leap = [](int yy) { return (yy % 400 == 0) || ((yy % 4 == 0) && (yy % 100 != 0)); };
+    auto days_in_month = [&](int mm, int yy) -> int {
+        static const int mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+        int days = mdays[mm - 1];
+        if (mm == 2 && is_leap(yy))
+            days = 29;
+        return days;
+    };
+    return d <= days_in_month(m, y);
+}
+
+void FormatDateYYYYMMDD(int y, int m, int d, std::string& out)
+{
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%04d%02d%02d", y, m, d);
+    out = buf;
+}
+
+std::string TodayYYYYMMDD()
+{
+    std::time_t t = std::time(nullptr);
+    std::tm tmv{};
+#if defined(_WIN32)
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    std::string out;
+    FormatDateYYYYMMDD(tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday, out);
+    return out;
+}
+
+namespace
+{
 static void SanitizeRecordForWrite(Record& r)
 {
     // Fixed-width "Character" fields: strip control characters.
@@ -259,25 +391,9 @@ static void SanitizeRecordForWrite(Record& r)
 
     // Date: must be exactly 8 digits CCYYMMDD, otherwise treat as empty.
     KeepOnlyDigits(r.date);
-    if (r.date.size() != 8)
+    int y = 0, m = 0, d = 0;
+    if (!ParseDateYYYYMMDD(r.date, y, m, d))
         r.date.clear();
-    else
-    {
-        // Best-effort range validation; if invalid, clear.
-        auto to_i = [](std::string_view sv) -> int { return std::atoi(std::string(sv).c_str()); };
-        const int y = to_i(std::string_view(r.date).substr(0, 4));
-        const int m = to_i(std::string_view(r.date).substr(4, 2));
-        const int d = to_i(std::string_view(r.date).substr(6, 2));
-        auto is_leap = [](int yy) { return (yy % 400 == 0) || ((yy % 4 == 0) && (yy % 100 != 0)); };
-        auto dim = [&](int mm, int yy) -> int {
-            static const int md[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-            int days = md[mm - 1];
-            if (mm == 2 && is_leap(yy)) days = 29;
-            return days;
-        };
-        if (!(y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31 && d <= dim(m, y)))
-            r.date.clear();
-    }
 }
 } // namespace
 

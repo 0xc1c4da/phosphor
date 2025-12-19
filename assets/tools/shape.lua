@@ -1,0 +1,5 @@
+settings = {
+    icon = "⧉",
+    label = "Shape"
+}
+  

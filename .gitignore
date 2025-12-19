@@ -3,6 +3,7 @@ result/
 references/
 build/
 phosphor
+phosphor-imtui
 *.ini
 *.ans
 *.jpg

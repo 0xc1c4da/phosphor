@@ -44,7 +44,7 @@ SOURCES  = \
            src/ui/sixteen_colors_browser.cpp \
            src/io/http_client.cpp \
            src/io/ansi_importer.cpp \
-           src/io/sauce.cpp \
+           src/io/formats/sauce.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
            src/io/io_manager.cpp \

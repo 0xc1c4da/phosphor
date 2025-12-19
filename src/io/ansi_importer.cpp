@@ -1,7 +1,7 @@
 #include "io/ansi_importer.h"
 
 #include "core/xterm256_palette.h"
-#include "io/sauce.h"
+#include "io/formats/sauce.h"
 
 #include <algorithm>
 #include <cctype>

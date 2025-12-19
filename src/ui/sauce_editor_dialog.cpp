@@ -1,5 +1,6 @@
 #include "ui/sauce_editor_dialog.h"
 
+#include "io/formats/sauce.h"
 #include "ui/ImGuiDatePicker.hpp"
 
 #include "imgui.h"
@@ -18,87 +19,6 @@ static inline void TrimTo(std::string& s, size_t n)
 {
     if (s.size() > n)
         s.resize(n);
-}
-
-// Trim UTF-8 string to at most `max_codepoints` Unicode codepoints (best-effort).
-// This is used to enforce SAUCE fixed-width "Character" field limits in the UI.
-static inline void TrimUtf8ToCodepoints(std::string& s, size_t max_codepoints)
-{
-    if (max_codepoints == 0)
-    {
-        s.clear();
-        return;
-    }
-
-    size_t i = 0;
-    size_t cps = 0;
-    const size_t n = s.size();
-    while (i < n && cps < max_codepoints)
-    {
-        unsigned char c = (unsigned char)s[i];
-        size_t len = 1;
-        if (c < 0x80)
-            len = 1;
-        else if ((c & 0xE0) == 0xC0)
-            len = 2;
-        else if ((c & 0xF0) == 0xE0)
-            len = 3;
-        else if ((c & 0xF8) == 0xF0)
-            len = 4;
-        else
-            len = 1; // invalid leading byte; treat as single byte
-
-        if (i + len > n)
-            break;
-
-        // Validate continuation bytes; if invalid, consume one byte.
-        bool ok = true;
-        for (size_t k = 1; k < len; ++k)
-        {
-            unsigned char cc = (unsigned char)s[i + k];
-            if ((cc & 0xC0) != 0x80)
-            {
-                ok = false;
-                break;
-            }
-        }
-        if (!ok)
-            len = 1;
-
-        i += len;
-        ++cps;
-    }
-
-    if (i < s.size())
-        s.resize(i);
-}
-
-static inline size_t Utf8CodepointCount(std::string_view s)
-{
-    size_t i = 0;
-    size_t cps = 0;
-    while (i < s.size())
-    {
-        unsigned char c = (unsigned char)s[i];
-        size_t len = 1;
-        if (c < 0x80) len = 1;
-        else if ((c & 0xE0) == 0xC0) len = 2;
-        else if ((c & 0xF0) == 0xE0) len = 3;
-        else if ((c & 0xF8) == 0xF0) len = 4;
-        else len = 1;
-        if (i + len > s.size())
-            break;
-        bool ok = true;
-        for (size_t k = 1; k < len; ++k)
-        {
-            unsigned char cc = (unsigned char)s[i + k];
-            if ((cc & 0xC0) != 0x80) { ok = false; break; }
-        }
-        if (!ok) len = 1;
-        i += len;
-        ++cps;
-    }
-    return cps;
 }
 
 static int Utf8ClampEditCallback(ImGuiInputTextCallbackData* data)
@@ -167,22 +87,6 @@ static void TooltipLastItem(const char* text)
     }
 }
 
-static inline void FilterAscii(std::string& s)
-{
-    // SAUCE spec is CP437; for now we keep UI permissive but drop control chars.
-    // (Export will eventually encode to CP437 and replace unsupported chars.)
-    std::string out;
-    out.reserve(s.size());
-    for (unsigned char c : s)
-    {
-        if (c == '\n' || c == '\t')
-            continue;
-        if (c >= 0x20)
-            out.push_back((char)c);
-    }
-    s.swap(out);
-}
-
 static void GetTodayYmd(int& y, int& m, int& d)
 {
     std::time_t t = std::time(nullptr);
@@ -195,38 +99,6 @@ static void GetTodayYmd(int& y, int& m, int& d)
     y = tmv.tm_year + 1900;
     m = tmv.tm_mon + 1;
     d = tmv.tm_mday;
-}
-
-static bool ParseSauceDateYYYYMMDD(const std::string& s, int& y, int& m, int& d)
-{
-    if (s.size() != 8)
-        return false;
-    for (unsigned char c : s)
-        if (!std::isdigit(c))
-            return false;
-    y = std::atoi(s.substr(0, 4).c_str());
-    m = std::atoi(s.substr(4, 2).c_str());
-    d = std::atoi(s.substr(6, 2).c_str());
-    if (!(y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31))
-        return false;
-    auto is_leap = [](int yy) {
-        return (yy % 400 == 0) || ((yy % 4 == 0) && (yy % 100 != 0));
-    };
-    auto days_in_month = [&](int mm, int yy) -> int {
-        static const int mdays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-        int days = mdays[mm - 1];
-        if (mm == 2 && is_leap(yy))
-            days = 29;
-        return days;
-    };
-    return d <= days_in_month(m, y);
-}
-
-static void FormatSauceDateYYYYMMDD(int y, int m, int d, std::string& out)
-{
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%04d%02d%02d", y, m, d);
-    out = buf;
 }
 
 static std::tm MakeLocalDateTm(int y, int m, int d)
@@ -273,7 +145,7 @@ void SauceEditorDialog::OpenFromCanvas(const AnsiCanvas& canvas)
     // Date picker: if date is missing/unparseable, prefill with "creation date" = today.
     {
         int y = 0, m = 0, d = 0;
-        if (!ParseSauceDateYYYYMMDD(m_meta.date, y, m, d))
+        if (!sauce::ParseDateYYYYMMDD(m_meta.date, y, m, d))
             GetTodayYmd(y, m, d);
         m_date = MakeLocalDateTm(y, m, d);
         ClampSauceDateTm(m_date);
@@ -302,27 +174,22 @@ void SauceEditorDialog::OpenFromCanvas(const AnsiCanvas& canvas)
 
 void SauceEditorDialog::ClampAndSanitizeForSauce(AnsiCanvas::ProjectState::SauceMeta& meta)
 {
-    FilterAscii(meta.title);
-    FilterAscii(meta.author);
-    FilterAscii(meta.group);
-    FilterAscii(meta.tinfos);
-    FilterAscii(meta.date);
+    sauce::FilterControlChars(meta.title);
+    sauce::FilterControlChars(meta.author);
+    sauce::FilterControlChars(meta.group);
+    sauce::FilterControlChars(meta.tinfos);
+    sauce::FilterControlChars(meta.date);
 
     // SAUCE fixed widths.
-    TrimUtf8ToCodepoints(meta.title, 35);
-    TrimUtf8ToCodepoints(meta.author, 20);
-    TrimUtf8ToCodepoints(meta.group, 20);
-    TrimUtf8ToCodepoints(meta.tinfos, 22);
+    sauce::TrimUtf8ToCodepoints(meta.title, 35);
+    sauce::TrimUtf8ToCodepoints(meta.author, 20);
+    sauce::TrimUtf8ToCodepoints(meta.group, 20);
+    sauce::TrimUtf8ToCodepoints(meta.tinfos, 22);
     TrimTo(meta.date, 8);
 
     // Date: keep digits only (best-effort).
     {
-        std::string d;
-        d.reserve(meta.date.size());
-        for (unsigned char c : meta.date)
-            if (std::isdigit(c))
-                d.push_back((char)c);
-        meta.date = d;
+        sauce::KeepOnlyDigits(meta.date);
         TrimTo(meta.date, 8);
     }
 
@@ -331,8 +198,8 @@ void SauceEditorDialog::ClampAndSanitizeForSauce(AnsiCanvas::ProjectState::Sauce
         meta.comments.resize(255);
     for (std::string& line : meta.comments)
     {
-        FilterAscii(line);
-        TrimUtf8ToCodepoints(line, 64);
+        sauce::FilterControlChars(line);
+        sauce::TrimUtf8ToCodepoints(line, 64);
     }
 }
 
@@ -363,24 +230,24 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     // Fixed text fields (with spec lengths)
     InputTextUtf8Clamped("Title", m_title, 35);
     TooltipLastItem("SAUCE Title (35 chars): the title of the file/artwork. Fixed-width field in the 128-byte SAUCE record (space-padded when written).");
-    FilterAscii(m_title);
-    TrimUtf8ToCodepoints(m_title, 35);
+    sauce::FilterControlChars(m_title);
+    sauce::TrimUtf8ToCodepoints(m_title, 35);
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu/35", Utf8CodepointCount(m_title));
+    ImGui::TextDisabled("%zu/35", sauce::Utf8CodepointCount(m_title));
 
     InputTextUtf8Clamped("Author", m_author, 20);
     TooltipLastItem("SAUCE Author (20 chars): the (nick)name or handle of the creator of the file/artwork. Fixed-width field in the SAUCE record.");
-    FilterAscii(m_author);
-    TrimUtf8ToCodepoints(m_author, 20);
+    sauce::FilterControlChars(m_author);
+    sauce::TrimUtf8ToCodepoints(m_author, 20);
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu/20", Utf8CodepointCount(m_author));
+    ImGui::TextDisabled("%zu/20", sauce::Utf8CodepointCount(m_author));
 
     InputTextUtf8Clamped("Group", m_group, 20);
     TooltipLastItem("SAUCE Group (20 chars): the name of the group or company the creator is affiliated with. Fixed-width field in the SAUCE record.");
-    FilterAscii(m_group);
-    TrimUtf8ToCodepoints(m_group, 20);
+    sauce::FilterControlChars(m_group);
+    sauce::TrimUtf8ToCodepoints(m_group, 20);
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu/20", Utf8CodepointCount(m_group));
+    ImGui::TextDisabled("%zu/20", sauce::Utf8CodepointCount(m_group));
 
     // Date picker: calendar-style dropdown (stores SAUCE as CCYYMMDD).
     {
@@ -395,17 +262,17 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
 
         // Show exact SAUCE-encoded value for clarity/debugging.
         std::string ymd;
-        FormatSauceDateYYYYMMDD(m_date.tm_year + 1900, m_date.tm_mon + 1, m_date.tm_mday, ymd);
+        sauce::FormatDateYYYYMMDD(m_date.tm_year + 1900, m_date.tm_mon + 1, m_date.tm_mday, ymd);
         ImGui::SameLine();
         ImGui::TextDisabled("(%s)", ymd.c_str());
     }
 
     InputTextUtf8Clamped("TInfoS", m_tinfos, 22);
     TooltipLastItem("SAUCE TInfoS (22 bytes, ZString): type-dependent string information field. For Character data, this is commonly used as the font name (FontName). Unused bytes are NUL-padded when written.");
-    FilterAscii(m_tinfos);
-    TrimUtf8ToCodepoints(m_tinfos, 22);
+    sauce::FilterControlChars(m_tinfos);
+    sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu/22", Utf8CodepointCount(m_tinfos));
+    ImGui::TextDisabled("%zu/22", sauce::Utf8CodepointCount(m_tinfos));
 
     ImGui::Separator();
 
@@ -538,7 +405,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         meta.author = m_author;
         meta.group = m_group;
         ClampSauceDateTm(m_date);
-        FormatSauceDateYYYYMMDD(m_date.tm_year + 1900, m_date.tm_mon + 1, m_date.tm_mday, meta.date);
+        sauce::FormatDateYYYYMMDD(m_date.tm_year + 1900, m_date.tm_mon + 1, m_date.tm_mday, meta.date);
         meta.tinfos = m_tinfos;
 
         meta.data_type = (std::uint8_t)std::clamp(m_data_type, 0, 255);

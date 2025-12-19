@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "io/formats/sauce.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -31,21 +32,6 @@ struct GlobalClipboard
 static GlobalClipboard g_clipboard;
 } // namespace
 
-static std::string TodayYYYYMMDD()
-{
-    std::time_t t = std::time(nullptr);
-    std::tm tmv{};
-#if defined(_WIN32)
-    localtime_s(&tmv, &t);
-#else
-    localtime_r(&t, &tmv);
-#endif
-    char buf[16];
-    std::snprintf(buf, sizeof(buf), "%04d%02d%02d",
-                  tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday);
-    return std::string(buf);
-}
-
 static inline std::uint16_t ClampU16FromInt(int v)
 {
     if (v < 0) return 0;
@@ -66,7 +52,7 @@ static void EnsureSauceDefaultsAndSyncGeometry(AnsiCanvas::ProjectState::SauceMe
 
     // Ensure a sane creation date for new canvases.
     if (s.date.empty())
-        s.date = TodayYYYYMMDD();
+        s.date = sauce::TodayYYYYMMDD();
 
     // Best-effort font name hint (SAUCE TInfoS). Keep it short and ASCII.
     if (s.tinfos.empty())
