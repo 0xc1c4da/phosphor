@@ -1,6 +1,7 @@
 #include "app/canvas_preview_texture.h"
 
 #include "core/canvas.h"
+#include "core/fonts.h"
 
 // ImGui Vulkan backend texture registration.
 #include "imgui_impl_vulkan.h"
@@ -508,9 +509,12 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
     const ImU32 paper = canvas.IsCanvasBackgroundWhite() ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
     const ImU32 default_fg = canvas.IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
+    const fonts::FontInfo& finfo = fonts::Get(canvas.GetFontId());
+    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+
     ImFont* font = ImGui::GetFont();
     ImFontBaked* baked = ImGui::GetFontBaked();
-    if (!baked && font)
+    if (!bitmap_font && !baked && font)
     {
         const float bake_size = (font->LegacySize > 0.0f) ? font->LegacySize : 16.0f;
         baked = const_cast<ImFont*>(font)->GetFontBaked(bake_size);
@@ -562,24 +566,82 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
     };
 
     // Glyph ink cache (per process). This avoids re-scanning atlas rectangles.
-    // Key is the codepoint value stored as uint32_t.
-    static std::unordered_map<std::uint32_t, Ink2x2> s_ink_cache;
+    // Key includes the font id so changing canvas font doesn't reuse stale coverage.
+    static std::unordered_map<std::uint64_t, Ink2x2> s_ink_cache;
 
     auto glyph_ink2x2 = [&](char32_t cp) -> Ink2x2
     {
         Ink2x2 out{};
         if (cp == U' ')
             return out;
+
+        const std::uint64_t key = ((std::uint64_t)finfo.id << 32) | (std::uint32_t)cp;
+        if (auto it = s_ink_cache.find(key); it != s_ink_cache.end())
+            return it->second;
+
+        if (bitmap_font)
+        {
+            std::uint8_t glyph = 0;
+            if (!fonts::UnicodeToCp437Byte(cp, glyph))
+            {
+                std::uint8_t q = 0;
+                glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+            }
+
+            const int w = finfo.cell_w;
+            const int h = finfo.cell_h;
+            const int mid_x = w / 2;
+            const int mid_y = h / 2;
+
+            std::uint64_t sum00 = 0, cnt00 = 0;
+            std::uint64_t sum10 = 0, cnt10 = 0;
+            std::uint64_t sum01 = 0, cnt01 = 0;
+            std::uint64_t sum11 = 0, cnt11 = 0;
+
+            for (int yy = 0; yy < h; ++yy)
+            {
+                const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                for (int xx = 0; xx < w; ++xx)
+                {
+                    bool on = false;
+                    if (xx < 8)
+                        on = (bits & (std::uint8_t)(0x80u >> xx)) != 0;
+                    else if (xx == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                        on = (bits & 0x01u) != 0;
+
+                    const std::uint64_t a = on ? 255u : 0u;
+                    const bool right = (xx >= mid_x);
+                    const bool bot = (yy >= mid_y);
+                    if (!right && !bot) { sum00 += a; ++cnt00; }
+                    else if (right && !bot) { sum10 += a; ++cnt10; }
+                    else if (!right && bot) { sum01 += a; ++cnt01; }
+                    else { sum11 += a; ++cnt11; }
+                }
+            }
+
+            auto cov = [](std::uint64_t sum, std::uint64_t cnt) -> float
+            {
+                if (cnt == 0)
+                    return 0.0f;
+                const float v = (float)sum / (float)(cnt * 255.0);
+                return std::clamp(v, 0.0f, 1.0f);
+            };
+
+            out.q00 = cov(sum00, cnt00);
+            out.q10 = cov(sum10, cnt10);
+            out.q01 = cov(sum01, cnt01);
+            out.q11 = cov(sum11, cnt11);
+            s_ink_cache.emplace(key, out);
+            return out;
+        }
+
         if (!baked || !atlas_rgba || atlas_w <= 0 || atlas_h <= 0)
         {
             // Best effort: treat as solid fg.
             out.q00 = out.q10 = out.q01 = out.q11 = 1.0f;
+            s_ink_cache.emplace(key, out);
             return out;
         }
-
-        const std::uint32_t key = (std::uint32_t)cp;
-        if (auto it = s_ink_cache.find(key); it != s_ink_cache.end())
-            return it->second;
 
         const ImFontGlyph* g = baked->FindGlyphNoFallback((ImWchar)cp);
         if (!g)

@@ -1,6 +1,8 @@
 #include "ui/character_set.h"
 
 #include "imgui.h"
+#include "core/canvas.h"
+#include "core/fonts.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -400,8 +402,10 @@ bool CharacterSetWindow::TakeInsertRequested(uint32_t& out_cp)
     return out_cp != 0;
 }
 
-void CharacterSetWindow::RenderTopBar()
+void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
 {
+    (void)active_canvas;
+
     // File
     ImGui::TextUnformatted("File");
     ImGui::SameLine();
@@ -590,7 +594,8 @@ void CharacterSetWindow::RenderSlots()
 }
 
 bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
-                                SessionState* session, bool apply_placement_this_frame)
+                                SessionState* session, bool apply_placement_this_frame,
+                                AnsiCanvas* active_canvas)
 {
     EnsureLoaded();
 
@@ -643,7 +648,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
     const bool settings_open = ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_None);
     if (settings_open)
     {
-        RenderTopBar();
+        RenderTopBar(active_canvas);
 
         // Selected slot actions live here (not in the always-visible grid).
         EnsureNonEmpty();

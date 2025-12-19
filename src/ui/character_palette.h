@@ -6,6 +6,7 @@
 #include <vector>
 
 class CharacterPicker;
+class AnsiCanvas;
 struct SessionState;
 
 // Character Palette component for utf8-art-editor.
@@ -42,7 +43,8 @@ public:
 
     // Render the palette editor window. Returns true if it remains open.
     bool Render(const char* window_title, bool* p_open = nullptr,
-                SessionState* session = nullptr, bool apply_placement_this_frame = false);
+                SessionState* session = nullptr, bool apply_placement_this_frame = false,
+                AnsiCanvas* active_canvas = nullptr);
 
     // Load/save palettes file.
     bool LoadFromFile(const char* path, std::string& error);
@@ -74,7 +76,7 @@ private:
     void ReplaceSelectedCellWith(uint32_t cp);
     std::optional<int> FindGlyphIndexByFirstCp(uint32_t cp) const;
 
-    void RenderTopBar();
+    void RenderTopBar(AnsiCanvas* active_canvas);
     void RenderGrid();
 
 private:

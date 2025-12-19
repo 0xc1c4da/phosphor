@@ -18,6 +18,7 @@ SOURCES  = \
            src/app/main.cpp \
            src/app/canvas_preview_texture.cpp \
            src/core/canvas.cpp \
+           src/core/fonts.cpp \
            src/core/canvas_rasterizer.cpp \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \

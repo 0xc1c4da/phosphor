@@ -1,5 +1,7 @@
 #include "core/canvas.h"
 
+#include "core/fonts.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "io/formats/sauce.h"
@@ -56,7 +58,10 @@ static void EnsureSauceDefaultsAndSyncGeometry(AnsiCanvas::ProjectState::SauceMe
 
     // Best-effort font name hint (SAUCE TInfoS). Keep it short and ASCII.
     if (s.tinfos.empty())
-        s.tinfos = "unscii-16-full";
+    {
+        const std::string_view def = fonts::ToSauceName(fonts::DefaultCanvasFont());
+        s.tinfos = def.empty() ? "unscii-16-full" : std::string(def);
+    }
 
     // Keep geometry in sync when SAUCE is describing character-based content.
     if (s.data_type == 1 /* Character */ || s.data_type == 6 /* XBin */ || s.data_type == 0)
@@ -195,6 +200,30 @@ AnsiCanvas::AnsiCanvas(int columns)
     // New canvases should start with consistent SAUCE defaults (even before the user opens the editor).
     // Rows are always >= 1.
     EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+}
+
+fonts::FontId AnsiCanvas::GetFontId() const
+{
+    return fonts::FromSauceName(m_sauce.tinfos);
+}
+
+bool AnsiCanvas::SetFontId(fonts::FontId id)
+{
+    const std::string_view sname = fonts::ToSauceName(id);
+    if (sname.empty())
+        return false;
+
+    if (m_sauce.tinfos == sname)
+        return true;
+
+    // Persist via SAUCE.
+    m_sauce.present = true;
+    m_sauce.tinfos.assign(sname.begin(), sname.end());
+    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+
+    // Font changes affect rendering but are not part of undo/redo.
+    TouchContent();
+    return true;
 }
 
 void AnsiCanvas::SetZoom(float zoom)
@@ -1808,6 +1837,9 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     if (rows <= 0 || m_columns <= 0)
         return;
 
+    const fonts::FontInfo& finfo = fonts::Get(GetFontId());
+    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+
     // Compute visible cell range based on ImGui's actual clipping rectangle.
     // Using GetWindowContentRegionMin/Max is tempting but becomes subtly wrong under
     // child scrolling + scrollbars; InnerClipRect is what the renderer really clips to.
@@ -1856,16 +1888,68 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             if (cp == U' ')
                 continue; // spaces are only meaningful if they have a bg (drawn above)
 
-            char buf[5] = {0, 0, 0, 0, 0};
-            EncodeUtf8(cp, buf);
-            ImVec2 text_pos(cell_min.x, cell_min.y);
             // Canvas background is a fixed black/white fill (not theme-driven), so the
             // "default" foreground must remain readable regardless of UI skin.
             const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
             const ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : default_fg;
-            draw_list->AddText(font, font_size, text_pos,
-                               ApplyCurrentStyleAlpha(fg_col),
-                               buf, nullptr);
+
+            if (!bitmap_font)
+            {
+                char buf[5] = {0, 0, 0, 0, 0};
+                EncodeUtf8(cp, buf);
+                ImVec2 text_pos(cell_min.x, cell_min.y);
+                draw_list->AddText(font, font_size, text_pos,
+                                   ApplyCurrentStyleAlpha(fg_col),
+                                   buf, nullptr);
+            }
+            else
+            {
+                // Bitmap path: map Unicode -> CP437 glyph index (0..255), then draw 1bpp pixels.
+                std::uint8_t glyph = 0;
+                if (!fonts::UnicodeToCp437Byte(cp, glyph))
+                {
+                    // Fallbacks: prefer '?' if representable, otherwise space.
+                    std::uint8_t q = 0;
+                    glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                }
+
+                const float px_w = cell_w / (float)finfo.cell_w;
+                const float px_h = cell_h / (float)finfo.cell_h;
+                const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+
+                for (int yy = 0; yy < finfo.cell_h; ++yy)
+                {
+                    const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                    int run_start = -1;
+                    auto bit_set = [&](int x) -> bool
+                    {
+                        if (x < 0)
+                            return false;
+                        if (x < 8)
+                            return (bits & (std::uint8_t)(0x80u >> x)) != 0;
+                        if (x == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                            return (bits & 0x01u) != 0; // x==7 is LSB when shifting 0x80>>7
+                        return false;
+                    };
+
+                    for (int xx = 0; xx < finfo.cell_w; ++xx)
+                    {
+                        const bool on = bit_set(xx);
+                        if (on && run_start < 0)
+                            run_start = xx;
+                        if ((!on || xx == finfo.cell_w - 1) && run_start >= 0)
+                        {
+                            const int run_end = on ? (xx + 1) : xx; // exclusive
+                            const float x0 = cell_min.x + (float)run_start * px_w;
+                            const float x1 = cell_min.x + (float)run_end * px_w;
+                            const float y0 = cell_min.y + (float)yy * px_h;
+                            const float y1 = cell_min.y + (float)(yy + 1) * px_h;
+                            draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+                            run_start = -1;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1881,6 +1965,9 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
     ImFont* font = ImGui::GetFont();
     if (!font)
         return;
+
+    const fonts::FontInfo& finfo = fonts::Get(GetFontId());
+    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
     // Floating selection preview (drawn above the document).
     if (m_move.active && m_move.w > 0 && m_move.h > 0 && (int)m_move.cells.size() == m_move.w * m_move.h)
@@ -1905,11 +1992,61 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha((ImU32)c.bg));
                 if (c.cp != U' ')
                 {
-                    char buf[5] = {0, 0, 0, 0, 0};
-                    EncodeUtf8(c.cp, buf);
                     const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
                     const ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : default_fg;
-                    draw_list->AddText(font, font_size, cell_min, ApplyCurrentStyleAlpha(fg_col), buf, nullptr);
+
+                    if (!bitmap_font)
+                    {
+                        char buf[5] = {0, 0, 0, 0, 0};
+                        EncodeUtf8(c.cp, buf);
+                        draw_list->AddText(font, font_size, cell_min, ApplyCurrentStyleAlpha(fg_col), buf, nullptr);
+                    }
+                    else
+                    {
+                        std::uint8_t glyph = 0;
+                        if (!fonts::UnicodeToCp437Byte(c.cp, glyph))
+                        {
+                            std::uint8_t q = 0;
+                            glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                        }
+
+                        const float px_w = cell_w / (float)finfo.cell_w;
+                        const float px_h = cell_h / (float)finfo.cell_h;
+                        const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+
+                        for (int yy = 0; yy < finfo.cell_h; ++yy)
+                        {
+                            const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+                            int run_start = -1;
+                            auto bit_set = [&](int x) -> bool
+                            {
+                                if (x < 0)
+                                    return false;
+                                if (x < 8)
+                                    return (bits & (std::uint8_t)(0x80u >> x)) != 0;
+                                if (x == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                                    return (bits & 0x01u) != 0;
+                                return false;
+                            };
+
+                            for (int xx = 0; xx < finfo.cell_w; ++xx)
+                            {
+                                const bool on = bit_set(xx);
+                                if (on && run_start < 0)
+                                    run_start = xx;
+                                if ((!on || xx == finfo.cell_w - 1) && run_start >= 0)
+                                {
+                                    const int run_end = on ? (xx + 1) : xx; // exclusive
+                                    const float x0 = cell_min.x + (float)run_start * px_w;
+                                    const float x1 = cell_min.x + (float)run_end * px_w;
+                                    const float y0 = cell_min.y + (float)yy * px_h;
+                                    const float y1 = cell_min.y + (float)(yy + 1) * px_h;
+                                    draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
+                                    run_start = -1;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1961,11 +2098,27 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         --m_zoom_stabilize_frames;
     const bool zoom_stabilizing = (m_zoom_stabilize_frames > 0);
 
-    // Base cell size from the current font (Unscii is monospaced).
+    // Base cell size:
+    // - For Unscii (ImGui atlas): use the current ImGui font metrics.
+    // - For bitmap fonts: use the selected font's textmode cell metrics, scaled by the
+    //   current ImGui font size so HiDPI stays consistent with the rest of the UI.
+    //
     // We intentionally *do not auto-fit to window width*; the user controls zoom explicitly.
-    const float font_size = ImGui::GetFontSize();
-    const float cell_w = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
-    const float cell_h = font_size;
+    const float base_font_size = ImGui::GetFontSize();
+    const fonts::FontInfo& finfo = fonts::Get(GetFontId());
+    float cell_w = 0.0f;
+    float cell_h = 0.0f;
+    if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
+    {
+        const float base_scale = base_font_size / 16.0f;
+        cell_w = (float)finfo.cell_w * base_scale;
+        cell_h = (float)finfo.cell_h * base_scale;
+    }
+    else
+    {
+        cell_w = font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x;
+        cell_h = base_font_size;
+    }
 
     // Quick status line (foundation for future toolbars).
     {
@@ -2124,15 +2277,46 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
             const float right_x = ImGui::GetWindowContentRegionMax().x; // window-local
 
             ImGui::SameLine();
-            // Canvas background toggle square (black/white) lives just left of the SAUCE button.
+            // Canvas font combo lives left of the background toggle + SAUCE button.
+            const float combo_w = 240.0f;
             const float sq = ImGui::GetFrameHeight();
-            const float total_w = sq + style.ItemSpacing.x + btn_w;
+            const float total_w = combo_w + style.ItemSpacing.x + sq + style.ItemSpacing.x + btn_w;
 
             float x = right_x - total_w;
             // Avoid going backwards too aggressively; this is a best-effort alignment.
             if (x > ImGui::GetCursorPosX())
                 ImGui::SetCursorPosX(x);
 
+            {
+                ImGui::SetNextItemWidth(combo_w);
+                const fonts::FontId cur = GetFontId();
+                const fonts::FontInfo& cur_info = fonts::Get(cur);
+                const char* preview = (cur_info.label && *cur_info.label) ? cur_info.label : "(unknown)";
+                if (ImGui::BeginCombo("##canvas_font_combo", preview))
+                {
+                    for (const auto& f : fonts::AllFonts())
+                    {
+                        const bool selected = (f.id == cur);
+                        if (ImGui::Selectable(f.label ? f.label : "(unnamed)", selected))
+                        {
+                            (void)SetFontId(f.id);
+                            status_editing = true; // prevent hidden input focus this frame
+                        }
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                {
+                    const char* s = (cur_info.sauce_name && *cur_info.sauce_name) ? cur_info.sauce_name : "";
+                    if (s[0] != 0)
+                        ImGui::SetTooltip("SAUCE TInfoS / FontName: %s", s);
+                }
+            }
+
+            ImGui::SameLine();
+            // Canvas background toggle square (black/white) lives just left of the SAUCE button.
             const ImVec4 bg_col = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
             ImGuiColorEditFlags cflags =
                 ImGuiColorEditFlags_NoTooltip |
@@ -2221,7 +2405,6 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         return;
     }
 
-    const float base_font_size = font_size;
     const float base_cell_w    = cell_w;
     const float base_cell_h    = cell_h;
 

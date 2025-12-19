@@ -1210,7 +1210,8 @@ int main(int, char**)
         {
             const char* name = "Character Palette";
             character_palette.Render(name, &show_character_palette_window,
-                                     &session_state, should_apply_placement(name));
+                                     &session_state, should_apply_placement(name),
+                                     active_canvas);
         }
 
         // If the user clicked a glyph in the palette, navigate the picker to it.
@@ -1230,7 +1231,8 @@ int main(int, char**)
         {
             const char* name = "Character Sets";
             character_sets.Render(name, &show_character_sets_window,
-                                  &session_state, should_apply_placement(name));
+                                  &session_state, should_apply_placement(name),
+                                  active_canvas);
         }
 
         // Centralized "insert a codepoint at the caret" helper (shared by picker/palette + character sets + hotkeys).

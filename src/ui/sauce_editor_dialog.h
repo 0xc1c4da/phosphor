@@ -30,6 +30,13 @@ private:
     std::string m_tinfos;
     std::string m_comments_text; // newline separated
 
+    // Font selector UX:
+    // - SAUCE stores FontName in TInfoS, but we want a dropdown for known fonts.
+    // - We also want a stable "Custom" mode that can be toggled back on even if
+    //   m_tinfos currently matches a known font (so the user can edit it).
+    bool        m_tinfos_custom_mode = false;
+    std::string m_tinfos_custom_backup;
+
     // Date picker (stored as CCYYMMDD on the meta).
     std::tm m_date{}; // local date; tm_year is years since 1900, tm_mon is 0-11
 

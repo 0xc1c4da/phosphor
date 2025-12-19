@@ -1,6 +1,8 @@
 #include "ui/character_palette.h"
 
 #include "imgui.h"
+#include "core/canvas.h"
+#include "core/fonts.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -365,7 +367,8 @@ bool CharacterPalette::TakeUserDoubleClicked(uint32_t& out_cp)
 }
 
 bool CharacterPalette::Render(const char* window_title, bool* p_open,
-                              SessionState* session, bool apply_placement_this_frame)
+                              SessionState* session, bool apply_placement_this_frame,
+                              AnsiCanvas* active_canvas)
 {
     EnsureLoaded();
 
@@ -427,7 +430,7 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         session->character_palette_settings_open = settings_open_;
     if (open)
     {
-        RenderTopBar();
+        RenderTopBar(active_canvas);
         ImGui::Separator();
     }
 
@@ -442,8 +445,10 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
     return (p_open == nullptr) ? true : *p_open;
 }
 
-void CharacterPalette::RenderTopBar()
+void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
 {
+    (void)active_canvas;
+
     // File row
     ImGui::TextUnformatted("File");
     ImGui::SameLine();

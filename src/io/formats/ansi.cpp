@@ -1,5 +1,6 @@
 #include "io/formats/ansi.h"
 
+#include "core/fonts.h"
 #include "core/xterm256_palette.h"
 #include "io/formats/sauce.h"
 
@@ -1036,6 +1037,16 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         st.sauce.tflags = sp.record.tflags;
         st.sauce.tinfos = sp.record.tinfos;
         st.sauce.comments = sp.record.comments;
+    }
+    else
+    {
+        // No SAUCE record: choose a reasonable default font based on decoding mode so the
+        // imported canvas renders as expected without requiring manual configuration.
+        st.sauce.present = true;
+        const fonts::FontId fid = decode_cp437 ? fonts::FontId::Font_PC_80x25 : fonts::FontId::Unscii;
+        const std::string_view sname = fonts::ToSauceName(fid);
+        if (!sname.empty())
+            st.sauce.tinfos.assign(sname.begin(), sname.end());
     }
 
     AnsiCanvas canvas(out_cols);

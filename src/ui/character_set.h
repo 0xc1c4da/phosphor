@@ -5,6 +5,7 @@
 #include <vector>
 
 struct SessionState;
+class AnsiCanvas;
 
 // Character Sets (F-key brush presets) UI.
 //
@@ -27,7 +28,8 @@ public:
 
     // Render the window. Returns true if it remains open.
     bool Render(const char* window_title, bool* p_open = nullptr,
-                SessionState* session = nullptr, bool apply_placement_this_frame = false);
+                SessionState* session = nullptr, bool apply_placement_this_frame = false,
+                AnsiCanvas* active_canvas = nullptr);
 
     // Called by host when the external character picker/palette selection changes.
     // If "edit mode" is enabled and a slot is selected, this assigns the slot.
@@ -54,7 +56,7 @@ private:
     bool SaveToFile(const char* path, std::string& error) const;
     void EnsureNonEmpty();
 
-    void RenderTopBar();
+    void RenderTopBar(AnsiCanvas* active_canvas);
     void RenderSlots();
 
     static bool     IsScalarValue(uint32_t cp);

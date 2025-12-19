@@ -10,7 +10,10 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include "core/fonts.h"
 
 // Forward declarations from Dear ImGui
 struct ImVec2;
@@ -212,6 +215,14 @@ public:
     // SAUCE metadata accessors (stored alongside the canvas, persisted via ProjectState).
     const ProjectState::SauceMeta& GetSauceMeta() const { return m_sauce; }
     void SetSauceMeta(const ProjectState::SauceMeta& meta) { m_sauce = meta; }
+
+    // ---------------------------------------------------------------------
+    // Canvas font selection (persisted via SAUCE TInfoS)
+    // ---------------------------------------------------------------------
+    // Note: this controls how the canvas grid is rendered and rasterized (export image/minimap).
+    // The UI font remains the ImGui font (currently Unscii).
+    fonts::FontId GetFontId() const;
+    bool          SetFontId(fonts::FontId id);
 
     // UI hook: raised when the canvas status bar "Edit SAUCE…" button is clicked.
     // This allows UI code (in src/ui) to show a dialog without introducing a core->ui dependency.

@@ -1,5 +1,6 @@
 #include "ui/sauce_editor_dialog.h"
 
+#include "core/fonts.h"
 #include "io/formats/sauce.h"
 #include "ui/ImGuiDatePicker.hpp"
 
@@ -87,6 +88,15 @@ static void TooltipLastItem(const char* text)
     }
 }
 
+static const fonts::FontInfo* FindFontBySauceName(std::string_view tinfos)
+{
+    fonts::FontId id = fonts::FontId::Unscii;
+    if (!fonts::TryFromSauceName(tinfos, id))
+        return nullptr;
+    const fonts::FontInfo& f = fonts::Get(id);
+    return (f.sauce_name && *f.sauce_name) ? &f : nullptr;
+}
+
 static void GetTodayYmd(int& y, int& m, int& d)
 {
     std::time_t t = std::time(nullptr);
@@ -141,6 +151,21 @@ void SauceEditorDialog::OpenFromCanvas(const AnsiCanvas& canvas)
     m_author = m_meta.author;
     m_group = m_meta.group;
     m_tinfos = m_meta.tinfos;
+
+    // Decide whether the TInfoS editor starts in "custom" mode.
+    // - If current tinfos matches a known font sauce_name, default to dropdown mode.
+    // - Otherwise default to custom text mode.
+    if (FindFontBySauceName(m_tinfos) != nullptr)
+    {
+        m_tinfos_custom_mode = false;
+        // Preserve any previous custom buffer in case the user toggles back.
+        // (Don't overwrite the backup just because the current canvas has a known font.)
+    }
+    else
+    {
+        m_tinfos_custom_mode = true;
+        m_tinfos_custom_backup = m_tinfos;
+    }
 
     // Date picker: if date is missing/unparseable, prefill with "creation date" = today.
     {
@@ -267,12 +292,80 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         ImGui::TextDisabled("(%s)", ymd.c_str());
     }
 
-    InputTextUtf8Clamped("TInfoS", m_tinfos, 22);
-    TooltipLastItem("SAUCE TInfoS (22 bytes, ZString): type-dependent string information field. For Character data, this is commonly used as the font name (FontName). Unused bytes are NUL-padded when written.");
-    sauce::FilterControlChars(m_tinfos);
-    sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
-    ImGui::SameLine();
-    ImGui::TextDisabled("%zu/22", sauce::Utf8CodepointCount(m_tinfos));
+    // Font name (TInfoS): prefer a canonical dropdown of known fonts, but keep a "Custom" escape hatch.
+    {
+        const fonts::FontInfo* match = FindFontBySauceName(m_tinfos);
+        const bool show_custom = m_tinfos_custom_mode;
+
+        // Keep the dropdown preview compact.
+        const char* preview = nullptr;
+        if (show_custom)
+            preview = "Custom";
+        else if (match && match->label && *match->label)
+            preview = match->label;
+        else
+            preview = "(Unknown)";
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Font:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(320.0f);
+        if (ImGui::BeginCombo("##sauce_font", preview))
+        {
+            if (ImGui::Selectable("Custom", show_custom))
+            {
+                m_tinfos_custom_mode = true;
+                // If we have a previous custom value, restore it so the user doesn't have to retype.
+                if (!m_tinfos_custom_backup.empty())
+                    m_tinfos = m_tinfos_custom_backup;
+            }
+
+            ImGui::SeparatorText("Known fonts (SAUCE FontName)");
+            for (const auto& f : fonts::AllFonts())
+            {
+                if (!f.sauce_name || !*f.sauce_name)
+                    continue;
+
+                const bool selected = (!show_custom && match && (match->id == f.id));
+                const char* item = (f.label && *f.label) ? f.label : "(unnamed)";
+                if (ImGui::Selectable(item, selected))
+                {
+                    // If we were in custom mode, preserve what the user typed so toggling
+                    // back to Custom brings it back.
+                    if (m_tinfos_custom_mode)
+                        m_tinfos_custom_backup = m_tinfos;
+
+                    m_tinfos = f.sauce_name;
+                    sauce::FilterControlChars(m_tinfos);
+                    sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
+                    m_tinfos_custom_mode = false;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("SAUCE TInfoS: %s", f.sauce_name);
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        TooltipLastItem(
+            "SAUCE TInfoS (22 bytes, ZString): type-dependent string information field.\n"
+            "For DataType=Character, this is commonly used as the FontName.");
+
+        if (show_custom)
+        {
+            InputTextUtf8Clamped("TInfoS", m_tinfos, 22);
+            sauce::FilterControlChars(m_tinfos);
+            sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
+            m_tinfos_custom_backup = m_tinfos;
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu/22", sauce::Utf8CodepointCount(m_tinfos));
+        }
+        else
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%zu/22", sauce::Utf8CodepointCount(m_tinfos));
+        }
+    }
 
     ImGui::Separator();
 
