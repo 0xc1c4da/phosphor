@@ -85,6 +85,9 @@ private:
     // "insert requested" output (double-click on a slot)
     bool     insert_requested_ = false;
     uint32_t insert_requested_cp_ = 0;
+
+    // Render context
+    AnsiCanvas* active_canvas_ = nullptr;
 };
 
 

@@ -6,6 +6,7 @@
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
+#include "ui/glyph_preview.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <nlohmann/json.hpp>
@@ -404,7 +405,7 @@ bool CharacterSetWindow::TakeInsertRequested(uint32_t& out_cp)
 
 void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
 {
-    (void)active_canvas;
+    active_canvas_ = active_canvas;
 
     // File
     ImGui::TextUnformatted("File");
@@ -514,41 +515,12 @@ void CharacterSetWindow::RenderSlots()
     const float cell = std::max(28.0f, best_size > 0.0f ? best_size : (style.FramePadding.y * 2.0f + 8.0f));
     const int cols = std::max(1, best_cols);
 
-    auto draw_centered_scaled_text = [&](const ImVec2& item_min, const ImVec2& item_max, const std::string& text) {
-        if (text.empty())
-            return;
-        const ImGuiStyle& s = ImGui::GetStyle();
-        const ImVec2 sz(item_max.x - item_min.x, item_max.y - item_min.y);
-        const float max_w = std::max(1.0f, sz.x - s.FramePadding.x * 2.0f);
-        const float max_h = std::max(1.0f, sz.y - s.FramePadding.y * 2.0f);
-
-        ImFont* font = ImGui::GetFont();
-        // Start large and shrink-to-fit.
-        float font_size = std::max(1.0f, std::min(max_w, max_h) * 0.70f);
-        ImVec2 ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
-        if (ts.x > max_w || ts.y > max_h)
-        {
-            const float sx = max_w / std::max(1.0f, ts.x);
-            const float sy = max_h / std::max(1.0f, ts.y);
-            font_size *= std::min(sx, sy);
-            ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
-        }
-
-        const ImVec2 pos(item_min.x + (sz.x - ts.x) * 0.5f, item_min.y + (sz.y - ts.y) * 0.5f);
-        ImGui::GetWindowDrawList()->AddText(font, font_size, pos,
-                                           ImGui::GetColorU32(ImGuiCol_Text),
-                                           text.c_str());
-    };
-
     for (int i = 0; i < 12; ++i)
     {
         if (i % cols != 0)
             ImGui::SameLine();
 
         const uint32_t cp = cps[(size_t)i];
-        std::string glyph = EncodeCodePointUtf8(cp);
-        if (glyph.empty())
-            glyph = " ";
 
         ImGui::PushID(i);
         const bool is_sel = (i == selected_slot_);
@@ -561,7 +533,15 @@ void CharacterSetWindow::RenderSlots()
         {
             const ImVec2 item_min = ImGui::GetItemRectMin();
             const ImVec2 item_max = ImGui::GetItemRectMax();
-            draw_centered_scaled_text(item_min, item_max, glyph);
+            const float w = item_max.x - item_min.x;
+            const float h = item_max.y - item_min.y;
+            DrawGlyphPreview(ImGui::GetWindowDrawList(),
+                             item_min,
+                             w,
+                             h,
+                             (char32_t)cp,
+                             active_canvas_,
+                             (std::uint32_t)ImGui::GetColorU32(ImGuiCol_Text));
         }
 
         const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary);
@@ -575,7 +555,7 @@ void CharacterSetWindow::RenderSlots()
             if (cp < 0x20u || cp == 0x7Fu)
                 ImGui::TextUnformatted("(control)");
             else
-                ImGui::Text("Glyph: %s", glyph.c_str());
+                ImGui::TextUnformatted("Glyph preview matches canvas font.");
             ImGui::EndTooltip();
         }
 
@@ -598,6 +578,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
                                 AnsiCanvas* active_canvas)
 {
     EnsureLoaded();
+    active_canvas_ = active_canvas;
 
     if (session)
         ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);

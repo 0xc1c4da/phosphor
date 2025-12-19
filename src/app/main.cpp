@@ -27,6 +27,7 @@
 #include "ui/character_picker.h"
 #include "ui/character_palette.h"
 #include "ui/character_set.h"
+#include "ui/glyph_token.h"
 #include "ui/layer_manager.h"
 #include "ui/ansl_editor.h"
 #include "ansl/ansl_script_engine.h"
@@ -275,7 +276,6 @@ static void SetupVulkanWindow(ImGui_ImplVulkanH_Window* wd, VkSurfaceKHR surface
     VkPresentModeKHR present_modes[] =
     {
         VK_PRESENT_MODE_MAILBOX_KHR,
-        VK_PRESENT_MODE_IMMEDIATE_KHR,
         VK_PRESENT_MODE_FIFO_KHR
     };
 #else
@@ -820,6 +820,12 @@ int main(int, char**)
     // Main loop
     bool done = false;
     int frame_counter = 0;
+    // Idle throttling:
+    // The app previously rendered continuously even when nothing changed, which keeps the GPU busy
+    // (vsync still costs work). We cap idle redraw rate by blocking on events for a short time.
+    auto now_s = []() -> double { return (double)SDL_GetTicks() / 1000.0; };
+    double last_input_s = now_s();
+    bool mouse_down_prev = false;
     std::unordered_set<std::string> applied_imgui_placements;
     auto should_apply_placement = [&](const char* window_name) -> bool
     {
@@ -837,17 +843,74 @@ int main(int, char**)
         // Some platforms (e.g. Linux portals) may require pumping events for dialogs.
         SDL_PumpEvents();
 
-        // Poll and handle events
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
+        // Poll and handle events.
+        //
+        // IMPORTANT: Throttle idle frames by waiting briefly for events instead of spinning and
+        // redrawing continuously. This reduces idle GPU usage substantially.
+        const double t0 = now_s();
+        const SDL_WindowFlags wf = SDL_GetWindowFlags(window);
+        const bool is_minimized_flag = (wf & SDL_WINDOW_MINIMIZED) != 0;
+        const bool is_focused = (wf & SDL_WINDOW_INPUT_FOCUS) != 0;
+        // Some UI features require continuous redraw even without user input (e.g. ANSL playback).
+        // If we block waiting for events, we cap the entire app's frame rate and tank those features.
+        const bool wants_continuous_redraw =
+            (show_ansl_editor_window && ansl_editor.IsPlaying());
+
+        const double idle_for_s = t0 - last_input_s;
+        // Heuristic timeouts:
+        // - When interacting (mouse button down) or recently active: don't block.
+        // - Otherwise: cap redraw to ~20fps when focused, ~10fps when unfocused.
+        int wait_ms = 0;
+        if (!is_minimized_flag && !mouse_down_prev && !wants_continuous_redraw)
         {
+            if (idle_for_s > 0.25)
+                wait_ms = is_focused ? 50 : 100;
+        }
+
+        auto process_event = [&](const SDL_Event& event)
+        {
+            // Treat these as "activity" to keep UI responsive.
+            switch (event.type)
+            {
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+            case SDL_EVENT_TEXT_INPUT:
+            case SDL_EVENT_MOUSE_MOTION:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_WHEEL:
+            case SDL_EVENT_FINGER_DOWN:
+            case SDL_EVENT_FINGER_UP:
+            case SDL_EVENT_FINGER_MOTION:
+            case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            case SDL_EVENT_WINDOW_FOCUS_LOST:
+            case SDL_EVENT_WINDOW_SHOWN:
+            case SDL_EVENT_WINDOW_HIDDEN:
+            case SDL_EVENT_WINDOW_RESIZED:
+            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            case SDL_EVENT_WINDOW_MOVED:
+                last_input_s = now_s();
+                break;
+            default:
+                break;
+            }
+
             ImGui_ImplSDL3_ProcessEvent(&event);
             if (event.type == SDL_EVENT_QUIT)
                 done = true;
             if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
                 event.window.windowID == SDL_GetWindowID(window))
                 done = true;
+        };
+
+        SDL_Event event;
+        if (wait_ms > 0)
+        {
+            if (SDL_WaitEventTimeout(&event, wait_ms))
+                process_event(event);
         }
+        while (SDL_PollEvent(&event))
+            process_event(event);
 
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
         {
@@ -1214,12 +1277,16 @@ int main(int, char**)
                                      active_canvas);
         }
 
-        // If the user clicked a glyph in the palette, navigate the picker to it.
+        // If the user clicked a glyph in the palette:
+        // - If it's a Unicode codepoint, navigate the Unicode picker to it.
+        // - If it's an embedded glyph index, do not touch the Unicode picker.
         {
-            uint32_t cp = 0;
-            if (character_palette.TakeUserSelectionChanged(cp))
+            GlyphToken g;
+            if (character_palette.TakeUserSelectionChanged(g))
             {
-                character_picker.JumpToCodePoint(cp);
+                const uint32_t cp = (uint32_t)g.ToCanvasCodePoint();
+                if (g.IsUnicode())
+                    character_picker.JumpToCodePoint(g.value);
                 character_sets.OnExternalSelectedCodePoint(cp);
                 tool_brush_cp = cp;
                 tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
@@ -1313,11 +1380,16 @@ int main(int, char**)
         // Double-click in picker/palette inserts the glyph into the active canvas at the caret.
         {
             uint32_t cp = 0;
-            const bool dbl =
-                character_picker.TakeDoubleClicked(cp) ||
-                character_palette.TakeUserDoubleClicked(cp);
-            if (dbl)
+            if (character_picker.TakeDoubleClicked(cp))
+            {
                 insert_cp_into_canvas(active_canvas, cp);
+            }
+            else
+            {
+                GlyphToken g;
+                if (character_palette.TakeUserDoubleClicked(g))
+                    insert_cp_into_canvas(active_canvas, (uint32_t)g.ToCanvasCodePoint());
+            }
         }
 
         // Double-click in the Character Sets window inserts the mapped glyph into the active canvas.
@@ -2235,6 +2307,13 @@ int main(int, char**)
             FrameRender(wd, draw_data);
             FramePresent(wd);
         }
+
+        // Track whether the user is actively holding a mouse button. If so, avoid blocking
+        // at the top of the next frame so interactions stay smooth.
+        mouse_down_prev =
+            ImGui::IsMouseDown(ImGuiMouseButton_Left) ||
+            ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+            ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 
     }
 

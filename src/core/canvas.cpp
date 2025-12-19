@@ -2409,12 +2409,6 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                     }
                     ImGui::EndCombo();
                 }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                {
-                    const char* s = (cur_info.sauce_name && *cur_info.sauce_name) ? cur_info.sauce_name : "";
-                    if (s[0] != 0)
-                        ImGui::SetTooltip("SAUCE TInfoS / FontName: %s", s);
-                }
             }
 
             ImGui::SameLine();

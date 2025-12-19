@@ -6,6 +6,7 @@
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
+#include "ui/glyph_preview.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <nlohmann/json.hpp>
@@ -333,6 +334,10 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     EnsureLoaded();
     EnsureNonEmpty();
 
+    // If the palette is showing the active canvas' embedded font, picker selections are not meaningful.
+    if (source_ == Source::EmbeddedFont)
+        return;
+
     if (cp == 0)
         return;
 
@@ -346,24 +351,24 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     request_focus_selected_ = true;
 }
 
-bool CharacterPalette::TakeUserSelectionChanged(uint32_t& out_cp)
+bool CharacterPalette::TakeUserSelectionChanged(GlyphToken& out_glyph)
 {
     if (!user_selection_changed_)
         return false;
     user_selection_changed_ = false;
-    out_cp = user_selected_cp_;
-    user_selected_cp_ = 0;
-    return out_cp != 0;
+    out_glyph = user_selected_glyph_;
+    user_selected_glyph_ = GlyphToken{};
+    return out_glyph.IsValid();
 }
 
-bool CharacterPalette::TakeUserDoubleClicked(uint32_t& out_cp)
+bool CharacterPalette::TakeUserDoubleClicked(GlyphToken& out_glyph)
 {
     if (!user_double_clicked_)
         return false;
     user_double_clicked_ = false;
-    out_cp = user_double_clicked_cp_;
-    user_double_clicked_cp_ = 0;
-    return out_cp != 0;
+    out_glyph = user_double_clicked_glyph_;
+    user_double_clicked_glyph_ = GlyphToken{};
+    return out_glyph.IsValid();
 }
 
 bool CharacterPalette::Render(const char* window_title, bool* p_open,
@@ -371,6 +376,7 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
                               AnsiCanvas* active_canvas)
 {
     EnsureLoaded();
+    active_canvas_ = active_canvas;
 
     // Initialize the collapsible settings state from persisted session once.
     if (session && !settings_open_init_from_session_)
@@ -447,35 +453,78 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
 
 void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
 {
-    (void)active_canvas;
+    active_canvas_ = active_canvas;
+
+    const bool has_embedded =
+        (active_canvas_ && active_canvas_->HasEmbeddedFont() && active_canvas_->GetEmbeddedFont() &&
+         active_canvas_->GetEmbeddedFont()->glyph_count > 0);
+
+    // Source selection
+    {
+        ImGui::TextUnformatted("Source");
+        ImGui::SameLine();
+
+        const char* items[] = { "JSON Palettes", "Embedded Font (active canvas)" };
+        int src = (int)source_;
+        if (!has_embedded)
+            src = (int)Source::JsonFile;
+
+        ImGui::SetNextItemWidth(240.0f);
+        if (ImGui::Combo("##palette_source", &src, items, IM_ARRAYSIZE(items)))
+        {
+            source_ = (src == (int)Source::EmbeddedFont && has_embedded) ? Source::EmbeddedFont : Source::JsonFile;
+            selected_cell_ = 0;
+            request_focus_selected_ = true;
+        }
+        if (!has_embedded && source_ == Source::EmbeddedFont)
+            source_ = Source::JsonFile;
+    }
+
+    if (source_ == Source::EmbeddedFont)
+    {
+        ImGui::TextUnformatted("Embedded palette is generated and read-only.");
+        ImGui::Separator();
+    }
 
     // File row
     ImGui::TextUnformatted("File");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
     ImGui::InputText("##palette_file", &file_path_);
+    ImGui::EndDisabled();
 
     if (!last_error_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
 
+    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
     if (ImGui::Button("Reload"))
         request_reload_ = true;
     ImGui::SameLine();
     if (ImGui::Button("Save"))
         request_save_ = true;
+    ImGui::EndDisabled();
 
     ImGui::Separator();
 
     // Picker integration (side panel removed, keep a single toggle here).
     ImGui::TextUnformatted("Picker");
     ImGui::SameLine();
+    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
     ImGui::Checkbox("Picker edits palette (replace selected cell)", &picker_replaces_selected_cell_);
+    ImGui::EndDisabled();
 
     ImGui::Separator();
 
     // Palette selection
     ImGui::TextUnformatted("Palette");
     ImGui::SameLine();
+
+    if (source_ == Source::EmbeddedFont)
+    {
+        ImGui::TextUnformatted("(embedded)");
+        return;
+    }
 
     std::vector<const char*> names;
     names.reserve(palettes_.size());
@@ -591,13 +640,27 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
 void CharacterPalette::RenderGrid()
 {
     EnsureNonEmpty();
-    const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
-    auto& glyphs = palettes_[pi].glyphs;
-    if (glyphs.empty())
-        return;
+    const bool has_embedded =
+        (active_canvas_ && active_canvas_->HasEmbeddedFont() && active_canvas_->GetEmbeddedFont() &&
+         active_canvas_->GetEmbeddedFont()->glyph_count > 0);
 
-    // Tight grid with scalable glyph rendering (no IDX column, no header row).
-    const int total_items = (int)glyphs.size();
+    // Determine total items based on source.
+    int total_items = 0;
+    std::vector<Glyph>* glyphs_ptr = nullptr;
+    if (source_ == Source::EmbeddedFont && has_embedded)
+    {
+        total_items = std::clamp(active_canvas_->GetEmbeddedFont()->glyph_count, 0, 2048);
+    }
+    else
+    {
+        source_ = Source::JsonFile;
+        const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
+        glyphs_ptr = &palettes_[pi].glyphs;
+        if (!glyphs_ptr || glyphs_ptr->empty())
+            return;
+        total_items = (int)glyphs_ptr->size();
+    }
+
     selected_cell_ = std::clamp(selected_cell_, 0, std::max(0, total_items - 1));
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -645,7 +708,6 @@ void CharacterPalette::RenderGrid()
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImFont* font = ImGui::GetFont();
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
@@ -680,11 +742,19 @@ void CharacterPalette::RenderGrid()
         {
             selected_cell_ = idx;
             request_focus_selected_ = true;
-            const uint32_t cp = glyphs[(size_t)idx].first_cp;
-            if (cp != 0)
+            if (source_ == Source::EmbeddedFont && has_embedded)
             {
                 user_selection_changed_ = true;
-                user_selected_cp_ = cp;
+                user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+            }
+            else if (glyphs_ptr)
+            {
+                const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
+                if (cp != 0)
+                {
+                    user_selection_changed_ = true;
+                    user_selected_glyph_ = GlyphToken::Unicode(cp);
+                }
             }
         }
 
@@ -693,20 +763,36 @@ void CharacterPalette::RenderGrid()
         {
             selected_cell_ = idx;
             request_focus_selected_ = false; // already focused
-            const uint32_t cp = glyphs[(size_t)idx].first_cp;
-            if (cp != 0)
+            if (source_ == Source::EmbeddedFont && has_embedded)
             {
                 user_selection_changed_ = true;
-                user_selected_cp_ = cp;
+                user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+            }
+            else if (glyphs_ptr)
+            {
+                const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
+                if (cp != 0)
+                {
+                    user_selection_changed_ = true;
+                    user_selected_glyph_ = GlyphToken::Unicode(cp);
+                }
             }
         }
         if (double_clicked)
         {
-            const uint32_t cp = glyphs[(size_t)idx].first_cp;
-            if (cp != 0)
+            if (source_ == Source::EmbeddedFont && has_embedded)
             {
                 user_double_clicked_ = true;
-                user_double_clicked_cp_ = cp;
+                user_double_clicked_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+            }
+            else if (glyphs_ptr)
+            {
+                const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
+                if (cp != 0)
+                {
+                    user_double_clicked_ = true;
+                    user_double_clicked_glyph_ = GlyphToken::Unicode(cp);
+                }
             }
         }
 
@@ -729,29 +815,41 @@ void CharacterPalette::RenderGrid()
             request_focus_selected_ = false;
         }
 
-        const std::string& glyph = glyphs[(size_t)idx].utf8;
-        const char* text = glyph.empty() ? " " : glyph.c_str();
+        // Glyph preview:
+        // - Embedded: render glyph index using the active canvas embedded font.
+        // - JSON: render using the same rules as the canvas (bitmap font mapping if needed).
+        char32_t cp_to_draw = U' ';
+        const char* tooltip_utf8 = nullptr;
+        std::string tmp;
+        if (source_ == Source::EmbeddedFont && has_embedded)
+        {
+            cp_to_draw = (char32_t)(AnsiCanvas::kEmbeddedGlyphBase + (char32_t)idx);
+            tmp = "IDX " + std::to_string(idx);
+            tooltip_utf8 = tmp.c_str();
+        }
+        else if (glyphs_ptr)
+        {
+            cp_to_draw = (char32_t)(*glyphs_ptr)[(size_t)idx].first_cp;
+            tooltip_utf8 = (*glyphs_ptr)[(size_t)idx].utf8.empty() ? "(empty)" : (*glyphs_ptr)[(size_t)idx].utf8.c_str();
+        }
 
-        // Scale glyph drawing with cell size (no window-wide font scaling).
-        float font_px = cell * 0.85f;
-        if (font_px < 6.0f) font_px = 6.0f;
-        ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, text, nullptr);
-        const float max_dim = cell * 0.92f;
-        if (ts.x > max_dim && ts.x > 0.0f) font_px *= (max_dim / ts.x);
-        if (ts.y > max_dim && ts.y > 0.0f) font_px *= (max_dim / ts.y);
-        ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, text, nullptr);
-
-        const ImVec2 tp(p0.x + (cell - ts.x) * 0.5f,
-                        p0.y + (cell - ts.y) * 0.5f);
-        dl->AddText(font, font_px, tp, col_text, text, nullptr);
+        DrawGlyphPreview(dl, p0, cell, cell, cp_to_draw, active_canvas_, (std::uint32_t)col_text);
 
         if (hovered)
         {
-            const uint32_t cp = glyphs[(size_t)idx].first_cp;
             ImGui::BeginTooltip();
-            if (cp != 0)
-                ImGui::Text("%s", CodePointHex(cp).c_str());
-            ImGui::TextUnformatted(glyph.empty() ? "(empty)" : glyph.c_str());
+            if (source_ == Source::EmbeddedFont && has_embedded)
+            {
+                ImGui::Text("IDX %d", idx);
+            }
+            else if (glyphs_ptr)
+            {
+                const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
+                if (cp != 0)
+                    ImGui::Text("%s", CodePointHex(cp).c_str());
+            }
+            if (tooltip_utf8)
+                ImGui::TextUnformatted(tooltip_utf8);
             ImGui::EndTooltip();
         }
 

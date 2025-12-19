@@ -33,6 +33,7 @@ SOURCES  = \
            src/ui/character_palette.cpp \
            src/ui/character_picker.cpp \
            src/ui/character_set.cpp \
+           src/ui/glyph_preview.cpp \
            src/ui/colour_picker.cpp \
            src/ui/colour_palette.cpp \
            src/ui/imgui_window_chrome.cpp \

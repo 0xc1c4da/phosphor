@@ -88,7 +88,7 @@ static const std::vector<FontInfo>& BuildRegistry()
 {
     static const std::vector<FontInfo> v = {
         // Note: Unscii remains the *UI font* and default canvas font, backed by ImGui's atlas.
-        {FontId::Unscii, Kind::ImGuiAtlas, "Unscii 8x16", "unscii-16-full", 0, 0, nullptr, false},
+        {FontId::Unscii, Kind::ImGuiAtlas, "Unscii 2.1 8x16", "unscii-16-full", 0, 0, nullptr, false},
 
         // libansilove-derived bitmap fonts (CP437-ordered glyphs).
         // SAUCE canonical names are from references/sauce-spec.md (FontName section).

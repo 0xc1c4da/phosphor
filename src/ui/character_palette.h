@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "ui/glyph_token.h"
+
 class CharacterPicker;
 class AnsiCanvas;
 struct SessionState;
@@ -59,11 +61,10 @@ public:
     void OnPickerSelectedCodePoint(uint32_t cp);
 
     // Returns true if the user clicked a glyph in the palette grid this frame.
-    bool TakeUserSelectionChanged(uint32_t& out_cp);
+    bool TakeUserSelectionChanged(GlyphToken& out_glyph);
 
     // Returns true if the user double-clicked a glyph in the palette grid this frame.
-    // Output is the glyph's first Unicode code point (0 if invalid).
-    bool TakeUserDoubleClicked(uint32_t& out_cp);
+    bool TakeUserDoubleClicked(GlyphToken& out_glyph);
 
 private:
     void EnsureLoaded();
@@ -100,6 +101,16 @@ private:
     // Picker integration behavior
     bool picker_replaces_selected_cell_ = false;
 
+    // Palette source selection:
+    // - JSON file palettes (Unicode)
+    // - Embedded font of the active canvas (glyph indices -> PUA codepoints)
+    enum class Source : int
+    {
+        JsonFile = 0,
+        EmbeddedFont = 1,
+    };
+    Source source_ = Source::JsonFile;
+
     // Transient UI state
     bool request_save_ = false;
     bool request_reload_ = false;
@@ -111,11 +122,14 @@ private:
 
     // "user clicked something" output
     bool user_selection_changed_ = false;
-    uint32_t user_selected_cp_ = 0;
+    GlyphToken user_selected_glyph_;
 
     // "user double-clicked something" output
     bool user_double_clicked_ = false;
-    uint32_t user_double_clicked_cp_ = 0;
+    GlyphToken user_double_clicked_glyph_;
+
+    // Render context
+    AnsiCanvas* active_canvas_ = nullptr;
 };
 
 
