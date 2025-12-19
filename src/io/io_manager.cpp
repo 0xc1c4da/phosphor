@@ -2,6 +2,7 @@
 
 #include "io/file_dialog_tags.h"
 #include "io/formats/ansi.h"
+#include "io/formats/plaintext.h"
 #include "io/image_loader.h"
 #include "io/project_file.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -22,6 +23,44 @@
 namespace
 {
 namespace fs = std::filesystem;
+
+static std::string ToLowerAscii(std::string s)
+{
+    for (char& c : s)
+        c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+static bool ExtIn(std::string_view ext, const std::vector<std::string_view>& exts)
+{
+    for (auto e : exts)
+    {
+        if (ext == e)
+            return true;
+    }
+    return false;
+}
+
+static void AppendUnique(std::vector<std::string_view>& dst, const std::vector<std::string_view>& src)
+{
+    for (auto e : src)
+    {
+        if (!ExtIn(e, dst))
+            dst.push_back(e);
+    }
+}
+
+static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
+{
+    std::string out;
+    for (size_t i = 0; i < exts.size(); ++i)
+    {
+        if (i) out.push_back(';');
+        out.append(exts[i].begin(), exts[i].end());
+    }
+    return out;
+}
+
 } // namespace
 
 IoManager::IoManager()
@@ -52,11 +91,28 @@ void IoManager::RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialo
 void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
 {
     m_last_error.clear();
+
+    // File dialog filter strings are semicolon-separated extension lists without dots.
+    std::vector<std::string_view> text_exts_v;
+    AppendUnique(text_exts_v, formats::ansi::ImportExtensions());
+    AppendUnique(text_exts_v, formats::plaintext::ImportExtensions());
+    const std::string text_exts = JoinExtsForDialog(text_exts_v);
+
+    // Images are owned by image_loader for now (not a formats:: module yet).
+    const std::string image_exts = "png;jpg;jpeg;gif;bmp";
+
+    std::vector<std::string_view> supported_exts_v;
+    supported_exts_v.push_back("phos");
+    AppendUnique(supported_exts_v, text_exts_v);
+    // Keep the same image list for "Supported files".
+    AppendUnique(supported_exts_v, std::vector<std::string_view>{"png", "jpg", "jpeg", "gif", "bmp"});
+    const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
+
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "phos;ans;asc;txt;nfo;diz;png;jpg;jpeg;gif;bmp"},
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
         {"Phosphor Project (*.phos)", "phos"},
-        {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", "ans;asc;txt;nfo;diz"},
-        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", "png;jpg;jpeg;gif;bmp"},
+        {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", text_exts},
+        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", image_exts},
         {"All files", "*"},
     };
     dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, false);
@@ -65,8 +121,14 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
 void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialogs)
 {
     m_last_error.clear();
+
+    std::vector<std::string_view> exts_v;
+    AppendUnique(exts_v, formats::ansi::ExportExtensions());
+    AppendUnique(exts_v, formats::plaintext::ExportExtensions());
+    const std::string exts = JoinExtsForDialog(exts_v);
+
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"ANSI / Text (*.ans;*.txt)", "ans;txt"},
+        {"ANSI / Text (*.ans;*.txt;*.asc)", exts},
         {"All files", "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
@@ -166,13 +228,6 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
     }
     else if (r.tag == kDialog_LoadFile)
     {
-        auto to_lower = [](std::string s) -> std::string
-        {
-            for (char& c : s)
-                c = (char)std::tolower((unsigned char)c);
-            return s;
-        };
-
         std::string ext;
         if (!is_uri(chosen))
         {
@@ -185,7 +240,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         }
         if (!ext.empty() && ext[0] == '.')
             ext.erase(ext.begin());
-        ext = to_lower(ext);
+        ext = ToLowerAscii(ext);
 
         auto is_ext = [&](const std::initializer_list<const char*>& exts) -> bool
         {
@@ -199,7 +254,8 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
 
         // Fast-path by file extension.
         const bool looks_project = is_ext({"phos"});
-        const bool looks_ansi = is_ext({"ans", "asc", "txt", "nfo", "diz"});
+        const bool looks_plaintext = ExtIn(ext, formats::plaintext::ImportExtensions());
+        const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
         const bool looks_image = is_ext({"png", "jpg", "jpeg", "gif", "bmp"});
 
         auto try_load_project = [&]() -> bool
@@ -240,6 +296,30 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             return false;
         };
 
+        auto try_import_plaintext = [&]() -> bool
+        {
+            if (!cb.create_canvas)
+            {
+                m_last_error = "Internal error: create_canvas callback not set.";
+                return true; // handled (as error)
+            }
+            AnsiCanvas imported;
+            std::string ierr;
+            formats::plaintext::ImportOptions opt;
+            // If the user picked .asc, default to ASCII; otherwise assume UTF-8.
+            if (ext == "asc")
+                opt.text_encoding = formats::plaintext::ImportOptions::TextEncoding::Ascii;
+            if (formats::plaintext::ImportFileToCanvas(chosen, imported, ierr, opt))
+            {
+                imported.SetFilePath(chosen);
+                cb.create_canvas(std::move(imported));
+                m_last_error.clear();
+                return true;
+            }
+            err = ierr;
+            return false;
+        };
+
         auto try_load_image = [&]() -> bool
         {
             if (!cb.create_image)
@@ -268,6 +348,8 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         bool handled = false;
         if (looks_project)
             handled = try_load_project();
+        else if (looks_plaintext)
+            handled = try_import_plaintext();
         else if (looks_ansi)
             handled = try_import_ansi();
         else if (looks_image)
@@ -275,7 +357,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         else
         {
             // Unknown extension (or URI). Try in descending order of likelihood.
-            handled = try_load_project() || try_import_ansi() || try_load_image();
+            handled = try_load_project() || try_import_ansi() || try_import_plaintext() || try_load_image();
         }
 
         if (!handled)
@@ -302,12 +384,39 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         }
 
         // Default export preset for now (until we add an Export dialog UI).
-        // Goal: reasonable terminal-friendly output with xterm256 colors.
-        formats::ansi::ExportOptions opt;
-        if (const auto* preset = formats::ansi::FindPreset(formats::ansi::PresetId::ModernUtf8_256))
-            opt = preset->export_;
+        // If user explicitly chose .txt/.asc, emit plain UTF-8 text (no ANSI escape sequences).
+        std::string ext;
+        if (!is_uri(path))
+        {
+            try
+            {
+                fs::path p(path);
+                ext = p.extension().string();
+            }
+            catch (...) {}
+        }
+        if (!ext.empty() && ext[0] == '.')
+            ext.erase(ext.begin());
+        ext = ToLowerAscii(ext);
 
-        if (formats::ansi::ExportCanvasToFile(path, *focused_canvas, err, opt))
+        bool ok = false;
+        if (ExtIn(ext, formats::plaintext::ExportExtensions()))
+        {
+            formats::plaintext::ExportOptions opt;
+            if (const auto* preset = formats::plaintext::FindPreset(formats::plaintext::PresetId::PlainUtf8))
+                opt = preset->export_;
+            ok = formats::plaintext::ExportCanvasToFile(path, *focused_canvas, err, opt);
+        }
+        else
+        {
+            // Goal: reasonable terminal-friendly output with xterm256 colors.
+            formats::ansi::ExportOptions opt;
+            if (const auto* preset = formats::ansi::FindPreset(formats::ansi::PresetId::ModernUtf8_256))
+                opt = preset->export_;
+            ok = formats::ansi::ExportCanvasToFile(path, *focused_canvas, err, opt);
+        }
+
+        if (ok)
         {
             m_last_error.clear();
         }

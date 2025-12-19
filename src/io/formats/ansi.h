@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Canonical ANSI format module (import/export).
@@ -19,6 +20,15 @@ namespace formats
 {
 namespace ansi
 {
+// ---------------------------------------------------------------------------
+// File extensions (single source of truth for UI/dispatch)
+// ---------------------------------------------------------------------------
+// Lowercase extensions (no leading dot).
+// Note: ANSI format can also *import* plain text files, but these lists describe
+// the extensions we associate with this format in Phosphor's UI/dispatch layer.
+const std::vector<std::string_view>& ImportExtensions();
+const std::vector<std::string_view>& ExportExtensions();
+
 // ---------------------------------------------------------------------------
 // Import
 // ---------------------------------------------------------------------------

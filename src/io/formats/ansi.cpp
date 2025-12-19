@@ -17,6 +17,22 @@ namespace formats
 {
 namespace ansi
 {
+const std::vector<std::string_view>& ImportExtensions()
+{
+    // Lowercase, no leading dots.
+    // Keep this list focused on extensions commonly treated as ANSI/textmode payloads.
+    // (Plaintext-intent extensions like .txt/.asc are handled by formats::plaintext.)
+    static const std::vector<std::string_view> exts = {"ans", "nfo", "diz"};
+    return exts;
+}
+
+const std::vector<std::string_view>& ExportExtensions()
+{
+    // Lowercase, no leading dots.
+    static const std::vector<std::string_view> exts = {"ans"};
+    return exts;
+}
+
 namespace
 {
 static constexpr std::uint8_t LF  = '\n';
