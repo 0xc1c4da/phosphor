@@ -88,6 +88,11 @@ void LayerManager::Render(const char* title,
         canvas->SetLayerVisible(canvas->GetActiveLayerIndex(), vis);
 
     ImGui::SameLine();
+    bool lock_transparency = canvas->IsLayerTransparencyLocked(canvas->GetActiveLayerIndex());
+    if (ImGui::Checkbox("Lock Transparency", &lock_transparency))
+        canvas->SetLayerTransparencyLocked(canvas->GetActiveLayerIndex(), lock_transparency);
+
+    ImGui::SameLine();
     if (ImGui::Button("Rename..."))
     {
         rename_target_canvas_ = canvas;

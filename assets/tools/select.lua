@@ -1,5 +1,6 @@
 settings = {
-  icon = "▭",
+  id = "select",
+  icon = "⬚",
   label = "Select",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)

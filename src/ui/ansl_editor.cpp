@@ -569,7 +569,10 @@ void AnslEditor::Render(const char* id,
 
             std::string err;
             const int layer_index = canvas->GetActiveLayerIndex();
-            if (!engine.RunFrame(*canvas, layer_index, fctx, clear_layer_each_frame_, err))
+            ToolCommandSink cmds;
+            cmds.allow_tool_commands = false;
+            cmds.out_commands = nullptr;
+            if (!engine.RunFrame(*canvas, layer_index, fctx, cmds, clear_layer_each_frame_, err))
                 last_error_ = err;
 
             // Count only executed script frames.

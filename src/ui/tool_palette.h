@@ -14,6 +14,9 @@ struct SessionState;
 
 struct ToolSpec
 {
+    // Stable identifier used for tool history + script-driven activation.
+    // Sourced from Lua `settings.id` (preferred). If omitted, it may be derived by the host.
+    std::string id;
     std::string path;   // full path to .lua tool file
     std::string icon;   // UTF-8 glyph shown on the button
     std::string label;  // human-friendly name
@@ -46,6 +49,10 @@ public:
     // Restore selection from a previously saved tool path.
     // Returns true if a matching tool was found and selection changed.
     bool SetActiveToolByPath(const std::string& path);
+
+    // Activate by stable id (ToolSpec::id).
+    // Returns true if a matching tool was found and selection changed.
+    bool SetActiveToolById(const std::string& id);
 
 private:
     std::vector<ToolSpec> tools_;

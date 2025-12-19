@@ -1,4 +1,8 @@
-settings = { icon = "⌶", label = "Edit" }
+settings = {
+  id = "edit",
+  icon = "⌶",
+  label = "Edit"
+}
 
 local function clamp(v, a, b)
   if v < a then return a end

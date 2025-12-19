@@ -55,6 +55,7 @@ static std::string BasenameNoExt(const std::string& path)
 bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec& out, std::string& error)
 {
     out = ToolSpec{};
+    out.id = BasenameNoExt(path);
     out.path = path;
     out.icon = "?";
     out.label = BasenameNoExt(path);
@@ -97,6 +98,11 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
                 dst = lua_tostring(L, -1);
             lua_pop(L, 1);
         };
+
+        // Optional stable id.
+        get_string_field("id", out.id);
+        if (out.id.empty())
+            out.id = BasenameNoExt(path);
 
         lua_getfield(L, -1, "icon");
         if (lua_isstring(L, -1))
@@ -204,6 +210,24 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
     lua_close(L);
     error.clear();
     return true;
+}
+
+bool ToolPalette::SetActiveToolById(const std::string& id)
+{
+    if (id.empty())
+        return false;
+    for (size_t i = 0; i < tools_.size(); ++i)
+    {
+        if (tools_[i].id == id)
+        {
+            const bool changed = (active_index_ != (int)i);
+            active_index_ = (int)i;
+            if (changed)
+                active_changed_ = true;
+            return changed;
+        }
+    }
+    return false;
 }
 
 bool ToolPalette::LoadFromDirectory(const std::string& tools_dir, std::string& error)

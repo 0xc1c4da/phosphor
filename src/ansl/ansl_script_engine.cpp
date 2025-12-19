@@ -15,7 +15,6 @@ extern "C"
 #include <cctype>
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
 #include <vector>
 #include <string>
 
@@ -174,19 +173,24 @@ static int Color32ToXtermIndex(AnsiCanvas::Color32 c32)
 {
     if (c32 == 0)
         return -1;
-    // Build reverse lookup table (Color32 -> xterm index) once.
-    // All style values currently come from xterm256::Color32ForIndex(), so this is exact.
-    static const std::unordered_map<AnsiCanvas::Color32, int> kColor32ToXterm = []() {
-        std::unordered_map<AnsiCanvas::Color32, int> m;
-        m.reserve(256);
-        for (int i = 0; i <= 255; ++i)
-            m[(AnsiCanvas::Color32)xterm256::Color32ForIndex(i)] = i;
-        return m;
-    }();
-    auto it = kColor32ToXterm.find(c32);
-    if (it == kColor32ToXterm.end())
-        return -1;
-    return it->second;
+
+    // xterm256::Color32ForIndex() is documented as ABGR (A=255) where the low byte is R.
+    // Even if callers store non-xterm colors, we still want tools to be able to pick a reasonable
+    // palette index, so we compute the nearest xterm-256 index.
+    const std::uint8_t r = (std::uint8_t)((c32 >> 0) & 0xFF);
+    const std::uint8_t g = (std::uint8_t)((c32 >> 8) & 0xFF);
+    const std::uint8_t b = (std::uint8_t)((c32 >> 16) & 0xFF);
+    return xterm256::NearestIndex(r, g, b);
+}
+
+static int LuaArrayLen(lua_State* L, int idx)
+{
+#if defined(LUA_VERSION_NUM) && LUA_VERSION_NUM >= 502
+    return (int)lua_rawlen(L, idx);
+#else
+    // LuaJIT (Lua 5.1 API)
+    return (int)lua_objlen(L, idx);
+#endif
 }
 
 struct LayerBinding
@@ -1282,6 +1286,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     //   mods={ctrl,shift,alt,super},
     //   hotkeys={copy,cut,paste,selectAll,cancel,deleteSelection},
     //   actions={ ["edit.copy"]=true, ... },  -- pressed this frame
+    //   out={ {type="palette.set", ...}, ... }, -- tool commands (cleared each frame)
     //   metrics={aspect=...},
     //   caret={x,y},
     //   cursor={valid,x,y,left,right,p={x,y,left,right}},
@@ -1358,9 +1363,9 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     lua_rawgeti(impl_->L, LUA_REGISTRYINDEX, impl_->params_ref);
     lua_setfield(impl_->L, -2, "params"); // ctx.params = params
 
-    // Tool writeback (reused): ctx.pick = { fg=nil, bg=nil, brushCp=nil, returnToPrevTool=nil }
+    // Tool command queue (reused): ctx.out = { {type=...}, ... }
     lua_newtable(impl_->L);
-    lua_setfield(impl_->L, -2, "pick");
+    lua_setfield(impl_->L, -2, "out");
 
     // Tool brush defaults
     lua_pushliteral(impl_->L, " ");
@@ -1569,6 +1574,7 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
 bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                                int layer_index,
                                const AnslFrameContext& frame_ctx,
+                               const ToolCommandSink& tool_cmds,
                                bool clear_layer_first,
                                std::string& error)
 {
@@ -1746,18 +1752,20 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     }
     lua_pop(L, 1); // actions
 
-    // Tool writeback table: clear edge-triggered fields each frame.
-    if (frame_ctx.allow_tool_writeback)
+    // Tool command queue: clear array entries each frame.
+    if (tool_cmds.allow_tool_commands)
     {
-        lua_getfield(L, -1, "pick");
+        lua_getfield(L, -1, "out");
         if (lua_istable(L, -1))
         {
-            lua_pushnil(L); lua_setfield(L, -2, "fg");
-            lua_pushnil(L); lua_setfield(L, -2, "bg");
-            lua_pushnil(L); lua_setfield(L, -2, "brushCp");
-            lua_pushnil(L); lua_setfield(L, -2, "returnToPrevTool");
+            const int n = LuaArrayLen(L, -1);
+            for (int i = 1; i <= n; ++i)
+            {
+                lua_pushnil(L);
+                lua_rawseti(L, -2, i);
+            }
         }
-        lua_pop(L, 1); // pick
+        lua_pop(L, 1); // out
     }
 
     // typed codepoints -> ctx.typed = { "a", "中", ... }
@@ -1803,47 +1811,87 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     if (!PCallNoTraceback(L, 2, 0, error))
         return false;
 
-    // Tool writeback support: allow scripts to request host-side state changes via ctx.pick.
-    if (frame_ctx.allow_tool_writeback && frame_ctx.tool_writeback)
+    // Tool command support: parse ctx.out into host commands.
+    if (tool_cmds.allow_tool_commands && tool_cmds.out_commands)
     {
-        *frame_ctx.tool_writeback = AnslFrameContext::ToolWriteback{};
+        tool_cmds.out_commands->clear();
 
-        lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->ctx_ref);
-        lua_getfield(L, -1, "pick");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->ctx_ref); // ctx
+        lua_getfield(L, -1, "out"); // ctx, out
         if (lua_istable(L, -1))
         {
-            lua_getfield(L, -1, "fg");
-            if (lua_isnumber(L, -1))
+            const int n = LuaArrayLen(L, -1);
+            for (int i = 1; i <= n; ++i)
             {
-                frame_ctx.tool_writeback->has_fg = true;
-                frame_ctx.tool_writeback->fg = (int)lua_tointeger(L, -1);
-            }
-            lua_pop(L, 1);
+                lua_rawgeti(L, -1, i); // elem
+                if (!lua_istable(L, -1))
+                {
+                    lua_pop(L, 1);
+                    continue;
+                }
 
-            lua_getfield(L, -1, "bg");
-            if (lua_isnumber(L, -1))
-            {
-                frame_ctx.tool_writeback->has_bg = true;
-                frame_ctx.tool_writeback->bg = (int)lua_tointeger(L, -1);
-            }
-            lua_pop(L, 1);
+                lua_getfield(L, -1, "type");
+                const std::string type = lua_isstring(L, -1) ? LuaToString(L, -1) : std::string{};
+                lua_pop(L, 1);
+                if (type.empty())
+                {
+                    lua_pop(L, 1);
+                    continue;
+                }
 
-            lua_getfield(L, -1, "brushCp");
-            if (lua_isnumber(L, -1))
-            {
-                frame_ctx.tool_writeback->has_brush_cp = true;
-                lua_Integer v = lua_tointeger(L, -1);
-                if (v < 0) v = 0;
-                frame_ctx.tool_writeback->brush_cp = (int)v;
-            }
-            lua_pop(L, 1);
+                ToolCommand cmd;
+                if (type == "palette.set")
+                {
+                    cmd.type = ToolCommand::Type::PaletteSet;
+                    lua_getfield(L, -1, "fg");
+                    if (lua_isnumber(L, -1))
+                    {
+                        cmd.has_fg = true;
+                        cmd.fg = (int)lua_tointeger(L, -1);
+                    }
+                    lua_pop(L, 1);
+                    lua_getfield(L, -1, "bg");
+                    if (lua_isnumber(L, -1))
+                    {
+                        cmd.has_bg = true;
+                        cmd.bg = (int)lua_tointeger(L, -1);
+                    }
+                    lua_pop(L, 1);
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "brush.set")
+                {
+                    cmd.type = ToolCommand::Type::BrushSet;
+                    lua_getfield(L, -1, "cp");
+                    if (lua_isnumber(L, -1))
+                    {
+                        lua_Integer v = lua_tointeger(L, -1);
+                        if (v < 0) v = 0;
+                        cmd.brush_cp = (uint32_t)v;
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                    }
+                    lua_pop(L, 1);
+                }
+                else if (type == "tool.activate_prev")
+                {
+                    cmd.type = ToolCommand::Type::ToolActivatePrev;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "tool.activate")
+                {
+                    cmd.type = ToolCommand::Type::ToolActivate;
+                    lua_getfield(L, -1, "id");
+                    if (lua_isstring(L, -1))
+                        cmd.tool_id = LuaToString(L, -1);
+                    lua_pop(L, 1);
+                    if (!cmd.tool_id.empty())
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                }
 
-            lua_getfield(L, -1, "returnToPrevTool");
-            if (!lua_isnil(L, -1))
-                frame_ctx.tool_writeback->return_to_prev_tool = lua_toboolean(L, -1) != 0;
-            lua_pop(L, 1);
+                lua_pop(L, 1); // elem
+            }
         }
-        lua_pop(L, 2); // pick, ctx
+        lua_pop(L, 2); // out, ctx
     }
 
     // Tool support: allow scripts to write caret back via ctx.caret.{x,y}.

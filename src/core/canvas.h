@@ -164,6 +164,9 @@ public:
     int         GetActiveLayerIndex() const;
     std::string GetLayerName(int index) const;
     bool        IsLayerVisible(int index) const;
+    // If enabled, mutations to this layer cannot change a cell's transparency state
+    // (i.e., "alpha lock"). Used for mask-like workflows.
+    bool        IsLayerTransparencyLocked(int index) const;
     // Renames a layer. Name may be empty (treated as "(unnamed)" in UI).
     // Captured by undo/redo and project serialization.
     bool        SetLayerName(int index, const std::string& name);
@@ -174,6 +177,7 @@ public:
     bool RemoveLayer(int index);
     bool SetActiveLayerIndex(int index);
     bool SetLayerVisible(int index, bool visible);
+    bool SetLayerTransparencyLocked(int index, bool locked);
 
     // Reorder layers (changes compositing order / depth).
     // Lower index = further back; higher index = further front (drawn on top).
@@ -212,6 +216,7 @@ public:
     {
         std::string           name;
         bool                  visible = true;
+        bool                  lock_transparency = false;
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
@@ -471,6 +476,7 @@ private:
     {
         std::string           name;
         bool                  visible = true;
+        bool                  lock_transparency = false;
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)

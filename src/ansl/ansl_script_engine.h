@@ -4,6 +4,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <cstdint>
 
 class AnsiCanvas;
 
@@ -134,30 +135,53 @@ struct AnslFrameContext
 
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;
+};
 
-    // ---------------------------------------------------------------------
-    // Tool writeback (Lua tool scripts -> host)
-    // ---------------------------------------------------------------------
-    // Tools can request changes by writing into ctx.pick = { fg=..., bg=..., brushCp=..., returnToPrevTool=true }.
-    // The host clears these fields each frame before running the tool, so tools should treat them as edge-triggered.
-    struct ToolWriteback
+// -------------------------------------------------------------------------
+// Tool commands (Lua tool scripts -> host)
+// -------------------------------------------------------------------------
+//
+// Tools emit commands by appending to `ctx.out` (an array) during render():
+//
+//   ctx.out[#ctx.out + 1] = { type = "palette.set", fg = 123, bg = 45 }
+//   ctx.out[#ctx.out + 1] = { type = "brush.set", cp = 0x2588 } -- Unicode scalar value
+//   ctx.out[#ctx.out + 1] = { type = "tool.activate_prev" }
+//   ctx.out[#ctx.out + 1] = { type = "tool.activate", id = "pencil" }
+//
+// The host clears `ctx.out` each frame before calling render(). Commands are
+// processed in order after render() returns. This is intentionally generic:
+// any tool can request host-side actions without needing tool-specific fields.
+struct ToolCommand
+{
+    enum class Type
     {
-        bool has_fg = false;
-        int  fg = -1; // xterm-256 index (0..255)
-
-        bool has_bg = false;
-        int  bg = -1; // xterm-256 index (0..255)
-
-        bool has_brush_cp = false;
-        int  brush_cp = 0; // Unicode scalar value (>=0)
-
-        bool return_to_prev_tool = false;
+        PaletteSet,
+        BrushSet,
+        ToolActivatePrev,
+        ToolActivate,
     };
 
-    // If true, the engine will read ctx.pick.* after the script and fill `tool_writeback` if provided.
-    bool allow_tool_writeback = false;
-    // Optional: filled only when allow_tool_writeback=true and tool_writeback != nullptr.
-    ToolWriteback* tool_writeback = nullptr;
+    Type type = Type::PaletteSet;
+
+    // PaletteSet
+    bool has_fg = false;
+    int  fg = -1; // xterm-256 index (0..255)
+    bool has_bg = false;
+    int  bg = -1; // xterm-256 index (0..255)
+
+    // BrushSet
+    uint32_t brush_cp = 0; // Unicode scalar value (>=0)
+
+    // ToolActivate
+    std::string tool_id;
+};
+
+struct ToolCommandSink
+{
+    // If true, the engine will read ctx.out after the script and append parsed commands here.
+    bool allow_tool_commands = false;
+    // Host-owned; valid only for the duration of RunFrame().
+    std::vector<ToolCommand>* out_commands = nullptr;
 };
 
 // Script-provided settings (optional).
@@ -223,6 +247,7 @@ public:
     bool RunFrame(AnsiCanvas& canvas,
                   int layer_index,
                   const AnslFrameContext& frame_ctx,
+                  const ToolCommandSink& tool_cmds,
                   bool clear_layer_first,
                   std::string& error);
 

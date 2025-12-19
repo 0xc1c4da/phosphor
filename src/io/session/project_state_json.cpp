@@ -68,6 +68,7 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
     json jl;
     jl["name"] = l.name;
     jl["visible"] = l.visible;
+    jl["lock_transparency"] = l.lock_transparency;
 
     // Store glyphs as uint32 codepoints to keep CBOR compact and unambiguous.
     json cells = json::array();
@@ -94,6 +95,8 @@ static bool ProjectLayerFromJson(const json& jl, AnsiCanvas::ProjectLayer& out, 
         out.name = jl["name"].get<std::string>();
     if (jl.contains("visible") && jl["visible"].is_boolean())
         out.visible = jl["visible"].get<bool>();
+    if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean())
+        out.lock_transparency = jl["lock_transparency"].get<bool>();
 
     if (!jl.contains("cells") || !jl["cells"].is_array())
     {

@@ -1,4 +1,5 @@
 settings = {
+  id = "pipette",
   icon = "⟇",
   label = "Pipette",
 
@@ -13,6 +14,13 @@ settings = {
 }
 
 local function is_table(t) return type(t) == "table" end
+
+local function emit(ctx, cmd)
+  if type(ctx) ~= "table" or type(cmd) ~= "table" then return end
+  local out = ctx.out
+  if type(out) ~= "table" then return end
+  out[#out + 1] = cmd
+end
 
 local function to_int(v, def)
   v = tonumber(v)
@@ -81,17 +89,22 @@ local function sample_at(ctx, layer, x, y)
     pickChar = false
   end
 
-  local pick = ctx.pick
-  if not is_table(pick) then return false end
-
   if pickChar and type(cp) == "number" then
-    pick.brushCp = to_int(cp, 0)
+    emit(ctx, { type = "brush.set", cp = to_int(cp, 0) })
   end
+
+  local pal = { type = "palette.set" }
+  local any = false
   if pickFg and type(fg) == "number" then
-    pick.fg = to_int(fg, 0)
+    pal.fg = to_int(fg, 0)
+    any = true
   end
   if pickBg and type(bg) == "number" then
-    pick.bg = to_int(bg, 0)
+    pal.bg = to_int(bg, 0)
+    any = true
+  end
+  if any then
+    emit(ctx, pal)
   end
   return true
 end
@@ -128,9 +141,7 @@ function render(ctx, layer)
 
       -- Left-click is the "commit" (pick + optionally return), right-click is "keep sampling".
       if pressed_left and ((ctx.params or {}).returnToPrev ~= false) then
-        if is_table(ctx.pick) then
-          ctx.pick.returnToPrevTool = true
-        end
+        emit(ctx, { type = "tool.activate_prev" })
       end
     end
     return
