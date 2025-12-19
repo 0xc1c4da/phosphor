@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <utility>
 
 namespace fs = std::filesystem;
@@ -144,6 +145,35 @@ AnslEditor::AnslEditor()
     }
 }
 
+void AnslEditor::SetTargetFps(int fps)
+{
+    if (fps < 1) fps = 1;
+    if (fps > 240) fps = 240;
+    target_fps_ = fps;
+}
+
+std::string AnslEditor::SelectedExampleLabel() const
+{
+    if (selected_example_index_ < 0 || (size_t)selected_example_index_ >= examples_.size())
+        return {};
+    return examples_[(size_t)selected_example_index_].label;
+}
+
+std::string AnslEditor::SelectedExamplePath() const
+{
+    if (selected_example_index_ < 0 || (size_t)selected_example_index_ >= examples_.size())
+        return {};
+    return examples_[(size_t)selected_example_index_].path;
+}
+
+void AnslEditor::SetSelectedExamplePreference(int index, std::string label, std::string path)
+{
+    preferred_example_index_ = index;
+    preferred_example_label_ = std::move(label);
+    preferred_example_path_ = std::move(path);
+    has_example_preference_ = true;
+}
+
 void AnslEditor::Render(const char* id,
                         AnsiCanvas* active_canvas,
                         AnslScriptEngine& engine,
@@ -223,6 +253,43 @@ void AnslEditor::Render(const char* id,
                 examples_error_ = err.empty() ? ("No examples found in " + examples_dir_) : err;
             else
                 examples_error_.clear();
+
+            // Apply restored selection preference, if any.
+            if (has_example_preference_ && !examples_.empty())
+            {
+                auto find_index = [&](const std::string& path,
+                                      const std::string& label) -> std::optional<int>
+                {
+                    if (!path.empty())
+                    {
+                        for (size_t i = 0; i < examples_.size(); ++i)
+                            if (examples_[i].path == path)
+                                return (int)i;
+                    }
+                    if (!label.empty())
+                    {
+                        for (size_t i = 0; i < examples_.size(); ++i)
+                            if (examples_[i].label == label)
+                                return (int)i;
+                    }
+                    return std::nullopt;
+                };
+
+                if (auto idx = find_index(preferred_example_path_, preferred_example_label_))
+                {
+                    selected_example_index_ = *idx;
+                }
+                else if (preferred_example_index_ >= -1 &&
+                         preferred_example_index_ < (int)examples_.size())
+                {
+                    selected_example_index_ = preferred_example_index_;
+                }
+
+                has_example_preference_ = false;
+                preferred_example_index_ = -1;
+                preferred_example_label_.clear();
+                preferred_example_path_.clear();
+            }
 
             // Keep selection stable if possible; otherwise reset.
             if (selected_example_index_ >= (int)examples_.size())

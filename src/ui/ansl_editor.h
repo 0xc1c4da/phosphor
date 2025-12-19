@@ -37,6 +37,17 @@ public:
                 int current_bg_xterm = -1,
                 ImGuiInputTextFlags flags = 0);
 
+    // --- Session persistence helpers ---
+    int  TargetFps() const { return target_fps_; }
+    void SetTargetFps(int fps);
+
+    int                SelectedExampleIndex() const { return selected_example_index_; }
+    std::string        SelectedExampleLabel() const;
+    std::string        SelectedExamplePath() const;
+    void               SetSelectedExamplePreference(int index,
+                                                    std::string label,
+                                                    std::string path);
+
 private:
     struct ExampleSpec
     {
@@ -60,6 +71,11 @@ private:
     bool                     examples_loaded_ = false;
     std::string              examples_error_;
     int                      selected_example_index_ = -1; // -1 = none
+    // Restored selection preferences (applied after examples load).
+    bool                     has_example_preference_ = false;
+    int                      preferred_example_index_ = -1;
+    std::string              preferred_example_label_;
+    std::string              preferred_example_path_;
 
     // Playback / throttling
     int    target_fps_ = 30;

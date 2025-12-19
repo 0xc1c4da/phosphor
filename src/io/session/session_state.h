@@ -89,6 +89,23 @@ struct SessionState
         std::string path; // reloaded at startup
     };
 
+    struct AnslEditorState
+    {
+        // If false, the UI should use its built-in default template.
+        // If true, `text` should be restored even if it's empty.
+        bool text_valid = false;
+        std::string text;
+
+        // Script FPS slider value (may be overridden by script settings at runtime).
+        int target_fps = 30;
+
+        // Example dropdown selection.
+        // We persist both index (fast) and identity (stable across directory changes).
+        int selected_example_index = -1; // -1 = none
+        std::string selected_example_label;
+        std::string selected_example_path;
+    };
+
     // Main window geometry (SDL window coordinates)
     int window_w = 0;
     int window_h = 0;
@@ -120,6 +137,7 @@ struct SessionState
     // Per-tool UI state
     bool character_palette_settings_open = true;
     XtermColorPickerState xterm_color_picker;
+    AnslEditorState ansl_editor;
 
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;

@@ -80,8 +80,12 @@
       "y": 38.0
     }
   },
-  "schema_version": 10,
+  "schema_version": 11,
   "ui": {
+    "ansl_editor": {
+      "selected_example_index": -1,
+      "target_fps": 30
+    },
     "canvas_bg_white": false,
     "character_palette_settings_open": false,
     "show_16colors_browser_window": true,

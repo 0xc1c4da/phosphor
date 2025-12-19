@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 10;
+    j["schema_version"] = 11;
 
     json win;
     win["w"] = st.window_w;
@@ -97,6 +97,20 @@ static json ToJson(const SessionState& st)
     xcp["picker_preview_fb"] = st.xterm_color_picker.picker_preview_fb;
     xcp["last_hue"] = st.xterm_color_picker.last_hue;
     ui["xterm_color_picker"] = std::move(xcp);
+
+    // ANSL editor state (script text + dropdown selection + fps).
+    {
+        json ae;
+        ae["target_fps"] = st.ansl_editor.target_fps;
+        ae["selected_example_index"] = st.ansl_editor.selected_example_index;
+        if (!st.ansl_editor.selected_example_label.empty())
+            ae["selected_example_label"] = st.ansl_editor.selected_example_label;
+        if (!st.ansl_editor.selected_example_path.empty())
+            ae["selected_example_path"] = st.ansl_editor.selected_example_path;
+        if (st.ansl_editor.text_valid)
+            ae["text"] = st.ansl_editor.text;
+        ui["ansl_editor"] = std::move(ae);
+    }
 
     j["ui"] = std::move(ui);
 
@@ -269,6 +283,31 @@ static void FromJson(const json& j, SessionState& out)
             if (xcp.contains("last_hue") && xcp["last_hue"].is_number())
                 out.xterm_color_picker.last_hue = xcp["last_hue"].get<float>();
         }
+
+        if (ui.contains("ansl_editor") && ui["ansl_editor"].is_object())
+        {
+            const json& ae = ui["ansl_editor"];
+            if (ae.contains("target_fps") && ae["target_fps"].is_number_integer())
+            {
+                const int fps = ae["target_fps"].get<int>();
+                out.ansl_editor.target_fps = std::clamp(fps, 1, 240);
+            }
+            if (ae.contains("selected_example_index") && ae["selected_example_index"].is_number_integer())
+                out.ansl_editor.selected_example_index = ae["selected_example_index"].get<int>();
+            if (ae.contains("selected_example_label") && ae["selected_example_label"].is_string())
+                out.ansl_editor.selected_example_label = ae["selected_example_label"].get<std::string>();
+            if (ae.contains("selected_example_path") && ae["selected_example_path"].is_string())
+                out.ansl_editor.selected_example_path = ae["selected_example_path"].get<std::string>();
+            if (ae.contains("text") && ae["text"].is_string())
+            {
+                out.ansl_editor.text_valid = true;
+                out.ansl_editor.text = ae["text"].get<std::string>();
+            }
+
+            // Basic sanity clamp so broken state doesn't break the UI.
+            if (out.ansl_editor.selected_example_index < -1)
+                out.ansl_editor.selected_example_index = -1;
+        }
     }
 
     if (j.contains("workspace") && j["workspace"].is_object())
@@ -439,7 +478,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -465,7 +504,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

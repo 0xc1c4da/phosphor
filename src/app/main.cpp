@@ -630,6 +630,14 @@ int main(int, char**)
             fprintf(stderr, "[tools] init failed: %s\n", err.c_str());
     }
 
+    // Restore ANSL editor persisted state (script text + dropdown selection + fps).
+    ansl_editor.SetTargetFps(session_state.ansl_editor.target_fps);
+    ansl_editor.SetSelectedExamplePreference(session_state.ansl_editor.selected_example_index,
+                                             session_state.ansl_editor.selected_example_label,
+                                             session_state.ansl_editor.selected_example_path);
+    if (session_state.ansl_editor.text_valid)
+        ansl_editor.SetText(session_state.ansl_editor.text);
+
     // Tool palette state
     ToolPalette tool_palette;
     std::string tools_error;
@@ -2368,6 +2376,14 @@ int main(int, char**)
             // Active tool
             if (const ToolSpec* t = tool_palette.GetActiveTool())
                 st.active_tool_path = t->path;
+
+            // ANSL editor state
+            st.ansl_editor.target_fps = ansl_editor.TargetFps();
+            st.ansl_editor.selected_example_index = ansl_editor.SelectedExampleIndex();
+            st.ansl_editor.selected_example_label = ansl_editor.SelectedExampleLabel();
+            st.ansl_editor.selected_example_path = ansl_editor.SelectedExamplePath();
+            st.ansl_editor.text_valid = true;
+            st.ansl_editor.text = ansl_editor.Text();
 
             // Canvas/image workspace
             st.last_active_canvas_id = last_active_canvas_id;
