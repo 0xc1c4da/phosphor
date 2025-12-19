@@ -6,9 +6,13 @@
       url = "github:ocornut/imgui/dc48a7c88eef4a347000d55062d35cc94e00ef70";
       flake = false;
     };
+    lodepng = {
+      url = "github:lvandeve/lodepng/d41d4aa8c63dea277e25c94ad85046b6c5335ccc";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, imgui }:
+  outputs = { self, nixpkgs, flake-utils, imgui, lodepng }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -105,6 +109,7 @@
           shellHook = ''
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath devShellPackages}:$LD_LIBRARY_PATH
             export IMGUI_DIR=${imgui}
+            export LDEPNG_DIR=${lodepng}
 
             # Provide libnoise
             export LIBNOISE_CFLAGS="-I${pkgs.libnoise}/include"

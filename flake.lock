@@ -35,6 +35,23 @@
         "type": "github"
       }
     },
+    "lodepng": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1762122762,
+        "narHash": "sha256-9Z57qD2GW2omxe0jL3vuC53bGSW4yQuHBTFdM0Kl6FI=",
+        "owner": "lvandeve",
+        "repo": "lodepng",
+        "rev": "d41d4aa8c63dea277e25c94ad85046b6c5335ccc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "lvandeve",
+        "repo": "lodepng",
+        "rev": "d41d4aa8c63dea277e25c94ad85046b6c5335ccc",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1765549813,
@@ -54,6 +71,7 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "imgui": "imgui",
+        "lodepng": "lodepng",
         "nixpkgs": "nixpkgs"
       }
     },

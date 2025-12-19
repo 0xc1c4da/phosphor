@@ -2,6 +2,7 @@
 
 #include "io/file_dialog_tags.h"
 #include "io/formats/ansi.h"
+#include "io/formats/image.h"
 #include "io/formats/plaintext.h"
 #include "io/image_loader.h"
 #include "io/project_file.h"
@@ -98,14 +99,14 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(text_exts_v, formats::plaintext::ImportExtensions());
     const std::string text_exts = JoinExtsForDialog(text_exts_v);
 
-    // Images are owned by image_loader for now (not a formats:: module yet).
-    const std::string image_exts = "png;jpg;jpeg;gif;bmp";
+    const std::string image_exts = JoinExtsForDialog(std::vector<std::string_view>(formats::image::ImportExtensions().begin(),
+                                                                                   formats::image::ImportExtensions().end()));
 
     std::vector<std::string_view> supported_exts_v;
     supported_exts_v.push_back("phos");
     AppendUnique(supported_exts_v, text_exts_v);
     // Keep the same image list for "Supported files".
-    AppendUnique(supported_exts_v, std::vector<std::string_view>{"png", "jpg", "jpeg", "gif", "bmp"});
+    AppendUnique(supported_exts_v, formats::image::ImportExtensions());
     const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
@@ -136,6 +137,23 @@ void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialog
     dialogs.ShowSaveFileDialog(kDialog_ExportAnsi, window, filters, suggested.string());
 }
 
+void IoManager::RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialogs)
+{
+    m_last_error.clear();
+
+    std::vector<std::string_view> exts_v;
+    AppendUnique(exts_v, formats::image::ExportExtensions());
+    const std::string exts = JoinExtsForDialog(exts_v);
+
+    std::vector<SdlFileDialogQueue::FilterPair> filters = {
+        {"Image (*.png;*.jpg;*.jpeg)", exts},
+        {"All files", "*"},
+    };
+    fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
+    fs::path suggested = base / "export.png";
+    dialogs.ShowSaveFileDialog(kDialog_ExportImage, window, filters, suggested.string());
+}
+
 void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* focused_canvas, const Callbacks& cb)
 {
     const bool has_focus_canvas = (focused_canvas != nullptr);
@@ -160,6 +178,15 @@ void IoManager::RenderFileMenu(SDL_Window* window, SdlFileDialogQueue& dialogs, 
         RequestExportAnsi(window, dialogs);
     }
 
+    if (!has_focus_canvas)
+        ImGui::BeginDisabled();
+    if (ImGui::MenuItem("Export Image..."))
+    {
+        RequestExportImage(window, dialogs);
+    }
+    if (!has_focus_canvas)
+        ImGui::EndDisabled();
+
     (void)cb;
 }
 
@@ -168,7 +195,8 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
     // Ignore dialogs not owned by IoManager.
     if (r.tag != kDialog_SaveProject &&
         r.tag != kDialog_LoadFile &&
-        r.tag != kDialog_ExportAnsi)
+        r.tag != kDialog_ExportAnsi &&
+        r.tag != kDialog_ExportImage)
         return;
 
     if (!r.error.empty())
@@ -256,7 +284,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         const bool looks_project = is_ext({"phos"});
         const bool looks_plaintext = ExtIn(ext, formats::plaintext::ImportExtensions());
         const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
-        const bool looks_image = is_ext({"png", "jpg", "jpeg", "gif", "bmp"});
+        const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
 
         auto try_load_project = [&]() -> bool
         {
@@ -424,6 +452,36 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         {
             m_last_error = err.empty() ? "Export failed." : err;
         }
+    }
+    else if (r.tag == kDialog_ExportImage)
+    {
+        if (!focused_canvas)
+        {
+            m_last_error = "No focused canvas to export.";
+            return;
+        }
+
+        std::string path = chosen;
+        if (!is_uri(path))
+        {
+            fs::path p(path);
+            // Default to .png if user omitted extension.
+            if (p.extension().empty())
+                path += ".png";
+        }
+
+        formats::image::ExportOptions opt;
+        opt.scale = 2;
+        opt.transparent_unset_bg = false;
+        opt.png_bit_depth = 32;
+        opt.png_compression = 6;
+        opt.jpg_quality = 95;
+
+        const bool ok = formats::image::ExportCanvasToFile(path, *focused_canvas, err, opt);
+        if (ok)
+            m_last_error.clear();
+        else
+            m_last_error = err.empty() ? "Export failed." : err;
     }
 }
 

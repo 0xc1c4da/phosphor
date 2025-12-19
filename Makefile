@@ -7,6 +7,7 @@ EXE       = phosphor
 # If you build outside of Nix, set IMGUI_DIR to a checkout of ocornut/imgui.
 IMGUI_DIR ?= vendor/imgui
 BUILD_DIR = build
+LDEPNG_DIR ?=
 
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
@@ -17,6 +18,7 @@ SOURCES  = \
            src/app/main.cpp \
            src/app/canvas_preview_texture.cpp \
            src/core/canvas.cpp \
+           src/core/canvas_rasterizer.cpp \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \
            src/core/paths.cpp \
@@ -44,10 +46,13 @@ SOURCES  = \
            src/ui/sixteen_colors_browser.cpp \
            src/io/http_client.cpp \
            src/io/formats/ansi.cpp \
+           src/io/formats/image.cpp \
            src/io/formats/plaintext.cpp \
            src/io/formats/sauce.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
+           src/io/image_writer.cpp \
+           src/io/lodepng_unit.cpp \
            src/io/io_manager.cpp \
            src/io/project_file.cpp \
            src/io/sdl_file_dialog_queue.cpp \
@@ -77,6 +82,9 @@ OBJS += $(ASSETS_OBJ)
 
 CXXFLAGS ?= -std=c++20 -O3
 CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -Isrc
+ifneq ($(strip $(LDEPNG_DIR)),)
+CXXFLAGS += -I$(LDEPNG_DIR)
+endif
 # Enable 32-bit ImWchar in Dear ImGui so Unscii glyphs above U+FFFF render correctly.
 CXXFLAGS += -DIMGUI_USE_WCHAR32
 CXXFLAGS += -g -Wall -Wextra -Wformat
