@@ -1659,11 +1659,12 @@ int main(int, char**)
         const std::string canvas_id = "canvas:" + sanitize_imgui_id(canvas_path) + "#" + std::to_string(canvas.id);
         std::string title = canvas_path + "##" + canvas_id;
 
+            const auto it = session_state.imgui_windows.find(title);
+            const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
+
             // First-time canvas window placement: size to the grid (cols x rows) at the
             // current font + zoom, and center it. Persisted placements still win.
             {
-                const auto it = session_state.imgui_windows.find(title);
-                const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
                 if (!has_saved)
                 {
                     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -1673,10 +1674,11 @@ int main(int, char**)
                                         work_pos.y + work_size.y * 0.5f);
 
                     // Match the canvas' internal cell sizing logic.
-                    ImFont* font = ImGui::GetFont();
                     const float font_size = ImGui::GetFontSize();
-                    const float base_cell_w = font ? font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, "M", "M" + 1).x : 8.0f;
-                    const float base_cell_h = font_size;
+                    // Unscii 16px font is 8px wide per cell; keep that ratio under scaling.
+                    // This matches the desired "cols * font width (8)" behavior.
+                    const float base_cell_w = std::max(1.0f, font_size * 0.5f);
+                    const float base_cell_h = std::max(1.0f, font_size);
                     const float zoom = canvas.canvas.GetZoom();
 
                     float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
@@ -1718,7 +1720,13 @@ int main(int, char**)
                 }
             }
 
-            ApplyImGuiWindowPlacement(session_state, title.c_str(), should_apply_placement(title.c_str()));
+            // IMPORTANT:
+            // ApplyImGuiWindowPlacement() provides a generic centered default for windows
+            // without persisted placements, which would override our canvas-specific
+            // first-time sizing above. Therefore, only apply it when we actually have
+            // a saved placement.
+            ApplyImGuiWindowPlacement(session_state, title.c_str(),
+                                      has_saved && should_apply_placement(title.c_str()));
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, title.c_str());
