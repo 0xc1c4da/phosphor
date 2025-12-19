@@ -200,6 +200,8 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["magic"] = "utf8-art-editor";
     j["version"] = st.version;
     j["undo_limit"] = st.undo_limit;
+    if (!st.colour_palette_title.empty())
+        j["colour_palette_title"] = st.colour_palette_title;
     j["sauce"] = SauceMetaToJson(st.sauce);
     j["current"] = ProjectSnapshotToJson(st.current);
 
@@ -248,6 +250,10 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     // Optional SAUCE metadata (safe default if absent).
     if (j.contains("sauce"))
         SauceMetaFromJson(j["sauce"], out.sauce);
+
+    // Optional UI colour palette identity.
+    if (j.contains("colour_palette_title") && j["colour_palette_title"].is_string())
+        out.colour_palette_title = j["colour_palette_title"].get<std::string>();
 
     if (!j.contains("current"))
     {

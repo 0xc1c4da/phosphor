@@ -236,6 +236,14 @@ public:
     {
         int                     version = 1;
 
+        // Optional: UI colour palette identity (from assets/color-palettes.json).
+        // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
+        // when editing/importing artwork. It does NOT affect the stored per-cell colors.
+        //
+        // Stored as a palette title (string) rather than an index so it remains stable if the
+        // palette list is reordered.
+        std::string             colour_palette_title;
+
         // Optional SAUCE metadata associated with this canvas/project.
         // This is persisted in .phos and session state, and may be populated when importing
         // SAUCEd files (e.g. .ans). It is not currently used by the renderer.
@@ -276,6 +284,11 @@ public:
     // SAUCE metadata accessors (stored alongside the canvas, persisted via ProjectState).
     const ProjectState::SauceMeta& GetSauceMeta() const { return m_sauce; }
     void SetSauceMeta(const ProjectState::SauceMeta& meta) { m_sauce = meta; }
+
+    // Optional: UI colour palette identity (persisted via ProjectState).
+    const std::string& GetColourPaletteTitle() const { return m_colour_palette_title; }
+    void SetColourPaletteTitle(const std::string& title) { m_colour_palette_title = title; }
+    void ClearColourPaletteTitle() { m_colour_palette_title.clear(); }
 
     // ---------------------------------------------------------------------
     // Canvas font selection (persisted via SAUCE TInfoS)
@@ -538,6 +551,9 @@ private:
 
     // Optional SAUCE metadata associated with this canvas (persisted).
     ProjectState::SauceMeta m_sauce;
+
+    // Optional UI colour palette title (persisted via ProjectState).
+    std::string m_colour_palette_title;
 
     // Optional embedded bitmap font (not currently serialized into .phos; supplied by some importers like XBin).
     std::optional<EmbeddedBitmapFont> m_embedded_font;

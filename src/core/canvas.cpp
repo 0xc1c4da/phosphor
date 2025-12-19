@@ -3209,6 +3209,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
 
     ProjectState out;
     out.version = 3;
+    out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
     out.current = to_project_snapshot(MakeSnapshot());
     out.undo_limit = m_undo_limit;
@@ -3316,6 +3317,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
 
     // Metadata (non-undoable, persisted).
     m_sauce = state.sauce;
+    m_colour_palette_title = state.colour_palette_title;
 
     ApplySnapshot(current_internal);
 

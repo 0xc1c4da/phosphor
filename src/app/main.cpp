@@ -1752,6 +1752,29 @@ int main(int, char**)
                     xterm_selected_palette = 0;
             }
 
+            // If the active canvas has a stored palette title, sync the picker to it when switching canvases.
+            // This makes palette inference (on ANSI import) immediately visible in the UI, and makes palette
+            // selection effectively per-canvas (persisted via ProjectState in session/.phos).
+            {
+                static int last_synced_canvas_id = -1;
+                if (active_canvas && !palettes.empty() && last_active_canvas_id != last_synced_canvas_id)
+                {
+                    last_synced_canvas_id = last_active_canvas_id;
+                    const std::string& want = active_canvas->GetColourPaletteTitle();
+                    if (!want.empty())
+                    {
+                        for (int i = 0; i < (int)palettes.size(); ++i)
+                        {
+                            if (palettes[i].title == want)
+                            {
+                                xterm_selected_palette = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Foreground / Background selector at the top (centered).
             {
                 float sz     = ImGui::GetFrameHeight() * 2.0f;
@@ -1828,6 +1851,8 @@ int main(int, char**)
             {
                 saved_palette = palettes[xterm_selected_palette].colors;
                 last_palette_index = xterm_selected_palette;
+                if (active_canvas && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
+                    active_canvas->SetColourPaletteTitle(palettes[xterm_selected_palette].title);
             }
 
             ImGui::BeginGroup();
