@@ -2263,6 +2263,23 @@ int main(int, char**)
                     if (hk.select_all) pressed_actions.push_back("edit.select_all");
                     if (hk.cancel) pressed_actions.push_back("selection.clear_or_cancel");
                     if (hk.delete_selection) pressed_actions.push_back("selection.delete");
+
+                    // Forward additional actions for the Select tool (transforms, etc).
+                    // These are intentionally tool-gated, since some ids (like "R") would otherwise
+                    // interfere with typing tools.
+                    // TODO WARN THIS IS A HACK, NEED A MORE GENERAL SOLUTION FOR TOOLS REGISTERING KEYBINDINGS
+                    if (active_tool_id() == "select")
+                    {
+                        auto push_if_pressed = [&](std::string_view id) {
+                            if (keybinds.ActionPressed(id, kctx))
+                                pressed_actions.push_back(std::string(id));
+                        };
+                        push_if_pressed("selection.op.rotate_cw");
+                        push_if_pressed("selection.op.flip_x");
+                        push_if_pressed("selection.op.flip_y");
+                        push_if_pressed("selection.op.center");
+                        push_if_pressed("selection.crop");
+                    }
                     ctx.actions_pressed = &pressed_actions;
                 }
 
@@ -2314,6 +2331,71 @@ int main(int, char**)
                         case ToolCommand::Type::ToolActivate:
                         {
                             activate_tool_by_id(cmd.tool_id);
+                        } break;
+                        case ToolCommand::Type::CanvasCropToSelection:
+                        {
+                            // Crop entire canvas geometry to current selection bounds (all layers),
+                            // moving the selected region to the origin (0,0).
+                            if (c.IsMovingSelection())
+                                (void)c.CommitMoveSelection();
+                            if (!c.HasSelection())
+                                break;
+
+                            const AnsiCanvas::Rect r = c.GetSelectionRect();
+                            if (r.w <= 0 || r.h <= 0)
+                                break;
+
+                            struct CropCell
+                            {
+                                char32_t cp = U' ';
+                                AnsiCanvas::Color32 fg = 0;
+                                AnsiCanvas::Color32 bg = 0;
+                            };
+
+                            const int layer_count = c.GetLayerCount();
+                            std::vector<std::vector<CropCell>> saved;
+                            saved.resize(std::max(0, layer_count));
+                            const size_t n = (size_t)r.w * (size_t)r.h;
+                            for (int li = 0; li < layer_count; ++li)
+                            {
+                                saved[(size_t)li].assign(n, CropCell{});
+                                for (int y = 0; y < r.h; ++y)
+                                    for (int x = 0; x < r.w; ++x)
+                                    {
+                                        const int sx = r.x + x;
+                                        const int sy = r.y + y;
+                                        const size_t idx = (size_t)y * (size_t)r.w + (size_t)x;
+                                        CropCell cell;
+                                        cell.cp = c.GetLayerCell(li, sy, sx);
+                                        (void)c.GetLayerCellColors(li, sy, sx, cell.fg, cell.bg);
+                                        saved[(size_t)li][idx] = cell;
+                                    }
+                            }
+
+                            // Resize canvas (undoable within current capture scope).
+                            c.SetColumns(r.w);
+                            c.SetRows(r.h);
+
+                            // Clear + restore selection contents at origin.
+                            for (int li = 0; li < layer_count; ++li)
+                            {
+                                (void)c.ClearLayer(li, U' ');
+                                const std::vector<CropCell>& cells = saved[(size_t)li];
+                                for (int y = 0; y < r.h; ++y)
+                                    for (int x = 0; x < r.w; ++x)
+                                    {
+                                        const size_t idx = (size_t)y * (size_t)r.w + (size_t)x;
+                                        if (idx >= cells.size())
+                                            continue;
+                                        const CropCell& cell = cells[idx];
+                                        if (cell.fg != 0 || cell.bg != 0)
+                                            (void)c.SetLayerCell(li, y, x, cell.cp, cell.fg, cell.bg);
+                                        else
+                                            (void)c.SetLayerCell(li, y, x, cell.cp);
+                                    }
+                            }
+
+                            c.SetSelectionCorners(0, 0, r.w - 1, r.h - 1);
                         } break;
                         }
                     }
@@ -2544,8 +2626,9 @@ int main(int, char**)
             show_settings_window = settings_window.IsOpen();
         }
 
-        // Chafa conversion dialog (may create a new canvas on accept).
-        image_to_chafa_dialog.Render();
+        // Chafa conversion UI (may create a new canvas on accept).
+        image_to_chafa_dialog.Render(&session_state,
+                                    should_apply_placement("Image \xE2\x86\x92 ANSI (Chafa)##chafa_preview"));
         {
             AnsiCanvas converted;
             if (image_to_chafa_dialog.TakeAccepted(converted))

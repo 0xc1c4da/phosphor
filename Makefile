@@ -17,6 +17,7 @@ endif
 SOURCES  = \
            src/app/main.cpp \
            src/app/canvas_preview_texture.cpp \
+           src/io/convert/chafa_convert.cpp \
            src/core/canvas.cpp \
            src/core/fonts.cpp \
            src/core/canvas_rasterizer.cpp \

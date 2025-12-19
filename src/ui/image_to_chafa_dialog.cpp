@@ -2,453 +2,477 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
-#include "io/formats/ansi.h"
-
 #include "imgui.h"
+#include "io/session/imgui_persistence.h"
+#include "misc/cpp/imgui_stdlib.h"
+#include "ui/imgui_window_chrome.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
-#include <cstring>
-// Chafa (C library)
-#include <chafa.h>
+#include <utility>
 
 namespace
 {
-static void DebugPrintEscapedAnsiBytes(const char* label, const std::vector<std::uint8_t>& bytes, size_t max_bytes)
+static constexpr double kPreviewDebounceSeconds = 0.15;
+
+static ImVec2 ClampToViewportWorkArea(const ImVec2& pos, const ImVec2& size, const ImGuiViewport* vp)
 {
-    std::fprintf(stdout, "[chafa-debug] %s: %zu bytes\n", label ? label : "(bytes)", bytes.size());
-    const size_t n = std::min(bytes.size(), max_bytes);
-    std::fprintf(stdout, "[chafa-debug] %s (escaped, first %zu bytes):\n", label ? label : "(bytes)", n);
-    for (size_t i = 0; i < n; ++i)
-    {
-        const unsigned char c = (unsigned char)bytes[i];
-        if (c == 0x1B) { std::fputs("\\x1b", stdout); continue; }     // ESC
-        if (c == '\n') { std::fputs("\\n\n", stdout); continue; }     // newline + real newline for readability
-        if (c == '\r') { std::fputs("\\r", stdout); continue; }
-        if (c == '\t') { std::fputs("\\t", stdout); continue; }
-        if (c < 0x20 || c == 0x7F)
-        {
-            std::fprintf(stdout, "\\x%02X", (unsigned)c);
-            continue;
-        }
-        std::fputc((int)c, stdout);
-    }
-    if (bytes.size() > n)
-        std::fprintf(stdout, "\n[chafa-debug] ... truncated (%zu more bytes)\n", bytes.size() - n);
-    std::fputc('\n', stdout);
-    std::fflush(stdout);
-}
+    if (!vp)
+        return pos;
+    const ImVec2 vp_min = vp->WorkPos;
+    const ImVec2 vp_max = ImVec2(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y);
 
-static void DebugPrintCanvasStats(const char* label, const AnsiCanvas& c)
-{
-    const int rows = c.GetRows();
-    const int cols = c.GetColumns();
-    size_t non_space = 0;
-    size_t fg_set = 0;
-    size_t bg_set = 0;
-
-    for (int r = 0; r < rows; ++r)
-    {
-        for (int col = 0; col < cols; ++col)
-        {
-            AnsiCanvas::Color32 fg = 0, bg = 0;
-            const char32_t cp = c.GetLayerCell(0, r, col);
-            c.GetLayerCellColors(0, r, col, fg, bg);
-            if (cp != U' ')
-                non_space++;
-            if (fg != 0)
-                fg_set++;
-            if (bg != 0)
-                bg_set++;
-        }
-    }
-
-    std::fprintf(stdout,
-                 "[chafa-debug] %s: cols=%d rows=%d non_space=%zu fg_set=%zu bg_set=%zu\n",
-                 label ? label : "(canvas)", cols, rows, non_space, fg_set, bg_set);
-    std::fflush(stdout);
-}
-
-static void DebugPrintImageSamples(const ImageToChafaDialog::ImageRgba& src)
-{
-    auto sample = [&](int x, int y)
-    {
-        if (x < 0) x = 0;
-        if (y < 0) y = 0;
-        if (x >= src.width) x = src.width - 1;
-        if (y >= src.height) y = src.height - 1;
-        const size_t off = (size_t)y * (size_t)src.rowstride + (size_t)x * 4u;
-        if (off + 3 >= src.pixels.size())
-        {
-            std::fprintf(stdout, "[chafa-debug] sample(%d,%d): out of range\n", x, y);
-            return;
-        }
-        const unsigned r = src.pixels[off + 0];
-        const unsigned g = src.pixels[off + 1];
-        const unsigned b = src.pixels[off + 2];
-        const unsigned a = src.pixels[off + 3];
-        std::fprintf(stdout, "[chafa-debug] sample(%d,%d) RGBA=(%u,%u,%u,%u)\n", x, y, r, g, b, a);
-    };
-
-    std::fprintf(stdout, "[chafa-debug] src: w=%d h=%d rowstride=%d pixels=%zu\n",
-                 src.width, src.height, src.rowstride, src.pixels.size());
-    sample(0, 0);
-    sample(src.width / 2, src.height / 2);
-    sample(src.width - 1, src.height - 1);
-    std::fflush(stdout);
-}
-
-static void DebugPrintChafaCanvasSamples(ChafaCanvas* canvas, int w, int h)
-{
-    if (!canvas || w <= 0 || h <= 0)
-        return;
-
-    auto sample = [&](int x, int y)
-    {
-        if (x < 0) x = 0;
-        if (y < 0) y = 0;
-        if (x >= w) x = w - 1;
-        if (y >= h) y = h - 1;
-        gunichar ch = chafa_canvas_get_char_at(canvas, x, y);
-        gint fg_raw = -1, bg_raw = -1;
-        chafa_canvas_get_raw_colors_at(canvas, x, y, &fg_raw, &bg_raw);
-        std::fprintf(stdout, "[chafa-debug] canvas(%d,%d): ch=U+%04X fg_raw=%d bg_raw=%d\n",
-                     x, y, (unsigned)ch, (int)fg_raw, (int)bg_raw);
-    };
-
-    sample(0, 0);
-    sample(w / 2, h / 2);
-    sample(w - 1, h - 1);
-    std::fflush(stdout);
-}
-
-static ChafaDitherMode ToDitherMode(int ui_value)
-{
-    switch (ui_value)
-    {
-        case 0: return CHAFA_DITHER_MODE_NONE;
-        case 1: return CHAFA_DITHER_MODE_ORDERED;
-        case 2: return CHAFA_DITHER_MODE_DIFFUSION;
-        case 3: return CHAFA_DITHER_MODE_NOISE;
-        default: return CHAFA_DITHER_MODE_DIFFUSION;
-    }
-}
-
-static ChafaCanvasMode ToCanvasMode(int ui_value)
-{
-    switch (ui_value)
-    {
-        case 0: return CHAFA_CANVAS_MODE_INDEXED_256;
-        case 1: return CHAFA_CANVAS_MODE_TRUECOLOR;
-        default: return CHAFA_CANVAS_MODE_INDEXED_256;
-    }
-}
-
-static ChafaSymbolTags ToSymbolTags(int preset)
-{
-    switch (preset)
-    {
-        // NOTE: We intentionally exclude SPACE from the symbol set for the preview.
-        // Chafa can represent pixels using "colored spaces" (foreground only), but our
-        // renderer skips drawing spaces unless they have a background fill. Excluding
-        // SPACE forces visible glyph output (blocks/braille/etc).
-        case 0: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_ALL & ~CHAFA_SYMBOL_TAG_SPACE);
-        case 1: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_BLOCK | CHAFA_SYMBOL_TAG_HALF | CHAFA_SYMBOL_TAG_QUAD |
-                                         CHAFA_SYMBOL_TAG_SEXTANT | CHAFA_SYMBOL_TAG_OCTANT |
-                                         CHAFA_SYMBOL_TAG_SOLID | CHAFA_SYMBOL_TAG_STIPPLE);
-        case 2: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_ASCII);
-        case 3: return (ChafaSymbolTags)(CHAFA_SYMBOL_TAG_BRAILLE);
-        default: return CHAFA_SYMBOL_TAG_ALL;
-    }
-}
-
-static bool ConvertRgbaToAnsiCanvas(const ImageToChafaDialog::ImageRgba& src,
-                                   const ImageToChafaDialog::Settings& s,
-                                   AnsiCanvas& out,
-                                   std::string& out_err)
-{
-    out_err.clear();
-
-    if (src.width <= 0 || src.height <= 0 || src.pixels.empty())
-    {
-        out_err = "No image data.";
-        return false;
-    }
-    if (src.rowstride <= 0 || src.rowstride < src.width * 4)
-    {
-        out_err = "Invalid rowstride.";
-        return false;
-    }
-
-    if (s.debug_stdout)
-        DebugPrintImageSamples(src);
-
-    // Compute output geometry.
-    gint out_w = std::max(1, s.out_cols);
-    // IMPORTANT: For chafa_calc_canvas_geometry(), a dimension of 0 means "explicitly zero",
-    // which forces both outputs to 0. Use < 0 to mark an unspecified dimension.
-    gint out_h = s.auto_rows ? -1 : std::max(1, s.out_rows);
-
-    const gfloat font_ratio = std::clamp(s.font_ratio, 0.1f, 4.0f);
-    chafa_calc_canvas_geometry((gint)src.width,
-                              (gint)src.height,
-                              &out_w,
-                              &out_h,
-                              font_ratio,
-                              (gboolean)(s.zoom ? TRUE : FALSE),
-                              (gboolean)(s.stretch ? TRUE : FALSE));
-
-    if (out_w <= 0) out_w = 1;
-    if (out_h <= 0) out_h = 1;
-
-    ChafaCanvasConfig* cfg = chafa_canvas_config_new();
-    if (!cfg)
-    {
-        out_err = "chafa_canvas_config_new() failed.";
-        return false;
-    }
-
-    // Ensure we always generate character art (not sixel/kitty/etc).
-    chafa_canvas_config_set_pixel_mode(cfg, CHAFA_PIXEL_MODE_SYMBOLS);
-
-    chafa_canvas_config_set_geometry(cfg, out_w, out_h);
-    chafa_canvas_config_set_canvas_mode(cfg, ToCanvasMode(s.canvas_mode));
-    chafa_canvas_config_set_preprocessing_enabled(cfg, (gboolean)(s.preprocessing ? TRUE : FALSE));
-    // NOTE: Chafa's "transparency threshold" is inverted internally (it stores an opacity threshold).
-    // Passing 0.0 maps to an internal alpha threshold of 256, which makes even fully-opaque (255) pixels
-    // become transparent. Our UI semantics are: 0.0 = no extra transparency, 1.0 = everything transparent.
-    const float ui_t = std::clamp(s.transparency_threshold, 0.0f, 1.0f);
-    chafa_canvas_config_set_transparency_threshold(cfg, 1.0f - ui_t);
-
-    // Dithering controls (mode + intensity).
-    chafa_canvas_config_set_dither_mode(cfg, ToDitherMode(s.dither_mode));
-    chafa_canvas_config_set_dither_intensity(cfg, std::clamp(s.dither_intensity, 0.0f, 1.0f));
-
-    // Symbol selection.
-    ChafaSymbolMap* sym = chafa_symbol_map_new();
-    if (sym)
-    {
-        // IMPORTANT: Chafa uses a separate "fill symbol map" for choosing fill characters.
-        // If it's empty, some configurations degenerate into SPACE-only output. We keep
-        // symbol_map and fill_symbol_map in sync for predictable results.
-        chafa_symbol_map_add_by_tags(sym, ToSymbolTags(s.symbol_preset));
-        // Be explicit: keep spaces available for padding, but don't allow them as a chosen symbol.
-        chafa_symbol_map_remove_by_tags(sym, CHAFA_SYMBOL_TAG_SPACE);
-        chafa_canvas_config_set_symbol_map(cfg, sym);
-        chafa_canvas_config_set_fill_symbol_map(cfg, sym);
-        chafa_symbol_map_unref(sym);
-    }
-
-    ChafaCanvas* canvas = chafa_canvas_new(cfg);
-    chafa_canvas_config_unref(cfg);
-    cfg = nullptr;
-
-    if (!canvas)
-    {
-        out_err = "chafa_canvas_new() failed.";
-        return false;
-    }
-
-    chafa_canvas_draw_all_pixels(canvas,
-                                 CHAFA_PIXEL_RGBA8_UNASSOCIATED,
-                                 (const guint8*)src.pixels.data(),
-                                 (gint)src.width,
-                                 (gint)src.height,
-                                 (gint)src.rowstride);
-
-    if (s.debug_stdout)
-        DebugPrintChafaCanvasSamples(canvas, (int)out_w, (int)out_h);
-
-    // IMPORTANT: Chafa's printable output is UTF-8 + terminal escape sequences.
-    // We intentionally run it through our ANSI importer so preview matches the "real" import path.
-    GString* gs = chafa_canvas_print(canvas, nullptr);
-    chafa_canvas_unref(canvas);
-
-    if (!gs)
-    {
-        out_err = "chafa_canvas_print() failed.";
-        return false;
-    }
-
-    std::vector<std::uint8_t> bytes;
-    bytes.resize((size_t)gs->len);
-    if (gs->len > 0 && gs->str)
-        std::memcpy(bytes.data(), gs->str, (size_t)gs->len);
-
-    if (s.debug_stdout)
-    {
-        std::fprintf(stdout,
-                     "[chafa-debug] chafa_canvas_print: len=%u\n",
-                     (unsigned)gs->len);
-        if (s.debug_dump_raw_ansi)
-        {
-            std::fputs("[chafa-debug] RAW ANSI START\n", stdout);
-            if (gs->len > 0 && gs->str)
-                std::fwrite(gs->str, 1, (size_t)gs->len, stdout);
-            std::fputs("\n[chafa-debug] RAW ANSI END\n", stdout);
-        }
-        DebugPrintEscapedAnsiBytes("chafa_output", bytes, 4096);
-    }
-    g_string_free(gs, TRUE);
-
-    formats::ansi::ImportOptions opt;
-    opt.columns = (int)out_w;
-    // Force UTF-8 decoding even though the stream contains ESC sequences.
-    // Chafa's docs guarantee UTF-8 output regardless of locale.
-    opt.cp437 = false;
-    // Don't force an opaque default background for generated output.
-    opt.default_bg_unset = true;
-    // Avoid libansilove-style eager wrap for generated output; chafa may emit explicit
-    // newlines at the row boundary, which would double-advance with eager wrapping.
-    opt.wrap_policy = formats::ansi::ImportOptions::WrapPolicy::PutOnly;
-
-    AnsiCanvas imported;
-    std::string ierr;
-    if (!formats::ansi::ImportBytesToCanvas(bytes, imported, ierr, opt))
-    {
-        out_err = ierr.empty() ? "ANSI import failed." : ierr;
-        return false;
-    }
-
-    if (s.debug_stdout)
-        DebugPrintCanvasStats("imported_preview", imported);
-
-    out = std::move(imported);
-    return true;
+    // Avoid negative ranges if the viewport is tiny.
+    const float max_x = std::max(vp_min.x, vp_max.x - size.x);
+    const float max_y = std::max(vp_min.y, vp_max.y - size.y);
+    return ImVec2(std::clamp(pos.x, vp_min.x, max_x), std::clamp(pos.y, vp_min.y, max_y));
 }
 } // namespace
 
+ImageToChafaDialog::~ImageToChafaDialog()
+{
+    StopWorker();
+}
+
 void ImageToChafaDialog::Open(ImageRgba src)
 {
+    StopWorker();
+
     src_ = std::move(src);
     if (src_.rowstride <= 0)
         src_.rowstride = src_.width * 4;
 
     open_ = true;
-    open_popup_next_frame_ = true;
     dirty_ = true;
+    dirty_since_ = -1e9; // enqueue immediately on first Render()
     error_.clear();
     has_preview_ = false;
+    accepted_ = false;
+    preview_inflight_ = false;
+    requested_gen_ = 0;
+    applied_gen_ = 0;
+    pending_job_.reset();
+    completed_.reset();
+
+    // Default to pinned settings whenever a new conversion is opened.
+    settings_pinned_ = true;
+
+    StartWorker();
 }
 
 bool ImageToChafaDialog::RegeneratePreview()
 {
-    AnsiCanvas next;
-    std::string err;
-    if (!ConvertRgbaToAnsiCanvas(src_, settings_, next, err))
-    {
-        error_ = err.empty() ? "Conversion failed." : err;
-        has_preview_ = false;
-        return false;
-    }
-
-    preview_ = std::move(next);
-    has_preview_ = true;
-    error_.clear();
-    return true;
+    EnqueuePreviewJob();
+    return true; // async
 }
 
-void ImageToChafaDialog::Render()
+void ImageToChafaDialog::StartWorker()
+{
+    if (worker_running_)
+        return;
+    worker_running_ = true;
+
+    worker_ = std::thread([this]()
+    {
+        for (;;)
+        {
+            Job job;
+            {
+                std::unique_lock<std::mutex> lock(mu_);
+                cv_.wait(lock, [&]() { return !worker_running_ || pending_job_.has_value(); });
+                if (!worker_running_)
+                    return;
+                job = std::move(*pending_job_);
+                pending_job_.reset();
+            }
+
+            Result res;
+            res.gen = job.gen;
+
+            if (!job.src)
+            {
+                res.ok = false;
+                res.err = "No image data.";
+            }
+            else
+            {
+                AnsiCanvas out;
+                std::string err;
+                res.ok = chafa_convert::ConvertRgbaToAnsiCanvas(*job.src, job.settings, out, err);
+                res.err = std::move(err);
+                if (res.ok)
+                    res.canvas = std::move(out);
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(mu_);
+                completed_ = std::move(res);
+            }
+        }
+    });
+}
+
+void ImageToChafaDialog::StopWorker()
+{
+    if (!worker_running_)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        worker_running_ = false;
+        pending_job_.reset();
+        completed_.reset();
+    }
+    cv_.notify_all();
+    if (worker_.joinable())
+        worker_.join();
+    preview_inflight_ = false;
+}
+
+void ImageToChafaDialog::EnqueuePreviewJob()
+{
+    if (!open_)
+        return;
+    StartWorker();
+
+    Job j;
+    j.gen = ++requested_gen_;
+    j.src = &src_;
+    j.settings = settings_;
+
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        pending_job_ = std::move(j);
+    }
+    preview_inflight_ = true;
+    cv_.notify_one();
+}
+
+void ImageToChafaDialog::PollPreviewResult()
+{
+    Result r;
+    bool have = false;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (completed_)
+        {
+            r = std::move(*completed_);
+            completed_.reset();
+            have = true;
+        }
+    }
+    if (!have)
+        return;
+
+    // Stale result (a newer job was requested).
+    if (r.gen != requested_gen_)
+        return;
+
+    applied_gen_ = r.gen;
+    preview_inflight_ = false;
+
+    if (!r.ok)
+    {
+        error_ = r.err.empty() ? "Conversion failed." : r.err;
+        has_preview_ = false;
+        return;
+    }
+
+    preview_ = std::move(r.canvas);
+    has_preview_ = true;
+    error_.clear();
+}
+
+void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this_frame)
 {
     if (!open_)
         return;
 
-    if (open_popup_next_frame_)
+    StartWorker();
+    PollPreviewResult();
+
+    // Debounced conversion scheduling.
+    const double now = ImGui::GetTime();
+    if (dirty_ && (now - dirty_since_) >= kPreviewDebounceSeconds)
     {
-        ImGui::OpenPopup("Convert Image to ANSI");
-        open_popup_next_frame_ = false;
+        EnqueuePreviewJob();
+        dirty_ = false;
     }
 
-    ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize;
-    if (!ImGui::BeginPopupModal("Convert Image to ANSI", &open_, flags))
-        return;
+    // ---------------------------------------------------------------------
+    // Preview window (regular resizable window; the canvas itself handles scrolling)
+    // ---------------------------------------------------------------------
+    const char* preview_title = "Image \xE2\x86\x92 ANSI (Chafa)##chafa_preview";
+    if (session)
+        ApplyImGuiWindowPlacement(*session, preview_title, apply_placement_this_frame);
+    ImGui::SetNextWindowSize(ImVec2(1100.0f, 720.0f), ImGuiCond_Appearing);
 
-    // Settings UI (left) + Preview (right).
-    ImGui::Text("Source: %s", src_.label.empty() ? "(image)" : src_.label.c_str());
-    ImGui::Text("Size: %dx%d", src_.width, src_.height);
-    ImGui::Separator();
+    const ImGuiWindowFlags preview_flags =
+        ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse |
+        (session ? GetImGuiWindowChromeExtraFlags(*session, preview_title) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, preview_title);
 
-    bool changed = false;
-
-    ImGui::BeginGroup();
+    if (!ImGui::Begin(preview_title, &open_, preview_flags))
     {
-        changed |= ImGui::InputInt("Columns", &settings_.out_cols);
-        settings_.out_cols = std::clamp(settings_.out_cols, 1, 400);
-
-        changed |= ImGui::Checkbox("Auto rows", &settings_.auto_rows);
-        if (!settings_.auto_rows)
+        if (session)
+            CaptureImGuiWindowPlacement(*session, preview_title);
+        ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
+        // If the window was closed via the titlebar, also close the attached settings.
+        if (!open_)
         {
-            changed |= ImGui::InputInt("Rows", &settings_.out_rows);
-            settings_.out_rows = std::clamp(settings_.out_rows, 1, 400);
-        }
-        else
-        {
-            ImGui::TextDisabled("Rows: auto");
-        }
-
-        changed |= ImGui::SliderFloat("Font ratio (w/h)", &settings_.font_ratio, 0.2f, 2.0f, "%.3f");
-        changed |= ImGui::Checkbox("Zoom", &settings_.zoom);
-        changed |= ImGui::Checkbox("Stretch", &settings_.stretch);
-
-        const char* mode_items[] = {"Indexed 256 (xterm)", "Truecolor"};
-        changed |= ImGui::Combo("Color mode", &settings_.canvas_mode, mode_items, IM_ARRAYSIZE(mode_items));
-
-        const char* sym_items[] = {"All", "Blocks", "ASCII", "Braille"};
-        changed |= ImGui::Combo("Symbols", &settings_.symbol_preset, sym_items, IM_ARRAYSIZE(sym_items));
-
-        const char* dither_items[] = {"None", "Ordered", "Diffusion", "Noise"};
-        changed |= ImGui::Combo("Dither", &settings_.dither_mode, dither_items, IM_ARRAYSIZE(dither_items));
-        changed |= ImGui::SliderFloat("Dither intensity", &settings_.dither_intensity, 0.0f, 1.0f, "%.2f");
-
-        changed |= ImGui::Checkbox("Preprocessing", &settings_.preprocessing);
-        changed |= ImGui::SliderFloat("Transparency threshold", &settings_.transparency_threshold, 0.0f, 1.0f, "%.2f");
-
-        ImGui::Separator();
-        changed |= ImGui::Checkbox("Debug to stdout", &settings_.debug_stdout);
-        if (settings_.debug_stdout)
-        {
-            changed |= ImGui::Checkbox("Dump RAW ANSI (danger)", &settings_.debug_dump_raw_ansi);
-            ImGui::TextDisabled("Tip: keep RAW off; use escaped dump to avoid terminal garbage.");
-        }
-    }
-    ImGui::EndGroup();
-
-    ImGui::SameLine();
-
-    ImGui::BeginGroup();
-    {
-        ImGui::TextUnformatted("Preview");
-        ImGui::Separator();
-
-        if (changed)
+            StopWorker();
+            src_ = ImageRgba{};
+            has_preview_ = false;
+            error_.clear();
             dirty_ = true;
-        if (dirty_)
-        {
-            RegeneratePreview();
-            dirty_ = false;
         }
-
-        if (!error_.empty())
-        {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error_.c_str());
-        }
-
-        ImVec2 preview_size(720.0f, 420.0f);
-        if (ImGui::BeginChild("chafa_preview_child", preview_size, true, ImGuiWindowFlags_HorizontalScrollbar))
-        {
-            if (has_preview_)
-                preview_.Render("chafa_preview_canvas", std::function<void(AnsiCanvas&, int)>{});
-            else
-                ImGui::TextUnformatted("(no preview)");
-            ImGui::EndChild();
-        }
+        return;
     }
-    ImGui::EndGroup();
+    {
+        if (session)
+        {
+            CaptureImGuiWindowPlacement(*session, preview_title);
+            ApplyImGuiWindowChromeZOrder(session, preview_title);
+            RenderImGuiWindowChromeMenu(session, preview_title);
+        }
 
+        // Track preview window rect for settings pinning.
+        const ImVec2 wp = ImGui::GetWindowPos();
+        const ImVec2 ws = ImGui::GetWindowSize();
+        preview_win_x_ = wp.x;
+        preview_win_y_ = wp.y;
+        preview_win_w_ = ws.x;
+        preview_win_h_ = ws.y;
+
+        ImGui::Text("Source: %s", src_.label.empty() ? "(image)" : src_.label.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%dx%d)", src_.width, src_.height);
+        ImGui::Separator();
+
+        if (preview_inflight_ || dirty_)
+            ImGui::TextDisabled("Preview updating\u2026");
+        if (!error_.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error_.c_str());
+
+        if (has_preview_)
+            preview_.Render("##chafa_preview_canvas", std::function<void(AnsiCanvas&, int)>{});
+        else
+            ImGui::TextUnformatted("(no preview)");
+    }
+    ImGui::End();
+    PopImGuiWindowChromeAlpha(alpha_pushed);
+
+    // If the preview window was closed, also close settings and drop state.
+    if (!open_)
+    {
+        StopWorker();
+        src_ = ImageRgba{};
+        has_preview_ = false;
+        error_.clear();
+        dirty_ = true;
+        return;
+    }
+
+    // ---------------------------------------------------------------------
+    // Settings window (separate floating window, pinned next to preview by default)
+    // ---------------------------------------------------------------------
+    const char* settings_title = "Chafa Settings##chafa_settings";
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float pad = 8.0f;
+
+    // Approximate size for pinning/clamping before we know the actual size.
+    const ImVec2 approx_size(420.0f, 640.0f);
+    ImVec2 desired(preview_win_x_ + preview_win_w_ + pad, preview_win_y_);
+    if (vp)
+    {
+        const float vp_right = vp->WorkPos.x + vp->WorkSize.x;
+        if (desired.x + approx_size.x > vp_right)
+            desired.x = preview_win_x_ - pad - approx_size.x;
+    }
+    desired = ClampToViewportWorkArea(desired, approx_size, vp);
+
+    if (settings_pinned_)
+        ImGui::SetNextWindowPos(desired, ImGuiCond_Always);
+    else
+        ImGui::SetNextWindowPos(desired, ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(approx_size, ImGuiCond_Appearing);
+
+    bool settings_open = open_;
+    if (!ImGui::Begin(settings_title, &settings_open, ImGuiWindowFlags_None))
+    {
+        ImGui::End();
+        open_ = settings_open;
+        return;
+    }
+
+    // Closing the settings window closes the whole conversion UI.
+    open_ = settings_open;
+    if (!open_)
+    {
+        StopWorker();
+        ImGui::End();
+        src_ = ImageRgba{};
+        has_preview_ = false;
+        error_.clear();
+        dirty_ = true;
+        return;
+    }
+
+    bool chrome_changed = false;
+    chrome_changed |= ImGui::Checkbox("Pin to preview", &settings_pinned_);
     ImGui::Separator();
 
-    const bool can_accept = has_preview_ && error_.empty();
+    // Scrollable settings body (so the window can stay a reasonable size).
+    const float footer_h = ImGui::GetFrameHeightWithSpacing() * 2.5f;
+    if (ImGui::BeginChild("##chafa_settings_scroll", ImVec2(0.0f, -footer_h), false))
+    {
+        bool conversion_changed = false;
+
+        if (ImGui::CollapsingHeader("Size & layout", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            conversion_changed |= ImGui::InputInt("Columns", &settings_.out_cols);
+            settings_.out_cols = std::clamp(settings_.out_cols, 1, 400);
+
+            conversion_changed |= ImGui::Checkbox("Auto rows", &settings_.auto_rows);
+            if (!settings_.auto_rows)
+            {
+                conversion_changed |= ImGui::InputInt("Rows", &settings_.out_rows);
+                settings_.out_rows = std::clamp(settings_.out_rows, 1, 400);
+            }
+            else
+            {
+                ImGui::TextDisabled("Rows: auto");
+            }
+
+            conversion_changed |= ImGui::SliderFloat("Font ratio (w/h)", &settings_.font_ratio, 0.2f, 2.0f, "%.3f");
+            conversion_changed |= ImGui::Checkbox("Zoom", &settings_.zoom);
+            conversion_changed |= ImGui::Checkbox("Stretch", &settings_.stretch);
+        }
+
+        if (ImGui::CollapsingHeader("Color & processing", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const char* mode_items[] =
+            {
+                "Indexed 256 (xterm)",
+                "Indexed 240",
+                "Indexed 16",
+                "Indexed 16/8",
+                "Indexed 8",
+                "Default fg/bg + invert",
+                "Default fg/bg (no codes)",
+            };
+            conversion_changed |= ImGui::Combo("Color mode", &settings_.canvas_mode, mode_items, IM_ARRAYSIZE(mode_items));
+            settings_.canvas_mode = std::clamp(settings_.canvas_mode, 0, (int)IM_ARRAYSIZE(mode_items) - 1);
+
+            const char* extractor_items[] = {"Average", "Median"};
+            conversion_changed |= ImGui::Combo("Color extractor", &settings_.color_extractor, extractor_items, IM_ARRAYSIZE(extractor_items));
+
+            const char* space_items[] = {"RGB (fast)", "DIN99d (perceptual)"};
+            conversion_changed |= ImGui::Combo("Color space", &settings_.color_space, space_items, IM_ARRAYSIZE(space_items));
+
+            conversion_changed |= ImGui::Checkbox("Preprocessing", &settings_.preprocessing);
+            conversion_changed |= ImGui::SliderFloat("Transparency threshold", &settings_.transparency_threshold, 0.0f, 1.0f, "%.2f");
+
+            conversion_changed |= ImGui::Checkbox("Foreground-only (fg-only)", &settings_.fg_only);
+
+            conversion_changed |= ImGui::Checkbox("Custom fg/bg colors", &settings_.use_custom_fg_bg);
+            if (settings_.use_custom_fg_bg)
+            {
+                conversion_changed |= ImGui::Checkbox("Invert fg/bg", &settings_.invert_fg_bg);
+
+                auto rgb_to_f3 = [](uint32_t rgb, float out[3])
+                {
+                    out[0] = ((rgb >> 16) & 0xFF) / 255.0f;
+                    out[1] = ((rgb >> 8) & 0xFF) / 255.0f;
+                    out[2] = (rgb & 0xFF) / 255.0f;
+                };
+                auto f3_to_rgb = [](const float in[3]) -> uint32_t
+                {
+                    const uint32_t r = (uint32_t)std::clamp((int)std::lround(in[0] * 255.0f), 0, 255);
+                    const uint32_t g = (uint32_t)std::clamp((int)std::lround(in[1] * 255.0f), 0, 255);
+                    const uint32_t b = (uint32_t)std::clamp((int)std::lround(in[2] * 255.0f), 0, 255);
+                    return (r << 16) | (g << 8) | b;
+                };
+
+                float fg[3] = {0, 0, 0};
+                float bg[3] = {0, 0, 0};
+                rgb_to_f3(settings_.fg_rgb, fg);
+                rgb_to_f3(settings_.bg_rgb, bg);
+
+                bool fg_changed = ImGui::ColorEdit3("FG", fg, ImGuiColorEditFlags_NoInputs);
+                bool bg_changed = ImGui::ColorEdit3("BG", bg, ImGuiColorEditFlags_NoInputs);
+                if (fg_changed) settings_.fg_rgb = f3_to_rgb(fg);
+                if (bg_changed) settings_.bg_rgb = f3_to_rgb(bg);
+                conversion_changed |= (fg_changed || bg_changed);
+            }
+
+            conversion_changed |= ImGui::SliderInt("Work", &settings_.work, 1, 9, "%d");
+            ImGui::TextDisabled("Higher work improves quality at the cost of CPU/time (maps to libchafa work_factor 0..1).");
+
+            conversion_changed |= ImGui::InputInt("Threads (-1=auto)", &settings_.threads);
+            settings_.threads = std::clamp(settings_.threads, -1, 256);
+        }
+
+        if (ImGui::CollapsingHeader("Symbols", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const char* sym_items[] = {"All", "Blocks", "ASCII", "Braille"};
+            conversion_changed |= ImGui::Combo("Preset", &settings_.symbol_preset, sym_items, IM_ARRAYSIZE(sym_items));
+
+            conversion_changed |= ImGui::Checkbox("Allow SPACE glyph", &settings_.allow_space);
+            ImGui::TextDisabled("Tip: SPACE often acts like 'invisible ink' in this editor unless it has BG fill.");
+
+            conversion_changed |= ImGui::InputTextWithHint("Symbols selectors", "e.g. block+border-diagonal", &settings_.symbols_selectors);
+            conversion_changed |= ImGui::InputTextWithHint("Fill selectors", "(blank = same as symbols)", &settings_.fill_selectors);
+            ImGui::TextDisabled("Selectors follow chafa CLI syntax: combine with + and -, e.g. all-wide or block+border-diagonal.");
+        }
+
+        if (ImGui::CollapsingHeader("Dithering", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const char* dither_items[] = {"None", "Ordered", "Diffusion", "Noise"};
+            conversion_changed |= ImGui::Combo("Mode", &settings_.dither_mode, dither_items, IM_ARRAYSIZE(dither_items));
+
+            int grain_idx = 2;
+            if (settings_.dither_grain <= 1) grain_idx = 0;
+            else if (settings_.dither_grain == 2) grain_idx = 1;
+            else if (settings_.dither_grain == 4) grain_idx = 2;
+            else grain_idx = 3;
+            const char* grain_items[] = {"1x1", "2x2", "4x4", "8x8"};
+            if (ImGui::Combo("Grain", &grain_idx, grain_items, IM_ARRAYSIZE(grain_items)))
+            {
+                settings_.dither_grain = (grain_idx == 0) ? 1 : (grain_idx == 1) ? 2 : (grain_idx == 2) ? 4 : 8;
+                conversion_changed = true;
+            }
+
+            conversion_changed |= ImGui::DragFloat("Intensity", &settings_.dither_intensity, 0.05f, 0.0f, 4.0f, "%.2f");
+        }
+
+        if (ImGui::CollapsingHeader("Debug"))
+        {
+            conversion_changed |= ImGui::Checkbox("Debug to stdout", &settings_.debug_stdout);
+            if (settings_.debug_stdout)
+            {
+                conversion_changed |= ImGui::Checkbox("Dump RAW ANSI (danger)", &settings_.debug_dump_raw_ansi);
+                ImGui::TextDisabled("Tip: keep RAW off; use escaped dump to avoid terminal garbage.");
+            }
+        }
+
+        if (conversion_changed)
+        {
+            dirty_ = true;
+            dirty_since_ = ImGui::GetTime();
+        }
+        ImGui::EndChild();
+    }
+
+    // Footer actions
+    ImGui::Separator();
+    const bool up_to_date =
+        (requested_gen_ > 0) &&
+        (applied_gen_ == requested_gen_) &&
+        (!dirty_) &&
+        (!preview_inflight_);
+    const bool can_accept = has_preview_ && error_.empty() && up_to_date;
     if (!can_accept)
         ImGui::BeginDisabled();
     if (ImGui::Button("OK"))
@@ -456,7 +480,6 @@ void ImageToChafaDialog::Render()
         accepted_canvas_ = std::move(preview_);
         accepted_ = true;
         open_ = false;
-        ImGui::CloseCurrentPopup();
     }
     if (!can_accept)
         ImGui::EndDisabled();
@@ -465,10 +488,19 @@ void ImageToChafaDialog::Render()
     if (ImGui::Button("Cancel"))
     {
         open_ = false;
-        ImGui::CloseCurrentPopup();
     }
 
-    ImGui::EndPopup();
+    ImGui::End();
+
+    if (!open_)
+    {
+        // Drop any heavy state immediately when closed.
+        StopWorker();
+        src_ = ImageRgba{};
+        has_preview_ = false;
+        error_.clear();
+        dirty_ = true;
+    }
 }
 
 bool ImageToChafaDialog::TakeAccepted(AnsiCanvas& out)

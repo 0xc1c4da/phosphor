@@ -1887,6 +1887,11 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     if (!cmd.tool_id.empty())
                         tool_cmds.out_commands->push_back(std::move(cmd));
                 }
+                else if (type == "canvas.crop_to_selection")
+                {
+                    cmd.type = ToolCommand::Type::CanvasCropToSelection;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
 
                 lua_pop(L, 1); // elem
             }

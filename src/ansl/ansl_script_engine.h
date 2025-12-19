@@ -159,6 +159,7 @@ struct ToolCommand
         BrushSet,
         ToolActivatePrev,
         ToolActivate,
+        CanvasCropToSelection,
     };
 
     Type type = Type::PaletteSet;
