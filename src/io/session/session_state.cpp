@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 11;
+    j["schema_version"] = 12;
 
     json win;
     win["w"] = st.window_w;
@@ -117,6 +117,8 @@ static json ToJson(const SessionState& st)
     json ws;
     if (!st.last_import_image_dir.empty())
         ws["last_import_image_dir"] = st.last_import_image_dir;
+    if (!st.recent_files.empty())
+        ws["recent_files"] = st.recent_files;
     j["workspace"] = std::move(ws);
 
     // Workspace content
@@ -315,6 +317,15 @@ static void FromJson(const json& j, SessionState& out)
         const json& ws = j["workspace"];
         if (ws.contains("last_import_image_dir") && ws["last_import_image_dir"].is_string())
             out.last_import_image_dir = ws["last_import_image_dir"].get<std::string>();
+        if (ws.contains("recent_files") && ws["recent_files"].is_array())
+        {
+            out.recent_files.clear();
+            for (const auto& v : ws["recent_files"])
+            {
+                if (v.is_string())
+                    out.recent_files.push_back(v.get<std::string>());
+            }
+        }
     }
 
     if (j.contains("content") && j["content"].is_object())
@@ -478,7 +489,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -504,7 +515,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

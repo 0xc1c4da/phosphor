@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <memory>
 
 #include "imgui.h"
 
@@ -92,7 +93,7 @@ struct AppState
 
     struct Workspace
     {
-        std::vector<CanvasWindow>* canvases = nullptr;
+        std::vector<std::unique_ptr<CanvasWindow>>* canvases = nullptr;
         int* next_canvas_id = nullptr;
         int* last_active_canvas_id = nullptr;
 
@@ -149,6 +150,14 @@ struct AppState
     double last_input_s = 0.0;
     bool mouse_down_prev = false;
     std::unordered_set<std::string> applied_imgui_placements;
+
+    // UX flows / timers
+    bool quit_modal_open = false;
+    bool quit_waiting_on_save = false;
+    size_t quit_save_queue_index = 0;
+    std::vector<int> quit_save_queue_ids;
+
+    double autosave_last_s = 0.0;
 };
 
 

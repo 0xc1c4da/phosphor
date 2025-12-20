@@ -271,6 +271,7 @@ AnsiCanvas::Snapshot AnsiCanvas::MakeSnapshot() const
     s.caret_row = m_caret_row;
     s.caret_col = m_caret_col;
     s.layers = m_layers;
+    s.state_token = m_state_token;
     return s;
 }
 
@@ -285,6 +286,7 @@ void AnsiCanvas::ApplySnapshot(const Snapshot& s)
     m_active_layer = s.active_layer;
     m_caret_row = s.caret_row;
     m_caret_col = s.caret_col;
+    m_state_token = s.state_token ? s.state_token : 1;
 
     // Transient interaction state; recomputed next frame.
     m_cursor_valid = false;
@@ -339,6 +341,11 @@ void AnsiCanvas::PrepareUndoSnapshot()
 {
     if (m_undo_applying_snapshot)
         return;
+    // Any mutation to project content changes the document state token.
+    // Avoid wrap to 0 (treat 0 as "uninitialized" in some contexts).
+    ++m_state_token;
+    if (m_state_token == 0)
+        ++m_state_token;
     // Many callers mutate canvas content from outside AnsiCanvas::Render() (e.g. ANSL scripts).
     // Those mutations still need to bump the content revision so dependent UI caches (minimap
     // texture, previews) update immediately, even if we're not currently capturing an undo step.
@@ -3298,6 +3305,18 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
             return false;
         redo_internal.push_back(std::move(tmp));
     }
+
+    // Assign runtime-only state tokens so undo/redo can restore the "dirty" marker correctly.
+    std::uint64_t next_token = 1;
+    auto assign_token = [&](Snapshot& s) {
+        s.state_token = next_token;
+        ++next_token;
+        if (next_token == 0)
+            ++next_token;
+    };
+    for (auto& s : undo_internal) assign_token(s);
+    for (auto& s : redo_internal) assign_token(s);
+    assign_token(current_internal);
 
     // Apply in one go.
     m_has_focus = false;

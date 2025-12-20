@@ -12,7 +12,7 @@ namespace workspace_persist
 
 void RestoreWorkspaceFromSession(const SessionState& session_state,
                                  kb::KeyBindingsEngine& keybinds,
-                                 std::vector<CanvasWindow>& canvases,
+                                 std::vector<std::unique_ptr<CanvasWindow>>& canvases,
                                  int& next_canvas_id,
                                  int& last_active_canvas_id,
                                  std::vector<ImageWindow>& images,
@@ -28,24 +28,26 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
     // Restore canvases.
     for (const auto& oc : session_state.open_canvases)
     {
-        CanvasWindow cw;
-        cw.open = oc.open;
-        cw.id = (oc.id > 0) ? oc.id : next_canvas_id++;
-        cw.canvas.SetKeyBindingsEngine(&keybinds);
+        auto cw = std::make_unique<CanvasWindow>();
+        cw->open = oc.open;
+        cw->id = (oc.id > 0) ? oc.id : next_canvas_id++;
+        cw->canvas.SetKeyBindingsEngine(&keybinds);
         if (!oc.file_path.empty())
-            cw.canvas.SetFilePath(oc.file_path);
+            cw->canvas.SetFilePath(oc.file_path);
+        // Loaded/restored canvases are "clean" until the user edits.
+        cw->canvas.MarkSaved();
 
         // Prefer cache-backed restore (fast session.json parse, project loaded lazily).
         if (!oc.project_phos_cache_rel.empty())
         {
-            cw.restore_pending = true;
-            cw.restore_attempted = false;
-            cw.restore_phos_cache_rel = oc.project_phos_cache_rel;
-            cw.restore_error.clear();
+            cw->restore_pending = true;
+            cw->restore_attempted = false;
+            cw->restore_phos_cache_rel = oc.project_phos_cache_rel;
+            cw->restore_error.clear();
 
             // Provide a sane blank canvas until the cached project is loaded.
-            cw.canvas.SetColumns(80);
-            cw.canvas.EnsureRowsPublic(25);
+            cw->canvas.SetColumns(80);
+            cw->canvas.EnsureRowsPublic(25);
         }
         else
         {
@@ -55,23 +57,25 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
             if (open_canvas_codec::DecodeProjectState(oc, ps, derr))
             {
                 std::string apply_err;
-                if (!cw.canvas.SetProjectState(ps, apply_err))
-                    std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, apply_err.c_str());
+                if (!cw->canvas.SetProjectState(ps, apply_err))
+                    std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw->id, apply_err.c_str());
+                else
+                    cw->canvas.MarkSaved();
             }
             else if (!oc.project_cbor_zstd_b64.empty())
             {
-                std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw.id, derr.c_str());
+                std::fprintf(stderr, "[session] restore canvas %d: %s\n", cw->id, derr.c_str());
             }
         }
 
         // Per-canvas background (do this early so the placeholder canvas matches too).
         // Legacy sessions (no per-canvas field) will use the global default.
-        cw.canvas.SetCanvasBackgroundWhite(oc.canvas_bg_white || session_state.canvas_bg_white);
+        cw->canvas.SetCanvasBackgroundWhite(oc.canvas_bg_white || session_state.canvas_bg_white);
 
-        cw.canvas.SetZoom(oc.zoom);
-        cw.canvas.RequestScrollPixels(oc.scroll_x, oc.scroll_y);
+        cw->canvas.SetZoom(oc.zoom);
+        cw->canvas.RequestScrollPixels(oc.scroll_x, oc.scroll_y);
 
-        const int restored_id = cw.id;
+        const int restored_id = cw->id;
         canvases.push_back(std::move(cw));
         next_canvas_id = std::max(next_canvas_id, restored_id + 1);
     }
@@ -125,7 +129,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             int last_active_canvas_id,
                             int next_canvas_id,
                             int next_image_id,
-                            const std::vector<CanvasWindow>& canvases,
+                            const std::vector<std::unique_ptr<CanvasWindow>>& canvases,
                             const std::vector<ImageWindow>& images)
 {
     SessionState st = session_state; // start from loaded defaults
@@ -194,8 +198,11 @@ void SaveSessionStateOnExit(const SessionState& session_state,
     st.open_canvases.reserve(canvases.size());
     std::vector<std::string> keep_session_canvas_cache;
     keep_session_canvas_cache.reserve(canvases.size());
-    for (const auto& cw : canvases)
+    for (const auto& cw_ptr : canvases)
     {
+        if (!cw_ptr)
+            continue;
+        const CanvasWindow& cw = *cw_ptr;
         SessionState::OpenCanvas oc;
         oc.id = cw.id;
         oc.open = cw.open;

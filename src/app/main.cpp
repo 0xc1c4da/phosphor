@@ -246,11 +246,13 @@ int main(int, char**)
     float xterm_picker_last_hue = session_state.xterm_color_picker.last_hue;
 
     // Workspace (documents)
-    std::vector<CanvasWindow> canvases;
+    std::vector<std::unique_ptr<CanvasWindow>> canvases;
+    canvases.reserve(128); // stable addresses (unique_ptr-owned)
     int next_canvas_id = 1;
     int last_active_canvas_id = -1;
 
     std::vector<ImageWindow> images;
+    images.reserve(64);
     int next_image_id = 1;
 
     // Character picker state

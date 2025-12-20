@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -23,34 +24,38 @@ struct CanvasWindow
     bool restore_attempted = false;
     std::string restore_phos_cache_rel;
     std::string restore_error;
+
+    // Close confirmation workflow (Save / Don't Save / Cancel).
+    bool close_modal_open = false;
+    bool close_waiting_on_save = false;
 };
 
 // Shared selection policy for "which canvas does a side-panel operate on?"
 // Used by Layer Manager, ANSL Editor, etc.
-inline AnsiCanvas* ResolveUiActiveCanvas(std::vector<CanvasWindow>& canvases, int last_active_canvas_id)
+inline AnsiCanvas* ResolveUiActiveCanvas(std::vector<std::unique_ptr<CanvasWindow>>& canvases, int last_active_canvas_id)
 {
     // Prefer the last active canvas window id (tracks clicks/focus).
     if (last_active_canvas_id != -1)
     {
         for (auto& c : canvases)
         {
-            if (c.open && c.id == last_active_canvas_id)
-                return &c.canvas;
+            if (c && c->open && c->id == last_active_canvas_id)
+                return &c->canvas;
         }
     }
 
     // Fallback: first focused grid.
     for (auto& c : canvases)
     {
-        if (c.open && c.canvas.HasFocus())
-            return &c.canvas;
+        if (c && c->open && c->canvas.HasFocus())
+            return &c->canvas;
     }
 
     // Fallback: first open canvas.
     for (auto& c : canvases)
     {
-        if (c.open)
-            return &c.canvas;
+        if (c && c->open)
+            return &c->canvas;
     }
 
     return nullptr;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -18,7 +19,7 @@ namespace workspace_persist
 // Restore open canvases + images from SessionState into the in-memory workspace vectors.
 void RestoreWorkspaceFromSession(const SessionState& session_state,
                                  kb::KeyBindingsEngine& keybinds,
-                                 std::vector<CanvasWindow>& canvases,
+                                 std::vector<std::unique_ptr<CanvasWindow>>& canvases,
                                  int& next_canvas_id,
                                  int& last_active_canvas_id,
                                  std::vector<ImageWindow>& images,
@@ -50,7 +51,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             int last_active_canvas_id,
                             int next_canvas_id,
                             int next_image_id,
-                            const std::vector<CanvasWindow>& canvases,
+                            const std::vector<std::unique_ptr<CanvasWindow>>& canvases,
                             const std::vector<ImageWindow>& images);
 
 } // namespace workspace_persist

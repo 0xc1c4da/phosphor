@@ -141,6 +141,9 @@ struct SessionState
 
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;
+    // Most recently opened/saved files (absolute paths or URI-like strings).
+    // Used by File -> Recent.
+    std::vector<std::string> recent_files;
 
     // ImGui window placements (keyed by the window name passed to ImGui::Begin()).
     // This replaces reliance on imgui.ini so we can guarantee restore behavior.

@@ -68,6 +68,31 @@ bool LoadCanvasFromSessionCachePhos(const std::string& rel_or_abs_path, AnsiCanv
     return project_file::LoadProjectFromFile(abs, out_canvas, err);
 }
 
+bool DeleteSessionCanvasCachePhos(const std::string& rel_or_abs_path, std::string& err)
+{
+    err.clear();
+    const std::string abs = ResolveCachePath(rel_or_abs_path);
+    if (abs.empty())
+        return true;
+
+    try
+    {
+        std::error_code ec;
+        const bool removed = fs::remove(fs::path(abs), ec);
+        if (ec)
+        {
+            err = ec.message();
+            return false;
+        }
+        return removed || !fs::exists(fs::path(abs));
+    }
+    catch (const std::exception& e)
+    {
+        err = e.what();
+        return false;
+    }
+}
+
 void PruneSessionCanvasCache(const std::vector<std::string>& keep_rel_paths)
 {
     std::unordered_set<std::string> keep;

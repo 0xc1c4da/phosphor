@@ -25,6 +25,10 @@ bool LoadCanvasFromSessionCachePhos(const std::string& rel_or_abs_path,
                                    AnsiCanvas& out_canvas,
                                    std::string& err);
 
+// Best-effort delete of a cache file (accepts either cache-relative or absolute path).
+// Returns true if the file was removed, or if it didn't exist.
+bool DeleteSessionCanvasCachePhos(const std::string& rel_or_abs_path, std::string& err);
+
 // Best-effort cleanup: removes cached .phos files in session_canvases/ that are not in the
 // provided set of cache-relative paths.
 void PruneSessionCanvasCache(const std::vector<std::string>& keep_rel_paths);

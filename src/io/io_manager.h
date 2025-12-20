@@ -37,7 +37,13 @@ public:
     IoManager();
 
     // Programmatic triggers (used by keybindings, not just menu clicks).
-    void RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs);
+    // Save: if the canvas has a local file path, writes immediately; otherwise falls back to Save As.
+    void SaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* target_canvas);
+    // Save As: always opens a save dialog and writes to the chosen path.
+    void SaveProjectAs(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* target_canvas);
+    // Targeted save: ensures the dialog result applies to `target_canvas` even if focus changes
+    // before the file dialog returns.
+    void RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs, AnsiCanvas* target_canvas);
     void RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs);
     void RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialogs);
     void RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialogs);
@@ -53,8 +59,44 @@ public:
     // Handle a completed SDL file dialog (polled from SdlFileDialogQueue).
     void HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb);
 
+    // Open a path directly (used by File -> Recent).
+    // Returns true if the path was handled (successfully opened OR failed with an error message).
+    bool OpenPath(const std::string& path, const Callbacks& cb);
+
     // Optional UI helpers (ImGui) to show last status / error.
     void RenderStatusWindows(SessionState* session = nullptr, bool apply_placement_this_frame = false);
+
+    // Open/import outcome reporting (used to update File -> Recent lists).
+    enum class OpenEventKind
+    {
+        None = 0,
+        Canvas,
+        Image,
+    };
+    struct OpenEvent
+    {
+        OpenEventKind kind = OpenEventKind::None;
+        std::string path;
+        std::string error;
+    };
+    bool TakeLastOpenEvent(OpenEvent& out);
+
+    // Save dialog outcome reporting (used by close-confirm UX).
+    enum class SaveEventKind
+    {
+        None = 0,
+        Success,
+        Failed,
+        Canceled,
+    };
+    struct SaveEvent
+    {
+        SaveEventKind kind = SaveEventKind::None;
+        AnsiCanvas* canvas = nullptr; // not owned
+        std::string path;             // chosen path for success
+        std::string error;            // failure reason (if any)
+    };
+    bool TakeLastSaveEvent(SaveEvent& out);
 
     // Sync with persisted session state.
     void SetLastDir(const std::string& dir) { m_last_dir = dir; }
@@ -65,7 +107,15 @@ public:
     void ClearLastError() { m_last_error.clear(); }
 
 private:
+    bool SaveProjectToPath(const std::string& path, AnsiCanvas& canvas, std::string& err);
+
     std::string m_last_dir;
     std::string m_last_error;
+
+    // Pending target canvas for the Save Project dialog (not owned).
+    AnsiCanvas* m_pending_save_canvas = nullptr;
+
+    SaveEvent m_last_save_event;
+    OpenEvent m_last_open_event;
 };
 

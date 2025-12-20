@@ -70,6 +70,20 @@ public:
     explicit AnsiCanvas(int columns = 80);
 
     // ---------------------------------------------------------------------
+    // Dirty state (savepoint tracking)
+    // ---------------------------------------------------------------------
+    // Returns true if the canvas content has changed since the last time the app
+    // considered it "saved" (or "clean"), e.g. after a successful Save or after
+    // loading/importing a file.
+    //
+    // This is undo/redo-aware: if the user undoes back to the saved state, this
+    // becomes false again.
+    bool IsModifiedSinceLastSave() const { return m_state_token != m_saved_state_token; }
+    // Marks the current canvas state as the "saved/clean" baseline.
+    // Call this after successful Save, and after opening/importing a file.
+    void MarkSaved() { m_saved_state_token = m_state_token; }
+
+    // ---------------------------------------------------------------------
     // Document identity (UI/session metadata; not part of the editable project state)
     // ---------------------------------------------------------------------
     // This is the user-facing file path associated with this canvas, if any.
@@ -503,6 +517,10 @@ private:
         int                caret_row = 0;
         int                caret_col = 0;
         std::vector<Layer> layers;
+
+        // Monotonic state identity token used for savepoint/dirty tracking.
+        // Not serialized into project files; only used at runtime.
+        std::uint64_t      state_token = 1;
     };
 
     int m_columns = 80;
@@ -548,6 +566,12 @@ private:
 
     // Monotonic content revision for caches (minimap texture).
     std::uint64_t m_content_revision = 1;
+
+    // Monotonic document-state token for dirty tracking (undo/redo aware).
+    // Incremented on any content mutation and restored on Undo/Redo.
+    std::uint64_t m_state_token = 1;
+    // The state token corresponding to the last saved/clean baseline.
+    std::uint64_t m_saved_state_token = 1;
 
     // Optional SAUCE metadata associated with this canvas (persisted).
     ProjectState::SauceMeta m_sauce;

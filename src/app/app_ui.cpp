@@ -119,6 +119,57 @@ void RenderMainMenuBar(SDL_Window* window,
             return ShortcutForAction(keybinds, action_id, "global");
         });
 
+        // Recent file list (persisted in session.json).
+        if (ImGui::BeginMenu("Recent"))
+        {
+            auto sanitize = [](std::string s) -> std::string
+            {
+                for (;;)
+                {
+                    const size_t pos = s.find("##");
+                    if (pos == std::string::npos)
+                        break;
+                    s.replace(pos, 2, "#");
+                }
+                return s;
+            };
+
+            if (session_state.recent_files.empty())
+            {
+                ImGui::BeginDisabled();
+                ImGui::MenuItem("(Empty)");
+                ImGui::EndDisabled();
+            }
+            else
+            {
+                namespace fs = std::filesystem;
+                for (size_t i = 0; i < session_state.recent_files.size(); ++i)
+                {
+                    const std::string& p = session_state.recent_files[i];
+                    const bool is_uri = (p.find("://") != std::string::npos);
+                    bool exists = true;
+                    if (!is_uri)
+                    {
+                        std::error_code ec;
+                        exists = fs::exists(fs::path(p), ec) && !ec;
+                    }
+
+                    std::string label = sanitize(p);
+                    if (!exists && !is_uri)
+                        label += " (missing)";
+
+                    if (ImGui::MenuItem(label.c_str(), nullptr, false, exists || is_uri))
+                        io_manager.OpenPath(p, io_callbacks);
+                }
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Clear Recent"))
+                session_state.recent_files.clear();
+
+            ImGui::EndMenu();
+        }
+
         // Unified Export menu (all formats share one tabbed dialog).
         if (ImGui::BeginMenu("Export"))
         {
@@ -252,11 +303,10 @@ void HandleKeybindings(SDL_Window* window,
         if (keybinds.ActionPressed("app.file.open", kctx))
             io_manager.RequestLoadFile(window, file_dialogs);
 
-        const bool save_pressed =
-            keybinds.ActionPressed("app.file.save", kctx) ||
-            keybinds.ActionPressed("app.file.save_as", kctx);
-        if (save_pressed && active_canvas)
-            io_manager.RequestSaveProject(window, file_dialogs);
+        if (keybinds.ActionPressed("app.file.save", kctx) && active_canvas)
+            io_manager.SaveProject(window, file_dialogs, active_canvas);
+        if (keybinds.ActionPressed("app.file.save_as", kctx) && active_canvas)
+            io_manager.SaveProjectAs(window, file_dialogs, active_canvas);
 
         if (keybinds.ActionPressed("app.file.export_ansi", kctx) && active_canvas)
             export_dialog.Open(ExportDialog::Tab::Ansi);

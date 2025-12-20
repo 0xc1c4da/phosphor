@@ -14,6 +14,7 @@
 #include "app/app_state.h"
 #include "app/app_ui.h"
 #include "app/workspace.h"
+#include "app/workspace_persist.h"
 #include "app/vulkan_state.h"
 #include "app/canvas_preview_texture.h"
 
@@ -117,6 +118,35 @@ void RunFrame(AppState& st)
     std::string& tools_error = *st.tools.tools_error;
     std::string& tool_compile_error = *st.tools.tool_compile_error;
 
+    auto any_dirty_canvas = [&]() -> bool {
+        for (const auto& cptr : canvases)
+        {
+            if (!cptr)
+                continue;
+            const CanvasWindow& cw = *cptr;
+            if (!cw.open)
+                continue;
+            if (cw.canvas.IsModifiedSinceLastSave())
+                return true;
+        }
+        return false;
+    };
+
+    auto count_dirty_canvases = [&]() -> int {
+        int n = 0;
+        for (const auto& cptr : canvases)
+        {
+            if (!cptr)
+                continue;
+            const CanvasWindow& cw = *cptr;
+            if (!cw.open)
+                continue;
+            if (cw.canvas.IsModifiedSinceLastSave())
+                ++n;
+        }
+        return n;
+    };
+
     auto active_tool_id = [&]() -> std::string {
         if (st.tools.active_tool_id) return st.tools.active_tool_id();
         return {};
@@ -211,6 +241,7 @@ void RunFrame(AppState& st)
         return;
     }
 
+
     // Resize swap chain?
     int fb_width, fb_height;
     SDL_GetWindowSize(window, &fb_width, &fb_height);
@@ -228,12 +259,25 @@ void RunFrame(AppState& st)
     ImGui::NewFrame();
     st.frame_counter++;
 
+    // Quit confirmation: convert immediate quit requests into a modal if there are dirty canvases.
+    if (st.done && any_dirty_canvas())
+    {
+        st.done = false;
+        st.quit_modal_open = true;
+        st.quit_waiting_on_save = false;
+        st.quit_save_queue_ids.clear();
+        st.quit_save_queue_index = 0;
+    }
+
     // Determine which canvas should receive keyboard-only actions (Undo/Redo shortcuts).
     // "Focused" is tracked by each AnsiCanvas instance (grid focus).
     AnsiCanvas* focused_canvas = nullptr;
     CanvasWindow* focused_canvas_window = nullptr;
-    for (auto& c : canvases)
+    for (auto& cptr : canvases)
     {
+        if (!cptr)
+            continue;
+        CanvasWindow& c = *cptr;
         if (c.open && c.canvas.HasFocus())
         {
             focused_canvas = &c.canvas;
@@ -250,8 +294,11 @@ void RunFrame(AppState& st)
     CanvasWindow* active_canvas_window = focused_canvas_window;
     if (!focused_canvas && last_active_canvas_id != -1)
     {
-        for (auto& c : canvases)
+        for (auto& cptr : canvases)
         {
+            if (!cptr)
+                continue;
+            CanvasWindow& c = *cptr;
             if (c.open && c.id == last_active_canvas_id)
             {
                 active_canvas = &c.canvas;
@@ -262,8 +309,11 @@ void RunFrame(AppState& st)
     }
     if (!active_canvas)
     {
-        for (auto& c : canvases)
+        for (auto& cptr : canvases)
         {
+            if (!cptr)
+                continue;
+            CanvasWindow& c = *cptr;
             if (c.open)
             {
                 active_canvas = &c.canvas;
@@ -298,8 +348,11 @@ void RunFrame(AppState& st)
         if (active_canvas_window)
             try_restore_canvas_from_cache(*active_canvas_window);
 
-        for (auto& cw : canvases)
+        for (auto& cwptr : canvases)
         {
+            if (!cwptr)
+                continue;
+            CanvasWindow& cw = *cwptr;
             if (!cw.open)
                 continue;
             if (cw.restore_pending && !cw.restore_attempted && !cw.restore_phos_cache_rel.empty())
@@ -313,30 +366,32 @@ void RunFrame(AppState& st)
     // Main menu bar: File > New Canvas, Quit
     auto create_new_canvas = [&]()
     {
-        CanvasWindow canvas_window;
-        canvas_window.open = true;
-        canvas_window.id = next_canvas_id++;
-        canvas_window.canvas.SetKeyBindingsEngine(&keybinds);
+        auto canvas_window = std::make_unique<CanvasWindow>();
+        canvas_window->open = true;
+        canvas_window->id = next_canvas_id++;
+        canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
 
         // Create a new blank canvas with a single base layer.
-        canvas_window.canvas.SetColumns(80);
-        canvas_window.canvas.EnsureRowsPublic(25);
+        canvas_window->canvas.SetColumns(80);
+        canvas_window->canvas.EnsureRowsPublic(25);
+        canvas_window->canvas.MarkSaved();
 
-        canvases.push_back(canvas_window);
-        last_active_canvas_id = canvas_window.id;
+        last_active_canvas_id = canvas_window->id;
+        canvases.push_back(std::move(canvas_window));
     };
 
     // Common IoManager callbacks (used by menu + dialog dispatch).
     IoManager::Callbacks io_cbs;
     io_cbs.create_canvas = [&](AnsiCanvas&& c)
     {
-        CanvasWindow canvas_window;
-        canvas_window.open = true;
-        canvas_window.id = next_canvas_id++;
-        canvas_window.canvas = std::move(c);
-        canvas_window.canvas.SetKeyBindingsEngine(&keybinds);
+        auto canvas_window = std::make_unique<CanvasWindow>();
+        canvas_window->open = true;
+        canvas_window->id = next_canvas_id++;
+        canvas_window->canvas = std::move(c);
+        canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+        canvas_window->canvas.MarkSaved();
+        last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
-        last_active_canvas_id = canvas_window.id;
     };
     io_cbs.create_image = [&](IoManager::Callbacks::LoadedImage&& li)
     {
@@ -365,6 +420,131 @@ void RunFrame(AppState& st)
                              show_16colors_browser_window,
                              create_new_canvas);
 
+    // Canvas closes are applied later in the frame (after rendering/popups),
+    // so we can turn close attempts into "Save changes?" confirmation flows.
+    std::vector<int> close_canvas_ids;
+    close_canvas_ids.reserve(8);
+
+    auto push_recent = [&](const std::string& p) {
+        if (p.empty())
+            return;
+        auto& v = session_state.recent_files;
+        v.erase(std::remove(v.begin(), v.end(), p), v.end());
+        v.insert(v.begin(), p);
+        const size_t kMaxRecent = 20;
+        if (v.size() > kMaxRecent)
+            v.resize(kMaxRecent);
+    };
+
+    auto find_canvas_by_id = [&](int id) -> CanvasWindow* {
+        if (id <= 0)
+            return nullptr;
+        for (auto& cptr : canvases)
+        {
+            if (!cptr)
+                continue;
+            if (cptr->id == id)
+                return cptr.get();
+        }
+        return nullptr;
+    };
+
+    auto quit_save_next = [&]() {
+        while (st.quit_save_queue_index < st.quit_save_queue_ids.size())
+        {
+            const int id = st.quit_save_queue_ids[st.quit_save_queue_index];
+            CanvasWindow* cw = find_canvas_by_id(id);
+            if (!cw || !cw->open || !cw->canvas.IsModifiedSinceLastSave())
+            {
+                ++st.quit_save_queue_index;
+                continue;
+            }
+
+            // This may save immediately (if the canvas has a local file path) OR open a Save As dialog.
+            io_manager.SaveProject(window, file_dialogs, &cw->canvas);
+            st.quit_waiting_on_save = true;
+            return;
+        }
+
+        // All done.
+        st.quit_waiting_on_save = false;
+        st.quit_modal_open = false;
+        st.done = true;
+    };
+
+    // Quit confirmation modal.
+    if (st.quit_modal_open && !ImGui::IsPopupOpen("Quit##confirm_quit", ImGuiPopupFlags_AnyPopupId))
+        ImGui::OpenPopup("Quit##confirm_quit");
+    if (st.quit_modal_open)
+    {
+        // Ensure consistent modal placement (center of the application viewport).
+        if (ImGuiViewport* vp = ImGui::GetMainViewport())
+            ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    }
+    if (ImGui::BeginPopupModal("Quit##confirm_quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        const int dirty_n = count_dirty_canvases();
+        if (dirty_n <= 0)
+        {
+            ImGui::Text("Quit Phosphor?");
+            ImGui::Separator();
+            if (ImGui::Button("Quit"))
+            {
+                st.quit_modal_open = false;
+                st.done = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                st.quit_modal_open = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        else
+        {
+            ImGui::Text("You have %d unsaved canvas%s.", dirty_n, dirty_n == 1 ? "" : "es");
+            ImGui::Text("Do you want to save your changes before quitting?");
+            ImGui::Separator();
+
+            if (!st.quit_waiting_on_save && ImGui::Button("Save All"))
+            {
+                st.quit_save_queue_ids.clear();
+                st.quit_save_queue_index = 0;
+                for (const auto& cptr : canvases)
+                {
+                    if (!cptr)
+                        continue;
+                    const CanvasWindow& cw = *cptr;
+                    if (!cw.open)
+                        continue;
+                    if (cw.canvas.IsModifiedSinceLastSave())
+                        st.quit_save_queue_ids.push_back(cw.id);
+                }
+                st.quit_modal_open = false;
+                quit_save_next();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (!st.quit_waiting_on_save && ImGui::Button("Don't Save"))
+            {
+                st.quit_modal_open = false;
+                st.done = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                st.quit_modal_open = false;
+                st.quit_save_queue_ids.clear();
+                st.quit_save_queue_index = 0;
+                st.quit_waiting_on_save = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     // Dispatch completed native file dialogs (projects, import/export, image import).
     {
         SdlFileDialogResult r;
@@ -373,6 +553,73 @@ void RunFrame(AppState& st)
             if (export_dialog.HandleDialogResult(r, io_manager, active_canvas))
                 continue;
             io_manager.HandleDialogResult(r, active_canvas, io_cbs);
+        }
+    }
+
+    // Apply Save-dialog outcomes (used by close-confirm flows).
+    {
+        IoManager::SaveEvent ev;
+        while (io_manager.TakeLastSaveEvent(ev))
+        {
+            if (ev.kind == IoManager::SaveEventKind::Success && !ev.path.empty())
+                push_recent(ev.path);
+
+            // Quit "Save All" flow sequencing.
+            if (st.quit_waiting_on_save)
+            {
+                const int expected_id =
+                    (st.quit_save_queue_index < st.quit_save_queue_ids.size())
+                        ? st.quit_save_queue_ids[st.quit_save_queue_index]
+                        : -1;
+                CanvasWindow* expected = find_canvas_by_id(expected_id);
+                if (expected && ev.canvas == &expected->canvas)
+                {
+                    st.quit_waiting_on_save = false;
+                    if (ev.kind == IoManager::SaveEventKind::Success)
+                    {
+                        ++st.quit_save_queue_index;
+                        quit_save_next();
+                    }
+                    else
+                    {
+                        // Failed/canceled: abort quit and return to the modal.
+                        st.quit_modal_open = true;
+                        st.quit_save_queue_ids.clear();
+                        st.quit_save_queue_index = 0;
+                    }
+                }
+            }
+
+            if (!ev.canvas)
+                continue;
+            for (auto& cwptr : canvases)
+            {
+                if (!cwptr)
+                    continue;
+                CanvasWindow& cw = *cwptr;
+                if (&cw.canvas != ev.canvas)
+                    continue;
+                if (cw.close_waiting_on_save)
+                {
+                    cw.close_waiting_on_save = false;
+                    if (ev.kind == IoManager::SaveEventKind::Success)
+                    {
+                        cw.open = false;
+                        close_canvas_ids.push_back(cw.id);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Apply Open/import outcomes (used by File -> Recent).
+    {
+        IoManager::OpenEvent ev;
+        while (io_manager.TakeLastOpenEvent(ev))
+        {
+            if (ev.kind == IoManager::OpenEventKind::Canvas && !ev.path.empty())
+                push_recent(ev.path);
         }
     }
 
@@ -873,9 +1120,42 @@ void RunFrame(AppState& st)
     // Render each canvas window
     for (size_t i = 0; i < canvases.size(); ++i)
     {
-        CanvasWindow& canvas = canvases[i];
-        if (!canvas.open)
+        if (!canvases[i])
             continue;
+        CanvasWindow& canvas = *canvases[i];
+        char close_popup_id[96];
+        std::snprintf(close_popup_id, sizeof(close_popup_id),
+                      "Save changes?##close_canvas_%d", canvas.id);
+
+        auto queue_close = [&]() {
+            canvas.open = false;
+            close_canvas_ids.push_back(canvas.id);
+        };
+
+        auto request_close = [&]() {
+            if (canvas.canvas.IsModifiedSinceLastSave())
+            {
+                // Veto the close, re-open, and ask.
+                canvas.open = true;
+                canvas.close_modal_open = true;
+                ImGui::OpenPopup(close_popup_id);
+            }
+            else
+            {
+                queue_close();
+            }
+        };
+
+        // Close requested via keybinding (window not rendered) or earlier frame state.
+        if (!canvas.open && !canvas.close_modal_open && !canvas.close_waiting_on_save)
+        {
+            request_close();
+            if (!canvas.open)
+                continue;
+        }
+        // If a Save dialog is in flight for this canvas, keep it alive regardless of close attempts.
+        if (!canvas.open && canvas.close_waiting_on_save)
+            canvas.open = true;
 
         auto sanitize_imgui_id = [](std::string s) -> std::string
         {
@@ -900,8 +1180,10 @@ void RunFrame(AppState& st)
             canvas_path = PhosphorCachePath(rel);
         }
 
+        // Dirty indicator: affect only the visible part of the title, not the ImGui ID (after ##).
         const std::string canvas_id = "canvas:" + sanitize_imgui_id(canvas_path) + "#" + std::to_string(canvas.id);
-        std::string title = canvas_path + "##" + canvas_id;
+        const bool dirty = canvas.canvas.IsModifiedSinceLastSave();
+        std::string title = (dirty ? "* " : "") + canvas_path + "##" + canvas_id;
 
         const auto it = session_state.imgui_windows.find(title);
         const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
@@ -958,6 +1240,7 @@ void RunFrame(AppState& st)
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, title.c_str());
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        const bool open_before_begin = canvas.open;
         ImGui::Begin(title.c_str(), &canvas.open, flags);
         CaptureImGuiWindowPlacement(session_state, title.c_str());
         ApplyImGuiWindowChromeZOrder(&session_state, title.c_str());
@@ -1216,8 +1499,11 @@ void RunFrame(AppState& st)
         if (canvas.canvas.TakeFocusGained())
         {
             last_active_canvas_id = canvas.id;
-            for (auto& other : canvases)
+            for (auto& other_ptr : canvases)
             {
+                if (!other_ptr)
+                    continue;
+                CanvasWindow& other = *other_ptr;
                 if (!other.open)
                     continue;
                 if (other.id == canvas.id)
@@ -1236,6 +1522,96 @@ void RunFrame(AppState& st)
         ImGui::End();
         ImGui::PopStyleVar();
         PopImGuiWindowChromeAlpha(alpha_pushed);
+
+        // Window close button: ImGui flips `canvas.open` to false; intercept here.
+        if (open_before_begin && !canvas.open && !canvas.close_waiting_on_save)
+            request_close();
+
+        // Close-confirm modal (Save / Don't Save / Cancel).
+        {
+            // Ensure consistent modal placement (center of the application viewport).
+            if (ImGuiViewport* vp = ImGui::GetMainViewport())
+                ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        }
+        if (ImGui::BeginPopupModal(close_popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            const bool has_path = canvas.canvas.HasFilePath();
+            const std::string& path = canvas.canvas.GetFilePath();
+
+            if (has_path)
+                ImGui::Text("Save changes to:");
+            else
+                ImGui::Text("Save changes to this canvas?");
+            if (has_path)
+            {
+                ImGui::Separator();
+                ImGui::TextWrapped("%s", path.c_str());
+            }
+            ImGui::Separator();
+
+            if (ImGui::Button("Save"))
+            {
+                canvas.close_modal_open = false;
+                canvas.close_waiting_on_save = true;
+                io_manager.SaveProject(window, file_dialogs, &canvas.canvas);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Don't Save"))
+            {
+                canvas.close_modal_open = false;
+                queue_close();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel"))
+            {
+                canvas.close_modal_open = false;
+                canvas.open = true;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
+    // Apply any queued canvas closes (and delete session cache files so they don't become orphaned).
+    if (!close_canvas_ids.empty())
+    {
+        auto should_close = [&](int id) -> bool {
+            for (int cid : close_canvas_ids)
+                if (cid == id) return true;
+            return false;
+        };
+
+        for (const int cid : close_canvas_ids)
+        {
+            for (const auto& cwptr : canvases)
+            {
+                if (!cwptr)
+                    continue;
+                const CanvasWindow& cw = *cwptr;
+                if (cw.id != cid)
+                    continue;
+
+                // Delete the session cache file for this canvas (if any).
+                const std::string rel = !cw.restore_phos_cache_rel.empty()
+                    ? cw.restore_phos_cache_rel
+                    : ("session_canvases/canvas_" + std::to_string(cw.id) + ".phos");
+                std::string derr;
+                (void)open_canvas_cache::DeleteSessionCanvasCachePhos(rel, derr);
+                break;
+            }
+        }
+
+        if (should_close(last_active_canvas_id))
+            last_active_canvas_id = -1;
+
+        canvases.erase(std::remove_if(canvases.begin(), canvases.end(),
+                                      [&](const std::unique_ptr<CanvasWindow>& cwptr) {
+                                          return cwptr && should_close(cwptr->id);
+                                      }),
+                      canvases.end());
     }
 
     // Layer Manager window
@@ -1316,13 +1692,14 @@ void RunFrame(AppState& st)
         SixteenColorsBrowserWindow::Callbacks cbs;
         cbs.create_canvas = [&](AnsiCanvas&& c)
         {
-            CanvasWindow canvas_window;
-            canvas_window.open = true;
-            canvas_window.id = next_canvas_id++;
-            canvas_window.canvas = std::move(c);
-            canvas_window.canvas.SetKeyBindingsEngine(&keybinds);
+            auto canvas_window = std::make_unique<CanvasWindow>();
+            canvas_window->open = true;
+            canvas_window->id = next_canvas_id++;
+            canvas_window->canvas = std::move(c);
+            canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+            canvas_window->canvas.MarkSaved();
+            last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));
-            last_active_canvas_id = canvases.back().id;
         };
         cbs.create_image = [&](SixteenColorsBrowserWindow::Callbacks::LoadedImage&& li)
         {
@@ -1355,18 +1732,72 @@ void RunFrame(AppState& st)
         AnsiCanvas converted;
         if (image_to_chafa_dialog.TakeAccepted(converted))
         {
-            CanvasWindow canvas_window;
-            canvas_window.open = true;
-            canvas_window.id = next_canvas_id++;
-            canvas_window.canvas = std::move(converted);
-            canvas_window.canvas.SetKeyBindingsEngine(&keybinds);
+            auto canvas_window = std::make_unique<CanvasWindow>();
+            canvas_window->open = true;
+            canvas_window->id = next_canvas_id++;
+            canvas_window->canvas = std::move(converted);
+            canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+            canvas_window->canvas.MarkSaved();
+            last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));
-            last_active_canvas_id = canvases.back().id;
         }
     }
 
     // Enforce pinned z-order globally.
     ApplyImGuiWindowChromeGlobalZOrder(session_state);
+
+    // Autosave / crash recovery:
+    // Periodically persist session.json + cached canvas projects so crashes restore recent work.
+    {
+        const double now_s = ImGui::GetTime();
+        const double kAutosaveIntervalS = 30.0;
+        if (st.autosave_last_s <= 0.0)
+            st.autosave_last_s = now_s;
+        if (!st.done && (now_s - st.autosave_last_s) >= kAutosaveIntervalS)
+        {
+            // Only autosave if there's something worth saving.
+            bool any_open = false;
+            for (const auto& cptr : canvases)
+            {
+                if (cptr && cptr->open)
+                {
+                    any_open = true;
+                    break;
+                }
+            }
+            if (any_open)
+            {
+                workspace_persist::SaveSessionStateOnExit(session_state,
+                                                         window,
+                                                         io_manager,
+                                                         tool_palette,
+                                                         ansl_editor,
+                                                         show_color_picker_window,
+                                                         show_character_picker_window,
+                                                         show_character_palette_window,
+                                                         show_character_sets_window,
+                                                         show_layer_manager_window,
+                                                         show_ansl_editor_window,
+                                                         show_tool_palette_window,
+                                                         show_minimap_window,
+                                                         show_settings_window,
+                                                         show_16colors_browser_window,
+                                                         fg_color,
+                                                         bg_color,
+                                                         active_fb,
+                                                         xterm_picker_mode,
+                                                         xterm_selected_palette,
+                                                         xterm_picker_preview_fb,
+                                                         xterm_picker_last_hue,
+                                                         last_active_canvas_id,
+                                                         next_canvas_id,
+                                                         next_image_id,
+                                                         canvases,
+                                                         images);
+            }
+            st.autosave_last_s = now_s;
+        }
+    }
 
     // Rendering
     ImGui::Render();
