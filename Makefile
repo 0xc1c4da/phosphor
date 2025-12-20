@@ -24,6 +24,7 @@ SOURCES  = \
            src/io/convert/chafa_convert.cpp \
            src/core/canvas.cpp \
            src/core/fonts.cpp \
+           src/fonts/textmode_font.cpp \
            src/core/canvas_rasterizer.cpp \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \
@@ -54,9 +55,11 @@ SOURCES  = \
            src/ui/sixteen_colors_browser.cpp \
            src/io/http_client.cpp \
            src/io/formats/ansi.cpp \
+           src/io/formats/figlet.cpp \
            src/io/formats/image.cpp \
            src/io/formats/plaintext.cpp \
            src/io/formats/sauce.cpp \
+           src/io/formats/tdf.cpp \
            src/io/formats/xbin.cpp \
            src/io/binary_codec.cpp \
            src/io/image_loader.cpp \
