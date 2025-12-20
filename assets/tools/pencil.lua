@@ -18,11 +18,6 @@ local function clamp(v, a, b)
   return v
 end
 
--- Stroke state (persisted across frames while the tool is active).
--- In half-block mode we "lock" which half is being painted for the duration of a drag.
--- This avoids tiny in-cell Y jitter flipping halves and accidentally producing full blocks.
-local stroke_half_bit = nil -- 0 = top, 1 = bottom
-
 local function paint(ctx, layer, x, y, half_y_override)
   if not ctx or not layer then return end
   local p = ctx.params or {}
@@ -60,8 +55,9 @@ local function paint(ctx, layer, x, y, half_y_override)
   end
 
   -- Right-click: swap fg/bg for most modes (icy-draw style).
-  -- NOTE: In "half" mode, right-click selects the *other half*, so swapping colors here
-  -- would be a double meaning and breaks half-block painting semantics.
+  -- NOTE: In "half" mode, the painted half is chosen by cursor.half_y (mouse position within
+  -- the cell). Right-click is used as "paint with BG", so swapping here would be a double
+  -- meaning and breaks half-block painting semantics.
   if secondary and mode ~= "shade" and mode ~= "half" and fg ~= nil and bg ~= nil then
     fg, bg = bg, fg
   end
@@ -109,92 +105,7 @@ local function paint(ctx, layer, x, y, half_y_override)
     elseif mode == "block" then
       ch = "█"
     elseif mode == "half" then
-      -- Half-block painting is not just "write ▀/▄":
-      -- it needs to preserve the *other half* by encoding it in bg/fg depending on the glyph.
-      -- This matches the approach used by Moebius (doc.set_half_block) and other ANSI editors.
-
-      -- Choose paint color:
-      -- - left button paints using current FG (if enabled)
-      -- - right button paints using current BG (if enabled)
-      -- with fallbacks if only one of them is enabled.
-      local primary_col = useFg and fg or (useBg and bg or nil)
-      local secondary_col = useBg and bg or (useFg and fg or nil)
-      local col = secondary and secondary_col or primary_col
-      if type(col) ~= "number" then
-        return
-      end
-
-      -- Read current cell and its colors (nil means "unset" in the layer).
-      local cur_ch, cur_fg, cur_bg = layer:get(px, py)
-      if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
-      if type(cur_fg) ~= "number" then cur_fg = nil end
-      if type(cur_bg) ~= "number" then cur_bg = nil end
-
-      -- Fallback "background" color to use when the existing cell has no usable bg/fg.
-      local fallback_bg = (type(bg) == "number" and bg) or (type(fg) == "number" and fg) or 0
-
-      -- Decode current cell into (upper_color, lower_color) if it's "blocky".
-      local is_blocky = false
-      local upper = nil
-      local lower = nil
-      if cur_ch == "▄" then
-        -- lower uses fg; upper uses bg
-        upper = cur_bg
-        lower = cur_fg
-        is_blocky = true
-      elseif cur_ch == "▀" then
-        -- upper uses fg; lower uses bg
-        upper = cur_fg
-        lower = cur_bg
-        is_blocky = true
-      elseif cur_ch == "█" then
-        upper = cur_fg
-        lower = cur_fg
-        is_blocky = true
-      elseif cur_ch == " " then
-        if cur_bg ~= nil then
-          upper = cur_bg
-          lower = cur_bg
-          is_blocky = true
-        end
-      end
-
-      -- If the cell isn't explicitly blocky, we still treat it as blocky if its fg/bg match.
-      if not is_blocky and cur_fg ~= nil and cur_bg ~= nil and cur_fg == cur_bg then
-        upper = cur_fg
-        lower = cur_fg
-        is_blocky = true
-      end
-
-      -- Ensure we have something reasonable for the other-half color.
-      if upper == nil then upper = (cur_fg ~= nil and cur_fg) or (cur_bg ~= nil and cur_bg) or fallback_bg end
-      if lower == nil then lower = (cur_bg ~= nil and cur_bg) or (cur_fg ~= nil and cur_fg) or fallback_bg end
-
-      -- Pick which half to paint from mouse position inside the cell.
-      -- If host does not provide cursor.half_y, fall back to legacy behavior.
-      -- NOTE: Avoid the common Lua `(a and b) or c` pitfall: if `b` is false we would
-      -- incorrectly fall back to `c`. Here we explicitly default to top-half when nil.
-      local paint_top = (cursor_half_y == nil) or ((cursor_half_y % 2) == 0)
-      if is_blocky then
-        -- If the other half already matches the paint color, collapse to a full block.
-        if (paint_top and lower == col) or ((not paint_top) and upper == col) then
-          layer:set(px, py, "█", col, 0)
-          return
-        end
-        if paint_top then
-          layer:set(px, py, "▀", col, lower)
-        else
-          layer:set(px, py, "▄", col, upper)
-        end
-      else
-        -- Non-blocky cell: preserve the existing background (or fallback) for the other half.
-        local base_bg = (cur_bg ~= nil) and cur_bg or fallback_bg
-        if paint_top then
-          layer:set(px, py, "▀", col, base_bg)
-        else
-          layer:set(px, py, "▄", col, base_bg)
-        end
-      end
+      -- Half-block painting is handled in half-row space below so brush "size" is correct.
       return
     elseif mode == "colorize" then
       -- Preserve glyph, only modify fg/bg.
@@ -215,9 +126,113 @@ local function paint(ctx, layer, x, y, half_y_override)
     end
   end
 
-  for dy = -r, r do
-    for dx = -r, r do
-      paint_cell(x + dx, y + dy)
+  local function paint_half_at(hx, hy)
+    if hx < 0 or hx >= cols then return end
+    if type(hy) ~= "number" then return end
+    hy = math.floor(hy)
+    if hy < 0 then return end
+
+    local py = math.floor(hy / 2)
+    if py < 0 then return end
+
+    -- Choose paint color:
+    -- - primary click paints with FG (if enabled)
+    -- - right click paints with BG (if enabled)
+    -- with fallbacks if only one is enabled.
+    local primary_col = useFg and fg or (useBg and bg or nil)
+    local secondary_col = useBg and bg or (useFg and fg or nil)
+    local col = secondary and secondary_col or primary_col
+    if type(col) ~= "number" then
+      return
+    end
+
+    -- Read current cell and its colors (nil means "unset" in the layer).
+    local cur_ch, cur_fg, cur_bg = layer:get(hx, py)
+    if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
+    if type(cur_fg) ~= "number" then cur_fg = nil end
+    if type(cur_bg) ~= "number" then cur_bg = nil end
+
+    -- Fallback "background" color to use when the existing cell has no usable bg/fg.
+    local fallback_bg = (type(bg) == "number" and bg) or (type(fg) == "number" and fg) or 0
+
+    -- Decode current cell into (upper_color, lower_color) if it's "blocky".
+    local is_blocky = false
+    local upper = nil
+    local lower = nil
+    if cur_ch == "▄" then
+      -- lower uses fg; upper uses bg
+      upper = cur_bg
+      lower = cur_fg
+      is_blocky = true
+    elseif cur_ch == "▀" then
+      -- upper uses fg; lower uses bg
+      upper = cur_fg
+      lower = cur_bg
+      is_blocky = true
+    elseif cur_ch == "█" then
+      upper = cur_fg
+      lower = cur_fg
+      is_blocky = true
+    elseif cur_ch == " " then
+      if cur_bg ~= nil then
+        upper = cur_bg
+        lower = cur_bg
+        is_blocky = true
+      end
+    end
+
+    -- If the cell isn't explicitly blocky, we still treat it as blocky if its fg/bg match.
+    if not is_blocky and cur_fg ~= nil and cur_bg ~= nil and cur_fg == cur_bg then
+      upper = cur_fg
+      lower = cur_fg
+      is_blocky = true
+    end
+
+    -- Ensure we have something reasonable for the other-half color.
+    if upper == nil then upper = (cur_fg ~= nil and cur_fg) or (cur_bg ~= nil and cur_bg) or fallback_bg end
+    if lower == nil then lower = (cur_bg ~= nil and cur_bg) or (cur_fg ~= nil and cur_fg) or fallback_bg end
+
+    local paint_top = (hy % 2) == 0
+    if is_blocky then
+      -- If the other half already matches the paint color, collapse to a full block.
+      if (paint_top and lower == col) or ((not paint_top) and upper == col) then
+        layer:set(hx, py, "█", col, 0)
+        return
+      end
+      if paint_top then
+        layer:set(hx, py, "▀", col, lower)
+      else
+        layer:set(hx, py, "▄", col, upper)
+      end
+    else
+      -- Non-blocky cell: preserve the existing background (or fallback) for the other half.
+      local base_bg = (cur_bg ~= nil) and cur_bg or fallback_bg
+      if paint_top then
+        layer:set(hx, py, "▀", col, base_bg)
+      else
+        layer:set(hx, py, "▄", col, base_bg)
+      end
+    end
+  end
+
+  if mode == "half" then
+    -- In half-block mode, brush size is applied in half-row coordinates so a "square" brush
+    -- stays square at the doubled vertical resolution (matches Moebius/IcyDraw semantics).
+    local base_hy = cursor_half_y
+    if type(base_hy) ~= "number" then
+      base_hy = y * 2 -- deterministic fallback (top half)
+    end
+    base_hy = math.floor(base_hy)
+    for dh = -r, r do
+      for dx = -r, r do
+        paint_half_at(x + dx, base_hy + dh)
+      end
+    end
+  else
+    for dy = -r, r do
+      for dx = -r, r do
+        paint_cell(x + dx, y + dy)
+      end
     end
   end
 end
@@ -236,10 +251,6 @@ function render(ctx, layer)
   caret.y = math.max(0, tonumber(caret.y) or 0)
 
   local phase = tonumber(ctx.phase) or 0
-  if phase ~= 1 then
-    -- Not dragging: clear any locked half-block stroke state.
-    stroke_half_bit = nil
-  end
 
   -- Phase 1: mouse drag painting (left click+hold).
   if phase == 1 then
@@ -264,62 +275,69 @@ function render(ctx, layer)
       local moved_cell = (px ~= nil and py ~= nil) and ((x1 ~= px) or (y1 ~= py)) or true
       local pressed_edge = (cursor.left and not prev_left) or (cursor.right and not prev_right)
 
-      -- In half-block mode, lock the half at press time to avoid in-cell jitter producing
-      -- unintended full blocks (thick horizontal strokes). We still use half-row interpolation
-      -- for fast dragging between cells, but with a fixed parity bit.
-      if mode == "half" then
-        if pressed_edge or stroke_half_bit == nil then
-          if type(half_y) == "number" then
-            stroke_half_bit = (math.floor(half_y) % 2)
-          else
-            stroke_half_bit = 0
-          end
-        end
-      else
-        stroke_half_bit = nil
-      end
+      -- Half-row movement is only meaningful for half-block drawing; for other modes it can
+      -- cause accidental “extra” paints (e.g. shade ramping too fast) when moving within a cell.
+      local moved_half = (mode == "half") and (half_y ~= nil and prev_half_y ~= nil and half_y ~= prev_half_y)
 
-      if moved_cell or pressed_edge then
+      if moved_cell or moved_half or pressed_edge then
         caret.x = clamp(x1, 0, cols - 1)
         caret.y = math.max(0, y1)
 
-        -- If we're in half-block mode and have half-row info, interpolate in half-row space
-        -- to avoid gaps when dragging quickly.
+        local function bresenham(xa, ya, xb, yb, fn, skip_first)
+          xa, ya, xb, yb = math.floor(xa), math.floor(ya), math.floor(xb), math.floor(yb)
+          local dx = math.abs(xb - xa)
+          local sx = (xa < xb) and 1 or -1
+          local dy = -math.abs(yb - ya)
+          local sy = (ya < yb) and 1 or -1
+          local err = dx + dy
+          local first = true
+          while true do
+            if not (skip_first and first) then
+              fn(xa, ya)
+            end
+            first = false
+            if xa == xb and ya == yb then break end
+            local e2 = 2 * err
+            if e2 >= dy then err = err + dy; xa = xa + sx end
+            if e2 <= dx then err = err + dx; ya = ya + sy end
+          end
+        end
+
+        -- Interpolate for ALL modes to avoid gaps when dragging quickly.
+        -- - Half mode interpolates in half-row space (higher vertical resolution).
+        -- - Other modes interpolate in cell space.
+        -- Use skip_first when we truly moved, to avoid double-hitting the previous point
+        -- (important for shade mode stepping).
+        local skip_first = moved_cell or moved_half
         if mode == "half" and type(half_y) == "number" then
           local x0 = tonumber(px)
-          local y0 = tonumber(py)
           if type(x0) ~= "number" then x0 = caret.x end
-          if type(y0) ~= "number" then y0 = caret.y end
-          local bit = tonumber(stroke_half_bit) or 0
-          bit = (math.floor(bit) % 2)
-          local hy0 = (math.floor(y0) * 2) + bit
-          local hy1 = (math.floor(caret.y) * 2) + bit
-
-          local function bresenham(xa, ya, xb, yb, fn)
-            xa, ya, xb, yb = math.floor(xa), math.floor(ya), math.floor(xb), math.floor(yb)
-            local dx = math.abs(xb - xa)
-            local sx = (xa < xb) and 1 or -1
-            local dy = -math.abs(yb - ya)
-            local sy = (ya < yb) and 1 or -1
-            local err = dx + dy
-            while true do
-              fn(xa, ya)
-              if xa == xb and ya == yb then break end
-              local e2 = 2 * err
-              if e2 >= dy then err = err + dy; xa = xa + sx end
-              if e2 <= dx then err = err + dx; ya = ya + sy end
-            end
+          local hy0 = tonumber(prev_half_y)
+          if type(hy0) ~= "number" then
+            hy0 = half_y
+            skip_first = false
           end
+          local hy1 = half_y
 
           bresenham(x0, hy0, caret.x, hy1, function(ix, ihy)
             ix = clamp(ix, 0, cols - 1)
             local iy = math.floor(ihy / 2)
             if iy < 0 then iy = 0 end
             paint(ctx, layer, ix, iy, ihy)
-          end)
+          end, skip_first)
         else
-          -- Default behavior: paint current cell only.
-          paint(ctx, layer, caret.x, caret.y)
+          local x0 = tonumber(px)
+          local y0 = tonumber(py)
+          if type(x0) ~= "number" or type(y0) ~= "number" then
+            skip_first = false
+            x0 = caret.x
+            y0 = caret.y
+          end
+          bresenham(x0, y0, caret.x, caret.y, function(ix, iy)
+            ix = clamp(ix, 0, cols - 1)
+            if iy < 0 then iy = 0 end
+            paint(ctx, layer, ix, iy)
+          end, skip_first)
         end
       end
     end
@@ -328,7 +346,10 @@ function render(ctx, layer)
 
   -- Phase 0: keyboard navigation paints after moving.
   local keys = ctx.keys or {}
+  local mods = ctx.mods or {}
   local moved = false
+  local x0 = caret.x
+  local y0 = caret.y
 
   if keys.left then
     if caret.x > 0 then
@@ -368,11 +389,41 @@ function render(ctx, layer)
   end
 
   if moved then
-    -- Keyboard movement has no half-row info; in half mode, force a deterministic choice
-    -- (top half) so keyboard drawing doesn't accidentally depend on stale mouse half_y.
+    -- Keyboard movement has no half-row info. In half mode, draw in half-row space by
+    -- rasterizing between the previous and new caret positions. This:
+    -- - lets vertical moves paint both halves (via the intermediate half-row), matching
+    --   Moebius/IcyDraw "half-res" semantics
+    -- - avoids relying on mouse cursor.half_y (which may be stale/invalid in keyboard use)
     local mode = (ctx.params and ctx.params.mode) or nil
     if mode == "half" then
-      paint(ctx, layer, caret.x, caret.y, caret.y * 2)
+      local function bresenham(xa, ya, xb, yb, fn)
+        xa, ya, xb, yb = math.floor(xa), math.floor(ya), math.floor(xb), math.floor(yb)
+        local dx = math.abs(xb - xa)
+        local sx = (xa < xb) and 1 or -1
+        local dy = -math.abs(yb - ya)
+        local sy = (ya < yb) and 1 or -1
+        local err = dx + dy
+        while true do
+          fn(xa, ya)
+          if xa == xb and ya == yb then break end
+          local e2 = 2 * err
+          if e2 >= dy then err = err + dy; xa = xa + sx end
+          if e2 <= dx then err = err + dx; ya = ya + sy end
+        end
+      end
+
+      -- Use Shift as a deterministic "lower half" selector for keyboard drawing.
+      -- Default is top half.
+      local parity = (mods.shift == true) and 1 or 0
+      local hy0 = (y0 * 2) + parity
+      local hy1 = (caret.y * 2) + parity
+
+      bresenham(x0, hy0, caret.x, hy1, function(ix, ihy)
+        ix = clamp(ix, 0, cols - 1)
+        local iy = math.floor(ihy / 2)
+        if iy < 0 then iy = 0 end
+        paint(ctx, layer, ix, iy, ihy)
+      end)
     else
       paint(ctx, layer, caret.x, caret.y)
     end

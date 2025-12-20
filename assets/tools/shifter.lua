@@ -103,8 +103,9 @@ local function shift_cell(ctx, layer, x, y, secondary, clear)
     return
   end
 
-  -- For any other glyph, treat it as "blank-ish" and start the cycle.
-  set_cell(layer, x, y, secondary and LVERT or RVERT, fg, bg)
+  -- Moebius behavior: if it's not one of the recognized block glyphs, do nothing.
+  -- (Our Pencil/Brush tools are the right place to overwrite arbitrary glyphs.)
+  return
 end
 
 function render(ctx, layer)
