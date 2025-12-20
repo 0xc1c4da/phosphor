@@ -1,5 +1,5 @@
 settings = {
-  id = "eraser",
+  id = "07-eraser",
   icon = "🧽",
   label = "Eraser",
 

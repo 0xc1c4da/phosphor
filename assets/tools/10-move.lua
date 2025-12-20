@@ -1,5 +1,5 @@
 settings = {
-    id = "move-layer",
+    id = "10-move-layer",
     icon = "✋",
     label = "Move Layer"
 }

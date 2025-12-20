@@ -1,5 +1,5 @@
 settings = {
-  id = "pipette",
+  id = "06-pipette",
   icon = "⟇",
   label = "Pipette",
 

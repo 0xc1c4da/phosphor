@@ -1,5 +1,5 @@
 settings = {
-  id = "font",
+  id = "09-font",
   icon = "𝔉",
   label = "Font",
 

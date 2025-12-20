@@ -275,9 +275,9 @@ bool ToolPalette::LoadFromDirectory(const std::string& tools_dir, std::string& e
         return false;
     }
 
-    // Stable ordering by label then path (so UI doesn't jump around).
+    // Stable ordering by id then path (so UI doesn't jump around).
     std::sort(found.begin(), found.end(), [](const ToolSpec& a, const ToolSpec& b) {
-        if (a.label != b.label) return a.label < b.label;
+        if (a.id != b.id) return a.id < b.id;
         return a.path < b.path;
     });
 

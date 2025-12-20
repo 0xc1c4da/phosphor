@@ -149,6 +149,11 @@ struct AnslFrameContext
     // Optional brush codepoint (Unicode scalar). 0 means "unknown".
     int brush_cp = 0;
 
+    // Active UI colour palette (optional): list of xterm-256 indices allowed for tools.
+    // If provided, tools should quantize/snap any computed colors to this list.
+    // Host owns the vector; valid only for the duration of RunFrame().
+    const std::vector<int>* palette_xterm = nullptr;
+
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;
 };

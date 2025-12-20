@@ -1,5 +1,5 @@
 settings = {
-    id = "shifter",
+    id = "03-shifter",
     icon = "⇌",
     label = "Shifter"
 }

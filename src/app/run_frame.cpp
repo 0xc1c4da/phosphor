@@ -112,6 +112,45 @@ void RunFrame(AppState& st)
     int& xterm_picker_preview_fb = *st.colors.xterm_picker_preview_fb;
     float& xterm_picker_last_hue = *st.colors.xterm_picker_last_hue;
 
+    // ---------------------------------------------------------------------
+    // Colour palettes (loaded from assets/color-palettes.json)
+    // ---------------------------------------------------------------------
+    // Tools (e.g. Smudge) need the active palette even if the Colour Picker window
+    // isn't open, so we cache the palette defs here at the RunFrame scope.
+    static bool                         palettes_loaded    = false;
+    static std::vector<ColourPaletteDef> palettes;
+    static std::string                  palettes_error;
+    if (!palettes_loaded)
+    {
+        LoadColourPalettesFromJson(PhosphorAssetPath("color-palettes.json").c_str(), palettes, palettes_error);
+        palettes_loaded = true;
+
+        // Fallback if loading failed or file empty: single default HSV palette.
+        if (!palettes_error.empty() || palettes.empty())
+        {
+            ColourPaletteDef def;
+            def.title = "Default HSV";
+            for (int n = 0; n < 32; ++n)
+            {
+                ImVec4 c;
+                float h = n / 31.0f;
+                ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f, c.x, c.y, c.z);
+                c.w = 1.0f;
+                def.colors.push_back(c);
+            }
+            palettes.clear();
+            palettes.push_back(std::move(def));
+            palettes_error.clear();
+            xterm_selected_palette = 0;
+        }
+    }
+
+    if (!palettes.empty())
+    {
+        if (xterm_selected_palette < 0 || xterm_selected_palette >= (int)palettes.size())
+            xterm_selected_palette = 0;
+    }
+
     std::uint32_t& tool_brush_cp = *st.tools.tool_brush_cp;
     std::string& tool_brush_utf8 = *st.tools.tool_brush_utf8;
 
@@ -890,49 +929,13 @@ void RunFrame(AppState& st)
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
 
-        // Load palettes from assets/color-palettes.json
-        static bool                         palettes_loaded    = false;
-        static std::vector<ColourPaletteDef> palettes;
-        static std::string                  palettes_error;
-        static int                          last_palette_index = -1;
-        static std::vector<ImVec4>          saved_palette;
-
-        if (!palettes_loaded)
-        {
-            LoadColourPalettesFromJson(PhosphorAssetPath("color-palettes.json").c_str(), palettes, palettes_error);
-            palettes_loaded = true;
-
-            // Fallback if loading failed or file empty: single default HSV palette.
-            if (!palettes_error.empty() || palettes.empty())
-            {
-                ColourPaletteDef def;
-                def.title = "Default HSV";
-                for (int n = 0; n < 32; ++n)
-                {
-                    ImVec4 c;
-                    float h = n / 31.0f;
-                    ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f, c.x, c.y, c.z);
-                    c.w = 1.0f;
-                    def.colors.push_back(c);
-                }
-                palettes.clear();
-                palettes.push_back(std::move(def));
-                palettes_error.clear();
-                xterm_selected_palette = 0;
-            }
-        }
+        static int                 last_palette_index = -1;
+        static std::vector<ImVec4> saved_palette;
 
         if (!palettes_error.empty())
         {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                "Palette load error: %s", palettes_error.c_str());
-        }
-
-        // Clamp palette selection after palettes are known.
-        if (!palettes.empty())
-        {
-            if (xterm_selected_palette < 0 || xterm_selected_palette >= (int)palettes.size())
-                xterm_selected_palette = 0;
         }
 
         // If the active canvas has a stored palette title, sync the picker to it when switching canvases.
@@ -1356,6 +1359,7 @@ void RunFrame(AppState& st)
                 return;
 
             AnslFrameContext ctx;
+            std::vector<int> palette_xterm;
             std::vector<ToolCommand> commands;
             ToolCommandSink cmd_sink;
             cmd_sink.allow_tool_commands = true;
@@ -1371,9 +1375,49 @@ void RunFrame(AppState& st)
             ctx.bg = bg_idx;
             ctx.brush_utf8 = tool_brush_utf8;
             ctx.brush_cp = (int)tool_brush_cp;
+            ctx.palette_xterm = nullptr;
             ctx.allow_caret_writeback = true;
 
             c.GetCaretCell(ctx.caret_x, ctx.caret_y);
+
+            // Active palette: expose allowed xterm indices to tools (for quantization/snapping).
+            // Prefer the canvas's stored palette title; fallback to the current global selection.
+            if (!palettes.empty())
+            {
+                const ColourPaletteDef* def = nullptr;
+                const std::string& want = c.GetColourPaletteTitle();
+                if (!want.empty())
+                {
+                    for (const auto& p : palettes)
+                    {
+                        if (p.title == want)
+                        {
+                            def = &p;
+                            break;
+                        }
+                    }
+                }
+                if (!def && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
+                    def = &palettes[(size_t)xterm_selected_palette];
+                if (!def)
+                    def = &palettes[0];
+
+                std::unordered_set<int> seen;
+                seen.reserve(def->colors.size());
+                for (const ImVec4& ccol : def->colors)
+                {
+                    const int r = (int)std::lround(ccol.x * 255.0f);
+                    const int g = (int)std::lround(ccol.y * 255.0f);
+                    const int b = (int)std::lround(ccol.z * 255.0f);
+                    const int idx = xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
+                                                          (std::uint8_t)std::clamp(g, 0, 255),
+                                                          (std::uint8_t)std::clamp(b, 0, 255));
+                    if (seen.insert(idx).second)
+                        palette_xterm.push_back(idx);
+                }
+                if (!palette_xterm.empty())
+                    ctx.palette_xterm = &palette_xterm;
+            }
 
             int cx = 0, cy = 0, half_y = 0, px = 0, py = 0, phalf_y = 0;
             bool l = false, r = false, pl = false, pr = false;

@@ -1,5 +1,5 @@
 settings = {
-  id = "shape",
+  id = "08-shape",
   icon = "⌺",
   label = "Shape",
 

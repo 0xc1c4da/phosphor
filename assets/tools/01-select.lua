@@ -1,5 +1,5 @@
 settings = {
-  id = "select",
+  id = "01-select",
   icon = "⬚",
   label = "Select",
 

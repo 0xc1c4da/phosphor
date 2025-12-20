@@ -1464,6 +1464,10 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
     lua_newtable(impl_->L);
     lua_setfield(impl_->L, -2, "out");
 
+    // Active palette for tools (reused): ctx.palette = { 7, 0, ... } (xterm indices)
+    lua_newtable(impl_->L);
+    lua_setfield(impl_->L, -2, "palette");
+
     // Tool brush defaults
     lua_pushliteral(impl_->L, " ");
     lua_setfield(impl_->L, -2, "brush");
@@ -1907,6 +1911,32 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pop(L, 1); // p
     }
     lua_pop(L, 1); // cursor
+
+    // Tool palette: if host provided a palette list, expose it as ctx.palette = { idx, ... }.
+    // We reuse the table to avoid churn: clear previous entries then write new ones.
+    lua_getfield(L, -1, "palette");
+    if (lua_istable(L, -1))
+    {
+        const int n = LuaArrayLen(L, -1);
+        for (int i = 1; i <= n; ++i)
+        {
+            lua_pushnil(L);
+            lua_rawseti(L, -2, i);
+        }
+
+        if (frame_ctx.palette_xterm)
+        {
+            int out_i = 1;
+            for (int idx : *frame_ctx.palette_xterm)
+            {
+                if (idx < 0 || idx > 255)
+                    continue;
+                lua_pushinteger(L, idx);
+                lua_rawseti(L, -2, out_i++);
+            }
+        }
+    }
+    lua_pop(L, 1); // palette
 
     // layer userdata
     PushLayerObject(L, &canvas, layer_index);

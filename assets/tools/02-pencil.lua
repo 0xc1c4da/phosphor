@@ -1,5 +1,5 @@
 settings = {
-  id = "pencil",
+  id = "02-pencil",
   icon = "🖉",
   label = "Pencil",
 

@@ -1,5 +1,5 @@
 settings = {
-  id = "edit",
+  id = "00-edit",
   icon = "⌶",
   label = "Edit"
 }
