@@ -2792,9 +2792,33 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                 ImGui::SetNextItemWidth(combo_w);
                 const fonts::FontId cur = GetFontId();
                 const fonts::FontInfo& cur_info = fonts::Get(cur);
+                // If the canvas has a valid embedded bitmap font (e.g. XBin), the renderer will
+                // always prefer it over the selected SAUCE FontName. Reflect that in the UI so
+                // the dropdown doesn't misleadingly show "Unscii" (or any other FontName).
+                std::string embedded_preview;
                 const char* preview = (cur_info.label && *cur_info.label) ? cur_info.label : "(unknown)";
+                if (embedded_font)
+                {
+                    char buf[96];
+                    const int cw = ef ? ef->cell_w : 0;
+                    const int ch = ef ? ef->cell_h : 0;
+                    const int gc = ef ? ef->glyph_count : 0;
+                    std::snprintf(buf, sizeof(buf), "Embedded %dx%d (%d glyphs)", cw, ch, gc);
+                    embedded_preview = buf;
+                    preview = embedded_preview.c_str();
+                }
+
                 if (ImGui::BeginCombo("##canvas_font_combo", preview))
                 {
+                    if (embedded_font)
+                    {
+                        ImGui::BeginDisabled();
+                        ImGui::Selectable(preview, true);
+                        ImGui::EndDisabled();
+                        ImGui::Separator();
+                        ImGui::BeginDisabled();
+                    }
+
                     for (const auto& f : fonts::AllFonts())
                     {
                         const bool selected = (f.id == cur);
@@ -2805,6 +2829,13 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
                         }
                         if (selected)
                             ImGui::SetItemDefaultFocus();
+                    }
+
+                    if (embedded_font)
+                    {
+                        ImGui::EndDisabled();
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Embedded font is active (from the imported file).");
                     }
                     ImGui::EndCombo();
                 }
