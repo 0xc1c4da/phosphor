@@ -351,13 +351,15 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     request_focus_selected_ = true;
 }
 
-bool CharacterPalette::TakeUserSelectionChanged(GlyphToken& out_glyph)
+bool CharacterPalette::TakeUserSelectionChanged(GlyphToken& out_glyph, std::string& out_utf8)
 {
     if (!user_selection_changed_)
         return false;
     user_selection_changed_ = false;
     out_glyph = user_selected_glyph_;
+    out_utf8 = std::move(user_selected_utf8_);
     user_selected_glyph_ = GlyphToken{};
+    user_selected_utf8_.clear();
     return out_glyph.IsValid();
 }
 
@@ -746,6 +748,7 @@ void CharacterPalette::RenderGrid()
             {
                 user_selection_changed_ = true;
                 user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+                user_selected_utf8_.clear();
             }
             else if (glyphs_ptr)
             {
@@ -754,6 +757,7 @@ void CharacterPalette::RenderGrid()
                 {
                     user_selection_changed_ = true;
                     user_selected_glyph_ = GlyphToken::Unicode(cp);
+                    user_selected_utf8_ = (*glyphs_ptr)[(size_t)idx].utf8;
                 }
             }
         }
@@ -767,6 +771,7 @@ void CharacterPalette::RenderGrid()
             {
                 user_selection_changed_ = true;
                 user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+                user_selected_utf8_.clear();
             }
             else if (glyphs_ptr)
             {
@@ -775,6 +780,7 @@ void CharacterPalette::RenderGrid()
                 {
                     user_selection_changed_ = true;
                     user_selected_glyph_ = GlyphToken::Unicode(cp);
+                    user_selected_utf8_ = (*glyphs_ptr)[(size_t)idx].utf8;
                 }
             }
         }

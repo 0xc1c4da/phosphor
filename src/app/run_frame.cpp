@@ -709,14 +709,27 @@ void RunFrame(AppState& st)
     // If the user clicked a glyph in the palette:
     {
         GlyphToken g;
-        if (character_palette.TakeUserSelectionChanged(g))
+        std::string utf8;
+        if (character_palette.TakeUserSelectionChanged(g, utf8))
         {
-            const uint32_t cp = (uint32_t)g.ToCanvasCodePoint();
             if (g.IsUnicode())
-                character_picker.JumpToCodePoint(g.value);
-            character_sets.OnExternalSelectedCodePoint(cp);
-            tool_brush_cp = cp;
-            tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            {
+                const uint32_t cp = g.value;
+                character_picker.JumpToCodePoint(cp);
+                character_sets.OnExternalSelectedCodePoint(cp);
+                tool_brush_cp = cp;
+                // Use the palette's stored UTF-8 string directly (supports multi-codepoint glyphs,
+                // and avoids any encode/decode mismatch).
+                tool_brush_utf8 = (!utf8.empty()) ? utf8 : ansl::utf8::encode((char32_t)tool_brush_cp);
+            }
+            else
+            {
+                // Embedded glyph index: stored on the canvas as PUA (U+E000 + index).
+                const uint32_t cp = (uint32_t)g.ToCanvasCodePoint();
+                character_sets.OnExternalSelectedCodePoint(cp);
+                tool_brush_cp = cp;
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            }
         }
     }
 
@@ -729,15 +742,41 @@ void RunFrame(AppState& st)
                               active_canvas);
     }
 
+    // If the user clicked a slot in the character sets:
+    {
+        uint32_t cp = 0;
+        if (character_sets.TakeUserSelectionChanged(cp))
+        {
+            character_picker.JumpToCodePoint(cp);
+            character_palette.OnPickerSelectedCodePoint(cp);
+            tool_brush_cp = cp;
+            tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+        }
+    }
+
     namespace fs = std::filesystem;
 
     // Centralized "insert a codepoint at the caret" helper (shared by picker/palette + character sets + hotkeys).
-    auto insert_cp_into_canvas = [&](AnsiCanvas* dst, uint32_t cp)
+    // Some callers want "typewriter" caret advance; others (Character Sets) want a stationary caret.
+    auto insert_cp_into_canvas = [&](AnsiCanvas* dst, uint32_t cp, bool advance_caret)
     {
         if (!dst)
             return;
         if (cp == 0)
             return;
+
+        // Respect current editor FG/BG selection (xterm-256 picker).
+        // Canvas uses Color32 where 0 means "unset"; we always apply explicit colours here.
+        auto to_idx = [](const ImVec4& c) -> int {
+            const int r = (int)std::lround(c.x * 255.0f);
+            const int g = (int)std::lround(c.y * 255.0f);
+            const int b = (int)std::lround(c.z * 255.0f);
+            return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
+                                         (std::uint8_t)std::clamp(g, 0, 255),
+                                         (std::uint8_t)std::clamp(b, 0, 255));
+        };
+        const AnsiCanvas::Color32 fg32 = (AnsiCanvas::Color32)xterm256::Color32ForIndex(to_idx(fg_color));
+        const AnsiCanvas::Color32 bg32 = (AnsiCanvas::Color32)xterm256::Color32ForIndex(to_idx(bg_color));
 
         int caret_x = 0;
         int caret_y = 0;
@@ -747,18 +786,21 @@ void RunFrame(AppState& st)
         dst->PushUndoSnapshot();
 
         const int layer_index = dst->GetActiveLayerIndex();
-        dst->SetLayerCell(layer_index, caret_y, caret_x, (char32_t)cp);
+        dst->SetLayerCell(layer_index, caret_y, caret_x, (char32_t)cp, fg32, bg32);
 
-        // Advance caret like a simple editor (wrap to next row).
-        const int cols = dst->GetColumns();
-        int nx = caret_x + 1;
-        int ny = caret_y;
-        if (cols > 0 && nx >= cols)
+        if (advance_caret)
         {
-            nx = 0;
-            ny = caret_y + 1;
+            // Advance caret like a simple editor (wrap to next row).
+            const int cols = dst->GetColumns();
+            int nx = caret_x + 1;
+            int ny = caret_y;
+            if (cols > 0 && nx >= cols)
+            {
+                nx = 0;
+                ny = caret_y + 1;
+            }
+            dst->SetCaretCell(nx, ny);
         }
-        dst->SetCaretCell(nx, ny);
     };
 
     // Hotkeys for character sets:
@@ -780,8 +822,9 @@ void RunFrame(AppState& st)
                 const std::string id = "charset.insert.f" + std::to_string(i + 1);
                 if (keybinds.ActionPressed(id, kctx))
                 {
+                    character_sets.SelectSlot(i);
                     const uint32_t cp = character_sets.GetSlotCodePoint(i);
-                    insert_cp_into_canvas(focused_canvas, cp);
+                    insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
                 }
             }
 
@@ -791,14 +834,16 @@ void RunFrame(AppState& st)
                 if (keybinds.ActionPressed(id, kctx))
                 {
                     const int slot = d - 1;
+                    character_sets.SelectSlot(slot);
                     const uint32_t cp = character_sets.GetSlotCodePoint(slot);
-                    insert_cp_into_canvas(focused_canvas, cp);
+                    insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
                 }
             }
             if (keybinds.ActionPressed("charset.insert.ctrl_0", kctx))
             {
+                character_sets.SelectSlot(9);
                 const uint32_t cp = character_sets.GetSlotCodePoint(9);
-                insert_cp_into_canvas(focused_canvas, cp);
+                insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
             }
         }
     }
@@ -808,13 +853,13 @@ void RunFrame(AppState& st)
         uint32_t cp = 0;
         if (character_picker.TakeDoubleClicked(cp))
         {
-            insert_cp_into_canvas(active_canvas, cp);
+            insert_cp_into_canvas(active_canvas, cp, /*advance_caret=*/true);
         }
         else
         {
             GlyphToken g;
             if (character_palette.TakeUserDoubleClicked(g))
-                insert_cp_into_canvas(active_canvas, (uint32_t)g.ToCanvasCodePoint());
+                insert_cp_into_canvas(active_canvas, (uint32_t)g.ToCanvasCodePoint(), /*advance_caret=*/true);
         }
     }
 
@@ -822,7 +867,7 @@ void RunFrame(AppState& st)
     {
         uint32_t cp = 0;
         if (character_sets.TakeInsertRequested(cp))
-            insert_cp_into_canvas(active_canvas, cp);
+            insert_cp_into_canvas(active_canvas, cp, /*advance_caret=*/false);
     }
 
     // Colour picker showcase window

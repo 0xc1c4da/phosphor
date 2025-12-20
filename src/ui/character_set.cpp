@@ -376,6 +376,13 @@ uint32_t CharacterSetWindow::GetSlotCodePoint(int slot_index_0_based) const
     return cps[(size_t)slot];
 }
 
+void CharacterSetWindow::SelectSlot(int slot_index_0_based)
+{
+    EnsureLoaded();
+    EnsureNonEmpty();
+    selected_slot_ = std::clamp(slot_index_0_based, 0, 11);
+}
+
 void CharacterSetWindow::OnExternalSelectedCodePoint(uint32_t cp)
 {
     EnsureLoaded();

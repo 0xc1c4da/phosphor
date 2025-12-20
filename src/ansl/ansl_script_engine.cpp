@@ -156,7 +156,11 @@ static std::string LuaToString(lua_State* L, int idx)
 
 static char32_t LuaCharArg(lua_State* L, int idx)
 {
-    if (lua_isnumber(L, idx))
+    // IMPORTANT:
+    // In Lua 5.1 / LuaJIT, lua_isnumber() returns true for strings that can be converted to a number
+    // (e.g. the string "7"). For Phosphor tools, glyph arguments like "7" must be treated as text,
+    // not coerced to numeric codepoint 7 (BEL). Therefore only treat *actual* numbers as numbers.
+    if (lua_type(L, idx) == LUA_TNUMBER)
     {
         lua_Integer cp = lua_tointeger(L, idx);
         if (cp < 0) cp = 0;

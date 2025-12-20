@@ -40,6 +40,7 @@ public:
     bool SetActiveSetIndex(int idx);
     int  GetSetCount() const { return (int)sets_.size(); }
     uint32_t GetSlotCodePoint(int slot_index_0_based) const;
+    void SelectSlot(int slot_index_0_based);
 
     // If the user requested insertion (double-click in this window), returns true and outputs cp.
     bool TakeInsertRequested(uint32_t& out_cp);

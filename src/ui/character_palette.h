@@ -61,7 +61,7 @@ public:
     void OnPickerSelectedCodePoint(uint32_t cp);
 
     // Returns true if the user clicked a glyph in the palette grid this frame.
-    bool TakeUserSelectionChanged(GlyphToken& out_glyph);
+    bool TakeUserSelectionChanged(GlyphToken& out_glyph, std::string& out_utf8);
 
     // Returns true if the user double-clicked a glyph in the palette grid this frame.
     bool TakeUserDoubleClicked(GlyphToken& out_glyph);
@@ -123,6 +123,7 @@ private:
     // "user clicked something" output
     bool user_selection_changed_ = false;
     GlyphToken user_selected_glyph_;
+    std::string user_selected_utf8_;
 
     // "user double-clicked something" output
     bool user_double_clicked_ = false;
