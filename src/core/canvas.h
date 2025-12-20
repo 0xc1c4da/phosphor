@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <unordered_map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -256,7 +257,8 @@ public:
 
     struct ProjectState
     {
-        int                     version = 1;
+        // Project serialization version (bumped when the on-disk schema changes).
+        int                     version = 4;
 
         // Optional: UI colour palette identity (from assets/color-palettes.json).
         // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
@@ -293,8 +295,60 @@ public:
         SauceMeta               sauce;
 
         ProjectSnapshot         current;
-        std::vector<ProjectSnapshot> undo;
-        std::vector<ProjectSnapshot> redo;
+
+        // -----------------------------------------------------------------
+        // Undo/Redo history (persisted)
+        // -----------------------------------------------------------------
+        // We store undo history as either:
+        //  - full snapshots (for structural operations / script playback boundaries), or
+        //  - delta patches (page-based) for efficient paint-style edits.
+        struct ProjectUndoEntry
+        {
+            enum class Kind
+            {
+                Snapshot = 0,
+                Patch = 1,
+            };
+            Kind kind = Kind::Snapshot;
+
+            // Snapshot (Kind::Snapshot)
+            ProjectSnapshot snapshot;
+
+            // Patch (Kind::Patch)
+            struct PatchLayerMeta
+            {
+                std::string name;
+                bool        visible = true;
+                bool        lock_transparency = false;
+            };
+            struct PatchPage
+            {
+                int layer = 0;
+                int page = 0;       // page index in row-page space
+                int page_rows = 64; // must match encoder/decoder; stored for forward safety
+                int row_count = 0;  // number of rows captured in this page (<= page_rows)
+                // Stored per-cell, row-major, length = row_count * columns.
+                std::vector<char32_t> cells;
+                std::vector<Color32>  fg;
+                std::vector<Color32>  bg;
+            };
+            struct Patch
+            {
+                int columns = 80;
+                int rows = 1;
+                int active_layer = 0;
+                int caret_row = 0;
+                int caret_col = 0;
+                std::uint64_t state_token = 1;
+
+                int page_rows = 64;
+                std::vector<PatchLayerMeta> layers;
+                std::vector<PatchPage> pages;
+            } patch;
+        };
+
+        std::vector<ProjectUndoEntry> undo;
+        std::vector<ProjectUndoEntry> redo;
         // Max number of undo snapshots retained in memory.
         // 0 = unlimited.
         size_t                  undo_limit = 0;
@@ -535,6 +589,52 @@ private:
         std::uint64_t      state_token = 1;
     };
 
+    // Undo entry: either a full snapshot (structural ops / script boundaries), or
+    // a delta patch (row-page capture) for efficient paint-style edits.
+    struct UndoEntry
+    {
+        enum class Kind
+        {
+            Snapshot = 0,
+            Patch = 1,
+        };
+        Kind kind = Kind::Snapshot;
+
+        // Snapshot (Kind::Snapshot)
+        Snapshot snapshot;
+
+        // Patch (Kind::Patch)
+        struct PatchLayerMeta
+        {
+            std::string name;
+            bool        visible = true;
+            bool        lock_transparency = false;
+        };
+        struct PatchPage
+        {
+            int layer = 0;
+            int page = 0;
+            int page_rows = 64;
+            int row_count = 0; // <= page_rows
+            std::vector<char32_t> cells;
+            std::vector<Color32>  fg;
+            std::vector<Color32>  bg;
+        };
+        struct Patch
+        {
+            int columns = 80;
+            int rows = 1;
+            int active_layer = 0;
+            int caret_row = 0;
+            int caret_col = 0;
+            std::uint64_t state_token = 1;
+
+            int page_rows = 64;
+            std::vector<PatchLayerMeta> layers;
+            std::vector<PatchPage> pages;
+        } patch;
+    };
+
     int m_columns = 80;
     int m_rows    = 1; // allocated rows (always >= 1)
 
@@ -662,16 +762,17 @@ private:
     bool m_status_bar_editing = false;
 
     // Undo/Redo stacks. Each entry is a full document snapshot.
-    std::vector<Snapshot> m_undo_stack;
-    std::vector<Snapshot> m_redo_stack;
+    std::vector<UndoEntry> m_undo_stack;
+    std::vector<UndoEntry> m_redo_stack;
     size_t                m_undo_limit = 0; // 0 = unlimited
 
     // "Capture scope" used to group multiple mutations into a single undo step.
     bool     m_undo_capture_active = false;
     bool     m_undo_capture_modified = false;
-    bool     m_undo_capture_has_snapshot = false;
+    bool     m_undo_capture_has_entry = false;
     bool     m_undo_applying_snapshot = false;
-    Snapshot m_undo_capture_snapshot;
+    std::optional<UndoEntry> m_undo_capture_entry;
+    std::unordered_map<std::uint64_t, size_t> m_undo_capture_page_index; // key=(layer<<32)|page -> pages[] index
 
     // Internal helpers
     void TouchContent()
@@ -703,7 +804,10 @@ private:
     void     ApplySnapshot(const Snapshot& s);
     void     BeginUndoCapture();
     void     EndUndoCapture();
-    void     PrepareUndoSnapshot();
+    void     PrepareUndoForMutation();
+    void     EnsureUndoCaptureIsPatch();
+    void     EnsureUndoCaptureIsSnapshot();
+    void     CaptureUndoPageIfNeeded(int layer_index, int row);
 
     void HandleCharInputWidget(const char* id);
     static int TextInputCallback(ImGuiInputTextCallbackData* data);

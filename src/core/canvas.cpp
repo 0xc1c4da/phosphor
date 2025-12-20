@@ -15,6 +15,8 @@
 #include <iterator>
 #include <locale>
 #include <limits>
+#include <unordered_map>
+#include <utility>
 #include <ctime>
 #include <string_view>
 #include <string>
@@ -315,7 +317,9 @@ void AnsiCanvas::BeginUndoCapture()
         return;
     m_undo_capture_active = true;
     m_undo_capture_modified = false;
-    m_undo_capture_has_snapshot = false;
+    m_undo_capture_has_entry = false;
+    m_undo_capture_entry.reset();
+    m_undo_capture_page_index.clear();
 }
 
 void AnsiCanvas::EndUndoCapture()
@@ -323,9 +327,9 @@ void AnsiCanvas::EndUndoCapture()
     if (!m_undo_capture_active)
         return;
 
-    if (m_undo_capture_modified && m_undo_capture_has_snapshot)
+    if (m_undo_capture_modified && m_undo_capture_has_entry && m_undo_capture_entry.has_value())
     {
-        m_undo_stack.push_back(std::move(m_undo_capture_snapshot));
+        m_undo_stack.push_back(std::move(*m_undo_capture_entry));
         if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
             m_undo_stack.erase(m_undo_stack.begin(),
                                m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
@@ -334,10 +338,12 @@ void AnsiCanvas::EndUndoCapture()
 
     m_undo_capture_active = false;
     m_undo_capture_modified = false;
-    m_undo_capture_has_snapshot = false;
+    m_undo_capture_has_entry = false;
+    m_undo_capture_entry.reset();
+    m_undo_capture_page_index.clear();
 }
 
-void AnsiCanvas::PrepareUndoSnapshot()
+void AnsiCanvas::PrepareUndoForMutation()
 {
     if (m_undo_applying_snapshot)
         return;
@@ -355,15 +361,138 @@ void AnsiCanvas::PrepareUndoSnapshot()
         return;
     }
 
-    if (!m_undo_capture_has_snapshot)
-    {
-        m_undo_capture_snapshot = MakeSnapshot();
-        m_undo_capture_has_snapshot = true;
-    }
     m_undo_capture_modified = true;
 
     // Content is changing within this capture scope.
     TouchContent();
+}
+
+void AnsiCanvas::EnsureUndoCaptureIsPatch()
+{
+    if (!m_undo_capture_active)
+        return;
+    if (m_undo_capture_has_entry && m_undo_capture_entry.has_value())
+    {
+        if (m_undo_capture_entry->kind == UndoEntry::Kind::Patch)
+            return;
+        // Already snapshot; keep it.
+        return;
+    }
+
+    UndoEntry e;
+    e.kind = UndoEntry::Kind::Patch;
+    e.patch.columns = m_columns;
+    e.patch.rows = m_rows;
+    e.patch.active_layer = m_active_layer;
+    e.patch.caret_row = m_caret_row;
+    e.patch.caret_col = m_caret_col;
+    e.patch.state_token = m_state_token;
+    e.patch.page_rows = 64;
+    e.patch.layers.clear();
+    e.patch.layers.reserve(m_layers.size());
+    for (const Layer& l : m_layers)
+    {
+        UndoEntry::PatchLayerMeta lm;
+        lm.name = l.name;
+        lm.visible = l.visible;
+        lm.lock_transparency = l.lock_transparency;
+        e.patch.layers.push_back(std::move(lm));
+    }
+    e.patch.pages.clear();
+
+    m_undo_capture_entry = std::move(e);
+    m_undo_capture_has_entry = true;
+    m_undo_capture_page_index.clear();
+}
+
+void AnsiCanvas::EnsureUndoCaptureIsSnapshot()
+{
+    if (!m_undo_capture_active)
+        return;
+    if (m_undo_capture_has_entry && m_undo_capture_entry.has_value())
+    {
+        if (m_undo_capture_entry->kind == UndoEntry::Kind::Snapshot)
+            return;
+        // If we've already started capturing deltas, we cannot safely "promote" without
+        // reconstructing full previous state. For now, keep the patch entry.
+        return;
+    }
+    UndoEntry e;
+    e.kind = UndoEntry::Kind::Snapshot;
+    e.snapshot = MakeSnapshot();
+    m_undo_capture_entry = std::move(e);
+    m_undo_capture_has_entry = true;
+    m_undo_capture_page_index.clear();
+}
+
+void AnsiCanvas::CaptureUndoPageIfNeeded(int layer_index, int row)
+{
+    if (!m_undo_capture_active)
+        return;
+    if (!m_undo_capture_has_entry)
+        EnsureUndoCaptureIsPatch();
+    if (!m_undo_capture_entry.has_value())
+        return;
+    if (m_undo_capture_entry->kind != UndoEntry::Kind::Patch)
+        return;
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return;
+
+    UndoEntry::Patch& p = m_undo_capture_entry->patch;
+    const int page_rows = (p.page_rows > 0) ? p.page_rows : 64;
+    if (row < 0)
+        row = 0;
+    const int page = row / page_rows;
+    const std::uint64_t key = (std::uint64_t)((std::uint32_t)layer_index) << 32 | (std::uint32_t)page;
+    auto it = m_undo_capture_page_index.find(key);
+    if (it != m_undo_capture_page_index.end())
+        return;
+
+    // Only capture rows that existed at the start of the capture.
+    const int start_row = page * page_rows;
+    if (start_row >= p.rows)
+    {
+        // This page is entirely beyond the old document height; undo will shrink rows anyway.
+        m_undo_capture_page_index[key] = (size_t)-1;
+        return;
+    }
+    const int row_count = std::min(page_rows, p.rows - start_row);
+    if (row_count <= 0)
+    {
+        m_undo_capture_page_index[key] = (size_t)-1;
+        return;
+    }
+
+    const int cols = p.columns;
+    const size_t n = (size_t)row_count * (size_t)std::max(0, cols);
+    UndoEntry::PatchPage page_data;
+    page_data.layer = layer_index;
+    page_data.page = page;
+    page_data.page_rows = page_rows;
+    page_data.row_count = row_count;
+    page_data.cells.assign(n, U' ');
+    page_data.fg.assign(n, 0);
+    page_data.bg.assign(n, 0);
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    for (int r = 0; r < row_count; ++r)
+    {
+        const int rr = start_row + r;
+        const size_t base = (size_t)r * (size_t)cols;
+        const size_t idx0 = (size_t)rr * (size_t)cols;
+        for (int c = 0; c < cols; ++c)
+        {
+            const size_t idx = idx0 + (size_t)c;
+            const size_t out = base + (size_t)c;
+            if (idx < layer.cells.size()) page_data.cells[out] = layer.cells[idx];
+            if (idx < layer.fg.size())    page_data.fg[out]    = layer.fg[idx];
+            if (idx < layer.bg.size())    page_data.bg[out]    = layer.bg[idx];
+        }
+    }
+
+    const size_t new_index = p.pages.size();
+    p.pages.push_back(std::move(page_data));
+    m_undo_capture_page_index[key] = new_index;
 }
 
 bool AnsiCanvas::CanUndo() const
@@ -383,11 +512,149 @@ bool AnsiCanvas::Undo()
     if (m_undo_applying_snapshot)
         return false;
 
-    Snapshot current = MakeSnapshot();
-    Snapshot prev = std::move(m_undo_stack.back());
+    UndoEntry prev = std::move(m_undo_stack.back());
     m_undo_stack.pop_back();
-    m_redo_stack.push_back(std::move(current));
-    ApplySnapshot(prev);
+
+    // Capture current state for redo, matching the granularity of the undo entry.
+    UndoEntry cur;
+    cur.kind = prev.kind;
+    if (prev.kind == UndoEntry::Kind::Snapshot)
+    {
+        cur.snapshot = MakeSnapshot();
+    }
+    else
+    {
+        cur.kind = UndoEntry::Kind::Patch;
+        cur.patch.columns = m_columns;
+        cur.patch.rows = m_rows;
+        cur.patch.active_layer = m_active_layer;
+        cur.patch.caret_row = m_caret_row;
+        cur.patch.caret_col = m_caret_col;
+        cur.patch.state_token = m_state_token;
+        cur.patch.page_rows = prev.patch.page_rows;
+        cur.patch.layers.clear();
+        cur.patch.layers.reserve(m_layers.size());
+        for (const Layer& l : m_layers)
+        {
+            UndoEntry::PatchLayerMeta lm;
+            lm.name = l.name;
+            lm.visible = l.visible;
+            lm.lock_transparency = l.lock_transparency;
+            cur.patch.layers.push_back(std::move(lm));
+        }
+        cur.patch.pages.clear();
+        cur.patch.pages.reserve(prev.patch.pages.size());
+        for (const auto& pg : prev.patch.pages)
+        {
+            UndoEntry::PatchPage outp;
+            outp.layer = pg.layer;
+            outp.page = pg.page;
+            outp.page_rows = pg.page_rows;
+            outp.row_count = pg.row_count;
+            const int cols = cur.patch.columns;
+            const int start_row = outp.page * outp.page_rows;
+            const int row_count = std::min(outp.row_count, std::max(0, cur.patch.rows - start_row));
+            outp.row_count = std::max(0, row_count);
+            const size_t n = (size_t)outp.row_count * (size_t)std::max(0, cols);
+            outp.cells.assign(n, U' ');
+            outp.fg.assign(n, 0);
+            outp.bg.assign(n, 0);
+            if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
+            {
+                const Layer& layer = m_layers[(size_t)outp.layer];
+                for (int r = 0; r < outp.row_count; ++r)
+                {
+                    const int rr = start_row + r;
+                    const size_t base = (size_t)r * (size_t)cols;
+                    const size_t idx0 = (size_t)rr * (size_t)cols;
+                    for (int c = 0; c < cols; ++c)
+                    {
+                        const size_t idx = idx0 + (size_t)c;
+                        const size_t outi = base + (size_t)c;
+                        if (idx < layer.cells.size()) outp.cells[outi] = layer.cells[idx];
+                        if (idx < layer.fg.size())    outp.fg[outi]    = layer.fg[idx];
+                        if (idx < layer.bg.size())    outp.bg[outi]    = layer.bg[idx];
+                    }
+                }
+            }
+            cur.patch.pages.push_back(std::move(outp));
+        }
+    }
+
+    // Apply the undo entry.
+    if (prev.kind == UndoEntry::Kind::Snapshot)
+    {
+        ApplySnapshot(prev.snapshot);
+    }
+    else
+    {
+        m_undo_applying_snapshot = true;
+        // Restore metadata.
+        m_columns = prev.patch.columns > 0 ? prev.patch.columns : m_columns;
+        if (m_columns > 4096) m_columns = 4096;
+        m_rows = prev.patch.rows > 0 ? prev.patch.rows : 1;
+        m_active_layer = prev.patch.active_layer;
+        m_caret_row = prev.patch.caret_row;
+        m_caret_col = prev.patch.caret_col;
+        m_state_token = prev.patch.state_token ? prev.patch.state_token : 1;
+
+        // Restore layer metadata and ensure layer count.
+        if ((int)m_layers.size() != (int)prev.patch.layers.size())
+            m_layers.resize(prev.patch.layers.size());
+        for (size_t i = 0; i < prev.patch.layers.size(); ++i)
+        {
+            m_layers[i].name = prev.patch.layers[i].name;
+            m_layers[i].visible = prev.patch.layers[i].visible;
+            m_layers[i].lock_transparency = prev.patch.layers[i].lock_transparency;
+        }
+
+        EnsureDocument();
+        if (m_rows <= 0) m_rows = 1;
+        EnsureRows(m_rows);
+
+        // Restore captured pages.
+        const int cols = m_columns;
+        for (const auto& pg : prev.patch.pages)
+        {
+            if (pg.layer < 0 || pg.layer >= (int)m_layers.size())
+                continue;
+            const int start_row = pg.page * pg.page_rows;
+            const int row_count = pg.row_count;
+            if (row_count <= 0 || cols <= 0)
+                continue;
+            const size_t expected = (size_t)row_count * (size_t)cols;
+            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected)
+                continue;
+            if (start_row >= m_rows)
+                continue;
+            const int max_rows = std::min(row_count, m_rows - start_row);
+            Layer& layer = m_layers[(size_t)pg.layer];
+            for (int r = 0; r < max_rows; ++r)
+            {
+                const int rr = start_row + r;
+                const size_t base = (size_t)r * (size_t)cols;
+                const size_t idx0 = (size_t)rr * (size_t)cols;
+                for (int c = 0; c < cols; ++c)
+                {
+                    const size_t idx = idx0 + (size_t)c;
+                    const size_t src = base + (size_t)c;
+                    if (idx < layer.cells.size()) layer.cells[idx] = pg.cells[src];
+                    if (idx < layer.fg.size())    layer.fg[idx]    = pg.fg[src];
+                    if (idx < layer.bg.size())    layer.bg[idx]    = pg.bg[src];
+                }
+            }
+        }
+
+        // Transient interaction state; recomputed next frame.
+        m_cursor_valid = false;
+        m_mouse_capture = false;
+        m_undo_applying_snapshot = false;
+
+        EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+        TouchContent();
+    }
+
+    m_redo_stack.push_back(std::move(cur));
     return true;
 }
 
@@ -398,16 +665,148 @@ bool AnsiCanvas::Redo()
     if (m_undo_applying_snapshot)
         return false;
 
-    Snapshot current = MakeSnapshot();
-    Snapshot next = std::move(m_redo_stack.back());
+    UndoEntry next = std::move(m_redo_stack.back());
     m_redo_stack.pop_back();
 
-    m_undo_stack.push_back(std::move(current));
+    // Capture current state for undo, matching the granularity of the redo entry.
+    UndoEntry cur;
+    cur.kind = next.kind;
+    if (next.kind == UndoEntry::Kind::Snapshot)
+    {
+        cur.snapshot = MakeSnapshot();
+    }
+    else
+    {
+        cur.kind = UndoEntry::Kind::Patch;
+        cur.patch.columns = m_columns;
+        cur.patch.rows = m_rows;
+        cur.patch.active_layer = m_active_layer;
+        cur.patch.caret_row = m_caret_row;
+        cur.patch.caret_col = m_caret_col;
+        cur.patch.state_token = m_state_token;
+        cur.patch.page_rows = next.patch.page_rows;
+        cur.patch.layers.clear();
+        cur.patch.layers.reserve(m_layers.size());
+        for (const Layer& l : m_layers)
+        {
+            UndoEntry::PatchLayerMeta lm;
+            lm.name = l.name;
+            lm.visible = l.visible;
+            lm.lock_transparency = l.lock_transparency;
+            cur.patch.layers.push_back(std::move(lm));
+        }
+        cur.patch.pages.clear();
+        cur.patch.pages.reserve(next.patch.pages.size());
+        for (const auto& pg : next.patch.pages)
+        {
+            UndoEntry::PatchPage outp;
+            outp.layer = pg.layer;
+            outp.page = pg.page;
+            outp.page_rows = pg.page_rows;
+            outp.row_count = pg.row_count;
+            const int cols = cur.patch.columns;
+            const int start_row = outp.page * outp.page_rows;
+            const int row_count = std::min(outp.row_count, std::max(0, cur.patch.rows - start_row));
+            outp.row_count = std::max(0, row_count);
+            const size_t n = (size_t)outp.row_count * (size_t)std::max(0, cols);
+            outp.cells.assign(n, U' ');
+            outp.fg.assign(n, 0);
+            outp.bg.assign(n, 0);
+            if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
+            {
+                const Layer& layer = m_layers[(size_t)outp.layer];
+                for (int r = 0; r < outp.row_count; ++r)
+                {
+                    const int rr = start_row + r;
+                    const size_t base = (size_t)r * (size_t)cols;
+                    const size_t idx0 = (size_t)rr * (size_t)cols;
+                    for (int c = 0; c < cols; ++c)
+                    {
+                        const size_t idx = idx0 + (size_t)c;
+                        const size_t outi = base + (size_t)c;
+                        if (idx < layer.cells.size()) outp.cells[outi] = layer.cells[idx];
+                        if (idx < layer.fg.size())    outp.fg[outi]    = layer.fg[idx];
+                        if (idx < layer.bg.size())    outp.bg[outi]    = layer.bg[idx];
+                    }
+                }
+            }
+            cur.patch.pages.push_back(std::move(outp));
+        }
+    }
+
+    m_undo_stack.push_back(std::move(cur));
     if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
         m_undo_stack.erase(m_undo_stack.begin(),
                            m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
 
-    ApplySnapshot(next);
+    if (next.kind == UndoEntry::Kind::Snapshot)
+    {
+        ApplySnapshot(next.snapshot);
+    }
+    else
+    {
+        // Apply patch (same as in Undo()).
+        m_undo_applying_snapshot = true;
+        m_columns = next.patch.columns > 0 ? next.patch.columns : m_columns;
+        if (m_columns > 4096) m_columns = 4096;
+        m_rows = next.patch.rows > 0 ? next.patch.rows : 1;
+        m_active_layer = next.patch.active_layer;
+        m_caret_row = next.patch.caret_row;
+        m_caret_col = next.patch.caret_col;
+        m_state_token = next.patch.state_token ? next.patch.state_token : 1;
+
+        if ((int)m_layers.size() != (int)next.patch.layers.size())
+            m_layers.resize(next.patch.layers.size());
+        for (size_t i = 0; i < next.patch.layers.size(); ++i)
+        {
+            m_layers[i].name = next.patch.layers[i].name;
+            m_layers[i].visible = next.patch.layers[i].visible;
+            m_layers[i].lock_transparency = next.patch.layers[i].lock_transparency;
+        }
+
+        EnsureDocument();
+        if (m_rows <= 0) m_rows = 1;
+        EnsureRows(m_rows);
+
+        const int cols = m_columns;
+        for (const auto& pg : next.patch.pages)
+        {
+            if (pg.layer < 0 || pg.layer >= (int)m_layers.size())
+                continue;
+            const int start_row = pg.page * pg.page_rows;
+            const int row_count = pg.row_count;
+            if (row_count <= 0 || cols <= 0)
+                continue;
+            const size_t expected = (size_t)row_count * (size_t)cols;
+            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected)
+                continue;
+            if (start_row >= m_rows)
+                continue;
+            const int max_rows = std::min(row_count, m_rows - start_row);
+            Layer& layer = m_layers[(size_t)pg.layer];
+            for (int r = 0; r < max_rows; ++r)
+            {
+                const int rr = start_row + r;
+                const size_t base = (size_t)r * (size_t)cols;
+                const size_t idx0 = (size_t)rr * (size_t)cols;
+                for (int c = 0; c < cols; ++c)
+                {
+                    const size_t idx = idx0 + (size_t)c;
+                    const size_t src = base + (size_t)c;
+                    if (idx < layer.cells.size()) layer.cells[idx] = pg.cells[src];
+                    if (idx < layer.fg.size())    layer.fg[idx]    = pg.fg[src];
+                    if (idx < layer.bg.size())    layer.bg[idx]    = pg.bg[src];
+                }
+            }
+        }
+
+        m_cursor_valid = false;
+        m_mouse_capture = false;
+        m_undo_applying_snapshot = false;
+
+        EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+        TouchContent();
+    }
     return true;
 }
 
@@ -416,7 +815,10 @@ void AnsiCanvas::PushUndoSnapshot()
     if (m_undo_applying_snapshot)
         return;
 
-    m_undo_stack.push_back(MakeSnapshot());
+    UndoEntry e;
+    e.kind = UndoEntry::Kind::Snapshot;
+    e.snapshot = MakeSnapshot();
+    m_undo_stack.push_back(std::move(e));
     if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
         m_undo_stack.erase(m_undo_stack.begin(),
                            m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
@@ -677,7 +1079,8 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
     {
         if (!prepared)
         {
-            PrepareUndoSnapshot();
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
             prepared = true;
         }
     };
@@ -707,6 +1110,7 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
                 continue; // no-op
 
             prepare();
+            CaptureUndoPageIfNeeded(layer_index, y);
             if (y >= m_rows)
                 EnsureRows(y + 1);
 
@@ -753,7 +1157,8 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
     {
         if (!prepared)
         {
-            PrepareUndoSnapshot();
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
             prepared = true;
         }
     };
@@ -798,6 +1203,7 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
                 continue;
 
             prepare();
+            CaptureUndoPageIfNeeded(layer_index, py);
             if (py >= m_rows)
                 EnsureRows(py + 1);
 
@@ -879,7 +1285,8 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
         {
             if (!prepared)
             {
-                PrepareUndoSnapshot();
+                PrepareUndoForMutation();
+                EnsureUndoCaptureIsPatch();
                 prepared = true;
             }
         };
@@ -907,6 +1314,7 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                     continue;
 
                 prepare();
+                CaptureUndoPageIfNeeded(layer_index, sy);
                 if (sy >= m_rows)
                     EnsureRows(sy + 1);
 
@@ -960,7 +1368,8 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
     {
         if (!prepared)
         {
-            PrepareUndoSnapshot();
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
             prepared = true;
         }
     };
@@ -991,6 +1400,7 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
                 continue;
 
             prepare();
+            CaptureUndoPageIfNeeded(layer_index, py);
             if (py >= m_rows)
                 EnsureRows(py + 1);
 
@@ -1033,7 +1443,8 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
             {
                 if (!prepared)
                 {
-                    PrepareUndoSnapshot();
+                    PrepareUndoForMutation();
+                    EnsureUndoCaptureIsPatch();
                     prepared = true;
                 }
             };
@@ -1063,6 +1474,7 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                         continue;
 
                     prepare();
+                    CaptureUndoPageIfNeeded(layer_index, py);
                     if (py >= m_rows)
                         EnsureRows(py + 1);
 
@@ -1302,7 +1714,8 @@ bool AnsiCanvas::SetLayerName(int index, const std::string& name)
     EnsureDocument();
     if (index < 0 || index >= static_cast<int>(m_layers.size()))
         return false;
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
     m_layers[static_cast<size_t>(index)].name = name;
     return true;
 }
@@ -1310,7 +1723,8 @@ bool AnsiCanvas::SetLayerName(int index, const std::string& name)
 int AnsiCanvas::AddLayer(const std::string& name)
 {
     EnsureDocument();
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
 
     Layer layer;
     layer.name = name.empty() ? ("Layer " + std::to_string((int)m_layers.size() + 1)) : name;
@@ -1333,7 +1747,8 @@ bool AnsiCanvas::RemoveLayer(int index)
     if (index < 0 || index >= static_cast<int>(m_layers.size()))
         return false;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
     m_layers.erase(m_layers.begin() + index);
     if (m_active_layer >= static_cast<int>(m_layers.size()))
         m_active_layer = static_cast<int>(m_layers.size()) - 1;
@@ -1383,7 +1798,8 @@ bool AnsiCanvas::MoveLayer(int from_index, int to_index)
     if (from_index == to_index)
         return true;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
 
     Layer moving = std::move(m_layers[(size_t)from_index]);
     m_layers.erase(m_layers.begin() + from_index);
@@ -1431,7 +1847,8 @@ void AnsiCanvas::SetColumns(int columns)
     if (columns == m_columns)
         return;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
     const int old_cols = m_columns;
     const int old_rows = m_rows;
     m_columns = columns;
@@ -1518,7 +1935,8 @@ void AnsiCanvas::SetRows(int rows)
     if (rows == m_rows)
         return;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
     m_rows = rows;
 
     const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
@@ -1584,7 +2002,8 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
                       std::istreambuf_iterator<char>());
 
     EnsureDocument();
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
 
     // Reset document to a single empty row.
     m_rows = 1;
@@ -1702,11 +2121,36 @@ void AnsiCanvas::EnsureRows(int rows_needed)
     if (rows_needed <= m_rows)
         return;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
     m_rows = rows_needed;
     const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
     for (Layer& layer : m_layers)
     {
+        // Growing one row at a time (common during mouse painting downward) can cause many
+        // expensive reallocations/copies on large canvases. Reserve a modest amount of slack
+        // capacity so repeated EnsureRows() calls are amortized, without changing `m_rows`
+        // (visible canvas size) or any behavior.
+        auto reserve_with_slack = [&](auto& v)
+        {
+            if (need <= v.size())
+                return;
+            if (need <= v.capacity())
+                return;
+            // Slack heuristic: ~12.5% extra, or ~64 rows worth of cells (whichever larger).
+            const size_t row_chunk = static_cast<size_t>(std::max(1, m_columns)) * static_cast<size_t>(64);
+            const size_t frac = need / 8;
+            size_t slack = std::max(row_chunk, frac);
+            // Avoid overflow.
+            size_t want = need;
+            if (slack > 0 && want <= (std::numeric_limits<size_t>::max() - slack))
+                want += slack;
+            v.reserve(want);
+        };
+
+        reserve_with_slack(layer.cells);
+        reserve_with_slack(layer.fg);
+        reserve_with_slack(layer.bg);
         layer.cells.resize(need, U' ');
         layer.fg.resize(need, 0);
         layer.bg.resize(need, 0);
@@ -1799,7 +2243,9 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
     if (in_bounds && old_cp == new_cp)
         return; // no-op
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(m_active_layer, row);
     if (row >= m_rows)
         EnsureRows(row + 1);
     if (idx < layer.cells.size())
@@ -1832,7 +2278,9 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
     if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
         return; // no-op
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(m_active_layer, row);
     if (row >= m_rows)
         EnsureRows(row + 1);
 
@@ -1870,7 +2318,9 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
     if (in_bounds && old_fg == 0 && old_bg == 0)
         return; // no-op
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(m_active_layer, row);
     if (row >= m_rows)
         EnsureRows(row + 1);
     if (idx < layer.fg.size())
@@ -1906,7 +2356,9 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
     if (in_bounds && old_cp == new_cp)
         return true;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(layer_index, row);
     if (row >= m_rows)
         EnsureRows(row + 1);
     if (idx < layer.cells.size())
@@ -1941,7 +2393,9 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
     if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
         return true;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(layer_index, row);
     if (row >= m_rows)
         EnsureRows(row + 1);
     if (idx < layer.cells.size())
@@ -2048,7 +2502,9 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
     if (in_bounds && old_fg == 0 && old_bg == 0)
         return true;
 
-    PrepareUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    CaptureUndoPageIfNeeded(layer_index, row);
     ClearLayerCellStyleInternal(layer_index, row, col);
     return true;
 }
@@ -2065,7 +2521,8 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
     {
         if (!prepared)
         {
-            PrepareUndoSnapshot();
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
             prepared = true;
         }
     };
@@ -2087,6 +2544,8 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
             continue;
 
         prepare();
+        if (m_columns > 0)
+            CaptureUndoPageIfNeeded(layer_index, (int)(idx / (size_t)m_columns));
         if (idx < layer.cells.size()) layer.cells[idx] = new_cp;
         if (idx < layer.fg.size())    layer.fg[idx]    = new_fg;
         if (idx < layer.bg.size())    layer.bg[idx]    = new_bg;
@@ -2110,7 +2569,8 @@ bool AnsiCanvas::FillLayer(int layer_index,
     {
         if (!prepared)
         {
-            PrepareUndoSnapshot();
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
             prepared = true;
         }
     };
@@ -2132,6 +2592,8 @@ bool AnsiCanvas::FillLayer(int layer_index,
             continue;
 
         prepare();
+        if (m_columns > 0)
+            CaptureUndoPageIfNeeded(layer_index, (int)(idx / (size_t)m_columns));
         if (idx < layer.cells.size()) layer.cells[idx] = new_cp;
         if (idx < layer.fg.size())    layer.fg[idx]    = new_fg;
         if (idx < layer.bg.size())    layer.bg[idx]    = new_bg;
@@ -3035,7 +3497,16 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     // Capture keyboard events and let the active tool handle them *before* we compute canvas_size,
     // so row growth (typing/enter/wrap) updates ImGui's scroll range immediately.
-    BeginUndoCapture();
+    //
+    // Performance/UX:
+    // Historically we began/ended an undo capture every frame, which meant any tool that paints
+    // continuously while the mouse is held down would take a full document snapshot once per frame.
+    //
+    // On large canvases (many rows) that is O(cols*rows) per frame and quickly becomes unusable.
+    // Instead, keep a single undo capture open across a mouse-drag "gesture" (mouse capture held),
+    // so we snapshot at most once per drag and commit the undo step on mouse release.
+    if (!m_undo_capture_active)
+        BeginUndoCapture();
     CaptureKeyEvents();
     const int caret_start_row = m_caret_row;
     const int caret_start_col = m_caret_col;
@@ -3185,7 +3656,15 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // Mouse phase: tools can react to cursor state for this frame.
     if (tool_runner)
         tool_runner(*this, 1);
-    EndUndoCapture();
+
+    // End undo capture unless the user is in an active mouse gesture that may continue mutating
+    // the canvas across multiple frames (e.g. pencil drag, selection move).
+    //
+    // Note: HandleMouseInteraction updates m_mouse_capture using the current ImGui mouse state,
+    // including releases that happen outside the item while captured.
+    const bool keep_undo_open_for_mouse_gesture = m_mouse_capture || m_move.active;
+    if (!keep_undo_open_for_mouse_gesture)
+        EndUndoCapture();
 
     // Keep cursor visible when navigating.
     //
@@ -3276,9 +3755,54 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
             out.layers.push_back(to_project_layer(l));
         return out;
     };
+    auto to_project_undo_entry = [&](const UndoEntry& e) -> ProjectState::ProjectUndoEntry
+    {
+        ProjectState::ProjectUndoEntry out;
+        if (e.kind == UndoEntry::Kind::Patch)
+        {
+            out.kind = ProjectState::ProjectUndoEntry::Kind::Patch;
+            out.patch.columns = e.patch.columns;
+            out.patch.rows = e.patch.rows;
+            out.patch.active_layer = e.patch.active_layer;
+            out.patch.caret_row = e.patch.caret_row;
+            out.patch.caret_col = e.patch.caret_col;
+            out.patch.state_token = e.patch.state_token;
+            out.patch.page_rows = e.patch.page_rows;
+            out.patch.layers.clear();
+            out.patch.layers.reserve(e.patch.layers.size());
+            for (const auto& lm : e.patch.layers)
+            {
+                ProjectState::ProjectUndoEntry::PatchLayerMeta plm;
+                plm.name = lm.name;
+                plm.visible = lm.visible;
+                plm.lock_transparency = lm.lock_transparency;
+                out.patch.layers.push_back(std::move(plm));
+            }
+            out.patch.pages.clear();
+            out.patch.pages.reserve(e.patch.pages.size());
+            for (const auto& pg : e.patch.pages)
+            {
+                ProjectState::ProjectUndoEntry::PatchPage p;
+                p.layer = pg.layer;
+                p.page = pg.page;
+                p.page_rows = pg.page_rows;
+                p.row_count = pg.row_count;
+                p.cells = pg.cells;
+                p.fg = pg.fg;
+                p.bg = pg.bg;
+                out.patch.pages.push_back(std::move(p));
+            }
+        }
+        else
+        {
+            out.kind = ProjectState::ProjectUndoEntry::Kind::Snapshot;
+            out.snapshot = to_project_snapshot(e.snapshot);
+        }
+        return out;
+    };
 
     ProjectState out;
-    out.version = 3;
+    out.version = 4;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
     out.current = to_project_snapshot(MakeSnapshot());
@@ -3286,10 +3810,10 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
 
     out.undo.reserve(m_undo_stack.size());
     for (const auto& s : m_undo_stack)
-        out.undo.push_back(to_project_snapshot(s));
+        out.undo.push_back(to_project_undo_entry(s));
     out.redo.reserve(m_redo_stack.size());
     for (const auto& s : m_redo_stack)
-        out.redo.push_back(to_project_snapshot(s));
+        out.redo.push_back(to_project_undo_entry(s));
     return out;
 }
 
@@ -3344,42 +3868,98 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         return true;
     };
 
+    auto to_internal_undo_entry = [&](const ProjectState::ProjectUndoEntry& e, UndoEntry& out, std::string& err) -> bool
+    {
+        (void)err;
+        out = UndoEntry{};
+        if (e.kind == ProjectState::ProjectUndoEntry::Kind::Patch)
+        {
+            out.kind = UndoEntry::Kind::Patch;
+            out.patch.columns = e.patch.columns;
+            out.patch.rows = e.patch.rows;
+            out.patch.active_layer = e.patch.active_layer;
+            out.patch.caret_row = e.patch.caret_row;
+            out.patch.caret_col = e.patch.caret_col;
+            out.patch.state_token = e.patch.state_token;
+            out.patch.page_rows = e.patch.page_rows;
+            out.patch.layers.clear();
+            out.patch.layers.reserve(e.patch.layers.size());
+            for (const auto& lm : e.patch.layers)
+            {
+                UndoEntry::PatchLayerMeta ilm;
+                ilm.name = lm.name;
+                ilm.visible = lm.visible;
+                ilm.lock_transparency = lm.lock_transparency;
+                out.patch.layers.push_back(std::move(ilm));
+            }
+            out.patch.pages.clear();
+            out.patch.pages.reserve(e.patch.pages.size());
+            for (const auto& pg : e.patch.pages)
+            {
+                UndoEntry::PatchPage ip;
+                ip.layer = pg.layer;
+                ip.page = pg.page;
+                ip.page_rows = pg.page_rows;
+                ip.row_count = pg.row_count;
+                ip.cells = pg.cells;
+                ip.fg = pg.fg;
+                ip.bg = pg.bg;
+                out.patch.pages.push_back(std::move(ip));
+            }
+            return true;
+        }
+        out.kind = UndoEntry::Kind::Snapshot;
+        return to_internal_snapshot(e.snapshot, out.snapshot, err);
+    };
+
     // Convert everything up-front so we can fail without mutating `this`.
     Snapshot current_internal;
     if (!to_internal_snapshot(state.current, current_internal, out_error))
         return false;
 
-    std::vector<Snapshot> undo_internal;
+    std::vector<UndoEntry> undo_internal;
     undo_internal.reserve(state.undo.size());
     for (const auto& s : state.undo)
     {
-        Snapshot tmp;
-        if (!to_internal_snapshot(s, tmp, out_error))
+        UndoEntry tmp;
+        if (!to_internal_undo_entry(s, tmp, out_error))
             return false;
         undo_internal.push_back(std::move(tmp));
     }
 
-    std::vector<Snapshot> redo_internal;
+    std::vector<UndoEntry> redo_internal;
     redo_internal.reserve(state.redo.size());
     for (const auto& s : state.redo)
     {
-        Snapshot tmp;
-        if (!to_internal_snapshot(s, tmp, out_error))
+        UndoEntry tmp;
+        if (!to_internal_undo_entry(s, tmp, out_error))
             return false;
         redo_internal.push_back(std::move(tmp));
     }
 
     // Assign runtime-only state tokens so undo/redo can restore the "dirty" marker correctly.
     std::uint64_t next_token = 1;
-    auto assign_token = [&](Snapshot& s) {
-        s.state_token = next_token;
+    auto bump = [&]() {
+        const std::uint64_t v = next_token ? next_token : 1;
         ++next_token;
         if (next_token == 0)
             ++next_token;
+        return v;
     };
-    for (auto& s : undo_internal) assign_token(s);
-    for (auto& s : redo_internal) assign_token(s);
-    assign_token(current_internal);
+    // For snapshot entries, we can assign snapshot.state_token; for patch entries, assign patch.state_token.
+    for (auto& e : undo_internal)
+    {
+        const std::uint64_t t = bump();
+        if (e.kind == UndoEntry::Kind::Snapshot) e.snapshot.state_token = t;
+        else e.patch.state_token = t;
+    }
+    for (auto& e : redo_internal)
+    {
+        const std::uint64_t t = bump();
+        if (e.kind == UndoEntry::Kind::Snapshot) e.snapshot.state_token = t;
+        else e.patch.state_token = t;
+    }
+    current_internal.state_token = bump();
 
     // Apply in one go.
     m_has_focus = false;
@@ -3390,8 +3970,10 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
 
     m_undo_capture_active = false;
     m_undo_capture_modified = false;
-    m_undo_capture_has_snapshot = false;
+    m_undo_capture_has_entry = false;
     m_undo_applying_snapshot = false;
+    m_undo_capture_entry.reset();
+    m_undo_capture_page_index.clear();
 
     // 0 = unlimited.
     m_undo_limit = state.undo_limit;

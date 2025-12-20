@@ -194,6 +194,161 @@ static bool ProjectSnapshotFromJson(const json& js, AnsiCanvas::ProjectSnapshot&
     return true;
 }
 
+static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
+{
+    json je;
+    if (e.kind == AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Patch)
+    {
+        je["kind"] = "patch";
+        je["columns"] = e.patch.columns;
+        je["rows"] = e.patch.rows;
+        je["active_layer"] = e.patch.active_layer;
+        je["caret_row"] = e.patch.caret_row;
+        je["caret_col"] = e.patch.caret_col;
+        je["state_token"] = e.patch.state_token;
+        je["page_rows"] = e.patch.page_rows;
+
+        json layers = json::array();
+        for (const auto& lm : e.patch.layers)
+        {
+            json jl;
+            jl["name"] = lm.name;
+            jl["visible"] = lm.visible;
+            jl["lock_transparency"] = lm.lock_transparency;
+            layers.push_back(std::move(jl));
+        }
+        je["layers"] = std::move(layers);
+
+        json pages = json::array();
+        for (const auto& pg : e.patch.pages)
+        {
+            json jp;
+            jp["layer"] = pg.layer;
+            jp["page"] = pg.page;
+            jp["page_rows"] = pg.page_rows;
+            jp["row_count"] = pg.row_count;
+
+            // Store glyphs as uint32 codepoints to keep CBOR compact and unambiguous.
+            json cells = json::array();
+            for (char32_t cp : pg.cells)
+                cells.push_back(static_cast<std::uint32_t>(cp));
+            jp["cells"] = std::move(cells);
+            jp["fg"] = pg.fg;
+            jp["bg"] = pg.bg;
+            pages.push_back(std::move(jp));
+        }
+        je["pages"] = std::move(pages);
+    }
+    else
+    {
+        je["kind"] = "snapshot";
+        je["snapshot"] = ProjectSnapshotToJson(e.snapshot);
+    }
+    return je;
+}
+
+static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectUndoEntry& out, std::string& err)
+{
+    err.clear();
+    out = AnsiCanvas::ProjectState::ProjectUndoEntry{};
+    if (!je.is_object())
+    {
+        err = "Undo entry is not an object.";
+        return false;
+    }
+    std::string kind = "snapshot";
+    if (je.contains("kind") && je["kind"].is_string())
+        kind = je["kind"].get<std::string>();
+    if (kind == "patch")
+    {
+        out.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Patch;
+        auto& p = out.patch;
+        if (je.contains("columns") && je["columns"].is_number_integer()) p.columns = je["columns"].get<int>();
+        if (je.contains("rows") && je["rows"].is_number_integer()) p.rows = je["rows"].get<int>();
+        if (je.contains("active_layer") && je["active_layer"].is_number_integer()) p.active_layer = je["active_layer"].get<int>();
+        if (je.contains("caret_row") && je["caret_row"].is_number_integer()) p.caret_row = je["caret_row"].get<int>();
+        if (je.contains("caret_col") && je["caret_col"].is_number_integer()) p.caret_col = je["caret_col"].get<int>();
+        if (je.contains("state_token") && (je["state_token"].is_number_unsigned() || je["state_token"].is_number_integer()))
+            p.state_token = je["state_token"].get<std::uint64_t>();
+        if (je.contains("page_rows") && je["page_rows"].is_number_integer())
+            p.page_rows = je["page_rows"].get<int>();
+
+        p.layers.clear();
+        if (je.contains("layers") && je["layers"].is_array())
+        {
+            for (const auto& jl : je["layers"])
+            {
+                if (!jl.is_object())
+                    continue;
+                AnsiCanvas::ProjectState::ProjectUndoEntry::PatchLayerMeta lm;
+                if (jl.contains("name") && jl["name"].is_string()) lm.name = jl["name"].get<std::string>();
+                if (jl.contains("visible") && jl["visible"].is_boolean()) lm.visible = jl["visible"].get<bool>();
+                if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean()) lm.lock_transparency = jl["lock_transparency"].get<bool>();
+                p.layers.push_back(std::move(lm));
+            }
+        }
+
+        p.pages.clear();
+        if (je.contains("pages") && je["pages"].is_array())
+        {
+            for (const auto& jp : je["pages"])
+            {
+                if (!jp.is_object())
+                    continue;
+                AnsiCanvas::ProjectState::ProjectUndoEntry::PatchPage pg;
+                if (jp.contains("layer") && jp["layer"].is_number_integer()) pg.layer = jp["layer"].get<int>();
+                if (jp.contains("page") && jp["page"].is_number_integer()) pg.page = jp["page"].get<int>();
+                if (jp.contains("page_rows") && jp["page_rows"].is_number_integer()) pg.page_rows = jp["page_rows"].get<int>();
+                if (jp.contains("row_count") && jp["row_count"].is_number_integer()) pg.row_count = jp["row_count"].get<int>();
+
+                if (!jp.contains("cells") || !jp["cells"].is_array())
+                {
+                    err = "Undo patch page missing 'cells' array.";
+                    return false;
+                }
+                pg.cells.clear();
+                pg.cells.reserve(jp["cells"].size());
+                for (const auto& v : jp["cells"])
+                {
+                    if (!v.is_number_unsigned() && !v.is_number_integer())
+                    {
+                        err = "Undo patch page 'cells' contains a non-integer value.";
+                        return false;
+                    }
+                    std::uint32_t cp = 0;
+                    if (v.is_number_unsigned())
+                        cp = v.get<std::uint32_t>();
+                    else
+                    {
+                        const std::int64_t si = v.get<std::int64_t>();
+                        if (si < 0)
+                        {
+                            err = "Undo patch page 'cells' contains a negative codepoint.";
+                            return false;
+                        }
+                        cp = static_cast<std::uint32_t>(si);
+                    }
+                    pg.cells.push_back(static_cast<char32_t>(cp));
+                }
+                if (jp.contains("fg") && jp["fg"].is_array())
+                    pg.fg = jp["fg"].get<std::vector<AnsiCanvas::Color32>>();
+                if (jp.contains("bg") && jp["bg"].is_array())
+                    pg.bg = jp["bg"].get<std::vector<AnsiCanvas::Color32>>();
+                p.pages.push_back(std::move(pg));
+            }
+        }
+        return true;
+    }
+    // snapshot
+    out.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
+    if (!je.contains("snapshot"))
+    {
+        err = "Undo snapshot entry missing 'snapshot'.";
+        return false;
+    }
+    return ProjectSnapshotFromJson(je["snapshot"], out.snapshot, err);
+}
+
 json ToJson(const AnsiCanvas::ProjectState& st)
 {
     json j;
@@ -207,12 +362,12 @@ json ToJson(const AnsiCanvas::ProjectState& st)
 
     json undo = json::array();
     for (const auto& s : st.undo)
-        undo.push_back(ProjectSnapshotToJson(s));
+        undo.push_back(UndoEntryToJson(s));
     j["undo"] = std::move(undo);
 
     json redo = json::array();
     for (const auto& s : st.redo)
-        redo.push_back(ProjectSnapshotToJson(s));
+        redo.push_back(UndoEntryToJson(s));
     j["redo"] = std::move(redo);
     return j;
 }
@@ -269,10 +424,21 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     {
         for (const auto& s : j["undo"])
         {
-            AnsiCanvas::ProjectSnapshot snap;
-            if (!ProjectSnapshotFromJson(s, snap, err))
+            // Backward compatibility: older project versions stored undo as raw snapshots.
+            if (s.is_object() && s.contains("columns") && s.contains("layers"))
+            {
+                AnsiCanvas::ProjectState::ProjectUndoEntry e;
+                e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
+                if (!ProjectSnapshotFromJson(s, e.snapshot, err))
+                    return false;
+                out.undo.push_back(std::move(e));
+                continue;
+            }
+
+            AnsiCanvas::ProjectState::ProjectUndoEntry e;
+            if (!UndoEntryFromJson(s, e, err))
                 return false;
-            out.undo.push_back(std::move(snap));
+            out.undo.push_back(std::move(e));
         }
     }
 
@@ -281,10 +447,20 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     {
         for (const auto& s : j["redo"])
         {
-            AnsiCanvas::ProjectSnapshot snap;
-            if (!ProjectSnapshotFromJson(s, snap, err))
+            if (s.is_object() && s.contains("columns") && s.contains("layers"))
+            {
+                AnsiCanvas::ProjectState::ProjectUndoEntry e;
+                e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
+                if (!ProjectSnapshotFromJson(s, e.snapshot, err))
+                    return false;
+                out.redo.push_back(std::move(e));
+                continue;
+            }
+
+            AnsiCanvas::ProjectState::ProjectUndoEntry e;
+            if (!UndoEntryFromJson(s, e, err))
                 return false;
-            out.redo.push_back(std::move(snap));
+            out.redo.push_back(std::move(e));
         }
     }
 
