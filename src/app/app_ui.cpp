@@ -328,15 +328,18 @@ void HandleKeybindings(SDL_Window* window,
                 target->sauce_dialog.OpenFromCanvas(target->canvas);
         }
 
-        if (keybinds.ActionPressed("app.file.close_window", kctx))
+        // Close the current canvas/document (uses run_frame.cpp's close-confirm flow).
+        if (keybinds.ActionPressed("canvas.close", kctx))
         {
             if (focused_canvas_window)
                 focused_canvas_window->open = false;
             else if (active_canvas_window)
                 active_canvas_window->open = false;
-            else
-                done = true;
         }
+
+        // Close the application window / quit attempt (may trigger a quit confirmation modal).
+        if (keybinds.ActionPressed("app.file.close_window", kctx))
+            done = true;
 
         if (keybinds.ActionPressed("app.quit", kctx))
             done = true;

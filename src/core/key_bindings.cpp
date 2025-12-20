@@ -819,9 +819,17 @@ std::vector<Action> DefaultActions()
             .id="app.file.close_window", .title="Close Window", .category="File",
             .description="Close the current window.",
             .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+W", .context="global", .platform="any"},
+                {.enabled=true, .chord="Cmd+Shift+W", .context="global", .platform="macos"},
+                {.enabled=true, .chord="Alt+F4", .context="global", .platform="windows"},
+            }
+        },
+        {
+            .id="canvas.close", .title="Close Canvas", .category="File",
+            .description="Close the current canvas/document (prompts to save if there are unsaved changes).",
+            .bindings={
                 {.enabled=true, .chord="Ctrl+W", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+W", .context="global", .platform="macos"},
-                {.enabled=true, .chord="Alt+F4", .context="global", .platform="windows"},
             }
         },
         {
