@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "fonts/textmode_font_sanity_cache.h"
+
 // Small persistent "session" state for the app:
 // - SDL main window geometry (size/position/maximized)
 // - which ImGui tool windows are toggled open
@@ -164,6 +166,10 @@ struct SessionState
     int next_image_id = 1;
     std::vector<OpenCanvas> open_canvases;
     std::vector<OpenImage> open_images;
+
+    // Cached results of expensive FIGlet/TDF font validation (broken ids).
+    // Stored in session.json so subsequent runs can skip re-validating the full font library.
+    textmode_font::SanityCache font_sanity_cache;
 };
 
 // Returns an absolute directory path intended for app config/state.

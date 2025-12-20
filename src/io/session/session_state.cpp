@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 13;
+    j["schema_version"] = 14;
 
     json win;
     win["w"] = st.window_w;
@@ -208,6 +208,17 @@ static json ToJson(const SessionState& st)
         chrome[name] = std::move(jc);
     }
     j["imgui_window_chrome"] = std::move(chrome);
+
+    // Textmode font sanity cache (broken FIGlet/TDF ids).
+    {
+        json fc;
+        fc["schema_version"] = st.font_sanity_cache.schema_version;
+        fc["fonts_fingerprint"] = st.font_sanity_cache.fonts_fingerprint;
+        fc["complete"] = st.font_sanity_cache.complete;
+        if (!st.font_sanity_cache.broken_ids.empty())
+            fc["broken_ids"] = st.font_sanity_cache.broken_ids;
+        j["font_sanity_cache"] = std::move(fc);
+    }
 
     return j;
 }
@@ -457,6 +468,28 @@ static void FromJson(const json& j, SessionState& out)
         migrate_key(out.imgui_windows, "Preview", "Minimap");
         migrate_key(out.imgui_window_chrome, "Preview", "Minimap");
     }
+
+    // Font sanity cache (optional).
+    if (j.contains("font_sanity_cache") && j["font_sanity_cache"].is_object())
+    {
+        const json& fc = j["font_sanity_cache"];
+        if (fc.contains("schema_version") && fc["schema_version"].is_number_integer())
+            out.font_sanity_cache.schema_version = fc["schema_version"].get<int>();
+        if (fc.contains("fonts_fingerprint") &&
+            (fc["fonts_fingerprint"].is_number_unsigned() || fc["fonts_fingerprint"].is_number_integer()))
+            out.font_sanity_cache.fonts_fingerprint = fc["fonts_fingerprint"].get<std::uint64_t>();
+        if (fc.contains("complete") && fc["complete"].is_boolean())
+            out.font_sanity_cache.complete = fc["complete"].get<bool>();
+        if (fc.contains("broken_ids") && fc["broken_ids"].is_array())
+        {
+            out.font_sanity_cache.broken_ids.clear();
+            for (const auto& v : fc["broken_ids"])
+            {
+                if (v.is_string())
+                    out.font_sanity_cache.broken_ids.push_back(v.get<std::string>());
+            }
+        }
+    }
 }
 
 bool LoadSessionState(SessionState& out, std::string& err)
@@ -497,7 +530,8 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
+                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -523,7 +557,8 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
+            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

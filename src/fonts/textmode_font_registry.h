@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fonts/textmode_font.h"
+#include "fonts/textmode_font_sanity_cache.h"
 
 #include <string>
 #include <string_view>
@@ -33,8 +34,30 @@ public:
     // On partial failures, still returns true but records errors (see Errors()).
     bool Scan(const std::string& assets_dir, std::string& out_error);
 
+    struct ScanOptions
+    {
+        // If true, perform an expensive validation pass when the cache is missing/stale:
+        // render `validate_text` for every discovered font and record broken ids.
+        //
+        // If the cache is valid for the current assets fingerprint, validation is skipped.
+        bool validate_if_cache_miss = false;
+
+        // If true and a valid cache is available, omit cached-broken fonts from List()/Render().
+        bool filter_broken_fonts = false;
+
+        // Text used for validation renders.
+        std::string validate_text = "test";
+    };
+
+    // Scan with optional persistent cache:
+    // - Computes a fingerprint of assets/fonts/{flf,tdf}
+    // - If `cache` is valid, can skip validation and/or filter broken fonts
+    // - If cache is missing/stale and validate_if_cache_miss is true, rebuild cache
+    bool Scan(const std::string& assets_dir, std::string& out_error, const ScanOptions& options, SanityCache* cache);
+
     const std::vector<RegistryEntry>& List() const { return entries_; }
     const std::vector<std::string>&  Errors() const { return errors_; }
+    const std::vector<std::string>&  BrokenIds() const { return broken_ids_; }
 
     bool Render(std::string_view id,
                 std::string_view utf8_text,
@@ -46,6 +69,7 @@ private:
     std::vector<RegistryEntry> entries_;
     std::unordered_map<std::string, Font> fonts_by_id_;
     std::vector<std::string> errors_;
+    std::vector<std::string> broken_ids_;
 };
 } // namespace textmode_font
 

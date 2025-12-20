@@ -138,11 +138,30 @@ all: $(EXE)
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(LIBS)
 
+# ---------------------------------------------------------------------------
+# Font sanity checker: scans assets/fonts/* and renders "test"
+# ---------------------------------------------------------------------------
+FONT_SANITY_EXE = font_sanity
+FONT_SANITY_SRCS = \
+           src/tools/font_sanity.cpp \
+           src/fonts/textmode_font.cpp \
+           src/fonts/textmode_font_registry.cpp \
+           src/core/fonts.cpp \
+           src/core/xterm256_palette.cpp
+
+$(FONT_SANITY_EXE): $(FONT_SANITY_SRCS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+.PHONY: font-sanity
+font-sanity: $(FONT_SANITY_EXE)
+
 # Include generated dependency files if they exist.
 -include $(DEPS)
 
 .PHONY: clean
 clean:
 	rm -f $(EXE)
+	rm -f $(FONT_SANITY_EXE)
 	rm -rf $(BUILD_DIR)
 

@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <unordered_set>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -83,16 +85,142 @@ static std::string RelNoExt(const fs::path& root, const fs::path& p)
     return rel.generic_string();
 }
 
+namespace
+{
+static std::uint64_t Fnv1a64Update(std::uint64_t h, const void* data, size_t n)
+{
+    const auto* p = static_cast<const std::uint8_t*>(data);
+    for (size_t i = 0; i < n; ++i)
+    {
+        h ^= (std::uint64_t)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static std::uint64_t Fnv1a64UpdateString(std::uint64_t h, const std::string& s)
+{
+    return Fnv1a64Update(h, s.data(), s.size());
+}
+
+static std::uint64_t ComputeFontsFingerprint(const fs::path& flf_dir, const fs::path& tdf_dir)
+{
+    // Fingerprint includes filename + size + last_write_time for all .flf/.tdf files.
+    // This avoids reading file contents (fast) and is good enough to invalidate on updates.
+    std::uint64_t h = 1469598103934665603ull; // FNV offset basis
+
+    auto hash_dir = [&](const fs::path& dir, const char* ext_lower) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || ec)
+            return;
+        for (const auto& it : fs::directory_iterator(dir, ec))
+        {
+            if (ec)
+                break;
+            if (!it.is_regular_file())
+                continue;
+            const fs::path p = it.path();
+            const std::string ext = ToLowerAscii(p.extension().string());
+            if (ext != ext_lower)
+                continue;
+
+            // Use relative path (not just filename) in case font packs gain subdirectories later.
+            std::string rel;
+            try { rel = fs::relative(p, dir).generic_string(); }
+            catch (...) { rel = p.filename().generic_string(); }
+            h = Fnv1a64UpdateString(h, rel);
+            const char zero = '\0';
+            h = Fnv1a64Update(h, &zero, 1);
+
+            std::uint64_t sz = 0;
+            std::int64_t wt = 0;
+            {
+                std::error_code sec;
+                sz = (std::uint64_t)fs::file_size(p, sec);
+                if (sec) sz = 0;
+            }
+            {
+                std::error_code tec;
+                const auto ft = fs::last_write_time(p, tec);
+                if (!tec)
+                    wt = (std::int64_t)ft.time_since_epoch().count();
+            }
+
+            h = Fnv1a64Update(h, &sz, sizeof(sz));
+            h = Fnv1a64Update(h, &wt, sizeof(wt));
+        }
+    };
+
+    hash_dir(flf_dir, ".flf");
+    hash_dir(tdf_dir, ".tdf");
+    return h;
+}
+
+static bool IsBlankCell(char32_t cp)
+{
+    return cp == U'\0' || cp == U' ' || cp == U'\u00A0';
+}
+
+static bool LooksBrokenQuick(const FontMeta& meta, const Bitmap& bmp)
+{
+    (void)meta;
+    if (bmp.w <= 0 || bmp.h <= 0)
+        return true;
+    const size_t expected = (size_t)bmp.w * (size_t)bmp.h;
+    if (bmp.cp.size() != expected)
+        return true;
+    if (!bmp.fg.empty() && bmp.fg.size() != expected)
+        return true;
+    if (!bmp.bg.empty() && bmp.bg.size() != expected)
+        return true;
+
+    // A render that produces zero "ink" is effectively unusable for stamping.
+    int non_blank = 0;
+    for (char32_t cp : bmp.cp)
+        if (!IsBlankCell(cp))
+            ++non_blank;
+    if (non_blank == 0)
+        return true;
+
+    // Guard against pathological outputs (usually corruption).
+    if (bmp.w > 2000 || bmp.h > 500)
+        return true;
+
+    return false;
+}
+} // namespace
+
 bool Registry::Scan(const std::string& assets_dir, std::string& out_error)
+{
+    ScanOptions opt;
+    return Scan(assets_dir, out_error, opt, nullptr);
+}
+
+bool Registry::Scan(const std::string& assets_dir, std::string& out_error, const ScanOptions& options, SanityCache* cache)
 {
     out_error.clear();
     entries_.clear();
     fonts_by_id_.clear();
     errors_.clear();
+    broken_ids_.clear();
 
     const fs::path root = fs::path(assets_dir) / "fonts";
     const fs::path flf_dir = root / "flf";
     const fs::path tdf_dir = root / "tdf";
+
+    const std::uint64_t fingerprint = ComputeFontsFingerprint(flf_dir, tdf_dir);
+
+    const bool cache_valid =
+        cache && cache->schema_version == 1 && cache->complete && cache->fonts_fingerprint == fingerprint;
+
+    std::unordered_set<std::string> cached_broken;
+    if (cache_valid)
+    {
+        cached_broken.reserve(cache->broken_ids.size());
+        for (const auto& id : cache->broken_ids)
+            cached_broken.insert(id);
+        broken_ids_ = cache->broken_ids;
+    }
 
     auto scan_dir = [&](const fs::path& dir, const char* ext_lower, const char* prefix) {
         if (!fs::exists(dir))
@@ -135,6 +263,18 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error)
                 if (meta.kind == Kind::Tdf)
                     id += "#" + std::to_string(i);
 
+                // FIGlet fonts often don't contain a reliable human-readable name in-file.
+                // Our FIGlet parser currently defaults meta.name to "figlet", which makes the
+                // UI drop-down unusable. Prefer the file base name (without extension).
+                if (meta.kind == Kind::Figlet)
+                {
+                    const std::string name_lower = ToLowerAscii(meta.name);
+                    if (meta.name.empty() || name_lower == "figlet" || meta.name == "(unnamed)")
+                    {
+                        meta.name = fs::path(rel).filename().generic_string();
+                    }
+                }
+
                 // If meta.name is empty (or duplicates), make it stable by including file stem.
                 std::string label = MakeBaseLabel(meta);
                 if (meta.kind == Kind::Tdf)
@@ -145,6 +285,12 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error)
                 else
                 {
                     label += " (" + KindToString(meta.kind) + ")";
+                }
+
+                if (options.filter_broken_fonts && cache_valid && cached_broken.find(id) != cached_broken.end())
+                {
+                    // Skip known-broken fonts (keep errors_ separate from broken list).
+                    continue;
                 }
 
                 // Keep the loaded font in memory for fast renders.
@@ -176,6 +322,60 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error)
     {
         // Non-fatal: tools can still function; expose errors via ansl.font if needed.
         out_error = "Font scan: " + std::to_string(errors_.size()) + " errors";
+    }
+
+    // If requested, validate + populate cache on miss.
+    if (options.validate_if_cache_miss && (!cache_valid))
+    {
+        RenderOptions ro;
+        ro.mode = RenderMode::Display;
+        ro.outline_style = 0;
+        ro.use_font_colors = true;
+        ro.icecolors = true;
+
+        std::vector<std::string> broken;
+        broken.reserve(256);
+
+        for (const auto& e : entries_)
+        {
+            const auto it = fonts_by_id_.find(e.id);
+            if (it == fonts_by_id_.end())
+                continue;
+            Bitmap bmp;
+            std::string rerr;
+            if (!RenderText(it->second, options.validate_text, ro, bmp, rerr) || LooksBrokenQuick(e.meta, bmp))
+                broken.push_back(e.id);
+        }
+
+        std::sort(broken.begin(), broken.end());
+        broken.erase(std::unique(broken.begin(), broken.end()), broken.end());
+        broken_ids_ = broken;
+
+        if (cache)
+        {
+            cache->schema_version = 1;
+            cache->fonts_fingerprint = fingerprint;
+            cache->complete = true;
+            cache->broken_ids = broken;
+        }
+
+        if (options.filter_broken_fonts && !broken.empty())
+        {
+            std::unordered_set<std::string> broken_set;
+            broken_set.reserve(broken.size());
+            for (const auto& id : broken)
+                broken_set.insert(id);
+
+            // Filter entries_
+            entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                          [&](const RegistryEntry& re) {
+                                              return broken_set.find(re.id) != broken_set.end();
+                                          }),
+                          entries_.end());
+            // Filter fonts_by_id_
+            for (const auto& id : broken)
+                fonts_by_id_.erase(id);
+        }
     }
 
     return true;

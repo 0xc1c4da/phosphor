@@ -144,6 +144,83 @@ local function clear_rect(layer, x, y, w, h)
   end
 end
 
+local function clamp_int(v, lo, hi)
+  v = math.floor(tonumber(v) or 0)
+  lo = math.floor(tonumber(lo) or 0)
+  hi = math.floor(tonumber(hi) or 0)
+  if v < lo then return lo end
+  if v > hi then return hi end
+  return v
+end
+
+local function effective_rect(ctx, x, y, w, h)
+  local cols = tonumber((ctx and ctx.cols) or 0) or 0
+  x = math.floor(tonumber(x) or 0)
+  y = math.floor(tonumber(y) or 0)
+  w = math.floor(tonumber(w) or 0)
+  h = math.floor(tonumber(h) or 0)
+  if y < 0 then y = 0 end
+  if w < 0 then w = 0 end
+  if h < 0 then h = 0 end
+
+  if cols > 0 then
+    x = clamp_int(x, 0, cols - 1)
+    local max_w = cols - x
+    if max_w < 0 then max_w = 0 end
+    if w > max_w then w = max_w end
+  end
+
+  if w <= 0 or h <= 0 then
+    return x, y, 0, 0
+  end
+  return x, y, w, h
+end
+
+local function capture_backup(ctx, layer, x, y, w, h)
+  if not ctx or not layer then return nil end
+  x, y, w, h = effective_rect(ctx, x, y, w, h)
+  if w <= 0 or h <= 0 then return nil end
+
+  -- Safety: don't try to snapshot enormous regions (can freeze).
+  local max_cells = 12000
+  if (w * h) > max_cells then
+    return nil
+  end
+
+  local b = { x = x, y = y, w = w, h = h, cp = {}, fg = {}, bg = {} }
+  for j = 0, h - 1 do
+    for i = 0, w - 1 do
+      local _, fg, bg, cp = layer:get(x + i, y + j)
+      local idx = (j * w) + i + 1
+      b.cp[idx] = tonumber(cp) or 32
+      b.fg[idx] = (type(fg) == "number") and math.floor(fg) or nil
+      b.bg[idx] = (type(bg) == "number") and math.floor(bg) or nil
+    end
+  end
+  return b
+end
+
+local function restore_backup(layer, b)
+  if not layer or type(b) ~= "table" then return end
+  local x = tonumber(b.x) or 0
+  local y = tonumber(b.y) or 0
+  local w = tonumber(b.w) or 0
+  local h = tonumber(b.h) or 0
+  if w <= 0 or h <= 0 then return end
+  local cp = b.cp or {}
+  local fg = b.fg or {}
+  local bg = b.bg or {}
+  for j = 0, h - 1 do
+    for i = 0, w - 1 do
+      local idx = (j * w) + i + 1
+      local cpi = tonumber(cp[idx]) or 32
+      local fgi = fg[idx]
+      local bgi = bg[idx]
+      set_cell(layer, x + i, y + j, cpi, fgi, bgi)
+    end
+  end
+end
+
 local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   if not ctx or not layer or type(bmp) ~= "table" then return false end
   local w = tonumber(bmp.w) or 0
@@ -162,8 +239,25 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   local fallback_fg = (use_fallback_fg and type(ctx.fg) == "number") and math.floor(ctx.fg) or nil
   local fallback_bg = (use_fallback_bg and type(ctx.bg) == "number") and math.floor(ctx.bg) or nil
 
+  -- Clamp to canvas columns to avoid expensive out-of-range writes.
+  local cols = tonumber((ctx and ctx.cols) or 0) or 0
+  local x_begin = 0
+  local x_end = w - 1
+  if cols > 0 then
+    if x0 < 0 then x_begin = -x0 end
+    local max_x = cols - 1
+    if (x0 + x_end) > max_x then
+      x_end = max_x - x0
+    end
+  end
+  if x_begin < 0 then x_begin = 0 end
+  if x_end >= w then x_end = w - 1 end
+  if x_end < x_begin then
+    return false
+  end
+
   for y = 0, h - 1 do
-    for x = 0, w - 1 do
+    for x = x_begin, x_end do
       local i = (y * w) + x + 1
       local cpi = tonumber(cp[i]) or 32
       if cpi <= 0 then cpi = 32 end
@@ -185,21 +279,47 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   end
 
   -- Select the stamped region so the user can move it (either via this tool or Select tool).
+  -- Note: selection clamps x to canvas columns, so we must read back the actual selection rect.
+  local sel = { x = x0, y = y0, w = w, h = h }
   local canvas = ctx.canvas
   if canvas ~= nil then
     canvas:setSelection(x0, y0, x0 + w - 1, y0 + h - 1)
+    local sx, sy, sw, sh = canvas:getSelection()
+    if type(sx) == "number" and type(sy) == "number" and type(sw) == "number" and type(sh) == "number" then
+      sel.x = math.floor(sx)
+      sel.y = math.floor(sy)
+      sel.w = math.floor(sw)
+      sel.h = math.floor(sh)
+    end
   end
-  return true
+  return sel
 end
 
 -- Live stamp tracking: if the user changes font/options while the last stamped region is
 -- still selected, re-render and overwrite the region in-place.
 local last_stamp = nil
+local last_text_cache = nil
+local last_text_cache_key = nil
+
+local function current_text()
+  -- Cache concatenation so render_key() doesn't rebuild a big string every frame.
+  -- Use table length + last char as a cheap cache key.
+  local n = (type(text_chars) == "table") and #text_chars or 0
+  local tail = ""
+  if n > 0 and type(text_chars[n]) == "string" then tail = text_chars[n] end
+  local k = tostring(n) .. "|" .. tail
+  if last_text_cache_key == k and type(last_text_cache) == "string" then
+    return last_text_cache
+  end
+  last_text_cache_key = k
+  last_text_cache = concat_chars(text_chars)
+  return last_text_cache
+end
 
 local function render_key(ctx)
   local id = current_font_id(ctx)
   local p = (ctx and ctx.params) or {}
-  local text = concat_chars(text_chars)
+  local text = current_text()
   local editMode = (p.editMode == true) and "1" or "0"
   local outlineStyle = tostring(tonumber(p.outlineStyle) or 0)
   local useFontColors = (p.useFontColors ~= false) and "1" or "0"
@@ -228,65 +348,74 @@ local function try_place(ctx, layer, x, y)
     return false
   end
 
-  if not stamp_bitmap(ctx, layer, x, y, bmp) then
+  -- Non-destructive preview: snapshot underlying cells so we can restore until commit/cancel.
+  local x0, y0, w0, h0 = effective_rect(ctx, x, y, bmp.w, bmp.h)
+  local backup = capture_backup(ctx, layer, x0, y0, w0, h0)
+  local sel = stamp_bitmap(ctx, layer, x0, y0, bmp)
+  if not sel then
     return false
   end
 
   last_stamp = {
     key = render_key(ctx),
-    x = x, y = y,
-    w = tonumber(bmp.w) or 0,
-    h = tonumber(bmp.h) or 0,
+    x = tonumber(sel.x) or x,
+    y = tonumber(sel.y) or y,
+    w = tonumber(sel.w) or (tonumber(bmp.w) or 0),
+    h = tonumber(sel.h) or (tonumber(bmp.h) or 0),
     pending_rerender = false,
+    preview = (backup ~= nil), -- if backup failed (too big), we fall back to destructive behavior
+    backup = backup,
+    bmp = bmp,
+    drag = false,
+    grab_dx = 0,
+    grab_dy = 0,
   }
   return true
 end
 
-local function try_begin_move(ctx)
-  local canvas = ctx.canvas
-  local cursor = ctx.cursor or {}
-  local mods = ctx.mods or {}
-  if canvas == nil or cursor.valid ~= true then return false end
+local function preview_move_to(ctx, layer, nx, ny)
+  if not ctx or not layer or last_stamp == nil or last_stamp.bmp == nil then return end
+  if last_stamp.preview ~= true then return end
 
-  local pressed = (cursor.left == true) and ((cursor.p and cursor.p.left) ~= true)
-  if not pressed then return false end
+  nx = math.floor(tonumber(nx) or last_stamp.x or 0)
+  ny = math.floor(tonumber(ny) or last_stamp.y or 0)
+  if ny < 0 then ny = 0 end
 
-  local cx = tonumber(cursor.x) or 0
-  local cy = tonumber(cursor.y) or 0
-  if not canvas:hasSelection() then return false end
-  if not canvas:selectionContains(cx, cy) then return false end
+  -- Clamp X so we don't fight the selection clamp behavior.
+  local cols = tonumber((ctx and ctx.cols) or 0) or 0
+  if cols > 0 then
+    nx = clamp_int(nx, 0, cols - 1)
+  else
+    if nx < 0 then nx = 0 end
+  end
 
-  local copy = (mods.shift == true)
-  return canvas:beginMoveSelection(cx, cy, copy)
-end
+  if nx == last_stamp.x and ny == last_stamp.y then return end
 
-local function update_move(ctx)
-  local canvas = ctx.canvas
-  local cursor = ctx.cursor or {}
-  if canvas == nil or cursor.valid ~= true then return end
+  -- Restore previous underlying content.
+  if last_stamp.backup ~= nil then
+    restore_backup(layer, last_stamp.backup)
+  end
 
-  if canvas:isMovingSelection() then
-    local cx = tonumber(cursor.x) or 0
-    local cy = tonumber(cursor.y) or 0
-    canvas:updateMoveSelection(cx, cy)
+  -- Snapshot new destination region.
+  local w = tonumber(last_stamp.bmp.w) or 0
+  local h = tonumber(last_stamp.bmp.h) or 0
+  local x0, y0, w0, h0 = effective_rect(ctx, nx, ny, w, h)
+  local backup = capture_backup(ctx, layer, x0, y0, w0, h0)
+  last_stamp.backup = backup
+  last_stamp.preview = (backup ~= nil)
 
-    local released = ((cursor.p and cursor.p.left) == true) and (cursor.left ~= true)
-    if released then
-      canvas:commitMoveSelection()
-
-      -- If we were tracking a stamp, update its origin to the new selection rect.
-      if last_stamp ~= nil and canvas:hasSelection() then
-        local sx, sy, sw, sh = canvas:getSelection()
-        sx = tonumber(sx) or last_stamp.x
-        sy = tonumber(sy) or last_stamp.y
-        sw = tonumber(sw) or last_stamp.w
-        sh = tonumber(sh) or last_stamp.h
-        last_stamp.x = sx
-        last_stamp.y = sy
-        last_stamp.w = sw
-        last_stamp.h = sh
-      end
-    end
+  -- Stamp preview at new location.
+  local sel = stamp_bitmap(ctx, layer, x0, y0, last_stamp.bmp)
+  if type(sel) == "table" then
+    last_stamp.x = tonumber(sel.x) or x0
+    last_stamp.y = tonumber(sel.y) or y0
+    last_stamp.w = tonumber(sel.w) or w0
+    last_stamp.h = tonumber(sel.h) or h0
+  else
+    last_stamp.x = x0
+    last_stamp.y = y0
+    last_stamp.w = w0
+    last_stamp.h = h0
   end
 end
 
@@ -321,8 +450,17 @@ local function maybe_rerender_selected_stamp(ctx, layer)
   end
 
   local id = current_font_id(ctx)
-  local text = concat_chars(text_chars)
+  local text = current_text()
   if id == "" or text == "" then
+    return
+  end
+
+  -- Throttle live rerender to avoid freezing the UI on large fonts / rapid input repeats.
+  local now = tonumber((ctx and ctx.time) or 0) or 0
+  local last_t = tonumber(last_stamp.last_render_time or 0) or 0
+  local min_dt = 0.06 -- ~16 fps max for live rerender
+  if (now - last_t) < min_dt then
+    last_stamp.pending_rerender = true
     return
   end
 
@@ -338,13 +476,35 @@ local function maybe_rerender_selected_stamp(ctx, layer)
     return
   end
 
-  -- Clear old region, then stamp new (may be different size).
-  clear_rect(layer, last_stamp.x, last_stamp.y, last_stamp.w, last_stamp.h)
-  stamp_bitmap(ctx, layer, last_stamp.x, last_stamp.y, bmp)
+  local sel = nil
+  if last_stamp.preview == true then
+    -- Preview mode: restore underlying, resnapshot if size changed, then stamp.
+    if last_stamp.backup ~= nil then
+      restore_backup(layer, last_stamp.backup)
+    end
+    local x0, y0, w0, h0 = effective_rect(ctx, last_stamp.x, last_stamp.y, bmp.w, bmp.h)
+    local backup = capture_backup(ctx, layer, x0, y0, w0, h0)
+    last_stamp.backup = backup
+    last_stamp.preview = (backup ~= nil)
+    sel = stamp_bitmap(ctx, layer, x0, y0, bmp)
+  else
+    -- Committed mode: destructive overwrite.
+    clear_rect(layer, last_stamp.x, last_stamp.y, last_stamp.w, last_stamp.h)
+    sel = stamp_bitmap(ctx, layer, last_stamp.x, last_stamp.y, bmp)
+  end
 
   last_stamp.key = want_key
-  last_stamp.w = tonumber(bmp.w) or last_stamp.w
-  last_stamp.h = tonumber(bmp.h) or last_stamp.h
+  last_stamp.last_render_time = now
+  last_stamp.bmp = bmp
+  if type(sel) == "table" then
+    last_stamp.x = tonumber(sel.x) or last_stamp.x
+    last_stamp.y = tonumber(sel.y) or last_stamp.y
+    last_stamp.w = tonumber(sel.w) or last_stamp.w
+    last_stamp.h = tonumber(sel.h) or last_stamp.h
+  else
+    last_stamp.w = tonumber(bmp.w) or last_stamp.w
+    last_stamp.h = tonumber(bmp.h) or last_stamp.h
+  end
   last_stamp.pending_rerender = false
 end
 
@@ -356,49 +516,69 @@ function render(ctx, layer)
   local phase = tonumber(ctx.phase) or 0
   local keys = ctx.keys or {}
   local cursor = ctx.cursor or {}
+  local mods = ctx.mods or {}
 
   -- Phase 1: mouse-driven move (floating selection).
   if phase == 1 then
-    update_move(ctx)
-
-    -- If we deferred a rerender during move, apply it now (after commit).
-    if last_stamp ~= nil and last_stamp.pending_rerender == true then
-      maybe_rerender_selected_stamp(ctx, layer)
-    end
-
-    -- Click-to-place: if we clicked outside the current selection, stamp at click and drag immediately.
+    -- Click-to-place / click-to-drag preview (non-destructive until commit).
     local pressed = (cursor.valid == true) and (cursor.left == true) and ((cursor.p and cursor.p.left) ~= true)
     if pressed then
       local cx = tonumber(cursor.x) or 0
       local cy = tonumber(cursor.y) or 0
       local inside = (canvas ~= nil and canvas:hasSelection() and canvas:selectionContains(cx, cy))
       if not inside then
-        if try_place(ctx, layer, cx, cy) and canvas ~= nil then
-          canvas:beginMoveSelection(cx, cy, false)
+        if try_place(ctx, layer, cx, cy) then
+          -- Start drag immediately after placing.
+          if last_stamp ~= nil then
+            last_stamp.drag = true
+            last_stamp.grab_dx = clamp_int(cx - (last_stamp.x or 0), 0, math.max(0, (last_stamp.w or 1) - 1))
+            last_stamp.grab_dy = clamp_int(cy - (last_stamp.y or 0), 0, math.max(0, (last_stamp.h or 1) - 1))
+          end
+        end
+      else
+        -- Begin drag existing preview selection.
+        if last_stamp ~= nil then
+          last_stamp.drag = true
+          last_stamp.grab_dx = clamp_int(cx - (last_stamp.x or 0), 0, math.max(0, (last_stamp.w or 1) - 1))
+          last_stamp.grab_dy = clamp_int(cy - (last_stamp.y or 0), 0, math.max(0, (last_stamp.h or 1) - 1))
         end
       end
     end
+
+    -- While dragging, move preview (no commit on release).
+    if last_stamp ~= nil and last_stamp.drag == true and cursor.valid == true then
+      local cx = tonumber(cursor.x) or 0
+      local cy = tonumber(cursor.y) or 0
+      if cursor.left == true then
+        preview_move_to(ctx, layer, cx - (last_stamp.grab_dx or 0), cy - (last_stamp.grab_dy or 0))
+      else
+        -- Mouse released: stop dragging but keep preview.
+        last_stamp.drag = false
+      end
+    end
+
+    -- If options/text change while preview is selected, rerender in-place.
+    maybe_rerender_selected_stamp(ctx, layer)
     return
   end
 
   -- Phase 0: keyboard + selection initiation.
-  maybe_rerender_selected_stamp(ctx, layer)
-
   if keys.escape then
-    if canvas ~= nil and canvas:isMovingSelection() then
-      canvas:cancelMoveSelection()
-    elseif canvas ~= nil then
-      canvas:clearSelection()
+    if last_stamp ~= nil and last_stamp.preview == true then
+      -- Cancel preview: restore underlying and clear selection.
+      if last_stamp.backup ~= nil then
+        restore_backup(layer, last_stamp.backup)
+      end
+      last_stamp = nil
+      if canvas ~= nil then canvas:clearSelection() end
+      return
     end
+    if canvas ~= nil then canvas:clearSelection() end
     return
   end
 
   if (ctx.params and ctx.params.clearText == true) then
     text_chars = {}
-    -- Clearing text should also update any live stamp.
-    if last_stamp ~= nil then
-      last_stamp.key = ""
-    end
   end
 
   push_typed(text_chars, ctx.typed)
@@ -406,23 +586,28 @@ function render(ctx, layer)
     pop_char(text_chars)
   end
 
+  -- Multiline: Shift+Enter inserts a newline into the text buffer.
+  if keys.enter == true and mods.shift == true then
+    text_chars[#text_chars + 1] = "\n"
+  end
+
+  -- Now that text/options may have changed, update any live stamp in-place.
+  maybe_rerender_selected_stamp(ctx, layer)
+
   -- Enter places at caret (and selects).
   local caret = ctx.caret or {}
-  local place_pressed = (keys.enter == true) or (ctx.params and ctx.params.place == true)
+  local place_pressed = ((keys.enter == true) and (mods.shift ~= true)) or (ctx.params and ctx.params.place == true)
   if place_pressed then
-    if canvas ~= nil and canvas:isMovingSelection() then
-      canvas:commitMoveSelection()
+    -- If we have an active preview, "Place" commits it (stop restoring underlying).
+    if last_stamp ~= nil and last_stamp.preview == true then
+      last_stamp.preview = false
+      last_stamp.backup = nil
       return
     end
     local x = tonumber(caret.x) or 0
     local y = tonumber(caret.y) or 0
     try_place(ctx, layer, x, y)
     return
-  end
-
-  -- If a selection exists, allow click-to-move like the Select tool.
-  if canvas ~= nil and not canvas:isMovingSelection() then
-    try_begin_move(ctx)
   end
 end
 

@@ -271,12 +271,13 @@ int main(int, char**)
     AnslScriptEngine tool_engine;
     {
         std::string aerr;
-        if (!ansl_engine.Init(GetPhosphorAssetsDir(), aerr))
+        if (!ansl_engine.Init(GetPhosphorAssetsDir(), aerr, &session_state.font_sanity_cache, true))
             std::fprintf(stderr, "[ansl] init failed: %s\n", aerr.c_str());
     }
     {
         std::string terr;
-        if (!tool_engine.Init(GetPhosphorAssetsDir(), terr))
+        // Reuse the same cache, but don't re-run the expensive validation pass.
+        if (!tool_engine.Init(GetPhosphorAssetsDir(), terr, &session_state.font_sanity_cache, false))
             std::fprintf(stderr, "[tools] init failed: %s\n", terr.c_str());
     }
 

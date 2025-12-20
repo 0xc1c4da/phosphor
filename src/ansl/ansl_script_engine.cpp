@@ -1285,7 +1285,10 @@ AnslScriptEngine::~AnslScriptEngine()
     impl_ = nullptr;
 }
 
-bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
+bool AnslScriptEngine::Init(const std::string& assets_dir,
+                            std::string& error,
+                            textmode_font::SanityCache* font_cache,
+                            bool validate_fonts_if_cache_miss)
 {
     if (!impl_)
         return false;
@@ -1307,7 +1310,11 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
     impl_->font_registry = std::make_unique<textmode_font::Registry>();
     {
         std::string ferr;
-        (void)impl_->font_registry->Scan(assets_dir, ferr);
+        textmode_font::Registry::ScanOptions fopt;
+        fopt.validate_if_cache_miss = validate_fonts_if_cache_miss;
+        fopt.filter_broken_fonts = (font_cache != nullptr); // only meaningful if we have a cache
+        fopt.validate_text = "test";
+        (void)impl_->font_registry->Scan(assets_dir, ferr, fopt, font_cache);
         // Non-fatal: ansl.font.list() will be empty if scan failed.
     }
     lua_pushlightuserdata(impl_->L, impl_->font_registry.get());

@@ -8,6 +8,11 @@
 
 class AnsiCanvas;
 
+namespace textmode_font
+{
+struct SanityCache;
+}
+
 enum class AnslParamType
 {
     Bool,
@@ -250,7 +255,12 @@ public:
     AnslScriptEngine& operator=(const AnslScriptEngine&) = delete;
 
     // Initializes the Lua state and registers the host `ansl` module (also published as global `ansl`).
-    bool Init(const std::string& assets_dir, std::string& error);
+    // If `font_cache` is provided, Init will scan fonts using it and can optionally run an
+    // expensive "validate all fonts" pass on cache miss (to populate broken ids).
+    bool Init(const std::string& assets_dir,
+              std::string& error,
+              textmode_font::SanityCache* font_cache = nullptr,
+              bool validate_fonts_if_cache_miss = false);
 
     // Compiles/evaluates user script and caches the `render` function.
     bool CompileUserScript(const std::string& source, std::string& error);
