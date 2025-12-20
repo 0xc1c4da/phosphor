@@ -118,15 +118,26 @@ void RunFrame(AppState& st)
     std::string& tools_error = *st.tools.tools_error;
     std::string& tool_compile_error = *st.tools.tool_compile_error;
 
+    // NOTE: Temporary/session-managed canvases (no explicit file path) are implicitly persisted
+    // by session cache + session.json, so they should not participate in the Quit "Save All" gate.
+    auto should_prompt_save_on_quit = [&](const CanvasWindow& cw) -> bool {
+        if (!cw.open)
+            return false;
+        if (!cw.canvas.IsModifiedSinceLastSave())
+            return false;
+        // Empty file path means "not explicitly saved/opened" (session-only/temporary).
+        if (!cw.canvas.HasFilePath())
+            return false;
+        return true;
+    };
+
     auto any_dirty_canvas = [&]() -> bool {
         for (const auto& cptr : canvases)
         {
             if (!cptr)
                 continue;
             const CanvasWindow& cw = *cptr;
-            if (!cw.open)
-                continue;
-            if (cw.canvas.IsModifiedSinceLastSave())
+            if (should_prompt_save_on_quit(cw))
                 return true;
         }
         return false;
@@ -139,9 +150,7 @@ void RunFrame(AppState& st)
             if (!cptr)
                 continue;
             const CanvasWindow& cw = *cptr;
-            if (!cw.open)
-                continue;
-            if (cw.canvas.IsModifiedSinceLastSave())
+            if (should_prompt_save_on_quit(cw))
                 ++n;
         }
         return n;
@@ -481,7 +490,7 @@ void RunFrame(AppState& st)
         {
             const int id = st.quit_save_queue_ids[st.quit_save_queue_index];
             CanvasWindow* cw = find_canvas_by_id(id);
-            if (!cw || !cw->open || !cw->canvas.IsModifiedSinceLastSave())
+            if (!cw || !should_prompt_save_on_quit(*cw))
             {
                 ++st.quit_save_queue_index;
                 continue;
@@ -530,7 +539,7 @@ void RunFrame(AppState& st)
         }
         else
         {
-            ImGui::Text("You have %d unsaved canvas%s.", dirty_n, dirty_n == 1 ? "" : "es");
+            ImGui::Text("You have %d canvas%s with unsaved changes.", dirty_n, dirty_n == 1 ? "" : "es");
             ImGui::Text("Do you want to save your changes before quitting?");
             ImGui::Separator();
 
@@ -543,9 +552,7 @@ void RunFrame(AppState& st)
                     if (!cptr)
                         continue;
                     const CanvasWindow& cw = *cptr;
-                    if (!cw.open)
-                        continue;
-                    if (cw.canvas.IsModifiedSinceLastSave())
+                    if (should_prompt_save_on_quit(cw))
                         st.quit_save_queue_ids.push_back(cw.id);
                 }
                 st.quit_modal_open = false;
