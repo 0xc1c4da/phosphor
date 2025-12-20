@@ -2226,30 +2226,43 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
     if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
         return;
 
-    Layer& layer = m_layers[(size_t)m_active_layer];
-    // Determine old cell value without growing the document unless we will mutate.
-    const bool in_bounds = (row < m_rows);
-    const size_t idx = CellIndex(row, col);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+    auto write_one = [&](int write_col)
+    {
+        Layer& layer = m_layers[(size_t)m_active_layer];
+        // Determine old cell value without growing the document unless we will mutate.
+        const bool in_bounds = (row < m_rows);
+        const size_t idx = CellIndex(row, write_col);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = cp;
-    const Color32  new_fg = old_fg;
-    const Color32  new_bg = old_bg;
+        const char32_t new_cp = cp;
+        const Color32  new_fg = old_fg;
+        const Color32  new_bg = old_bg;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return;
-    if (in_bounds && old_cp == new_cp)
-        return; // no-op
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return;
+        if (in_bounds && old_cp == new_cp)
+            return; // no-op
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(m_active_layer, row);
-    if (row >= m_rows)
-        EnsureRows(row + 1);
-    if (idx < layer.cells.size())
-        layer.cells[idx] = cp;
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(m_active_layer, row);
+        if (row >= m_rows)
+            EnsureRows(row + 1);
+        if (idx < layer.cells.size())
+            layer.cells[idx] = cp;
+    };
+
+    write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            write_one(mirror_col);
+    }
 }
 
 void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg)
@@ -2262,34 +2275,47 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
     if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
         return;
 
-    Layer& layer = m_layers[(size_t)m_active_layer];
-    const bool in_bounds = (row < m_rows);
-    const size_t idx = CellIndex(row, col);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+    auto write_one = [&](int write_col)
+    {
+        Layer& layer = m_layers[(size_t)m_active_layer];
+        const bool in_bounds = (row < m_rows);
+        const size_t idx = CellIndex(row, write_col);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = cp;
-    const Color32  new_fg = fg;
-    const Color32  new_bg = bg;
+        const char32_t new_cp = cp;
+        const Color32  new_fg = fg;
+        const Color32  new_bg = bg;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return;
-    if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
-        return; // no-op
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return;
+        if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+            return; // no-op
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(m_active_layer, row);
-    if (row >= m_rows)
-        EnsureRows(row + 1);
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(m_active_layer, row);
+        if (row >= m_rows)
+            EnsureRows(row + 1);
 
-    if (idx < layer.cells.size())
-        layer.cells[idx] = new_cp;
-    if (idx < layer.fg.size())
-        layer.fg[idx] = new_fg;
-    if (idx < layer.bg.size())
-        layer.bg[idx] = new_bg;
+        if (idx < layer.cells.size())
+            layer.cells[idx] = new_cp;
+        if (idx < layer.fg.size())
+            layer.fg[idx] = new_fg;
+        if (idx < layer.bg.size())
+            layer.bg[idx] = new_bg;
+    };
+
+    write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            write_one(mirror_col);
+    }
 }
 
 void AnsiCanvas::ClearActiveCellStyle(int row, int col)
@@ -2302,31 +2328,44 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
     if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
         return;
 
-    Layer& layer = m_layers[(size_t)m_active_layer];
-    const size_t idx = CellIndex(row, col);
-    const bool in_bounds = (row < m_rows);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+    auto write_one = [&](int write_col)
+    {
+        Layer& layer = m_layers[(size_t)m_active_layer];
+        const size_t idx = CellIndex(row, write_col);
+        const bool in_bounds = (row < m_rows);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = old_cp;
-    const Color32  new_fg = 0;
-    const Color32  new_bg = 0;
+        const char32_t new_cp = old_cp;
+        const Color32  new_fg = 0;
+        const Color32  new_bg = 0;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return;
-    if (in_bounds && old_fg == 0 && old_bg == 0)
-        return; // no-op
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return;
+        if (in_bounds && old_fg == 0 && old_bg == 0)
+            return; // no-op
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(m_active_layer, row);
-    if (row >= m_rows)
-        EnsureRows(row + 1);
-    if (idx < layer.fg.size())
-        layer.fg[idx] = 0;
-    if (idx < layer.bg.size())
-        layer.bg[idx] = 0;
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(m_active_layer, row);
+        if (row >= m_rows)
+            EnsureRows(row + 1);
+        if (idx < layer.fg.size())
+            layer.fg[idx] = 0;
+        if (idx < layer.bg.size())
+            layer.bg[idx] = 0;
+    };
+
+    write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            write_one(mirror_col);
+    }
 }
 
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
@@ -2339,31 +2378,46 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
 
-    Layer& layer = m_layers[(size_t)layer_index];
-    const size_t idx = CellIndex(row, col);
+    auto write_one = [&](int write_col) -> bool
+    {
+        Layer& layer = m_layers[(size_t)layer_index];
+        const size_t idx = CellIndex(row, write_col);
 
-    const bool in_bounds = (row < m_rows);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+        const bool in_bounds = (row < m_rows);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = cp;
-    const Color32  new_fg = old_fg;
-    const Color32  new_bg = old_bg;
+        const char32_t new_cp = cp;
+        const Color32  new_fg = old_fg;
+        const Color32  new_bg = old_bg;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return false;
-    if (in_bounds && old_cp == new_cp)
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return false;
+        if (in_bounds && old_cp == new_cp)
+            return true;
+
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(layer_index, row);
+        if (row >= m_rows)
+            EnsureRows(row + 1);
+        if (idx < layer.cells.size())
+            layer.cells[idx] = new_cp;
         return true;
+    };
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(layer_index, row);
-    if (row >= m_rows)
-        EnsureRows(row + 1);
-    if (idx < layer.cells.size())
-        layer.cells[idx] = new_cp;
-    return true;
+    const bool ok_primary = write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            (void)write_one(mirror_col);
+    }
+
+    return ok_primary;
 }
 
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg)
@@ -2376,35 +2430,50 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
 
-    Layer& layer = m_layers[(size_t)layer_index];
-    const size_t idx = CellIndex(row, col);
+    auto write_one = [&](int write_col) -> bool
+    {
+        Layer& layer = m_layers[(size_t)layer_index];
+        const size_t idx = CellIndex(row, write_col);
 
-    const bool in_bounds = (row < m_rows);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+        const bool in_bounds = (row < m_rows);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = cp;
-    const Color32  new_fg = fg;
-    const Color32  new_bg = bg;
+        const char32_t new_cp = cp;
+        const Color32  new_fg = fg;
+        const Color32  new_bg = bg;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return false;
-    if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return false;
+        if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+            return true;
+
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(layer_index, row);
+        if (row >= m_rows)
+            EnsureRows(row + 1);
+        if (idx < layer.cells.size())
+            layer.cells[idx] = new_cp;
+        if (idx < layer.fg.size())
+            layer.fg[idx] = new_fg;
+        if (idx < layer.bg.size())
+            layer.bg[idx] = new_bg;
         return true;
+    };
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(layer_index, row);
-    if (row >= m_rows)
-        EnsureRows(row + 1);
-    if (idx < layer.cells.size())
-        layer.cells[idx] = new_cp;
-    if (idx < layer.fg.size())
-        layer.fg[idx] = new_fg;
-    if (idx < layer.bg.size())
-        layer.bg[idx] = new_bg;
-    return true;
+    const bool ok_primary = write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            (void)write_one(mirror_col);
+    }
+
+    return ok_primary;
 }
 
 char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
@@ -2487,26 +2556,41 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
 
-    const bool in_bounds = (row < m_rows);
-    const size_t idx = CellIndex(row, col);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+    auto write_one = [&](int write_col) -> bool
+    {
+        const bool in_bounds = (row < m_rows);
+        const size_t idx = CellIndex(row, write_col);
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
+        const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
 
-    const char32_t new_cp = old_cp;
-    const Color32  new_fg = 0;
-    const Color32  new_bg = 0;
+        const char32_t new_cp = old_cp;
+        const Color32  new_fg = 0;
+        const Color32  new_bg = 0;
 
-    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
-        return false;
-    if (in_bounds && old_fg == 0 && old_bg == 0)
+        if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            return false;
+        if (in_bounds && old_fg == 0 && old_bg == 0)
+            return true;
+
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(layer_index, row);
+        ClearLayerCellStyleInternal(layer_index, row, write_col);
         return true;
+    };
 
-    PrepareUndoForMutation();
-    EnsureUndoCaptureIsPatch();
-    CaptureUndoPageIfNeeded(layer_index, row);
-    ClearLayerCellStyleInternal(layer_index, row, col);
-    return true;
+    const bool ok_primary = write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            (void)write_one(mirror_col);
+    }
+
+    return ok_primary;
 }
 
 bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
@@ -3516,7 +3600,19 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         m_key_events.home || m_key_events.end || m_key_events.backspace || m_key_events.del ||
         m_key_events.enter;
     if (tool_runner)
+    {
+        // Mark tool execution so we can scope behaviors (e.g. mirror-mode mutations) to tools/scripts,
+        // without affecting file import, undo replay, or other core operations.
+        struct ToolRunScope
+        {
+            AnsiCanvas& c;
+            bool        prev = false;
+            explicit ToolRunScope(AnsiCanvas& canvas) : c(canvas), prev(canvas.m_tool_running) { c.m_tool_running = true; }
+            ~ToolRunScope() { c.m_tool_running = prev; }
+        } scope(*this);
+
         tool_runner(*this, 0); // keyboard phase
+    }
 
     // Keep document large enough for caret after tool run.
     EnsureRows(m_caret_row + 1);
@@ -3655,7 +3751,17 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     // Mouse phase: tools can react to cursor state for this frame.
     if (tool_runner)
+    {
+        struct ToolRunScope
+        {
+            AnsiCanvas& c;
+            bool        prev = false;
+            explicit ToolRunScope(AnsiCanvas& canvas) : c(canvas), prev(canvas.m_tool_running) { c.m_tool_running = true; }
+            ~ToolRunScope() { c.m_tool_running = prev; }
+        } scope(*this);
+
         tool_runner(*this, 1);
+    }
 
     // End undo capture unless the user is in an active mouse gesture that may continue mutating
     // the canvas across multiple frames (e.g. pencil drag, selection move).
@@ -3701,6 +3807,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
 
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+    DrawMirrorAxisOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
     DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
@@ -3726,6 +3833,27 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
+}
+
+void AnsiCanvas::DrawMirrorAxisOverlay(ImDrawList* draw_list,
+                                      const ImVec2& origin,
+                                      float cell_w,
+                                      float /*cell_h*/,
+                                      const ImVec2& canvas_size)
+{
+    if (!draw_list || !m_mirror_mode || m_columns <= 0)
+        return;
+
+    // Same hue as selection border (see DrawSelectionOverlay) but more subtle.
+    const ImU32 col = ImGui::GetColorU32(ImVec4(0.15f, 0.75f, 1.0f, 0.35f));
+
+    // Axis is at the center of the grid in "cell units": columns/2.
+    float x = origin.x + cell_w * (static_cast<float>(m_columns) * 0.5f);
+    x = std::floor(x) + 0.5f; // pixel align like selection border
+
+    const ImVec2 p0(x, origin.y);
+    const ImVec2 p1(x, origin.y + canvas_size.y);
+    draw_list->AddLine(p0, p1, col, 2.0f);
 }
 
 AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const

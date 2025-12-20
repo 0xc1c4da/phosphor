@@ -271,6 +271,10 @@ void RunFrame(AppState& st)
 
     // Determine which canvas should receive keyboard-only actions (Undo/Redo shortcuts).
     // "Focused" is tracked by each AnsiCanvas instance (grid focus).
+    //
+    // IMPORTANT: grid focus can remain true even after the user switches to a different canvas
+    // window via docking/tabbing/window chrome. For UI (menus), we want the *active window's*
+    // canvas to drive state (e.g. Mirror Mode checkbox), not a stale focused grid in another window.
     AnsiCanvas* focused_canvas = nullptr;
     CanvasWindow* focused_canvas_window = nullptr;
     for (auto& cptr : canvases)
@@ -278,11 +282,21 @@ void RunFrame(AppState& st)
         if (!cptr)
             continue;
         CanvasWindow& c = *cptr;
+        if (!c.open)
+            continue;
+        if (!c.canvas.HasFocus())
+            continue;
+        // Only treat this as the focused canvas if it's also the last active canvas window.
+        // Otherwise the UI "active canvas" should fall back to last_active_canvas_id below.
+        if (last_active_canvas_id != -1 && c.id != last_active_canvas_id)
+            continue;
+
         if (c.open && c.canvas.HasFocus())
         {
             focused_canvas = &c.canvas;
             focused_canvas_window = &c;
-            last_active_canvas_id = c.id;
+            if (last_active_canvas_id == -1)
+                last_active_canvas_id = c.id;
             break;
         }
     }

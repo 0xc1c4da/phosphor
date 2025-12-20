@@ -213,11 +213,19 @@ void RenderMainMenuBar(SDL_Window* window,
 
         const std::string sc_undo = ShortcutForAction(keybinds, "edit.undo", "editor");
         const std::string sc_redo = ShortcutForAction(keybinds, "edit.redo", "editor");
+        const std::string sc_mirror = ShortcutForAction(keybinds, "editor.mirror_mode_toggle", "editor");
 
         if (ImGui::MenuItem("Undo", sc_undo.empty() ? nullptr : sc_undo.c_str(), false, can_undo))
             active_canvas->Undo();
         if (ImGui::MenuItem("Redo", sc_redo.empty() ? nullptr : sc_redo.c_str(), false, can_redo))
             active_canvas->Redo();
+
+        ImGui::Separator();
+        {
+            bool mirror = (active_canvas != nullptr) ? active_canvas->IsMirrorModeEnabled() : false;
+            if (ImGui::MenuItem("Mirror Mode", sc_mirror.empty() ? nullptr : sc_mirror.c_str(), &mirror, active_canvas != nullptr))
+                active_canvas->SetMirrorModeEnabled(mirror);
+        }
 
         ImGui::EndMenu();
     }
@@ -371,6 +379,9 @@ void HandleKeybindings(SDL_Window* window,
             focused_canvas->Undo();
         if (keybinds.ActionPressed("edit.redo", kctx))
             focused_canvas->Redo();
+
+        if (keybinds.ActionPressed("editor.mirror_mode_toggle", kctx))
+            focused_canvas->ToggleMirrorModeEnabled();
 
         // Zoom via keybindings (mouse wheel zoom remains implemented in AnsiCanvas).
         if (keybinds.ActionPressed("view.zoom_in", kctx))

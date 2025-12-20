@@ -396,6 +396,16 @@ public:
     void Render(const char* id, const std::function<void(AnsiCanvas& canvas, int phase)>& tool_runner = {});
 
     // ---------------------------------------------------------------------
+    // Mirror mode (editor drawing assist)
+    // ---------------------------------------------------------------------
+    // When enabled, tool-driven mutations are mirrored across the vertical axis of the canvas
+    // (left-right symmetry). This is applied at the mutation layer (SetCell/ClearStyle), so
+    // existing tools automatically inherit the behavior.
+    bool IsMirrorModeEnabled() const { return m_mirror_mode; }
+    void SetMirrorModeEnabled(bool enabled) { m_mirror_mode = enabled; }
+    void ToggleMirrorModeEnabled() { m_mirror_mode = !m_mirror_mode; }
+
+    // ---------------------------------------------------------------------
     // Canvas background (view preference; independent of ImGui theme)
     // ---------------------------------------------------------------------
     bool IsCanvasBackgroundWhite() const { return m_canvas_bg_white; }
@@ -707,6 +717,11 @@ private:
     // we keep updating cursor cell coords while the button is held (enables click+drag tools).
     bool m_mouse_capture = false;
 
+    // Mirror mode: enabled via UI; applied to tool-driven mutations only.
+    bool m_mirror_mode = false;
+    // Transient: true while executing the active tool script callback during Render().
+    bool m_tool_running = false;
+
     // Input captured from ImGui:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
@@ -823,6 +838,12 @@ private:
                               float cell_w,
                               float cell_h,
                               float font_size);
+
+    void DrawMirrorAxisOverlay(ImDrawList* draw_list,
+                               const ImVec2& origin,
+                               float cell_w,
+                               float cell_h,
+                               const ImVec2& canvas_size);
 };
 
 
