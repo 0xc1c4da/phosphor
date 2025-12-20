@@ -1,5 +1,7 @@
 #pragma once
 
+#include "io/http_client.h"
+
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -63,6 +65,10 @@ private:
         std::string pack;
         std::string filename;
         int page = 0; // for paged list endpoints (pack/group/artist)
+
+        // Cache behavior for this request.
+        http::CacheMode cache_mode = http::CacheMode::Default;
+        bool is_background_refresh = false; // if true: don't drive "Loading..." UI state; update only when changed
     };
 
     struct DownloadResult
@@ -71,6 +77,8 @@ private:
         long status = 0;
         std::vector<std::uint8_t> bytes;
         std::string err;
+        bool from_cache = false;
+        bool changed = false;
     };
 
     void StartWorker();

@@ -324,10 +324,12 @@ void SixteenColorsBrowserWindow::StartWorker()
                 DownloadResult res;
                 res.job = job;
 
-                http::Response r = http::Get(job.url);
+                http::Response r = http::Get(job.url, {}, job.cache_mode);
                 res.status = r.status;
                 res.err = r.err;
                 res.bytes = std::move(r.body);
+                res.from_cache = r.from_cache;
+                res.changed = r.changed;
 
                 {
                     std::lock_guard<std::mutex> lock(m_mu);
@@ -522,19 +524,49 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         else if (dr.job.kind == "pack_list")
         {
-            m_pack_list_pending = false;
-            m_pack_list_pending_url.clear();
-            m_loading_list = false;
-            if (!dr.err.empty())
+            // Foreground "display" jobs drive loading state; background refresh jobs should be silent.
+            if (!dr.job.is_background_refresh)
             {
-                m_last_error = dr.err;
-                m_pack_list_json.clear();
-                m_pack_rows.clear();
-                m_pack_pages = 0;
-                m_pack_next_page = 1;
-                continue;
+                // CacheOnly miss: keep waiting for the network refresh job.
+                if (dr.job.cache_mode == http::CacheMode::CacheOnly && !dr.err.empty())
+                    continue;
+
+                m_pack_list_pending = false;
+                m_pack_list_pending_url.clear();
+                m_loading_list = false;
+                if (!dr.err.empty())
+                {
+                    m_last_error = dr.err;
+                    m_pack_list_json.clear();
+                    m_pack_rows.clear();
+                    m_pack_pages = 0;
+                    m_pack_next_page = 1;
+                    continue;
+                }
             }
-            m_pack_list_json.assign((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            else
+            {
+                // Background refresh: ignore failures and only apply changes when the response differs.
+                if (!dr.err.empty() || !dr.changed)
+                    continue;
+                // Only refresh page 1 to avoid reordering/duplication mid-infinite-scroll.
+                if (dr.job.page != 1)
+                    continue;
+                // If the user already loaded more pages, don't reshuffle under them.
+                if (m_pack_next_page > 2)
+                    continue;
+
+                // If there was no cached display (cache miss), this network refresh is the initial load.
+                if (m_pack_list_pending && m_pack_list_pending_url == dr.job.url)
+                {
+                    m_pack_list_pending = false;
+                    m_pack_list_pending_url.clear();
+                    m_loading_list = false;
+                }
+            }
+
+            m_pack_list_json.assign((const char*)dr.bytes.data(),
+                                    (const char*)dr.bytes.data() + dr.bytes.size());
 
             // Parse + append for infinite scrolling
             json j;
@@ -545,6 +577,11 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                     m_pack_pages = JsonIntOrDefault(j["page"], "pages", m_pack_pages);
                 if (j.contains("results") && j["results"].is_array())
                 {
+                    if (dr.job.is_background_refresh)
+                    {
+                        m_pack_rows.clear();
+                        m_pack_next_page = 2;
+                    }
                     for (const auto& it : j["results"])
                     {
                         if (!it.is_object())
@@ -573,19 +610,45 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         else if (dr.job.kind == "group_list")
         {
-            m_root_list_pending = false;
-            m_root_list_pending_url.clear();
-            m_loading_list = false;
-            if (!dr.err.empty())
+            if (!dr.job.is_background_refresh)
             {
-                m_last_error = dr.err;
-                m_group_list_json.clear();
-                m_group_rows.clear();
-                m_group_pages = 0;
-                m_group_next_page = 1;
-                continue;
+                // CacheOnly miss: keep waiting for the network refresh job.
+                if (dr.job.cache_mode == http::CacheMode::CacheOnly && !dr.err.empty())
+                    continue;
+
+                m_root_list_pending = false;
+                m_root_list_pending_url.clear();
+                m_loading_list = false;
+                if (!dr.err.empty())
+                {
+                    m_last_error = dr.err;
+                    m_group_list_json.clear();
+                    m_group_rows.clear();
+                    m_group_pages = 0;
+                    m_group_next_page = 1;
+                    continue;
+                }
             }
-            m_group_list_json.assign((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            else
+            {
+                if (!dr.err.empty() || !dr.changed)
+                    continue;
+                if (dr.job.page != 1)
+                    continue;
+                if (m_group_next_page > 2)
+                    continue;
+            }
+
+            // Even for background refresh, clear spinner if this was the only in-flight root list.
+            if (m_root_list_pending && m_root_list_pending_url == dr.job.url && dr.err.empty())
+            {
+                m_root_list_pending = false;
+                m_root_list_pending_url.clear();
+                m_loading_list = false;
+            }
+
+            m_group_list_json.assign((const char*)dr.bytes.data(),
+                                     (const char*)dr.bytes.data() + dr.bytes.size());
 
             json j;
             try { j = json::parse(m_group_list_json); } catch (...) { j = json(); }
@@ -595,6 +658,11 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                     m_group_pages = JsonIntOrDefault(j["page"], "pages", m_group_pages);
                 if (j.contains("results") && j["results"].is_array())
                 {
+                    if (dr.job.is_background_refresh)
+                    {
+                        m_group_rows.clear();
+                        m_group_next_page = 2;
+                    }
                     for (const auto& it : j["results"])
                     {
                         if (!it.is_object())
@@ -621,19 +689,44 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         else if (dr.job.kind == "artist_list")
         {
-            m_root_list_pending = false;
-            m_root_list_pending_url.clear();
-            m_loading_list = false;
-            if (!dr.err.empty())
+            if (!dr.job.is_background_refresh)
             {
-                m_last_error = dr.err;
-                m_artist_list_json.clear();
-                m_artist_rows.clear();
-                m_artist_pages = 0;
-                m_artist_next_page = 1;
-                continue;
+                // CacheOnly miss: keep waiting for the network refresh job.
+                if (dr.job.cache_mode == http::CacheMode::CacheOnly && !dr.err.empty())
+                    continue;
+
+                m_root_list_pending = false;
+                m_root_list_pending_url.clear();
+                m_loading_list = false;
+                if (!dr.err.empty())
+                {
+                    m_last_error = dr.err;
+                    m_artist_list_json.clear();
+                    m_artist_rows.clear();
+                    m_artist_pages = 0;
+                    m_artist_next_page = 1;
+                    continue;
+                }
             }
-            m_artist_list_json.assign((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            else
+            {
+                if (!dr.err.empty() || !dr.changed)
+                    continue;
+                if (dr.job.page != 1)
+                    continue;
+                if (m_artist_next_page > 2)
+                    continue;
+            }
+
+            if (m_root_list_pending && m_root_list_pending_url == dr.job.url && dr.err.empty())
+            {
+                m_root_list_pending = false;
+                m_root_list_pending_url.clear();
+                m_loading_list = false;
+            }
+
+            m_artist_list_json.assign((const char*)dr.bytes.data(),
+                                      (const char*)dr.bytes.data() + dr.bytes.size());
 
             json j;
             try { j = json::parse(m_artist_list_json); } catch (...) { j = json(); }
@@ -643,6 +736,11 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                     m_artist_pages = JsonIntOrDefault(j["page"], "pages", m_artist_pages);
                 if (j.contains("results") && j["results"].is_array())
                 {
+                    if (dr.job.is_background_refresh)
+                    {
+                        m_artist_rows.clear();
+                        m_artist_next_page = 2;
+                    }
                     for (const auto& it : j["results"])
                     {
                         if (!it.is_object())
@@ -677,16 +775,37 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         else if (dr.job.kind == "latest_list")
         {
-            m_root_list_pending = false;
-            m_root_list_pending_url.clear();
-            m_loading_list = false;
-            if (!dr.err.empty())
+            if (!dr.job.is_background_refresh)
             {
-                m_last_error = dr.err;
-                m_latest_list_json.clear();
-                continue;
+                // CacheOnly miss: keep waiting for the network refresh job.
+                if (dr.job.cache_mode == http::CacheMode::CacheOnly && !dr.err.empty())
+                    continue;
+
+                m_root_list_pending = false;
+                m_root_list_pending_url.clear();
+                m_loading_list = false;
+                if (!dr.err.empty())
+                {
+                    m_last_error = dr.err;
+                    m_latest_list_json.clear();
+                    continue;
+                }
             }
-            m_latest_list_json.assign((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            else
+            {
+                // Background refresh: ignore failures and only apply changes when different.
+                if (!dr.err.empty() || !dr.changed)
+                    continue;
+                if (m_root_list_pending && m_root_list_pending_url == dr.job.url)
+                {
+                    m_root_list_pending = false;
+                    m_root_list_pending_url.clear();
+                    m_loading_list = false;
+                }
+            }
+
+            m_latest_list_json.assign((const char*)dr.bytes.data(),
+                                      (const char*)dr.bytes.data() + dr.bytes.size());
         }
         else if (dr.job.kind == "group_packs" || dr.job.kind == "artist_packs")
         {
@@ -708,16 +827,35 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         else if (dr.job.kind == "year_packs")
         {
-            m_drill_packs_pending = false;
-            m_loading_list = false;
-            if (!dr.err.empty())
+            if (!dr.job.is_background_refresh)
             {
-                m_last_error = dr.err;
-                m_drill_packs_json.clear();
-                m_auto_selected_drill_pack = false;
-                continue;
+                // CacheOnly miss: keep waiting for the network refresh job.
+                if (dr.job.cache_mode == http::CacheMode::CacheOnly && !dr.err.empty())
+                    continue;
+
+                m_drill_packs_pending = false;
+                m_loading_list = false;
+                if (!dr.err.empty())
+                {
+                    m_last_error = dr.err;
+                    m_drill_packs_json.clear();
+                    m_auto_selected_drill_pack = false;
+                    continue;
+                }
             }
-            m_drill_packs_json.assign((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            else
+            {
+                if (!dr.err.empty() || !dr.changed)
+                    continue;
+                if (m_drill_packs_pending)
+                {
+                    m_drill_packs_pending = false;
+                    m_loading_list = false;
+                }
+            }
+
+            m_drill_packs_json.assign((const char*)dr.bytes.data(),
+                                      (const char*)dr.bytes.data() + dr.bytes.size());
             m_auto_selected_drill_pack = false;
         }
     }
@@ -852,7 +990,23 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             m_loading_list = true;
             m_dirty_list = false;
             m_pack_next_page = 2;
-            Enqueue(DownloadJob{url, "pack_list", "", "", 1});
+            if (!m_filter.empty())
+            {
+                // Stale-while-revalidate for filtered searches (page 1 only).
+                DownloadJob j{url, "pack_list", "", "", 1};
+                j.cache_mode = http::CacheMode::CacheOnly;
+                j.is_background_refresh = false;
+                Enqueue(j);
+
+                DownloadJob r{url, "pack_list", "", "", 1};
+                r.cache_mode = http::CacheMode::NetworkOnly;
+                r.is_background_refresh = true;
+                Enqueue(r);
+            }
+            else
+            {
+                Enqueue(DownloadJob{url, "pack_list", "", "", 1});
+            }
         }
     }
     else if (m_mode == BrowseMode::Groups && m_left_view == LeftView::RootList)
@@ -873,7 +1027,22 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             m_loading_list = true;
             m_dirty_list = false;
             m_group_next_page = 2;
-            Enqueue(DownloadJob{url, "group_list", "", "", 1});
+            if (!m_filter.empty())
+            {
+                DownloadJob j{url, "group_list", "", "", 1};
+                j.cache_mode = http::CacheMode::CacheOnly;
+                j.is_background_refresh = false;
+                Enqueue(j);
+
+                DownloadJob r{url, "group_list", "", "", 1};
+                r.cache_mode = http::CacheMode::NetworkOnly;
+                r.is_background_refresh = true;
+                Enqueue(r);
+            }
+            else
+            {
+                Enqueue(DownloadJob{url, "group_list", "", "", 1});
+            }
         }
     }
     else if (m_mode == BrowseMode::Artists && m_left_view == LeftView::RootList)
@@ -894,7 +1063,22 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             m_loading_list = true;
             m_dirty_list = false;
             m_artist_next_page = 2;
-            Enqueue(DownloadJob{url, "artist_list", "", "", 1});
+            if (!m_filter.empty())
+            {
+                DownloadJob j{url, "artist_list", "", "", 1};
+                j.cache_mode = http::CacheMode::CacheOnly;
+                j.is_background_refresh = false;
+                Enqueue(j);
+
+                DownloadJob r{url, "artist_list", "", "", 1};
+                r.cache_mode = http::CacheMode::NetworkOnly;
+                r.is_background_refresh = true;
+                Enqueue(r);
+            }
+            else
+            {
+                Enqueue(DownloadJob{url, "artist_list", "", "", 1});
+            }
         }
     }
     else if (m_mode == BrowseMode::Years && m_left_view == LeftView::RootList)
@@ -919,7 +1103,22 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             m_root_list_pending_url = url;
             m_loading_list = true;
             m_dirty_list = false;
-            Enqueue(DownloadJob{url, "latest_list", "", ""});
+
+            // Stale-while-revalidate:
+            // - show cached response immediately (if present)
+            // - refresh in background; only apply if changed
+            {
+                DownloadJob j{url, "latest_list", "", ""};
+                j.cache_mode = http::CacheMode::CacheOnly;
+                j.is_background_refresh = false;
+                Enqueue(j);
+            }
+            {
+                DownloadJob j{url, "latest_list", "", ""};
+                j.cache_mode = http::CacheMode::NetworkOnly;
+                j.is_background_refresh = true;
+                Enqueue(j);
+            }
         }
     }
 
@@ -1283,7 +1482,22 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                             const std::string url = BuildYearPacksUrl(m_selected_year, m_year_include_mags, m_filter);
                             m_drill_packs_pending = true;
                             m_loading_list = true;
-                            Enqueue(DownloadJob{url, "year_packs", std::to_string(m_selected_year), "", 0});
+                            if (!m_filter.empty())
+                            {
+                                DownloadJob j{url, "year_packs", std::to_string(m_selected_year), "", 0};
+                                j.cache_mode = http::CacheMode::CacheOnly;
+                                j.is_background_refresh = false;
+                                Enqueue(j);
+
+                                DownloadJob r{url, "year_packs", std::to_string(m_selected_year), "", 0};
+                                r.cache_mode = http::CacheMode::NetworkOnly;
+                                r.is_background_refresh = true;
+                                Enqueue(r);
+                            }
+                            else
+                            {
+                                Enqueue(DownloadJob{url, "year_packs", std::to_string(m_selected_year), "", 0});
+                            }
                         }
                     }
                 }

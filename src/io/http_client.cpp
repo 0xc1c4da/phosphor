@@ -118,6 +118,23 @@ static bool ReadFileBytes(const std::filesystem::path& p,
     return true;
 }
 
+static bool ReadFileBytesNoErr(const std::filesystem::path& p,
+                               std::vector<std::uint8_t>& out,
+                               std::uintmax_t max_bytes = 100u * 1024u * 1024u)
+{
+    std::string err;
+    return ReadFileBytes(p, out, err, max_bytes);
+}
+
+static bool BytesEqual(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    if (a.empty())
+        return true;
+    return std::equal(a.begin(), a.end(), b.begin());
+}
+
 static bool WriteFileBytesAtomic(const std::filesystem::path& p,
                                  const std::vector<std::uint8_t>& bytes,
                                  std::string& err)
@@ -167,23 +184,26 @@ static bool WriteFileBytesAtomic(const std::filesystem::path& p,
 }
 } // namespace
 
-Response Get(const std::string& url, const std::map<std::string, std::string>& headers)
+Response Get(const std::string& url, const std::map<std::string, std::string>& headers, CacheMode cache_mode)
 {
     Response r;
     r.status = 0;
     r.body.clear();
     r.err.clear();
+    r.from_cache = false;
+    r.changed = false;
 
     // Disk cache (default: ~/.config/phosphor/cache/http/...)
     const bool cacheable = IsCacheableGet(headers);
     const std::filesystem::path cache_file = cacheable ? HttpCacheFileFor(url, headers) : std::filesystem::path();
-    if (cacheable)
+    if (cacheable && cache_mode != CacheMode::NetworkOnly)
     {
         std::string cerr;
         if (ReadFileBytes(cache_file, r.body, cerr))
         {
             r.status = 200;
             r.err.clear();
+            r.from_cache = true;
             return r;
         }
         // If the cache looks corrupt, best-effort remove it so we can refresh cleanly.
@@ -192,6 +212,13 @@ Response Get(const std::string& url, const std::map<std::string, std::string>& h
             std::error_code ec;
             std::filesystem::remove(cache_file, ec);
         }
+    }
+
+    if (cache_mode == CacheMode::CacheOnly)
+    {
+        r.status = 0;
+        r.err = "cache miss";
+        return r;
     }
 
     EnsureCurlGlobalInit();
@@ -251,8 +278,18 @@ Response Get(const std::string& url, const std::map<std::string, std::string>& h
     {
         // Persist successful responses. Content from 16colo.rs (packs, thumbnails, raw artwork)
         // is effectively static, so we keep it indefinitely to improve UX and reduce API load.
-        std::string werr;
-        (void)WriteFileBytesAtomic(cache_file, r.body, werr);
+        //
+        // To support "stale-while-revalidate" UX, only update the on-disk cache if the
+        // network response is actually different from the existing cached bytes.
+        std::vector<std::uint8_t> prev;
+        const bool had_prev = ReadFileBytesNoErr(cache_file, prev);
+        const bool same = had_prev ? BytesEqual(prev, r.body) : false;
+        r.changed = !had_prev || !same;
+        if (r.changed)
+        {
+            std::string werr;
+            (void)WriteFileBytesAtomic(cache_file, r.body, werr);
+        }
     }
 
     return r;
