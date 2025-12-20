@@ -37,6 +37,12 @@ private:
     int          rename_popup_serial_ = 0;
     int          rename_popup_active_serial_ = 0;
     bool         rename_popup_requested_open_ = false;
+
+    // Inline rename state (double-click name to edit, Enter/blur to commit).
+    AnsiCanvas* inline_rename_canvas_ = nullptr;
+    int         inline_rename_layer_index_ = -1;
+    char        inline_rename_buf_[256] = {0};
+    bool        inline_rename_request_focus_ = false;
 };
 
 
