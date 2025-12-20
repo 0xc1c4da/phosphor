@@ -1309,15 +1309,17 @@ void RunFrame(AppState& st)
 
             c.GetCaretCell(ctx.caret_x, ctx.caret_y);
 
-            int cx = 0, cy = 0, px = 0, py = 0;
+            int cx = 0, cy = 0, half_y = 0, px = 0, py = 0, phalf_y = 0;
             bool l = false, r = false, pl = false, pr = false;
-            ctx.cursor_valid = c.GetCursorCell(cx, cy, l, r, px, py, pl, pr);
+            ctx.cursor_valid = c.GetCursorCell(cx, cy, half_y, l, r, px, py, phalf_y, pl, pr);
             ctx.cursor_x = cx;
             ctx.cursor_y = cy;
+            ctx.cursor_half_y = half_y;
             ctx.cursor_left_down = l;
             ctx.cursor_right_down = r;
             ctx.cursor_px = px;
             ctx.cursor_py = py;
+            ctx.cursor_phalf_y = phalf_y;
             ctx.cursor_prev_left_down = pl;
             ctx.cursor_prev_right_down = pr;
 

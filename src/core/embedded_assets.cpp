@@ -263,13 +263,36 @@ bool EnsureBundledAssetsExtracted(std::string& error)
     const fs::path dest_root = fs::path(GetPhosphorAssetsDir());
     const fs::path marker = dest_root / ".phosphor-assets-extracted";
 
+    auto dir_has_any_with_ext = [&](const fs::path& dir, const char* ext) -> bool {
+        try
+        {
+            if (!fs::exists(dir) || !fs::is_directory(dir))
+                return false;
+            for (const auto& it : fs::directory_iterator(dir))
+            {
+                if (!it.is_regular_file())
+                    continue;
+                if (it.path().extension() == ext)
+                    return true;
+            }
+        }
+        catch (...)
+        {
+            return false;
+        }
+        return false;
+    };
+
     // If we previously extracted, we're done unless some key files are missing.
     if (fs::exists(marker) &&
         fs::exists(dest_root / "character-palettes.json") &&
         fs::exists(dest_root / "color-palettes.json") &&
         fs::exists(dest_root / "key-bindings.json") &&
         fs::exists(dest_root / "character-sets.json") &&
-        fs::exists(dest_root / "session.json"))
+        fs::exists(dest_root / "session.json") &&
+        // Ensure font assets exist too (older installs may have the marker but no fonts).
+        dir_has_any_with_ext(dest_root / "fonts" / "flf", ".flf") &&
+        dir_has_any_with_ext(dest_root / "fonts" / "tdf", ".tdf"))
     {
         return true;
     }

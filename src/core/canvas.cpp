@@ -2192,15 +2192,28 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
             EnsureRows(row + 1);
         }
 
+        // Derive "half-row" cursor position (Moebius/IcyDraw style).
+        // This lets tools decide between upper/lower half blocks without guessing.
+        //
+        // NOTE: `row` may have been clamped above; clamp the in-cell offset accordingly so
+        // half selection remains stable even when dragging outside the grid.
+        float in_cell_y = local.y - (float)row * cell_h;
+        if (in_cell_y < 0.0f) in_cell_y = 0.0f;
+        if (cell_h > 0.0f && in_cell_y >= cell_h) in_cell_y = cell_h - 0.001f;
+        const int half_bit = (cell_h > 0.0f && in_cell_y >= (cell_h * 0.5f)) ? 1 : 0;
+        const int half_row = row * 2 + half_bit;
+
         // Previous pointer state (for drag detection).
         m_cursor_pcol = m_cursor_col;
         m_cursor_prow = m_cursor_row;
+        m_cursor_phalf_row = m_cursor_half_row;
         m_cursor_prev_left_down  = m_cursor_left_down;
         m_cursor_prev_right_down = m_cursor_right_down;
 
         // Current pointer state.
         m_cursor_col = col;
         m_cursor_row = row;
+        m_cursor_half_row = half_row;
         m_cursor_left_down  = left_down;
         m_cursor_right_down = right_down;
         m_cursor_valid = true;
@@ -2211,10 +2224,12 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
 
 bool AnsiCanvas::GetCursorCell(int& out_x,
                                int& out_y,
+                               int& out_half_y,
                                bool& out_left_down,
                                bool& out_right_down,
                                int& out_px,
                                int& out_py,
+                               int& out_phalf_y,
                                bool& out_prev_left_down,
                                bool& out_prev_right_down) const
 {
@@ -2222,10 +2237,12 @@ bool AnsiCanvas::GetCursorCell(int& out_x,
         return false;
     out_x = m_cursor_col;
     out_y = m_cursor_row;
+    out_half_y = m_cursor_half_row;
     out_left_down = m_cursor_left_down;
     out_right_down = m_cursor_right_down;
     out_px = m_cursor_pcol;
     out_py = m_cursor_prow;
+    out_phalf_y = m_cursor_phalf_row;
     out_prev_left_down = m_cursor_prev_left_down;
     out_prev_right_down = m_cursor_prev_right_down;
     return true;

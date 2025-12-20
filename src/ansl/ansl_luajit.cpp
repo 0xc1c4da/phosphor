@@ -17,6 +17,7 @@ extern "C"
 #include <new>
 
 #include "core/xterm256_palette.h"
+#include "fonts/textmode_font_registry.h"
 
 namespace
 {
@@ -1326,6 +1327,160 @@ static int l_string_wrap(lua_State* L)
     return 1;
 }
 
+// -------- font (textmode_font: FIGlet/TDF) --------
+static textmode_font::Registry* LuaGetFontRegistry(lua_State* L)
+{
+    lua_getfield(L, LUA_REGISTRYINDEX, "phosphor.textmode_font_registry");
+    auto* reg = static_cast<textmode_font::Registry*>(lua_touserdata(L, -1));
+    lua_pop(L, 1);
+    return reg;
+}
+
+static int Color32ToXtermIndexOrMinus1(std::uint32_t c32)
+{
+    if (c32 == 0)
+        return -1;
+    const std::uint8_t r = (std::uint8_t)((c32 >> 0) & 0xFF);
+    const std::uint8_t g = (std::uint8_t)((c32 >> 8) & 0xFF);
+    const std::uint8_t b = (std::uint8_t)((c32 >> 16) & 0xFF);
+    return xterm256::NearestIndex(r, g, b);
+}
+
+static int l_font_list(lua_State* L)
+{
+    textmode_font::Registry* reg = LuaGetFontRegistry(L);
+    if (!reg)
+    {
+        lua_newtable(L);
+        return 1;
+    }
+
+    const auto& list = reg->List();
+    lua_createtable(L, (int)list.size(), 0);
+    for (size_t i = 0; i < list.size(); ++i)
+    {
+        const auto& e = list[i];
+        lua_createtable(L, 0, 6);
+        lua_pushlstring(L, e.id.data(), e.id.size()); lua_setfield(L, -2, "id");
+        lua_pushlstring(L, e.label.data(), e.label.size()); lua_setfield(L, -2, "label");
+        lua_pushlstring(L, e.meta.name.data(), e.meta.name.size()); lua_setfield(L, -2, "name");
+
+        const char* kind = (e.meta.kind == textmode_font::Kind::Tdf) ? "tdf" : "flf";
+        lua_pushstring(L, kind); lua_setfield(L, -2, "kind");
+
+        if (e.meta.kind == textmode_font::Kind::Tdf)
+        {
+            const char* t = "block";
+            if (e.meta.tdf_type == textmode_font::TdfFontType::Outline) t = "outline";
+            else if (e.meta.tdf_type == textmode_font::TdfFontType::Color) t = "color";
+            lua_pushstring(L, t); lua_setfield(L, -2, "tdfType");
+            lua_pushinteger(L, e.meta.spacing); lua_setfield(L, -2, "spacing");
+        }
+
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int l_font_errors(lua_State* L)
+{
+    textmode_font::Registry* reg = LuaGetFontRegistry(L);
+    if (!reg)
+    {
+        lua_newtable(L);
+        return 1;
+    }
+    const auto& errs = reg->Errors();
+    lua_createtable(L, (int)errs.size(), 0);
+    for (size_t i = 0; i < errs.size(); ++i)
+    {
+        lua_pushlstring(L, errs[i].data(), errs[i].size());
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    return 1;
+}
+
+static int l_font_render(lua_State* L)
+{
+    textmode_font::Registry* reg = LuaGetFontRegistry(L);
+    if (!reg)
+    {
+        lua_pushnil(L);
+        lua_pushliteral(L, "font registry not initialized");
+        return 2;
+    }
+
+    size_t id_len = 0;
+    const char* id = luaL_checklstring(L, 1, &id_len);
+    size_t text_len = 0;
+    const char* text = luaL_optlstring(L, 2, "", &text_len);
+
+    textmode_font::RenderOptions opts;
+    if (lua_gettop(L) >= 3 && lua_istable(L, 3))
+    {
+        lua_getfield(L, 3, "editMode");
+        if (lua_isboolean(L, -1))
+            opts.mode = lua_toboolean(L, -1) ? textmode_font::RenderMode::Edit : textmode_font::RenderMode::Display;
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "outlineStyle");
+        if (lua_isnumber(L, -1))
+            opts.outline_style = (int)lua_tointeger(L, -1);
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "useFontColors");
+        if (lua_isboolean(L, -1))
+            opts.use_font_colors = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+
+        lua_getfield(L, 3, "icecolors");
+        if (lua_isboolean(L, -1))
+            opts.icecolors = lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+    }
+
+    textmode_font::Bitmap bmp;
+    std::string err;
+    if (!reg->Render(std::string_view(id, id_len), std::string_view(text, text_len), opts, bmp, err))
+    {
+        lua_pushnil(L);
+        lua_pushlstring(L, err.data(), err.size());
+        return 2;
+    }
+
+    const int w = bmp.w;
+    const int h = bmp.h;
+    const int n = (w > 0 && h > 0) ? (w * h) : 0;
+
+    lua_createtable(L, 0, 5);
+    lua_pushinteger(L, w); lua_setfield(L, -2, "w");
+    lua_pushinteger(L, h); lua_setfield(L, -2, "h");
+
+    lua_createtable(L, n, 0); // cp
+    lua_createtable(L, n, 0); // fg
+    lua_createtable(L, n, 0); // bg
+    for (int i = 0; i < n; ++i)
+    {
+        const char32_t cp = (i < (int)bmp.cp.size()) ? bmp.cp[(size_t)i] : U' ';
+        const std::uint32_t fg32 = (i < (int)bmp.fg.size()) ? bmp.fg[(size_t)i] : 0u;
+        const std::uint32_t bg32 = (i < (int)bmp.bg.size()) ? bmp.bg[(size_t)i] : 0u;
+
+        lua_pushinteger(L, (lua_Integer)cp);
+        lua_rawseti(L, -4, (lua_Integer)i + 1);
+
+        lua_pushinteger(L, (lua_Integer)Color32ToXtermIndexOrMinus1(fg32));
+        lua_rawseti(L, -3, (lua_Integer)i + 1);
+
+        lua_pushinteger(L, (lua_Integer)Color32ToXtermIndexOrMinus1(bg32));
+        lua_rawseti(L, -2, (lua_Integer)i + 1);
+    }
+    // Stack: result, cp, fg, bg
+    lua_setfield(L, -4, "bg"); // result.bg = bg
+    lua_setfield(L, -3, "fg"); // result.fg = fg
+    lua_setfield(L, -2, "cp"); // result.cp = cp
+    return 1;
+}
+
 // -------- buffer (portable 2D-on-1D helpers) --------
 static bool BufferIndex(int x, int y, int cols, int rows, lua_Integer& outIdx1)
 {
@@ -1888,6 +2043,18 @@ extern "C" int luaopen_ansl(lua_State* L)
     lua_createtable(L, 0, 0);
     SetFuncs(L, buffer_fns);
     lua_setfield(L, -2, "buffer");
+
+    // font (FIGlet / TheDraw text-art fonts)
+    lua_createtable(L, 0, 0);
+    static const luaL_Reg font_fns[] = {
+        {"list", l_font_list},
+        {"render", l_font_render},   // (id, text, opts?) -> {w,h,cp[],fg[],bg[]} | (nil, err)
+        {"errors", l_font_errors},   // () -> { "error...", ... }
+        {nullptr, nullptr},
+    };
+    SetFuncs(L, font_fns);
+    lua_setfield(L, -2, "font");
+
     // sort (host: uses ImGui font atlas to sort glyphs by brightness)
     lua_createtable(L, 0, 0);
     static const luaL_Reg sort_fns[] = {

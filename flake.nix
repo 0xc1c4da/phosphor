@@ -115,6 +115,10 @@
             # Provide libnoise
             export LIBNOISE_CFLAGS="-I${pkgs.libnoise}/include"
             export LIBNOISE_LIBS="-L${pkgs.libnoise}/lib -lnoise-static -lnoiseutils-static"
+
+            # Project helpers
+            export PHOSPHOR_PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+            alias nuke_assets='(cd "$PHOSPHOR_PROJECT_ROOT" && rm -rf ~/.config/phosphor/assets/ && cp -R assets/ ~/.config/phosphor/assets)'
           '';
         };
       }

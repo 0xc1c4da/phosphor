@@ -443,10 +443,12 @@ public:
     // If the canvas isn't hovered/active, returns false.
     bool GetCursorCell(int& out_x,
                        int& out_y,
+                       int& out_half_y,
                        bool& out_left_down,
                        bool& out_right_down,
                        int& out_px,
                        int& out_py,
+                       int& out_phalf_y,
                        bool& out_prev_left_down,
                        bool& out_prev_right_down) const;
 
@@ -554,10 +556,12 @@ private:
     bool m_cursor_valid = false;
     int  m_cursor_col = 0;
     int  m_cursor_row = 0;
+    int  m_cursor_half_row = 0;  // y in "half rows" (row*2 + 0/1)
     bool m_cursor_left_down = false;
     bool m_cursor_right_down = false;
     int  m_cursor_pcol = 0;
     int  m_cursor_prow = 0;
+    int  m_cursor_phalf_row = 0;
     bool m_cursor_prev_left_down = false;
     bool m_cursor_prev_right_down = false;
 

@@ -804,6 +804,12 @@ static bool ParseTdfBundle(const std::vector<std::uint8_t>& bytes, std::vector<F
         return false;
     }
     o += 18;
+
+    // Some variants include a NUL between the header string and CTRL-Z.
+    // (Matches the tolerant detection logic in our font collection tooling.)
+    if (o < bytes.size() && bytes[o] == 0x00)
+        o += 1;
+
     if (o >= bytes.size() || bytes[o] != kCtrlZ)
     {
         err = "TDF: missing CTRL-Z marker";
@@ -811,8 +817,33 @@ static bool ParseTdfBundle(const std::vector<std::uint8_t>& bytes, std::vector<F
     }
     o += 1;
 
+    auto is_all_zero_from = [&](size_t start) -> bool {
+        for (size_t i = start; i < bytes.size(); ++i)
+            if (bytes[i] != 0)
+                return false;
+        return true;
+    };
+    auto has_sauce_trailer = [&]() -> std::optional<size_t> {
+        // SAUCE metadata is commonly appended to files (128-byte record at EOF),
+        // sometimes preceded by a CTRL-Z (0x1A) DOS EOF marker.
+        // See: https://www.acid.org/info/sauce/sauce.htm (conceptually; we just detect signature).
+        static constexpr char kSauce[] = "SAUCE00";
+        if (bytes.size() < 128)
+            return std::nullopt;
+        const size_t pos = bytes.size() - 128;
+        if (std::memcmp(bytes.data() + pos, kSauce, 7) == 0)
+            return pos;
+        return std::nullopt;
+    };
+    const std::optional<size_t> sauce_pos = has_sauce_trailer();
+
     while (o < bytes.size())
     {
+        // If a SAUCE trailer begins here (or at the next byte, after a CTRL-Z),
+        // treat it as end-of-bundle and ignore it.
+        if (sauce_pos.has_value() && (o == *sauce_pos || (o + 1) == *sauce_pos))
+            break;
+
         if (bytes[o] == 0)
             break; // bundle terminator
 
@@ -824,6 +855,25 @@ static bool ParseTdfBundle(const std::vector<std::uint8_t>& bytes, std::vector<F
         }
         if (indicator != kTdfFontIndicator)
         {
+            // Tolerate a common "trailer then zero padding" variant seen in the wild:
+            // after decoding at least one font record, some bundles end without the 0x00
+            // terminator and include a small trailer followed by zeros.
+            //
+            // Example: assets/fonts/tdf/guardf2.tdf (trailer begins with 0x50 00 19 00 ... then zeros).
+            if (!out_fonts.empty())
+            {
+                // If the remainder is just a SAUCE trailer (optionally preceded by CTRL-Z), stop.
+                if (sauce_pos.has_value() && (o == *sauce_pos || (o + 1) == *sauce_pos))
+                    break;
+
+                // If everything AFTER a 4-byte trailer is zero, treat it as end-of-bundle.
+                if (o + 4 <= bytes.size() && is_all_zero_from(o + 4))
+                    break;
+                // Or if the remainder is all zero (padding), also stop.
+                if (is_all_zero_from(o))
+                    break;
+            }
+
             err = "TDF: font indicator mismatch";
             return false;
         }

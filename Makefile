@@ -25,6 +25,7 @@ SOURCES  = \
            src/core/canvas.cpp \
            src/core/fonts.cpp \
            src/fonts/textmode_font.cpp \
+           src/fonts/textmode_font_registry.cpp \
            src/core/canvas_rasterizer.cpp \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \

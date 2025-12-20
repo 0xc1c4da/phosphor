@@ -2,6 +2,7 @@
 
 #include "core/canvas.h"
 #include "core/xterm256_palette.h"
+#include "fonts/textmode_font_registry.h"
 
 extern "C"
 {
@@ -1252,6 +1253,11 @@ struct AnslScriptEngine::Impl
     // For ctx.actions: we nil out previously-set keys each frame so the table only
     // contains edge-triggered pressed actions for the current frame.
     std::vector<std::string> prev_actions;
+
+    // Assets root (used for native helpers like font discovery).
+    std::string assets_dir;
+    // Text-art font registry backing ansl.font.* (owned by this engine instance).
+    std::unique_ptr<textmode_font::Registry> font_registry;
 };
 
 AnslScriptEngine::AnslScriptEngine()
@@ -1281,11 +1287,12 @@ AnslScriptEngine::~AnslScriptEngine()
 
 bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
 {
-    (void)assets_dir;
     if (!impl_)
         return false;
     if (impl_->initialized)
         return true;
+
+    impl_->assets_dir = assets_dir;
 
     impl_->L = luaL_newstate();
     if (!impl_->L)
@@ -1294,6 +1301,17 @@ bool AnslScriptEngine::Init(const std::string& assets_dir, std::string& error)
         return false;
     }
     luaL_openlibs(impl_->L);
+
+    // Register per-engine native data before luaopen_ansl runs.
+    // luaopen_ansl can retrieve this from LUA_REGISTRYINDEX.
+    impl_->font_registry = std::make_unique<textmode_font::Registry>();
+    {
+        std::string ferr;
+        (void)impl_->font_registry->Scan(assets_dir, ferr);
+        // Non-fatal: ansl.font.list() will be empty if scan failed.
+    }
+    lua_pushlightuserdata(impl_->L, impl_->font_registry.get());
+    lua_setfield(impl_->L, LUA_REGISTRYINDEX, "phosphor.textmode_font_registry");
 
     // Register native ansl library as require('ansl') and global `ansl`.
     if (!EnsureAnslModule(impl_->L, error))
@@ -1815,6 +1833,7 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pushboolean(L, frame_ctx.cursor_valid ? 1 : 0); lua_setfield(L, -2, "valid");
         lua_pushinteger(L, frame_ctx.cursor_x); lua_setfield(L, -2, "x");
         lua_pushinteger(L, frame_ctx.cursor_y); lua_setfield(L, -2, "y");
+        lua_pushinteger(L, frame_ctx.cursor_half_y); lua_setfield(L, -2, "half_y");
         lua_pushboolean(L, frame_ctx.cursor_left_down); lua_setfield(L, -2, "left");
         lua_pushboolean(L, frame_ctx.cursor_right_down); lua_setfield(L, -2, "right");
 
@@ -1823,6 +1842,7 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         {
             lua_pushinteger(L, frame_ctx.cursor_px); lua_setfield(L, -2, "x");
             lua_pushinteger(L, frame_ctx.cursor_py); lua_setfield(L, -2, "y");
+            lua_pushinteger(L, frame_ctx.cursor_phalf_y); lua_setfield(L, -2, "half_y");
             lua_pushboolean(L, frame_ctx.cursor_prev_left_down); lua_setfield(L, -2, "left");
             lua_pushboolean(L, frame_ctx.cursor_prev_right_down); lua_setfield(L, -2, "right");
         }

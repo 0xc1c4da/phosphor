@@ -78,10 +78,12 @@ struct AnslFrameContext
     // Cursor = the mouse cursor expressed in cell space, plus button state.
     int  cursor_x = 0;
     int  cursor_y = 0;
+    int  cursor_half_y = 0;   // y in half-rows (cursor_y*2 + 0/1)
     bool cursor_left_down = false;
     bool cursor_right_down = false;
     int  cursor_px = 0;
     int  cursor_py = 0;
+    int  cursor_phalf_y = 0;
     bool cursor_prev_left_down = false;
     bool cursor_prev_right_down = false;
     bool cursor_valid = false;
