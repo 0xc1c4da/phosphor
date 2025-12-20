@@ -511,6 +511,50 @@ static int l_canvas_cancelMoveSelection(lua_State* L)
     return 1;
 }
 
+static int l_canvas_getLayerOffset(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    // getLayerOffset([layer]) -> x, y
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    int x = 0, y = 0;
+    if (!b->canvas->GetLayerOffset(layer, x, y))
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushinteger(L, x);
+    lua_pushinteger(L, y);
+    return 2;
+}
+
+static int l_canvas_setLayerOffset(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    // setLayerOffset(x, y, [layer]) -> bool
+    const int x = (int)luaL_checkinteger(L, 2);
+    const int y = (int)luaL_checkinteger(L, 3);
+    const int layer = LuaOptLayerIndex(L, 4, -1);
+    lua_pushboolean(L, b->canvas->SetLayerOffset(x, y, layer) ? 1 : 0);
+    return 1;
+}
+
+static int l_canvas_nudgeLayerOffset(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    // nudgeLayerOffset(dx, dy, [layer]) -> bool
+    const int dx = (int)luaL_checkinteger(L, 2);
+    const int dy = (int)luaL_checkinteger(L, 3);
+    const int layer = LuaOptLayerIndex(L, 4, -1);
+    lua_pushboolean(L, b->canvas->NudgeLayerOffset(dx, dy, layer) ? 1 : 0);
+    return 1;
+}
+
 static int l_layer_set(lua_State* L)
 {
     LayerBinding* b = CheckLayer(L, 1);
@@ -773,6 +817,9 @@ static void EnsureCanvasMetatable(lua_State* L)
         lua_pushcfunction(L, l_canvas_updateMoveSelection); lua_setfield(L, -2, "updateMoveSelection");
         lua_pushcfunction(L, l_canvas_commitMoveSelection); lua_setfield(L, -2, "commitMoveSelection");
         lua_pushcfunction(L, l_canvas_cancelMoveSelection); lua_setfield(L, -2, "cancelMoveSelection");
+        lua_pushcfunction(L, l_canvas_getLayerOffset);     lua_setfield(L, -2, "getLayerOffset");
+        lua_pushcfunction(L, l_canvas_setLayerOffset);     lua_setfield(L, -2, "setLayerOffset");
+        lua_pushcfunction(L, l_canvas_nudgeLayerOffset);   lua_setfield(L, -2, "nudgeLayerOffset");
         lua_setfield(L, -2, "__index");
     }
     lua_pop(L, 1); // metatable

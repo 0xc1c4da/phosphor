@@ -69,6 +69,8 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
     jl["name"] = l.name;
     jl["visible"] = l.visible;
     jl["lock_transparency"] = l.lock_transparency;
+    jl["offset_x"] = l.offset_x;
+    jl["offset_y"] = l.offset_y;
 
     // Store glyphs as uint32 codepoints to keep CBOR compact and unambiguous.
     json cells = json::array();
@@ -97,6 +99,10 @@ static bool ProjectLayerFromJson(const json& jl, AnsiCanvas::ProjectLayer& out, 
         out.visible = jl["visible"].get<bool>();
     if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean())
         out.lock_transparency = jl["lock_transparency"].get<bool>();
+    if (jl.contains("offset_x") && jl["offset_x"].is_number_integer())
+        out.offset_x = jl["offset_x"].get<int>();
+    if (jl.contains("offset_y") && jl["offset_y"].is_number_integer())
+        out.offset_y = jl["offset_y"].get<int>();
 
     if (!jl.contains("cells") || !jl["cells"].is_array())
     {
@@ -215,6 +221,8 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
             jl["name"] = lm.name;
             jl["visible"] = lm.visible;
             jl["lock_transparency"] = lm.lock_transparency;
+            jl["offset_x"] = lm.offset_x;
+            jl["offset_y"] = lm.offset_y;
             layers.push_back(std::move(jl));
         }
         je["layers"] = std::move(layers);
@@ -284,6 +292,8 @@ static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectU
                 if (jl.contains("name") && jl["name"].is_string()) lm.name = jl["name"].get<std::string>();
                 if (jl.contains("visible") && jl["visible"].is_boolean()) lm.visible = jl["visible"].get<bool>();
                 if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean()) lm.lock_transparency = jl["lock_transparency"].get<bool>();
+                if (jl.contains("offset_x") && jl["offset_x"].is_number_integer()) lm.offset_x = jl["offset_x"].get<int>();
+                if (jl.contains("offset_y") && jl["offset_y"].is_number_integer()) lm.offset_y = jl["offset_y"].get<int>();
                 p.layers.push_back(std::move(lm));
             }
         }
@@ -425,7 +435,9 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
         for (const auto& s : j["undo"])
         {
             // Backward compatibility: older project versions stored undo as raw snapshots.
-            if (s.is_object() && s.contains("columns") && s.contains("layers"))
+            // IMPORTANT: patch entries also contain "columns" and "layers", so only treat an entry
+            // as an old-style snapshot if it does NOT declare a "kind" field.
+            if (s.is_object() && !s.contains("kind") && s.contains("columns") && s.contains("layers"))
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
@@ -447,7 +459,7 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     {
         for (const auto& s : j["redo"])
         {
-            if (s.is_object() && s.contains("columns") && s.contains("layers"))
+            if (s.is_object() && !s.contains("kind") && s.contains("columns") && s.contains("layers"))
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;

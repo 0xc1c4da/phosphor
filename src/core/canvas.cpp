@@ -396,6 +396,8 @@ void AnsiCanvas::EnsureUndoCaptureIsPatch()
         lm.name = l.name;
         lm.visible = l.visible;
         lm.lock_transparency = l.lock_transparency;
+        lm.offset_x = l.offset_x;
+        lm.offset_y = l.offset_y;
         e.patch.layers.push_back(std::move(lm));
     }
     e.patch.pages.clear();
@@ -540,6 +542,8 @@ bool AnsiCanvas::Undo()
             lm.name = l.name;
             lm.visible = l.visible;
             lm.lock_transparency = l.lock_transparency;
+            lm.offset_x = l.offset_x;
+            lm.offset_y = l.offset_y;
             cur.patch.layers.push_back(std::move(lm));
         }
         cur.patch.pages.clear();
@@ -606,6 +610,8 @@ bool AnsiCanvas::Undo()
             m_layers[i].name = prev.patch.layers[i].name;
             m_layers[i].visible = prev.patch.layers[i].visible;
             m_layers[i].lock_transparency = prev.patch.layers[i].lock_transparency;
+            m_layers[i].offset_x = prev.patch.layers[i].offset_x;
+            m_layers[i].offset_y = prev.patch.layers[i].offset_y;
         }
 
         EnsureDocument();
@@ -693,6 +699,8 @@ bool AnsiCanvas::Redo()
             lm.name = l.name;
             lm.visible = l.visible;
             lm.lock_transparency = l.lock_transparency;
+            lm.offset_x = l.offset_x;
+            lm.offset_y = l.offset_y;
             cur.patch.layers.push_back(std::move(lm));
         }
         cur.patch.pages.clear();
@@ -762,6 +770,8 @@ bool AnsiCanvas::Redo()
             m_layers[i].name = next.patch.layers[i].name;
             m_layers[i].visible = next.patch.layers[i].visible;
             m_layers[i].lock_transparency = next.patch.layers[i].lock_transparency;
+            m_layers[i].offset_x = next.patch.layers[i].offset_x;
+            m_layers[i].offset_y = next.patch.layers[i].offset_y;
         }
 
         EnsureDocument();
@@ -1005,7 +1015,10 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
             if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
                 continue;
 
-            const size_t idx = CellIndex(y, x);
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForRead(layer_index, y, x, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx < layer.cells.size())
                 g_clipboard.cp[out] = layer.cells[idx];
             if (idx < layer.fg.size())
@@ -1091,10 +1104,13 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
             const int y = y0 + j;
             if (x < 0 || x >= m_columns || y < 0)
                 continue;
-            const size_t idx = CellIndex(y, x);
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWrite(layer_index, y, x, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
             // If row is beyond current document, the old cell is implicitly transparent.
-            const bool in_bounds = (y < m_rows);
+            const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
             const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
             const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -1110,16 +1126,17 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
                 continue; // no-op
 
             prepare();
-            CaptureUndoPageIfNeeded(layer_index, y);
-            if (y >= m_rows)
-                EnsureRows(y + 1);
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
 
-            if (idx < layer.cells.size())
-                layer.cells[idx] = new_cp;
-            if (idx < layer.fg.size())
-                layer.fg[idx] = new_fg;
-            if (idx < layer.bg.size())
-                layer.bg[idx] = new_bg;
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size())
+                layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())
+                layer.fg[widx] = new_fg;
+            if (widx < layer.bg.size())
+                layer.bg[widx] = new_bg;
             did_anything = true;
         }
     return did_anything;
@@ -1178,9 +1195,12 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
             if (transparent_spaces && cp == U' ')
                 continue;
 
-            const size_t dst = CellIndex(py, px);
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+                continue;
+            const size_t dst = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
-            const bool in_bounds = (py < m_rows);
+            const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : U' ';
             const Color32  old_fg = (in_bounds && dst < layer.fg.size())    ? layer.fg[dst]    : 0;
             const Color32  old_bg = (in_bounds && dst < layer.bg.size())    ? layer.bg[dst]    : 0;
@@ -1203,16 +1223,17 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
                 continue;
 
             prepare();
-            CaptureUndoPageIfNeeded(layer_index, py);
-            if (py >= m_rows)
-                EnsureRows(py + 1);
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
 
-            if (dst < layer.cells.size())
-                layer.cells[dst] = new_cp;
-            if (dst < layer.fg.size())
-                layer.fg[dst] = new_fg;
-            if (dst < layer.bg.size())
-                layer.bg[dst] = new_bg;
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size())
+                layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())
+                layer.fg[widx] = new_fg;
+            if (widx < layer.bg.size())
+                layer.bg[widx] = new_bg;
             did_anything = true;
         }
 
@@ -1268,7 +1289,10 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
             const size_t out = (size_t)j * (size_t)w + (size_t)i;
             if (sx < 0 || sx >= m_columns || sy < 0 || sy >= m_rows)
                 continue;
-            const size_t idx = CellIndex(sy, sx);
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForRead(layer_index, sy, sx, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx < layer.cells.size())
                 mv.cells[out].cp = layer.cells[idx];
             if (idx < layer.fg.size())
@@ -1297,9 +1321,12 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                 const int sy = y0 + j;
                 if (sx < 0 || sx >= m_columns || sy < 0)
                     continue;
-                const size_t idx = CellIndex(sy, sx);
+                int lr = 0, lc = 0;
+                if (!CanvasToLayerLocalForWrite(layer_index, sy, sx, lr, lc))
+                    continue;
+                const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
-                const bool in_bounds = (sy < m_rows);
+                const bool in_bounds = (lr < m_rows);
                 const char32_t old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : U' ';
                 const Color32  old_fg = (in_bounds && idx < mut.fg.size())    ? mut.fg[idx]    : 0;
                 const Color32  old_bg = (in_bounds && idx < mut.bg.size())    ? mut.bg[idx]    : 0;
@@ -1314,16 +1341,17 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                     continue;
 
                 prepare();
-                CaptureUndoPageIfNeeded(layer_index, sy);
-                if (sy >= m_rows)
-                    EnsureRows(sy + 1);
+                CaptureUndoPageIfNeeded(layer_index, lr);
+                if (lr >= m_rows)
+                    EnsureRows(lr + 1);
 
-                if (idx < mut.cells.size())
-                    mut.cells[idx] = new_cp;
-                if (idx < mut.fg.size())
-                    mut.fg[idx] = new_fg;
-                if (idx < mut.bg.size())
-                    mut.bg[idx] = new_bg;
+                const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+                if (widx < mut.cells.size())
+                    mut.cells[widx] = new_cp;
+                if (widx < mut.fg.size())
+                    mut.fg[widx] = new_fg;
+                if (widx < mut.bg.size())
+                    mut.bg[widx] = new_bg;
             }
     }
 
@@ -1381,10 +1409,13 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
             const int py = m_move.dst_y + j;
             if (px < 0 || px >= m_columns || py < 0)
                 continue;
-            const size_t idx = CellIndex(py, px);
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
 
-            const bool in_bounds = (py < m_rows);
+            const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
             const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
             const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -1400,16 +1431,17 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
                 continue;
 
             prepare();
-            CaptureUndoPageIfNeeded(layer_index, py);
-            if (py >= m_rows)
-                EnsureRows(py + 1);
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
 
-            if (idx < layer.cells.size())
-                layer.cells[idx] = new_cp;
-            if (idx < layer.fg.size())
-                layer.fg[idx] = new_fg;
-            if (idx < layer.bg.size())
-                layer.bg[idx] = new_bg;
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size())
+                layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())
+                layer.fg[widx] = new_fg;
+            if (widx < layer.bg.size())
+                layer.bg[widx] = new_bg;
             did_anything = true;
         }
 
@@ -1455,10 +1487,13 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                     const int py = m_move.src_y + j;
                     if (px < 0 || px >= m_columns || py < 0)
                         continue;
-                    const size_t idx = CellIndex(py, px);
+                    int lr = 0, lc = 0;
+                    if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+                        continue;
+                    const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
                     const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
 
-                    const bool in_bounds = (py < m_rows);
+                    const bool in_bounds = (lr < m_rows);
                     const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
                     const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
                     const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -1474,16 +1509,17 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                         continue;
 
                     prepare();
-                    CaptureUndoPageIfNeeded(layer_index, py);
-                    if (py >= m_rows)
-                        EnsureRows(py + 1);
+                    CaptureUndoPageIfNeeded(layer_index, lr);
+                    if (lr >= m_rows)
+                        EnsureRows(lr + 1);
 
-                    if (idx < layer.cells.size())
-                        layer.cells[idx] = new_cp;
-                    if (idx < layer.fg.size())
-                        layer.fg[idx] = new_fg;
-                    if (idx < layer.bg.size())
-                        layer.bg[idx] = new_bg;
+                    const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+                    if (widx < layer.cells.size())
+                        layer.cells[widx] = new_cp;
+                    if (widx < layer.fg.size())
+                        layer.fg[widx] = new_fg;
+                    if (widx < layer.bg.size())
+                        layer.bg[widx] = new_bg;
                     did_anything = true;
                 }
             (void)did_anything;
@@ -1836,6 +1872,45 @@ bool AnsiCanvas::MoveLayerDown(int index)
     return MoveLayer(index, index - 1);
 }
 
+bool AnsiCanvas::GetLayerOffset(int layer_index, int& out_x, int& out_y) const
+{
+    out_x = 0;
+    out_y = 0;
+    if (m_layers.empty())
+        return false;
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    const Layer& layer = m_layers[(size_t)layer_index];
+    out_x = layer.offset_x;
+    out_y = layer.offset_y;
+    return true;
+}
+
+bool AnsiCanvas::SetLayerOffset(int x, int y, int layer_index)
+{
+    EnsureDocument();
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    Layer& layer = m_layers[(size_t)layer_index];
+    if (layer.offset_x == x && layer.offset_y == y)
+        return true;
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+    layer.offset_x = x;
+    layer.offset_y = y;
+    return true;
+}
+
+bool AnsiCanvas::NudgeLayerOffset(int dx, int dy, int layer_index)
+{
+    int x = 0, y = 0;
+    if (!GetLayerOffset(layer_index, x, y))
+        return false;
+    return SetLayerOffset(x + dx, y + dy, layer_index);
+}
+
 void AnsiCanvas::SetColumns(int columns)
 {
     if (columns <= 0)
@@ -2168,6 +2243,44 @@ size_t AnsiCanvas::CellIndex(int row, int col) const
     return static_cast<size_t>(row) * static_cast<size_t>(m_columns) + static_cast<size_t>(col);
 }
 
+bool AnsiCanvas::CanvasToLayerLocalForWrite(int layer_index,
+                                           int canvas_row,
+                                           int canvas_col,
+                                           int& out_local_row,
+                                           int& out_local_col) const
+{
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+    if (m_columns <= 0)
+        return false;
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    const long long lr = (long long)canvas_row - (long long)layer.offset_y;
+    const long long lc = (long long)canvas_col - (long long)layer.offset_x;
+    if (lr < 0 || lc < 0)
+        return false;
+    if (lc >= (long long)m_columns)
+        return false;
+    if (lr > (long long)std::numeric_limits<int>::max() || lc > (long long)std::numeric_limits<int>::max())
+        return false;
+    out_local_row = (int)lr;
+    out_local_col = (int)lc;
+    return true;
+}
+
+bool AnsiCanvas::CanvasToLayerLocalForRead(int layer_index,
+                                          int canvas_row,
+                                          int canvas_col,
+                                          int& out_local_row,
+                                          int& out_local_col) const
+{
+    if (!CanvasToLayerLocalForWrite(layer_index, canvas_row, canvas_col, out_local_row, out_local_col))
+        return false;
+    if (out_local_row < 0 || out_local_row >= m_rows)
+        return false;
+    return true;
+}
+
 AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
 {
     CompositeCell out;
@@ -2176,8 +2289,6 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
         return out;
 
-    const size_t idx = CellIndex(row, col);
-
     // Background: topmost visible non-zero background wins (space remains "transparent"
     // for glyph compositing, but background can be colored independently).
     for (int i = (int)m_layers.size() - 1; i >= 0; --i)
@@ -2185,6 +2296,10 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
         const Layer& layer = m_layers[(size_t)i];
         if (!layer.visible)
             continue;
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
+            continue;
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         if (idx >= layer.bg.size())
             continue;
         const Color32 bg = layer.bg[idx];
@@ -2202,6 +2317,10 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
         const Layer& layer = m_layers[(size_t)i];
         if (!layer.visible)
             continue;
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
+            continue;
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         if (idx >= layer.cells.size())
             continue;
         const char32_t cp = layer.cells[idx];
@@ -2228,10 +2347,14 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
 
     auto write_one = [&](int write_col)
     {
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
+            return;
+
         Layer& layer = m_layers[(size_t)m_active_layer];
         // Determine old cell value without growing the document unless we will mutate.
-        const bool in_bounds = (row < m_rows);
-        const size_t idx = CellIndex(row, write_col);
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2247,11 +2370,12 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(m_active_layer, row);
-        if (row >= m_rows)
-            EnsureRows(row + 1);
-        if (idx < layer.cells.size())
-            layer.cells[idx] = cp;
+        CaptureUndoPageIfNeeded(m_active_layer, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = cp;
     };
 
     write_one(col);
@@ -2277,9 +2401,13 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
 
     auto write_one = [&](int write_col)
     {
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
+            return;
+
         Layer& layer = m_layers[(size_t)m_active_layer];
-        const bool in_bounds = (row < m_rows);
-        const size_t idx = CellIndex(row, write_col);
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2295,16 +2423,17 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(m_active_layer, row);
-        if (row >= m_rows)
-            EnsureRows(row + 1);
+        CaptureUndoPageIfNeeded(m_active_layer, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
 
-        if (idx < layer.cells.size())
-            layer.cells[idx] = new_cp;
-        if (idx < layer.fg.size())
-            layer.fg[idx] = new_fg;
-        if (idx < layer.bg.size())
-            layer.bg[idx] = new_bg;
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = new_cp;
+        if (widx < layer.fg.size())
+            layer.fg[widx] = new_fg;
+        if (widx < layer.bg.size())
+            layer.bg[widx] = new_bg;
     };
 
     write_one(col);
@@ -2330,9 +2459,13 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
 
     auto write_one = [&](int write_col)
     {
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
+            return;
+
         Layer& layer = m_layers[(size_t)m_active_layer];
-        const size_t idx = CellIndex(row, write_col);
-        const bool in_bounds = (row < m_rows);
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2348,13 +2481,14 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(m_active_layer, row);
-        if (row >= m_rows)
-            EnsureRows(row + 1);
-        if (idx < layer.fg.size())
-            layer.fg[idx] = 0;
-        if (idx < layer.bg.size())
-            layer.bg[idx] = 0;
+        CaptureUndoPageIfNeeded(m_active_layer, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.fg.size())
+            layer.fg[widx] = 0;
+        if (widx < layer.bg.size())
+            layer.bg[widx] = 0;
     };
 
     write_one(col);
@@ -2380,10 +2514,13 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 
     auto write_one = [&](int write_col) -> bool
     {
-        Layer& layer = m_layers[(size_t)layer_index];
-        const size_t idx = CellIndex(row, write_col);
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
+            return false;
 
-        const bool in_bounds = (row < m_rows);
+        Layer& layer = m_layers[(size_t)layer_index];
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2399,11 +2536,12 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(layer_index, row);
-        if (row >= m_rows)
-            EnsureRows(row + 1);
-        if (idx < layer.cells.size())
-            layer.cells[idx] = new_cp;
+        CaptureUndoPageIfNeeded(layer_index, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = new_cp;
         return true;
     };
 
@@ -2432,10 +2570,13 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
 
     auto write_one = [&](int write_col) -> bool
     {
-        Layer& layer = m_layers[(size_t)layer_index];
-        const size_t idx = CellIndex(row, write_col);
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
+            return false;
 
-        const bool in_bounds = (row < m_rows);
+        Layer& layer = m_layers[(size_t)layer_index];
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2451,15 +2592,16 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(layer_index, row);
-        if (row >= m_rows)
-            EnsureRows(row + 1);
-        if (idx < layer.cells.size())
-            layer.cells[idx] = new_cp;
-        if (idx < layer.fg.size())
-            layer.fg[idx] = new_fg;
-        if (idx < layer.bg.size())
-            layer.bg[idx] = new_bg;
+        CaptureUndoPageIfNeeded(layer_index, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = new_cp;
+        if (widx < layer.fg.size())
+            layer.fg[widx] = new_fg;
+        if (widx < layer.bg.size())
+            layer.bg[widx] = new_bg;
         return true;
     };
 
@@ -2485,8 +2627,11 @@ char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
         return U' ';
 
+    int lr = 0, lc = 0;
+    if (!CanvasToLayerLocalForRead(layer_index, row, col, lr, lc))
+        return U' ';
     const Layer& layer = m_layers[(size_t)layer_index];
-    const size_t idx = CellIndex(row, col);
+    const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
     if (idx >= layer.cells.size())
         return U' ';
     return layer.cells[idx];
@@ -2504,8 +2649,11 @@ bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& 
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
         return false;
 
+    int lr = 0, lc = 0;
+    if (!CanvasToLayerLocalForRead(layer_index, row, col, lr, lc))
+        return false;
     const Layer& layer = m_layers[(size_t)layer_index];
-    const size_t idx = CellIndex(row, col);
+    const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
     if (idx >= layer.fg.size() || idx >= layer.bg.size())
         return false;
     out_fg = layer.fg[idx];
@@ -2521,10 +2669,13 @@ void AnsiCanvas::ClearLayerCellStyleInternal(int layer_index, int row, int col)
     if (row < 0) row = 0;
     if (col < 0) col = 0;
     if (col >= m_columns) col = m_columns - 1;
+    int lr = 0, lc = 0;
+    if (!CanvasToLayerLocalForWrite(layer_index, row, col, lr, lc))
+        return;
     Layer& layer = m_layers[(size_t)layer_index];
-    const size_t idx = CellIndex(row, col);
+    const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
-    const bool in_bounds = (row < m_rows);
+    const bool in_bounds = (lr < m_rows);
     const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
     const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
     const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2538,7 +2689,7 @@ void AnsiCanvas::ClearLayerCellStyleInternal(int layer_index, int row, int col)
     if (in_bounds && old_fg == 0 && old_bg == 0)
         return;
 
-    EnsureRows(row + 1);
+    EnsureRows(lr + 1);
     if (idx < layer.fg.size())
         layer.fg[idx] = 0;
     if (idx < layer.bg.size())
@@ -2558,8 +2709,11 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
 
     auto write_one = [&](int write_col) -> bool
     {
-        const bool in_bounds = (row < m_rows);
-        const size_t idx = CellIndex(row, write_col);
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
+            return false;
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
         const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
         const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
@@ -2575,7 +2729,7 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
 
         PrepareUndoForMutation();
         EnsureUndoCaptureIsPatch();
-        CaptureUndoPageIfNeeded(layer_index, row);
+        CaptureUndoPageIfNeeded(layer_index, lr);
         ClearLayerCellStyleInternal(layer_index, row, write_col);
         return true;
     };
@@ -3808,6 +3962,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
     DrawMirrorAxisOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
+    DrawActiveLayerBoundsOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h);
     DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
@@ -3856,6 +4011,40 @@ void AnsiCanvas::DrawMirrorAxisOverlay(ImDrawList* draw_list,
     draw_list->AddLine(p0, p1, col, 2.0f);
 }
 
+void AnsiCanvas::DrawActiveLayerBoundsOverlay(ImDrawList* draw_list,
+                                             const ImVec2& origin,
+                                             float cell_w,
+                                             float cell_h)
+{
+    if (!draw_list)
+        return;
+    if (m_columns <= 0 || m_rows <= 0)
+        return;
+    if (m_active_layer < 0 || m_active_layer >= (int)m_layers.size())
+        return;
+
+    const Layer& layer = m_layers[(size_t)m_active_layer];
+    if (layer.offset_x == 0 && layer.offset_y == 0)
+        return;
+
+    // Subtle light-grey outline (only when the layer is offset, per UX request).
+    const ImU32 col = ImGui::GetColorU32(ImVec4(0.85f, 0.85f, 0.85f, 0.35f));
+
+    const int x0 = layer.offset_x;
+    const int y0 = layer.offset_y;
+    const int x1 = x0 + m_columns;
+    const int y1 = y0 + m_rows;
+
+    ImVec2 p0(origin.x + (float)x0 * cell_w, origin.y + (float)y0 * cell_h);
+    ImVec2 p1(origin.x + (float)x1 * cell_w, origin.y + (float)y1 * cell_h);
+    // Pixel-align like selection border for crisp 1px lines.
+    p0.x = std::floor(p0.x) + 0.5f;
+    p0.y = std::floor(p0.y) + 0.5f;
+    p1.x = std::floor(p1.x) - 0.5f;
+    p1.y = std::floor(p1.y) - 0.5f;
+    draw_list->AddRect(p0, p1, col, 0.0f, 0, 1.0f);
+}
+
 AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
 {
     auto to_project_layer = [&](const Layer& l) -> ProjectLayer
@@ -3864,6 +4053,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
         out.name = l.name;
         out.visible = l.visible;
         out.lock_transparency = l.lock_transparency;
+        out.offset_x = l.offset_x;
+        out.offset_y = l.offset_y;
         out.cells = l.cells;
         out.fg = l.fg;
         out.bg = l.bg;
@@ -3904,6 +4095,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
                 plm.name = lm.name;
                 plm.visible = lm.visible;
                 plm.lock_transparency = lm.lock_transparency;
+                plm.offset_x = lm.offset_x;
+                plm.offset_y = lm.offset_y;
                 out.patch.layers.push_back(std::move(plm));
             }
             out.patch.pages.clear();
@@ -3930,7 +4123,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 4;
+    out.version = 5;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
     out.current = to_project_snapshot(MakeSnapshot());
@@ -3954,6 +4147,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         out.name = l.name;
         out.visible = l.visible;
         out.lock_transparency = l.lock_transparency;
+        out.offset_x = l.offset_x;
+        out.offset_y = l.offset_y;
         out.cells = l.cells;
         out.fg = l.fg;
         out.bg = l.bg;
@@ -4018,6 +4213,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
                 ilm.name = lm.name;
                 ilm.visible = lm.visible;
                 ilm.lock_transparency = lm.lock_transparency;
+                ilm.offset_x = lm.offset_x;
+                ilm.offset_y = lm.offset_y;
                 out.patch.layers.push_back(std::move(ilm));
             }
             out.patch.pages.clear();

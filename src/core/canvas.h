@@ -200,6 +200,18 @@ public:
     bool MoveLayerUp(int index);   // toward front (index + 1)
     bool MoveLayerDown(int index); // toward back  (index - 1)
 
+    // ---------------------------------------------------------------------
+    // Layer transforms (translation offsets)
+    // ---------------------------------------------------------------------
+    // Offsets are in canvas cell units and are part of the editable project state:
+    // - persisted in ProjectState
+    // - captured by undo/redo (patch meta)
+    //
+    // If layer_index < 0, uses the active layer.
+    bool GetLayerOffset(int layer_index, int& out_x, int& out_y) const;
+    bool SetLayerOffset(int x, int y, int layer_index = -1);
+    bool NudgeLayerOffset(int dx, int dy, int layer_index = -1);
+
     // Load content from a UTF-8 text/ANSI file.
     // Current behavior:
     //  - Decode as UTF-8 into Unicode codepoints.
@@ -240,6 +252,10 @@ public:
         std::string           name;
         bool                  visible = true;
         bool                  lock_transparency = false;
+        // Layer translation in canvas cell-space.
+        // Canvas-space (C) and layer-local (L) relate by: C = L + offset.
+        int                   offset_x = 0;
+        int                   offset_y = 0;
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
@@ -258,7 +274,7 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 4;
+        int                     version = 5;
 
         // Optional: UI colour palette identity (from assets/color-palettes.json).
         // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
@@ -320,6 +336,8 @@ public:
                 std::string name;
                 bool        visible = true;
                 bool        lock_transparency = false;
+                int         offset_x = 0;
+                int         offset_y = 0;
             };
             struct PatchPage
             {
@@ -580,6 +598,8 @@ private:
         std::string           name;
         bool                  visible = true;
         bool                  lock_transparency = false;
+        int                   offset_x = 0;
+        int                   offset_y = 0;
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
@@ -619,6 +639,8 @@ private:
             std::string name;
             bool        visible = true;
             bool        lock_transparency = false;
+            int         offset_x = 0;
+            int         offset_y = 0;
         };
         struct PatchPage
         {
@@ -800,6 +822,8 @@ private:
     void EnsureDocument();
     void EnsureRows(int rows_needed);
     size_t CellIndex(int row, int col) const;
+    bool   CanvasToLayerLocalForWrite(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
+    bool   CanvasToLayerLocalForRead(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
 
     struct CompositeCell
     {
@@ -813,6 +837,7 @@ private:
     void          SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg);
     void          ClearActiveCellStyle(int row, int col);
     void          ClearLayerCellStyleInternal(int layer_index, int row, int col);
+    void          DrawActiveLayerBoundsOverlay(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h);
 
     // Undo helpers
     Snapshot MakeSnapshot() const;
