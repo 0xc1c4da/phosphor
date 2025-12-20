@@ -323,6 +323,16 @@ void RunFrame(AppState& st)
         }
     }
 
+    // Apply the user's global undo limit preference to all open canvases.
+    // Convention: 0 = unlimited.
+    for (auto& cptr : canvases)
+    {
+        if (!cptr || !cptr->open)
+            continue;
+        if (cptr->canvas.GetUndoLimit() != session_state.undo_limit)
+            cptr->canvas.SetUndoLimit(session_state.undo_limit);
+    }
+
     auto try_restore_canvas_from_cache = [&](CanvasWindow& cw) {
         if (!cw.restore_pending || cw.restore_attempted || cw.restore_phos_cache_rel.empty())
             return;
@@ -339,6 +349,7 @@ void RunFrame(AppState& st)
             return;
         }
         cw.restore_pending = false;
+        cw.canvas.SetUndoLimit(session_state.undo_limit);
     };
 
     // Session restore (cached .phos projects):
@@ -370,6 +381,7 @@ void RunFrame(AppState& st)
         canvas_window->open = true;
         canvas_window->id = next_canvas_id++;
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+        canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
 
         // Create a new blank canvas with a single base layer.
         canvas_window->canvas.SetColumns(80);
@@ -389,6 +401,7 @@ void RunFrame(AppState& st)
         canvas_window->id = next_canvas_id++;
         canvas_window->canvas = std::move(c);
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+        canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
         canvas_window->canvas.MarkSaved();
         last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
@@ -1697,6 +1710,7 @@ void RunFrame(AppState& st)
             canvas_window->id = next_canvas_id++;
             canvas_window->canvas = std::move(c);
             canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+            canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
             canvas_window->canvas.MarkSaved();
             last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));
@@ -1721,6 +1735,15 @@ void RunFrame(AppState& st)
     {
         const char* name = "Settings";
         settings_window.SetOpen(show_settings_window);
+        settings_window.SetUndoLimitApplier([&](size_t limit) {
+            session_state.undo_limit = limit;
+            for (auto& cptr : canvases)
+            {
+                if (!cptr || !cptr->open)
+                    continue;
+                cptr->canvas.SetUndoLimit(limit);
+            }
+        });
         settings_window.Render(name, &session_state, should_apply_placement(name));
         show_settings_window = settings_window.IsOpen();
     }
@@ -1737,6 +1760,7 @@ void RunFrame(AppState& st)
             canvas_window->id = next_canvas_id++;
             canvas_window->canvas = std::move(converted);
             canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+            canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
             canvas_window->canvas.MarkSaved();
             last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));

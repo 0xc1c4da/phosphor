@@ -244,7 +244,8 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     else if (j.contains("undo_limit") && j["undo_limit"].is_number_integer())
     {
         const int v = j["undo_limit"].get<int>();
-        out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 256;
+        // 0 (or negative) = unlimited.
+        out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 0;
     }
 
     // Optional SAUCE metadata (safe default if absent).

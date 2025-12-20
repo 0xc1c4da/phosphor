@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -130,6 +131,10 @@ struct SessionState
     // UI skin/theme (ImGui style). Persisted in session.json.
     // Stable ids are defined in ui/skin.h (e.g. "moonlight", "cherry").
     std::string ui_theme = "cherry";
+
+    // Undo history retention limit for canvases.
+    // 0 = unlimited (default).
+    size_t undo_limit = 0;
 
     // Canvas background (independent of ImGui theme). False = black, true = white.
     bool canvas_bg_white = false;

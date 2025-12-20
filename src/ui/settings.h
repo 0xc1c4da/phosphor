@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
@@ -35,6 +36,10 @@ public:
     // Provides the current UI scale factor so style/theme application can re-scale correctly.
     void SetMainScale(float scale) { main_scale_ = scale; }
 
+    // Optional: apply an undo-limit preference across canvases.
+    // Convention: 0 = unlimited.
+    void SetUndoLimitApplier(const std::function<void(size_t)>& fn) { undo_limit_applier_ = fn; }
+
     // Extendable: allows future subsystems to register additional tabs/panels.
     // If a tab with the same id exists, it is replaced.
     void RegisterTab(const Tab& tab);
@@ -45,6 +50,7 @@ public:
 
 private:
     void EnsureDefaultTabsRegistered();
+    void RenderTab_General();
     void RenderTab_KeyBindings();
     void RenderTab_Skin();
 
@@ -64,6 +70,9 @@ private:
 
     // UI scale factor (HiDPI). Set by the app.
     float                 main_scale_ = 1.0f;
+
+    // Optional: handler used by the General tab to apply undo limit across canvases.
+    std::function<void(size_t)> undo_limit_applier_;
 
     // UI state
     std::string           filter_text_;

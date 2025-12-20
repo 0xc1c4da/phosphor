@@ -139,6 +139,12 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
     tabs_registered_ = true;
 
     RegisterTab(Tab{
+        .id = "general",
+        .title = "General",
+        .render = [this]() { RenderTab_General(); },
+    });
+
+    RegisterTab(Tab{
         .id = "skin",
         .title = "Skin",
         .render = [this]() { RenderTab_Skin(); },
@@ -162,6 +168,71 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
           
         },
     });
+}
+
+void SettingsWindow::RenderTab_General()
+{
+    if (!session_)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Session state not attached; cannot persist settings.");
+        return;
+    }
+
+    ImGui::TextUnformatted("Undo History");
+    ImGui::Separator();
+
+    bool unlimited = (session_->undo_limit == 0);
+    bool changed = false;
+
+    if (ImGui::Checkbox("Unlimited undo history", &unlimited))
+    {
+        changed = true;
+        session_->undo_limit = unlimited ? 0 : 4096; // reasonable default when enabling a cap
+    }
+
+    if (!unlimited)
+    {
+        int v = (session_->undo_limit > 0) ? (int)session_->undo_limit : 4096;
+        v = std::clamp(v, 1, 1000000);
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::InputInt("Max undo steps", &v, 64, 512))
+        {
+            v = std::clamp(v, 1, 1000000);
+            session_->undo_limit = (size_t)v;
+            changed = true;
+        }
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("256"))
+        {
+            session_->undo_limit = 256;
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("1024"))
+        {
+            session_->undo_limit = 1024;
+            changed = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("4096"))
+        {
+            session_->undo_limit = 4096;
+            changed = true;
+        }
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Tip: large values can use a lot of memory for big canvases.");
+    }
+    else
+    {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Unlimited keeps all undo snapshots in memory (can grow large).");
+    }
+
+    if (changed && undo_limit_applier_)
+        undo_limit_applier_(session_->undo_limit);
 }
 
 void SettingsWindow::Render(const char* title, SessionState* session, bool apply_placement_this_frame)

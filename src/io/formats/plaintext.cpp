@@ -280,7 +280,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     st.version = 2;
-    st.undo_limit = 256;
+    st.undo_limit = 0; // unlimited by default
     st.current.columns = columns;
     st.current.rows = out_rows;
     st.current.active_layer = 0;

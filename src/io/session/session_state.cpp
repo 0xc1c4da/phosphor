@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 12;
+    j["schema_version"] = 13;
 
     json win;
     win["w"] = st.window_w;
@@ -82,6 +82,7 @@ static json ToJson(const SessionState& st)
     ui["show_16colors_browser_window"] = st.show_16colors_browser_window;
     if (!st.ui_theme.empty())
         ui["theme"] = st.ui_theme;
+    ui["undo_limit"] = st.undo_limit;
     ui["canvas_bg_white"] = st.canvas_bg_white;
     ui["character_palette_settings_open"] = st.character_palette_settings_open;
 
@@ -254,6 +255,13 @@ static void FromJson(const json& j, SessionState& out)
             out.show_16colors_browser_window = ui["show_16colors_browser_window"].get<bool>();
         if (ui.contains("theme") && ui["theme"].is_string())
             out.ui_theme = ui["theme"].get<std::string>();
+        if (ui.contains("undo_limit") && ui["undo_limit"].is_number_unsigned())
+            out.undo_limit = ui["undo_limit"].get<size_t>();
+        else if (ui.contains("undo_limit") && ui["undo_limit"].is_number_integer())
+        {
+            const int v = ui["undo_limit"].get<int>();
+            out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 0;
+        }
         if (ui.contains("canvas_bg_white") && ui["canvas_bg_white"].is_boolean())
             out.canvas_bg_white = ui["canvas_bg_white"].get<bool>();
         if (ui.contains("character_palette_settings_open") && ui["character_palette_settings_open"].is_boolean())
@@ -489,7 +497,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12)
+            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -515,7 +523,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12)
+        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 && ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

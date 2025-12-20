@@ -326,7 +326,7 @@ void AnsiCanvas::EndUndoCapture()
     if (m_undo_capture_modified && m_undo_capture_has_snapshot)
     {
         m_undo_stack.push_back(std::move(m_undo_capture_snapshot));
-        if (m_undo_stack.size() > m_undo_limit)
+        if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
             m_undo_stack.erase(m_undo_stack.begin(),
                                m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
         m_redo_stack.clear();
@@ -403,7 +403,7 @@ bool AnsiCanvas::Redo()
     m_redo_stack.pop_back();
 
     m_undo_stack.push_back(std::move(current));
-    if (m_undo_stack.size() > m_undo_limit)
+    if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
         m_undo_stack.erase(m_undo_stack.begin(),
                            m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
 
@@ -417,10 +417,25 @@ void AnsiCanvas::PushUndoSnapshot()
         return;
 
     m_undo_stack.push_back(MakeSnapshot());
-    if (m_undo_stack.size() > m_undo_limit)
+    if (m_undo_limit > 0 && m_undo_stack.size() > m_undo_limit)
         m_undo_stack.erase(m_undo_stack.begin(),
                            m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
     m_redo_stack.clear();
+}
+
+void AnsiCanvas::SetUndoLimit(size_t limit)
+{
+    m_undo_limit = limit; // 0 = unlimited
+    if (m_undo_limit == 0)
+        return;
+
+    // Trim oldest entries if needed.
+    if (m_undo_stack.size() > m_undo_limit)
+        m_undo_stack.erase(m_undo_stack.begin(),
+                           m_undo_stack.begin() + (m_undo_stack.size() - m_undo_limit));
+    if (m_redo_stack.size() > m_undo_limit)
+        m_redo_stack.erase(m_redo_stack.begin(),
+                           m_redo_stack.begin() + (m_redo_stack.size() - m_undo_limit));
 }
 
 void AnsiCanvas::TakeTypedCodepoints(std::vector<char32_t>& out)
@@ -3361,9 +3376,11 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     m_undo_capture_has_snapshot = false;
     m_undo_applying_snapshot = false;
 
-    m_undo_limit = (state.undo_limit > 0) ? state.undo_limit : 256;
+    // 0 = unlimited.
+    m_undo_limit = state.undo_limit;
     m_undo_stack = std::move(undo_internal);
     m_redo_stack = std::move(redo_internal);
+    SetUndoLimit(m_undo_limit);
 
     // Metadata (non-undoable, persisted).
     m_sauce = state.sauce;

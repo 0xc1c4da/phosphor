@@ -79,7 +79,7 @@
       "y": 38.0
     }
   },
-  "schema_version": 11,
+  "schema_version": 13,
   "ui": {
     "ansl_editor": {
       "selected_example_index": -1,
@@ -98,6 +98,7 @@
     "show_settings_window": false,
     "show_tool_palette_window": true,
     "theme": "cherry",
+    "undo_limit": 0,
     "xterm_color_picker": {
       "active_fb": 0,
       "bg": [

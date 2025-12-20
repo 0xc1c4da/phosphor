@@ -219,6 +219,14 @@ public:
     void PushUndoSnapshot();
 
     // ---------------------------------------------------------------------
+    // Undo history retention
+    // ---------------------------------------------------------------------
+    // 0 = unlimited. Changing the limit may trim existing undo/redo stacks.
+    size_t GetUndoLimit() const { return m_undo_limit; }
+    bool   IsUndoUnlimited() const { return m_undo_limit == 0; }
+    void   SetUndoLimit(size_t limit);
+
+    // ---------------------------------------------------------------------
     // Project Save/Load (serialization support)
     // ---------------------------------------------------------------------
     // These structs expose the full editable state of the canvas, including
@@ -287,7 +295,9 @@ public:
         ProjectSnapshot         current;
         std::vector<ProjectSnapshot> undo;
         std::vector<ProjectSnapshot> redo;
-        size_t                  undo_limit = 256;
+        // Max number of undo snapshots retained in memory.
+        // 0 = unlimited.
+        size_t                  undo_limit = 0;
     };
 
     ProjectState GetProjectState() const;
@@ -650,7 +660,7 @@ private:
     // Undo/Redo stacks. Each entry is a full document snapshot.
     std::vector<Snapshot> m_undo_stack;
     std::vector<Snapshot> m_redo_stack;
-    size_t                m_undo_limit = 256;
+    size_t                m_undo_limit = 0; // 0 = unlimited
 
     // "Capture scope" used to group multiple mutations into a single undo step.
     bool     m_undo_capture_active = false;
