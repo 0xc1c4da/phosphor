@@ -6,7 +6,7 @@ settings = {
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
-    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "half", "block", "shade" }, default = "char" },
+    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "recolour", "half", "block", "shade" }, default = "char" },
     useFg = { type = "bool", label = "Use FG", default = true },
     useBg = { type = "bool", label = "Use BG", default = true },
   },
@@ -58,7 +58,8 @@ local function paint(ctx, layer, x, y, half_y_override)
   -- NOTE: In "half" mode, the painted half is chosen by cursor.half_y (mouse position within
   -- the cell). Right-click is used as "paint with BG", so swapping here would be a double
   -- meaning and breaks half-block painting semantics.
-  if secondary and mode ~= "shade" and mode ~= "half" and fg ~= nil and bg ~= nil then
+  -- Also don't swap in "recolour" mode: Moebius semantics are explicitly to=FG, from=BG.
+  if secondary and mode ~= "shade" and mode ~= "half" and mode ~= "recolour" and fg ~= nil and bg ~= nil then
     fg, bg = bg, fg
   end
 
@@ -106,6 +107,30 @@ local function paint(ctx, layer, x, y, half_y_override)
       ch = "█"
     elseif mode == "half" then
       -- Half-block painting is handled in half-row space below so brush "size" is correct.
+      return
+    elseif mode == "recolour" then
+      -- Option A / Moebius-style replace color:
+      -- - to = current FG
+      -- - from = current BG
+      -- Replace either channel that matches 'from' with 'to', preserving glyph.
+      if type(fg) ~= "number" or type(bg) ~= "number" then return end
+      local to = fg
+      local from = bg
+      local cur_ch, cur_fg, cur_bg = layer:get(px, py)
+      if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
+      if type(cur_fg) ~= "number" then cur_fg = nil end
+      if type(cur_bg) ~= "number" then cur_bg = nil end
+
+      if cur_fg ~= from and cur_bg ~= from then
+        return
+      end
+      local new_fg = (cur_fg == from) and to or cur_fg
+      local new_bg = (cur_bg == from) and to or cur_bg
+
+      if new_fg == cur_fg and new_bg == cur_bg then
+        return
+      end
+      layer:set(px, py, cur_ch, new_fg, new_bg)
       return
     elseif mode == "colorize" then
       -- Preserve glyph, only modify fg/bg.

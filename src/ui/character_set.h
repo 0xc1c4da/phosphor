@@ -44,6 +44,9 @@ public:
     // If the user requested insertion (double-click in this window), returns true and outputs cp.
     bool TakeInsertRequested(uint32_t& out_cp);
 
+    // If the user clicked a slot in this window, returns true and outputs that slot's cp.
+    bool TakeUserSelectionChanged(uint32_t& out_cp);
+
 private:
     struct Set
     {
@@ -85,6 +88,10 @@ private:
     // "insert requested" output (double-click on a slot)
     bool     insert_requested_ = false;
     uint32_t insert_requested_cp_ = 0;
+
+    // "user clicked something" output (single-click on a slot)
+    bool     user_selection_changed_ = false;
+    uint32_t user_selected_cp_ = 0;
 
     // Render context
     AnsiCanvas* active_canvas_ = nullptr;

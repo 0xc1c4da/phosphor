@@ -403,6 +403,16 @@ bool CharacterSetWindow::TakeInsertRequested(uint32_t& out_cp)
     return out_cp != 0;
 }
 
+bool CharacterSetWindow::TakeUserSelectionChanged(uint32_t& out_cp)
+{
+    if (!user_selection_changed_)
+        return false;
+    user_selection_changed_ = false;
+    out_cp = user_selected_cp_;
+    user_selected_cp_ = 0;
+    return out_cp != 0;
+}
+
 void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
 {
     active_canvas_ = active_canvas;
@@ -529,7 +539,11 @@ void CharacterSetWindow::RenderSlots()
 
         // Render a normal button for interaction/styling, then overlay scaled glyph text.
         if (ImGui::Button("##slot_btn", ImVec2(cell, cell)))
+        {
             selected_slot_ = i;
+            user_selection_changed_ = true;
+            user_selected_cp_ = cp;
+        }
         {
             const ImVec2 item_min = ImGui::GetItemRectMin();
             const ImVec2 item_max = ImGui::GetItemRectMax();
