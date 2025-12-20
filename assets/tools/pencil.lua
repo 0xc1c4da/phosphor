@@ -18,6 +18,11 @@ local function clamp(v, a, b)
   return v
 end
 
+-- Stroke state (persisted across frames while the tool is active).
+-- In half-block mode we "lock" which half is being painted for the duration of a drag.
+-- This avoids tiny in-cell Y jitter flipping halves and accidentally producing full blocks.
+local stroke_half_bit = nil -- 0 = top, 1 = bottom
+
 local function paint(ctx, layer, x, y, half_y_override)
   if not ctx or not layer then return end
   local p = ctx.params or {}
@@ -46,7 +51,8 @@ local function paint(ctx, layer, x, y, half_y_override)
   local cursor = ctx.cursor or {}
   local secondary = cursor.right == true
   local cursor_half_y = nil
-  if type(cursor) == "table" and type(cursor.half_y) == "number" then
+  -- Only trust half_y when the cursor is valid (otherwise it's often 0/default).
+  if type(cursor) == "table" and cursor.valid and type(cursor.half_y) == "number" then
     cursor_half_y = cursor.half_y
   end
   if type(half_y_override) == "number" then
@@ -166,7 +172,9 @@ local function paint(ctx, layer, x, y, half_y_override)
 
       -- Pick which half to paint from mouse position inside the cell.
       -- If host does not provide cursor.half_y, fall back to legacy behavior.
-      local paint_top = (cursor_half_y ~= nil) and ((cursor_half_y % 2) == 0) or true
+      -- NOTE: Avoid the common Lua `(a and b) or c` pitfall: if `b` is false we would
+      -- incorrectly fall back to `c`. Here we explicitly default to top-half when nil.
+      local paint_top = (cursor_half_y == nil) or ((cursor_half_y % 2) == 0)
       if is_blocky then
         -- If the other half already matches the paint color, collapse to a full block.
         if (paint_top and lower == col) or ((not paint_top) and upper == col) then
@@ -228,6 +236,10 @@ function render(ctx, layer)
   caret.y = math.max(0, tonumber(caret.y) or 0)
 
   local phase = tonumber(ctx.phase) or 0
+  if phase ~= 1 then
+    -- Not dragging: clear any locked half-block stroke state.
+    stroke_half_bit = nil
+  end
 
   -- Phase 1: mouse drag painting (left click+hold).
   if phase == 1 then
@@ -241,6 +253,7 @@ function render(ctx, layer)
       local half_y = tonumber(cursor.half_y)
       local x1 = tonumber(cursor.x) or caret.x
       local y1 = tonumber(cursor.y) or caret.y
+      local mode = (ctx.params and ctx.params.mode) or nil
 
       -- IMPORTANT: tools are executed every UI frame while dragging.
       -- To avoid "shade" instantly ramping to █ while the cursor sits still,
@@ -249,27 +262,38 @@ function render(ctx, layer)
       -- - we crossed a half-row boundary within the cell (half blocks), or
       -- - the button transitioned from up->down (press edge)
       local moved_cell = (px ~= nil and py ~= nil) and ((x1 ~= px) or (y1 ~= py)) or true
-      local moved_half = (half_y ~= nil and prev_half_y ~= nil and half_y ~= prev_half_y)
       local pressed_edge = (cursor.left and not prev_left) or (cursor.right and not prev_right)
 
-      if moved_cell or moved_half or pressed_edge then
+      -- In half-block mode, lock the half at press time to avoid in-cell jitter producing
+      -- unintended full blocks (thick horizontal strokes). We still use half-row interpolation
+      -- for fast dragging between cells, but with a fixed parity bit.
+      if mode == "half" then
+        if pressed_edge or stroke_half_bit == nil then
+          if type(half_y) == "number" then
+            stroke_half_bit = (math.floor(half_y) % 2)
+          else
+            stroke_half_bit = 0
+          end
+        end
+      else
+        stroke_half_bit = nil
+      end
+
+      if moved_cell or pressed_edge then
         caret.x = clamp(x1, 0, cols - 1)
         caret.y = math.max(0, y1)
 
         -- If we're in half-block mode and have half-row info, interpolate in half-row space
         -- to avoid gaps when dragging quickly.
-        local mode = (ctx.params and ctx.params.mode) or nil
         if mode == "half" and type(half_y) == "number" then
           local x0 = tonumber(px)
-          local hy0 = tonumber(prev_half_y)
+          local y0 = tonumber(py)
           if type(x0) ~= "number" then x0 = caret.x end
-          if type(hy0) ~= "number" then
-            -- If we don't have a previous half_y (older config assets), fall back to top-half of prev row.
-            local y0 = tonumber(py)
-            if type(y0) ~= "number" then y0 = caret.y end
-            hy0 = y0 * 2
-          end
-          local hy1 = half_y
+          if type(y0) ~= "number" then y0 = caret.y end
+          local bit = tonumber(stroke_half_bit) or 0
+          bit = (math.floor(bit) % 2)
+          local hy0 = (math.floor(y0) * 2) + bit
+          local hy1 = (math.floor(caret.y) * 2) + bit
 
           local function bresenham(xa, ya, xb, yb, fn)
             xa, ya, xb, yb = math.floor(xa), math.floor(ya), math.floor(xb), math.floor(yb)
@@ -344,6 +368,13 @@ function render(ctx, layer)
   end
 
   if moved then
-    paint(ctx, layer, caret.x, caret.y)
+    -- Keyboard movement has no half-row info; in half mode, force a deterministic choice
+    -- (top half) so keyboard drawing doesn't accidentally depend on stale mouse half_y.
+    local mode = (ctx.params and ctx.params.mode) or nil
+    if mode == "half" then
+      paint(ctx, layer, caret.x, caret.y, caret.y * 2)
+    else
+      paint(ctx, layer, caret.x, caret.y)
+    end
   end
 end
