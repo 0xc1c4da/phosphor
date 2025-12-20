@@ -45,83 +45,100 @@ class ImageWindow;
 // and stores pointers to the heavier subsystems that are initialized in `main()`.
 struct AppState
 {
-    // Core platform/windowing
-    SDL_Window* window = nullptr;
+    struct Platform
+    {
+        SDL_Window* window = nullptr;
+    } platform;
 
-    // Vulkan/ImGui backend glue
-    VulkanState* vk = nullptr;
-    ImGui_ImplVulkanH_Window* wd = nullptr;
+    struct Vulkan
+    {
+        VulkanState* vk = nullptr;
+        ImGui_ImplVulkanH_Window* wd = nullptr;
+    } vulkan;
 
-    // Persisted session state (loaded at startup, saved at shutdown)
-    SessionState* session_state = nullptr;
+    struct Persistence
+    {
+        SessionState* session_state = nullptr;
+    } persist;
 
-    // Subsystems / windows
-    kb::KeyBindingsEngine* keybinds = nullptr;
-    IoManager* io_manager = nullptr;
-    SdlFileDialogQueue* file_dialogs = nullptr;
-    ExportDialog* export_dialog = nullptr;
-    SettingsWindow* settings_window = nullptr;
+    struct Services
+    {
+        kb::KeyBindingsEngine* keybinds = nullptr;
+        IoManager* io_manager = nullptr;
+        SdlFileDialogQueue* file_dialogs = nullptr;
+        ExportDialog* export_dialog = nullptr;
+        SettingsWindow* settings_window = nullptr;
+    } services;
 
-    // Tooling / scripts
-    ToolPalette* tool_palette = nullptr;
-    std::string* tools_error = nullptr;
-    std::string* tool_compile_error = nullptr;
-    AnslEditor* ansl_editor = nullptr;
-    AnslScriptEngine* ansl_engine = nullptr;
-    AnslScriptEngine* tool_engine = nullptr;
+    struct Tooling
+    {
+        ToolPalette* tool_palette = nullptr;
+        std::string* tools_error = nullptr;
+        std::string* tool_compile_error = nullptr;
+        AnslEditor* ansl_editor = nullptr;
+        AnslScriptEngine* ansl_engine = nullptr;
+        AnslScriptEngine* tool_engine = nullptr;
 
-    // Workspace (documents)
-    std::vector<CanvasWindow>* canvases = nullptr;
-    int* next_canvas_id = nullptr;
-    int* last_active_canvas_id = nullptr;
+        std::uint32_t* tool_brush_cp = nullptr;
+        std::string* tool_brush_utf8 = nullptr;
 
-    std::vector<ImageWindow>* images = nullptr;
-    int* next_image_id = nullptr;
+        // Tool helpers (defined in main, used inside the per-frame loop)
+        std::function<void(const std::string& tool_path)> compile_tool_script;
+        std::function<void()> sync_tool_stack;
+        std::function<std::string()> active_tool_id;
+        std::function<void(const std::string& id)> activate_tool_by_id;
+        std::function<void()> activate_prev_tool;
+    } tools;
 
-    // UI panels
-    CharacterPicker* character_picker = nullptr;
-    CharacterPalette* character_palette = nullptr;
-    CharacterSetWindow* character_sets = nullptr;
-    LayerManager* layer_manager = nullptr;
-    ImageToChafaDialog* image_to_chafa_dialog = nullptr;
-    MinimapWindow* minimap_window = nullptr;
-    CanvasPreviewTexture* preview_texture = nullptr;
-    SixteenColorsBrowserWindow* sixteen_browser = nullptr;
+    struct Workspace
+    {
+        std::vector<CanvasWindow>* canvases = nullptr;
+        int* next_canvas_id = nullptr;
+        int* last_active_canvas_id = nullptr;
 
-    // Shared brush glyph state (tools)
-    std::uint32_t* tool_brush_cp = nullptr;
-    std::string* tool_brush_utf8 = nullptr;
+        std::vector<ImageWindow>* images = nullptr;
+        int* next_image_id = nullptr;
+    } workspace;
 
-    // Shared colour state
-    ImVec4* clear_color = nullptr;
-    ImVec4* fg_color = nullptr;
-    ImVec4* bg_color = nullptr;
-    int* active_fb = nullptr;
-    int* xterm_picker_mode = nullptr;
-    int* xterm_selected_palette = nullptr;
-    int* xterm_picker_preview_fb = nullptr;
-    float* xterm_picker_last_hue = nullptr;
+    struct Ui
+    {
+        CharacterPicker* character_picker = nullptr;
+        CharacterPalette* character_palette = nullptr;
+        CharacterSetWindow* character_sets = nullptr;
+        LayerManager* layer_manager = nullptr;
+        ImageToChafaDialog* image_to_chafa_dialog = nullptr;
+        MinimapWindow* minimap_window = nullptr;
+        CanvasPreviewTexture* preview_texture = nullptr;
+        SixteenColorsBrowserWindow* sixteen_browser = nullptr;
+    } ui;
 
-    // Window visibility toggles
-    bool* show_demo_window = nullptr;
-    bool* show_color_picker_window = nullptr;
-    bool* show_character_picker_window = nullptr;
-    bool* show_character_palette_window = nullptr;
-    bool* show_character_sets_window = nullptr;
-    bool* show_layer_manager_window = nullptr;
-    bool* show_ansl_editor_window = nullptr;
-    bool* show_tool_palette_window = nullptr;
-    bool* show_minimap_window = nullptr;
-    bool* show_settings_window = nullptr;
-    bool* show_16colors_browser_window = nullptr;
-    bool* window_fullscreen = nullptr;
+    struct Colors
+    {
+        ImVec4* clear_color = nullptr;
+        ImVec4* fg_color = nullptr;
+        ImVec4* bg_color = nullptr;
+        int* active_fb = nullptr;
+        int* xterm_picker_mode = nullptr;
+        int* xterm_selected_palette = nullptr;
+        int* xterm_picker_preview_fb = nullptr;
+        float* xterm_picker_last_hue = nullptr;
+    } colors;
 
-    // Tool helpers (defined in main, used inside the per-frame loop)
-    std::function<void(const std::string& tool_path)> compile_tool_script;
-    std::function<void()> sync_tool_stack;
-    std::function<std::string()> active_tool_id;
-    std::function<void(const std::string& id)> activate_tool_by_id;
-    std::function<void()> activate_prev_tool;
+    struct Toggles
+    {
+        bool* show_demo_window = nullptr;
+        bool* show_color_picker_window = nullptr;
+        bool* show_character_picker_window = nullptr;
+        bool* show_character_palette_window = nullptr;
+        bool* show_character_sets_window = nullptr;
+        bool* show_layer_manager_window = nullptr;
+        bool* show_ansl_editor_window = nullptr;
+        bool* show_tool_palette_window = nullptr;
+        bool* show_minimap_window = nullptr;
+        bool* show_settings_window = nullptr;
+        bool* show_16colors_browser_window = nullptr;
+        bool* window_fullscreen = nullptr;
+    } toggles;
 
     // Graceful shutdown hook (e.g. Ctrl+C in terminal)
     std::function<bool()> interrupt_requested;

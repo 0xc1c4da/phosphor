@@ -61,71 +61,71 @@ void RunFrame(AppState& st)
     }
 
     // Alias state to keep the code close to the former `main.cpp` implementation.
-    SDL_Window* window = st.window;
-    VulkanState& vk = *st.vk;
-    ImGui_ImplVulkanH_Window* wd = st.wd;
-    SessionState& session_state = *st.session_state;
-    kb::KeyBindingsEngine& keybinds = *st.keybinds;
-    IoManager& io_manager = *st.io_manager;
-    SdlFileDialogQueue& file_dialogs = *st.file_dialogs;
-    ExportDialog& export_dialog = *st.export_dialog;
-    SettingsWindow& settings_window = *st.settings_window;
-    ToolPalette& tool_palette = *st.tool_palette;
-    AnslEditor& ansl_editor = *st.ansl_editor;
-    AnslScriptEngine& ansl_engine = *st.ansl_engine;
-    AnslScriptEngine& tool_engine = *st.tool_engine;
-    CharacterPicker& character_picker = *st.character_picker;
-    CharacterPalette& character_palette = *st.character_palette;
-    CharacterSetWindow& character_sets = *st.character_sets;
-    LayerManager& layer_manager = *st.layer_manager;
-    ImageToChafaDialog& image_to_chafa_dialog = *st.image_to_chafa_dialog;
-    MinimapWindow& minimap_window = *st.minimap_window;
-    CanvasPreviewTexture& preview_texture = *st.preview_texture;
-    SixteenColorsBrowserWindow& sixteen_browser = *st.sixteen_browser;
+    SDL_Window* window = st.platform.window;
+    VulkanState& vk = *st.vulkan.vk;
+    ImGui_ImplVulkanH_Window* wd = st.vulkan.wd;
+    SessionState& session_state = *st.persist.session_state;
+    kb::KeyBindingsEngine& keybinds = *st.services.keybinds;
+    IoManager& io_manager = *st.services.io_manager;
+    SdlFileDialogQueue& file_dialogs = *st.services.file_dialogs;
+    ExportDialog& export_dialog = *st.services.export_dialog;
+    SettingsWindow& settings_window = *st.services.settings_window;
+    ToolPalette& tool_palette = *st.tools.tool_palette;
+    AnslEditor& ansl_editor = *st.tools.ansl_editor;
+    AnslScriptEngine& ansl_engine = *st.tools.ansl_engine;
+    AnslScriptEngine& tool_engine = *st.tools.tool_engine;
+    CharacterPicker& character_picker = *st.ui.character_picker;
+    CharacterPalette& character_palette = *st.ui.character_palette;
+    CharacterSetWindow& character_sets = *st.ui.character_sets;
+    LayerManager& layer_manager = *st.ui.layer_manager;
+    ImageToChafaDialog& image_to_chafa_dialog = *st.ui.image_to_chafa_dialog;
+    MinimapWindow& minimap_window = *st.ui.minimap_window;
+    CanvasPreviewTexture& preview_texture = *st.ui.preview_texture;
+    SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
 
-    auto& canvases = *st.canvases;
-    auto& images = *st.images;
-    int& next_canvas_id = *st.next_canvas_id;
-    int& next_image_id = *st.next_image_id;
-    int& last_active_canvas_id = *st.last_active_canvas_id;
+    auto& canvases = *st.workspace.canvases;
+    auto& images = *st.workspace.images;
+    int& next_canvas_id = *st.workspace.next_canvas_id;
+    int& next_image_id = *st.workspace.next_image_id;
+    int& last_active_canvas_id = *st.workspace.last_active_canvas_id;
 
-    bool& show_demo_window = *st.show_demo_window;
-    ImVec4& clear_color = *st.clear_color;
-    bool& show_color_picker_window = *st.show_color_picker_window;
-    bool& show_character_picker_window = *st.show_character_picker_window;
-    bool& show_character_palette_window = *st.show_character_palette_window;
-    bool& show_character_sets_window = *st.show_character_sets_window;
-    bool& show_layer_manager_window = *st.show_layer_manager_window;
-    bool& show_ansl_editor_window = *st.show_ansl_editor_window;
-    bool& show_tool_palette_window = *st.show_tool_palette_window;
-    bool& show_minimap_window = *st.show_minimap_window;
-    bool& show_settings_window = *st.show_settings_window;
-    bool& show_16colors_browser_window = *st.show_16colors_browser_window;
-    bool& window_fullscreen = *st.window_fullscreen;
+    bool& show_demo_window = *st.toggles.show_demo_window;
+    ImVec4& clear_color = *st.colors.clear_color;
+    bool& show_color_picker_window = *st.toggles.show_color_picker_window;
+    bool& show_character_picker_window = *st.toggles.show_character_picker_window;
+    bool& show_character_palette_window = *st.toggles.show_character_palette_window;
+    bool& show_character_sets_window = *st.toggles.show_character_sets_window;
+    bool& show_layer_manager_window = *st.toggles.show_layer_manager_window;
+    bool& show_ansl_editor_window = *st.toggles.show_ansl_editor_window;
+    bool& show_tool_palette_window = *st.toggles.show_tool_palette_window;
+    bool& show_minimap_window = *st.toggles.show_minimap_window;
+    bool& show_settings_window = *st.toggles.show_settings_window;
+    bool& show_16colors_browser_window = *st.toggles.show_16colors_browser_window;
+    bool& window_fullscreen = *st.toggles.window_fullscreen;
 
-    ImVec4& fg_color = *st.fg_color;
-    ImVec4& bg_color = *st.bg_color;
-    int& active_fb = *st.active_fb;
-    int& xterm_picker_mode = *st.xterm_picker_mode;
-    int& xterm_selected_palette = *st.xterm_selected_palette;
-    int& xterm_picker_preview_fb = *st.xterm_picker_preview_fb;
-    float& xterm_picker_last_hue = *st.xterm_picker_last_hue;
+    ImVec4& fg_color = *st.colors.fg_color;
+    ImVec4& bg_color = *st.colors.bg_color;
+    int& active_fb = *st.colors.active_fb;
+    int& xterm_picker_mode = *st.colors.xterm_picker_mode;
+    int& xterm_selected_palette = *st.colors.xterm_selected_palette;
+    int& xterm_picker_preview_fb = *st.colors.xterm_picker_preview_fb;
+    float& xterm_picker_last_hue = *st.colors.xterm_picker_last_hue;
 
-    std::uint32_t& tool_brush_cp = *st.tool_brush_cp;
-    std::string& tool_brush_utf8 = *st.tool_brush_utf8;
+    std::uint32_t& tool_brush_cp = *st.tools.tool_brush_cp;
+    std::string& tool_brush_utf8 = *st.tools.tool_brush_utf8;
 
-    std::string& tools_error = *st.tools_error;
-    std::string& tool_compile_error = *st.tool_compile_error;
+    std::string& tools_error = *st.tools.tools_error;
+    std::string& tool_compile_error = *st.tools.tool_compile_error;
 
     auto active_tool_id = [&]() -> std::string {
-        if (st.active_tool_id) return st.active_tool_id();
+        if (st.tools.active_tool_id) return st.tools.active_tool_id();
         return {};
     };
     auto activate_prev_tool = [&]() {
-        if (st.activate_prev_tool) st.activate_prev_tool();
+        if (st.tools.activate_prev_tool) st.tools.activate_prev_tool();
     };
     auto activate_tool_by_id = [&](const std::string& id) {
-        if (st.activate_tool_by_id) st.activate_tool_by_id(id);
+        if (st.tools.activate_tool_by_id) st.tools.activate_tool_by_id(id);
     };
 
     // Idle throttling helpers
@@ -391,7 +391,7 @@ void RunFrame(AppState& st)
 
     appui::HandleKeybindings(window, keybinds, session_state,
                              io_manager, file_dialogs, export_dialog,
-                             tool_palette, st.compile_tool_script, st.sync_tool_stack,
+                             tool_palette, st.tools.compile_tool_script, st.tools.sync_tool_stack,
                              focused_canvas, focused_canvas_window,
                              active_canvas, active_canvas_window,
                              st.done, window_fullscreen, show_minimap_window,
@@ -812,8 +812,8 @@ void RunFrame(AppState& st)
         std::string tool_path;
         if (tool_palette.TakeActiveToolChanged(tool_path))
         {
-            if (st.compile_tool_script) st.compile_tool_script(tool_path);
-            if (st.sync_tool_stack) st.sync_tool_stack();
+            if (st.tools.compile_tool_script) st.tools.compile_tool_script(tool_path);
+            if (st.tools.sync_tool_stack) st.tools.sync_tool_stack();
         }
 
         if (!tool_compile_error.empty())
