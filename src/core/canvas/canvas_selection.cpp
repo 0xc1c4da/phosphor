@@ -776,8 +776,21 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
     const ImGuiID active_id = ImGui::GetActiveID();
     const bool other_widget_active = (active_id != 0 && active_id != hidden_id);
 
+    // Extra safety: do NOT refocus the hidden input while the mouse is over the title bar.
+    // The title bar contains the window close button ("X"); in rare timing edge-cases,
+    // a very fast click can evade the "mouse interaction this frame" checks above, and
+    // then SetKeyboardFocusHere() would steal ActiveId later in the frame, making the
+    // close click appear to do nothing.
+    bool hovering_title_bar = false;
+    if (ImGuiWindow* w = ImGui::GetCurrentWindow())
+    {
+        const ImRect r = w->TitleBarRect();
+        hovering_title_bar = ImGui::IsMouseHoveringRect(r.Min, r.Max, /*clip=*/false);
+    }
+
     if (m_has_focus &&
         !other_widget_active &&
+        !hovering_title_bar &&
         !any_mouse_interaction &&
         ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
         ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
