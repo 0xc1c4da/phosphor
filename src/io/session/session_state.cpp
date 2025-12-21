@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 16;
+    j["schema_version"] = 17;
 
     json win;
     win["w"] = st.window_w;
@@ -153,6 +153,41 @@ static json ToJson(const SessionState& st)
     content["last_active_canvas_id"] = st.last_active_canvas_id;
     content["next_canvas_id"] = st.next_canvas_id;
     content["next_image_id"] = st.next_image_id;
+
+    // Tool params (per-tool, persisted)
+    // Schema:
+    // content.tool_params[tool_id][param_key] = { type=0..4, b=bool, i=int, f=float, s=string }
+    if (!st.tool_param_values.empty())
+    {
+        json tp = json::object();
+        for (const auto& tool_kv : st.tool_param_values)
+        {
+            const std::string& tool_id = tool_kv.first;
+            const auto& params = tool_kv.second;
+            if (tool_id.empty() || params.empty())
+                continue;
+            json pj = json::object();
+            for (const auto& p : params)
+            {
+                const std::string& key = p.first;
+                const SessionState::ToolParamValue& v = p.second;
+                if (key.empty())
+                    continue;
+                json vj;
+                vj["type"] = v.type;
+                // Only store relevant fields; keep it small.
+                if (v.type == 0 || v.type == 4) vj["b"] = v.b;
+                else if (v.type == 1) vj["i"] = v.i;
+                else if (v.type == 2) vj["f"] = v.f;
+                else if (v.type == 3) vj["s"] = v.s;
+                pj[key] = std::move(vj);
+            }
+            if (!pj.empty())
+                tp[tool_id] = std::move(pj);
+        }
+        if (!tp.empty())
+            content["tool_params"] = std::move(tp);
+    }
 
     // Open canvases
     json canvases = json::array();
@@ -389,6 +424,47 @@ static void FromJson(const json& j, SessionState& out)
         if (c.contains("next_image_id") && c["next_image_id"].is_number_integer())
             out.next_image_id = c["next_image_id"].get<int>();
 
+        // Tool params (optional)
+        out.tool_param_values.clear();
+        if (c.contains("tool_params") && c["tool_params"].is_object())
+        {
+            const json& tp = c["tool_params"];
+            for (auto it_tool = tp.begin(); it_tool != tp.end(); ++it_tool)
+            {
+                const std::string tool_id = it_tool.key();
+                if (tool_id.empty() || !it_tool.value().is_object())
+                    continue;
+                std::unordered_map<std::string, SessionState::ToolParamValue> params;
+                const json& pj = it_tool.value();
+                for (auto it_p = pj.begin(); it_p != pj.end(); ++it_p)
+                {
+                    const std::string key = it_p.key();
+                    if (key.empty() || !it_p.value().is_object())
+                        continue;
+                    const json& vj = it_p.value();
+                    SessionState::ToolParamValue v;
+                    if (vj.contains("type") && vj["type"].is_number_integer())
+                        v.type = vj["type"].get<int>();
+                    // Clamp to known range so corrupt state doesn't break parsing.
+                    if (v.type < 0) v.type = 0;
+                    if (v.type > 4) v.type = 4;
+
+                    if (vj.contains("b") && vj["b"].is_boolean())
+                        v.b = vj["b"].get<bool>();
+                    if (vj.contains("i") && vj["i"].is_number_integer())
+                        v.i = vj["i"].get<int>();
+                    if (vj.contains("f") && vj["f"].is_number())
+                        v.f = vj["f"].get<float>();
+                    if (vj.contains("s") && vj["s"].is_string())
+                        v.s = vj["s"].get<std::string>();
+
+                    params[key] = std::move(v);
+                }
+                if (!params.empty())
+                    out.tool_param_values[tool_id] = std::move(params);
+            }
+        }
+
         out.open_canvases.clear();
         if (c.contains("open_canvases") && c["open_canvases"].is_array())
         {
@@ -622,7 +698,8 @@ bool LoadSessionState(SessionState& out, std::string& err)
         {
             const int ver = dj["schema_version"].get<int>();
             if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16)
+                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16 &&
+                ver != 17)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -649,7 +726,8 @@ bool LoadSessionState(SessionState& out, std::string& err)
     {
         const int ver = j["schema_version"].get<int>();
         if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16)
+            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16 &&
+            ver != 17)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

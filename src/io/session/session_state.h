@@ -117,6 +117,26 @@ struct SessionState
     };
 
     // ---------------------------------------------------------------------
+    // Tool Parameters (persisted)
+    // ---------------------------------------------------------------------
+    // Stores per-tool parameter values (settings.params -> ctx.params) so switching tools
+    // doesn't clobber state and values persist across app restarts.
+    //
+    // Keyed by tool "stable id" (ToolSpec::id / settings.id).
+    struct ToolParamValue
+    {
+        // Matches AnslParamType numeric values:
+        // 0=Bool, 1=Int, 2=Float, 3=Enum, 4=Button
+        int type = 0;
+        bool b = false;
+        int i = 0;
+        float f = 0.0f;
+        std::string s; // enum string
+    };
+    // tool_id -> (param_key -> value)
+    std::unordered_map<std::string, std::unordered_map<std::string, ToolParamValue>> tool_param_values;
+
+    // ---------------------------------------------------------------------
     // Brush Palette (persisted)
     // ---------------------------------------------------------------------
     // Stores the user's captured multi-cell brushes (stamps).

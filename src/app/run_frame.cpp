@@ -77,6 +77,119 @@ static std::string ReadFileToString(const std::string& path)
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+static void SaveToolParamsToSession(SessionState& session, const std::string& tool_id, const AnslScriptEngine& eng)
+{
+    if (tool_id.empty())
+        return;
+    if (!eng.HasParams())
+        return;
+
+    std::unordered_map<std::string, SessionState::ToolParamValue> out;
+    const auto& specs = eng.GetParamSpecs();
+    out.reserve(specs.size());
+
+    for (const auto& spec : specs)
+    {
+        if (spec.key.empty())
+            continue;
+
+        SessionState::ToolParamValue v;
+        v.type = (int)spec.type;
+
+        switch (spec.type)
+        {
+            case AnslParamType::Bool:
+            {
+                bool b = false;
+                if (!eng.GetParamBool(spec.key, b))
+                    continue;
+                v.b = b;
+            } break;
+            case AnslParamType::Int:
+            {
+                int i = 0;
+                if (!eng.GetParamInt(spec.key, i))
+                    continue;
+                v.i = i;
+            } break;
+            case AnslParamType::Float:
+            {
+                float f = 0.0f;
+                if (!eng.GetParamFloat(spec.key, f))
+                    continue;
+                v.f = f;
+            } break;
+            case AnslParamType::Enum:
+            {
+                std::string s;
+                if (!eng.GetParamEnum(spec.key, s))
+                    continue;
+                v.s = std::move(s);
+            } break;
+            case AnslParamType::Button:
+            {
+                // Edge-triggered; never persist "pressed" state.
+                v.b = false;
+            } break;
+        }
+
+        out[spec.key] = std::move(v);
+    }
+
+    if (!out.empty())
+        session.tool_param_values[tool_id] = std::move(out);
+}
+
+static void RestoreToolParamsFromSession(const SessionState& session, const std::string& tool_id, AnslScriptEngine& eng)
+{
+    if (tool_id.empty())
+        return;
+    if (!eng.HasParams())
+        return;
+
+    const auto it_tool = session.tool_param_values.find(tool_id);
+    if (it_tool == session.tool_param_values.end())
+        return;
+    const auto& saved = it_tool->second;
+    if (saved.empty())
+        return;
+
+    auto enum_value_valid = [](const AnslParamSpec& spec, const std::string& v) -> bool {
+        if (spec.type != AnslParamType::Enum)
+            return true;
+        for (const std::string& item : spec.enum_items)
+            if (item == v)
+                return true;
+        return false;
+    };
+
+    for (const auto& spec : eng.GetParamSpecs())
+    {
+        if (spec.key.empty())
+            continue;
+        const auto it = saved.find(spec.key);
+        if (it == saved.end())
+            continue;
+        const SessionState::ToolParamValue& v = it->second;
+        if (v.type != (int)spec.type)
+            continue;
+
+        switch (spec.type)
+        {
+            case AnslParamType::Bool:  (void)eng.SetParamBool(spec.key, v.b); break;
+            case AnslParamType::Int:   (void)eng.SetParamInt(spec.key, v.i); break;
+            case AnslParamType::Float: (void)eng.SetParamFloat(spec.key, v.f); break;
+            case AnslParamType::Enum:
+            {
+                if (enum_value_valid(spec, v.s))
+                    (void)eng.SetParamEnum(spec.key, v.s);
+            } break;
+            case AnslParamType::Button:
+                break;
+        }
+    }
+}
+
 static bool ToolClaimsAction(const ToolSpec* t, std::string_view action_id)
 {
     if (!t)
@@ -252,6 +365,17 @@ void RunFrame(AppState& st)
     auto activate_tool_by_id = [&](const std::string& id) {
         if (st.tools.activate_tool_by_id) st.tools.activate_tool_by_id(id);
     };
+
+    // Track which tool id the current `tool_engine` is compiled for (so we can persist params per-tool).
+    static std::string s_compiled_tool_id;
+    if (s_compiled_tool_id.empty())
+        s_compiled_tool_id = active_tool_id();
+    static bool s_restored_initial_tool_params = false;
+    if (!s_restored_initial_tool_params)
+    {
+        RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+        s_restored_initial_tool_params = true;
+    }
 
     // Idle throttling helpers
     auto now_s = []() -> double { return (double)SDL_GetTicks() / 1000.0; };
@@ -1248,8 +1372,20 @@ void RunFrame(AppState& st)
         std::string tool_path;
         if (tool_palette.TakeActiveToolChanged(tool_path))
         {
+            // Persist params of the previously-compiled tool before compiling the new script.
+            SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+
             if (st.tools.compile_tool_script) st.tools.compile_tool_script(tool_path);
             if (st.tools.sync_tool_stack) st.tools.sync_tool_stack();
+
+            // If compilation succeeded, restore saved params for the newly-active tool.
+            if (tool_compile_error.empty())
+            {
+                s_compiled_tool_id = active_tool_id();
+                RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                if (const ToolSpec* t = tool_palette.GetActiveTool())
+                    session_state.active_tool_path = t->path;
+            }
         }
 
         if (!tool_compile_error.empty())
@@ -1300,7 +1436,9 @@ void RunFrame(AppState& st)
             if (t)
                 ImGui::Text("%s", t->label.c_str());
             ImGui::Separator();
-            (void)RenderAnslParamsUI("tool_params", tool_engine);
+            const bool params_changed = RenderAnslParamsUI("tool_params", tool_engine);
+            if (params_changed)
+                SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
             ImGui::End();
             PopImGuiWindowChromeAlpha(alpha_pushed);
         }
@@ -1849,11 +1987,27 @@ void RunFrame(AppState& st)
                     } break;
                     case ToolCommand::Type::ToolActivatePrev:
                     {
+                        SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
                         activate_prev_tool();
+                        if (tool_compile_error.empty())
+                        {
+                            s_compiled_tool_id = active_tool_id();
+                            RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                            if (const ToolSpec* t = tool_palette.GetActiveTool())
+                                session_state.active_tool_path = t->path;
+                        }
                     } break;
                     case ToolCommand::Type::ToolActivate:
                     {
+                        SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
                         activate_tool_by_id(cmd.tool_id);
+                        if (tool_compile_error.empty())
+                        {
+                            s_compiled_tool_id = active_tool_id();
+                            RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                            if (const ToolSpec* t = tool_palette.GetActiveTool())
+                                session_state.active_tool_path = t->path;
+                        }
                     } break;
                     case ToolCommand::Type::CanvasCropToSelection:
                     {
