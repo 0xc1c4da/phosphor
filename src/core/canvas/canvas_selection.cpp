@@ -86,6 +86,20 @@ void AnsiCanvas::SetSelectionCorners(int x0, int y0, int x1, int y1)
     m_selection.h = h;
 }
 
+void AnsiCanvas::SelectAll()
+{
+    EnsureDocument();
+    if (m_columns <= 0 || m_rows <= 0)
+    {
+        ClearSelection();
+        return;
+    }
+
+    // Cancel any in-progress floating selection state and reset selection before expanding.
+    ClearSelection();
+    SetSelectionCorners(0, 0, m_columns - 1, m_rows - 1);
+}
+
 void AnsiCanvas::ClearSelection()
 {
     m_selection = SelectionState{};

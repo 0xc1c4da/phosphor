@@ -925,7 +925,8 @@ std::vector<Action> DefaultActions()
             .id="selection.clear_or_cancel", .title="Clear Selection / Cancel", .category="Selection",
             .description="Clear selection or cancel current selection operation.",
             .bindings={
-                {.enabled=true, .chord="Escape", .context="selection", .platform="any"},
+                {.enabled=true, .chord="Ctrl+Shift+A", .context="selection", .platform="any"},
+                {.enabled=true, .chord="Cmd+Shift+A", .context="selection", .platform="macos"}
             }
         },
         {

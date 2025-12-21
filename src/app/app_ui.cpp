@@ -235,15 +235,25 @@ void RenderMainMenuBar(SDL_Window* window,
         // Use the active canvas so clicking the menu bar doesn't make Undo/Redo unavailable.
         const bool can_undo = active_canvas && active_canvas->CanUndo();
         const bool can_redo = active_canvas && active_canvas->CanRedo();
+        const bool can_select_all = (active_canvas != nullptr);
+        const bool can_select_none = (active_canvas != nullptr) && active_canvas->HasSelection();
 
         const std::string sc_undo = ShortcutForAction(keybinds, "edit.undo", "editor");
         const std::string sc_redo = ShortcutForAction(keybinds, "edit.redo", "editor");
+        const std::string sc_select_all = ShortcutForAction(keybinds, "edit.select_all", "editor");
+        const std::string sc_select_none = ShortcutForAction(keybinds, "selection.clear_or_cancel", "selection");
         const std::string sc_mirror = ShortcutForAction(keybinds, "editor.mirror_mode_toggle", "editor");
 
         if (ImGui::MenuItem("Undo", sc_undo.empty() ? nullptr : sc_undo.c_str(), false, can_undo))
             active_canvas->Undo();
         if (ImGui::MenuItem("Redo", sc_redo.empty() ? nullptr : sc_redo.c_str(), false, can_redo))
             active_canvas->Redo();
+
+        ImGui::Separator();
+        if (ImGui::MenuItem("Select All", sc_select_all.empty() ? nullptr : sc_select_all.c_str(), false, can_select_all))
+            active_canvas->SelectAll();
+        if (ImGui::MenuItem("Select None", sc_select_none.empty() ? nullptr : sc_select_none.c_str(), false, can_select_none))
+            active_canvas->ClearSelection();
 
         ImGui::Separator();
         {
@@ -424,6 +434,11 @@ void HandleKeybindings(SDL_Window* window,
             focused_canvas->Undo();
         if (keybinds.ActionPressed("edit.redo", kctx))
             focused_canvas->Redo();
+
+        if (keybinds.ActionPressed("edit.select_all", kctx))
+            focused_canvas->SelectAll();
+        if (keybinds.ActionPressed("selection.clear_or_cancel", kctx))
+            focused_canvas->ClearSelection();
 
         if (keybinds.ActionPressed("editor.mirror_mode_toggle", kctx))
             focused_canvas->ToggleMirrorModeEnabled();

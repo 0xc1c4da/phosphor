@@ -620,6 +620,9 @@ public:
     bool HasSelection() const { return m_selection.active && m_selection.w > 0 && m_selection.h > 0; }
     Rect GetSelectionRect() const;
     void SetSelectionCorners(int x0, int y0, int x1, int y1);
+    // Convenience: selects the entire allocated canvas extent (0..cols-1, 0..rows-1).
+    // This is UI-agnostic and is safe to call from menu items / keybindings.
+    void SelectAll();
     void ClearSelection();
     bool SelectionContains(int x, int y) const;
 
