@@ -39,6 +39,10 @@ function render(ctx, layer)
   local bg = ctx.bg
   if type(bg) ~= "number" then bg = nil end
 
+  -- Current brush glyph selection (from character picker/palette).
+  local brush = ctx.brush
+  if type(brush) ~= "string" or #brush == 0 then brush = " " end
+
   -- Normalize caret.
   caret.x = clamp(tonumber(caret.x) or 0, 0, cols - 1)
   caret.y = math.max(0, tonumber(caret.y) or 0)
@@ -100,8 +104,17 @@ function render(ctx, layer)
   end
 
   if keys.enter then
-    caret.y = caret.y + 1
-    caret.x = 0
+    -- Insert the currently selected brush glyph (character palette / picker selection).
+    if fg == nil and bg == nil then
+      layer:set(caret.x, caret.y, brush)
+    else
+      layer:set(caret.x, caret.y, brush, fg, bg)
+    end
+    caret.x = caret.x + 1
+    if caret.x >= cols then
+      caret.x = 0
+      caret.y = caret.y + 1
+    end
   end
 
   -- Typed characters.

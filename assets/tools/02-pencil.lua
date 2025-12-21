@@ -12,10 +12,28 @@ settings = {
   },
 }
 
+-- Keyboard navigation drawing toggle (does not affect mouse painting).
+local keyboard_draw_enabled = true
+
+-- Simple double-click detector for canvas clicks (Lua-side; host cursor state has no dblclick flag).
+local last_click_ms = nil
+local last_click_x = nil
+local last_click_y = nil
+local last_click_btn = nil -- "left" | "right"
+local dblclick_threshold_ms = 350
+
 local function clamp(v, a, b)
   if v < a then return a end
   if v > b then return b end
   return v
+end
+
+local function current_brush(ctx)
+  local b = ctx and ctx.brush or nil
+  if type(b) ~= "string" or #b == 0 then
+    return " "
+  end
+  return b
 end
 
 local function paint(ctx, layer, x, y, half_y_override)
@@ -140,7 +158,7 @@ local function paint(ctx, layer, x, y, half_y_override)
       ch = layer:get(px, py)
       if type(ch) ~= "string" or #ch == 0 then ch = " " end
     else
-      ch = ctx.brush
+      ch = current_brush(ctx)
       if type(ch) ~= "string" or #ch == 0 then ch = " " end
     end
 
@@ -304,6 +322,25 @@ function render(ctx, layer)
       -- cause accidental “extra” paints (e.g. shade ramping too fast) when moving within a cell.
       local moved_half = (mode == "half") and (half_y ~= nil and prev_half_y ~= nil and half_y ~= prev_half_y)
 
+      -- Detect a double click on the canvas (two press edges on the same cell within threshold).
+      local is_double_click = false
+      if pressed_edge then
+        local now_ms = tonumber(ctx.time)
+        local btn = cursor.right and "right" or "left"
+        if type(now_ms) == "number" and last_click_ms ~= nil then
+          if (btn == last_click_btn) and (x1 == last_click_x) and (y1 == last_click_y) and
+             ((now_ms - last_click_ms) <= dblclick_threshold_ms) then
+            is_double_click = true
+          end
+        end
+        if type(now_ms) == "number" then
+          last_click_ms = now_ms
+          last_click_btn = btn
+          last_click_x = x1
+          last_click_y = y1
+        end
+      end
+
       if moved_cell or moved_half or pressed_edge then
         caret.x = clamp(x1, 0, cols - 1)
         caret.y = math.max(0, y1)
@@ -364,6 +401,34 @@ function render(ctx, layer)
             paint(ctx, layer, ix, iy)
           end, skip_first)
         end
+
+        -- On double click, also stamp the current brush glyph at the clicked cell.
+        -- This is intentionally independent of the current mode (colorize/recolour/etc).
+        if is_double_click then
+          local p = ctx.params or {}
+          local useFg = (p.useFg ~= false)
+          local useBg = (p.useBg ~= false)
+          local fg = ctx.fg
+          if not useFg or type(fg) ~= "number" then fg = nil end
+          local bg = ctx.bg
+          if not useBg or type(bg) ~= "number" then bg = nil end
+
+          local brush = current_brush(ctx)
+
+          -- Match icy-draw-style swap behavior for "char-ish" stamping.
+          local secondary = cursor.right == true
+          local mode = p.mode
+          if type(mode) ~= "string" then mode = "char" end
+          if secondary and mode ~= "half" and mode ~= "recolour" and type(fg) == "number" and type(bg) == "number" then
+            fg, bg = bg, fg
+          end
+
+          if fg == nil and bg == nil then
+            layer:set(caret.x, caret.y, brush)
+          else
+            layer:set(caret.x, caret.y, brush, fg, bg)
+          end
+        end
       end
     end
     return
@@ -375,6 +440,11 @@ function render(ctx, layer)
   local moved = false
   local x0 = caret.x
   local y0 = caret.y
+
+  -- Toggle keyboard drawing on/off. (Mouse drawing is unaffected; runs in phase 1.)
+  if keys.enter then
+    keyboard_draw_enabled = not keyboard_draw_enabled
+  end
 
   if keys.left then
     if caret.x > 0 then
@@ -413,7 +483,7 @@ function render(ctx, layer)
     moved = true
   end
 
-  if moved then
+  if moved and keyboard_draw_enabled then
     -- Keyboard movement has no half-row info. In half mode, draw in half-row space by
     -- rasterizing between the previous and new caret positions. This:
     -- - lets vertical moves paint both halves (via the intermediate half-row), matching
