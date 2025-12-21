@@ -1,4 +1,4 @@
--- Moiré explorer (Lua port)
+-- Moiré explorer
 -- Click to cycle modes (0..2).
 
 settings = { fps = 60 }

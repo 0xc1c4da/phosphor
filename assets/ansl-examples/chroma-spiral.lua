@@ -1,4 +1,4 @@
--- Chroma Spiral (Lua port)
+-- Chroma Spiral
 -- Inspired by: https://www.shadertoy.com/view/tdsyRf
 
 local density = "#Wabc:+-. "

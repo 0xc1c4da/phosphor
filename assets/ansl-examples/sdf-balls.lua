@@ -1,4 +1,4 @@
--- SDF Balls (Lua port)
+-- SDF Balls
 
 local map = ansl.num.map
 local sdCircle = ansl.sdf.sdCircle

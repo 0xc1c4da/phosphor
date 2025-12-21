@@ -1,4 +1,4 @@
--- SDF Two Circles (Lua port)
+-- SDF Two Circles
 -- Smooth union of two circles; the second follows the editor caret.
 
 local sdCircle = ansl.sdf.sdCircle

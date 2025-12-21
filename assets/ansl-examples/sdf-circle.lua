@@ -1,4 +1,4 @@
--- SDF Circle (Lua port)
+-- SDF Circle
 -- Draw a smooth circle using exp()
 
 settings = { fps = 60 }

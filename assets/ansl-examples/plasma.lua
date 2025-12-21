@@ -1,4 +1,4 @@
--- Plasma (Lua port)
+-- Plasma
 -- Oldschool plasma demo
 
 settings = { fps = 60 }

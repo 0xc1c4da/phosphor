@@ -1,4 +1,4 @@
--- Golgol (Lua port)
+-- Golgol
 -- Double-resolution Game of Life using block chars:
 -- '█' both cells on, ' ' both off, '▀' upper on, '▄' lower on
 

@@ -1,4 +1,4 @@
--- Slime Dish (Lua port)
+-- Slime Dish
 -- Low-res physarum slime mold simulation
 -- Hold mouse button to magnify.
 

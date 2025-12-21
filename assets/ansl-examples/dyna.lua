@@ -1,4 +1,4 @@
--- Dyna (Lua port)
+-- Dyna
 -- A remix of Paul Haeberli’s Dynadraw (follows the editor caret)
 
 settings = { fps = 60 }

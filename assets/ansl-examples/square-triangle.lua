@@ -1,4 +1,4 @@
--- oeö (Lua port)
+-- oeö
 -- Inspired by Ernst Jandl, 1964
 
 local map = ansl.num.map

@@ -1,4 +1,4 @@
--- Pathfinder (Lua port)
+-- Pathfinder
 -- Click to spawn new path segments.
 --
 -- Notes for the native editor runtime:

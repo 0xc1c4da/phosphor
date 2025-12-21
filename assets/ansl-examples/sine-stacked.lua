@@ -1,4 +1,4 @@
--- Stacked sin waves (Lua port)
+-- Stacked sin waves
 
 local chars = { "█", "▓", "▒", "░", " " }
 

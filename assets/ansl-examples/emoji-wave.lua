@@ -1,4 +1,4 @@
--- Emoji Wave (Lua port)
+-- Emoji Wave
 -- From wingdings icons to unicode emojis
 
 settings = {

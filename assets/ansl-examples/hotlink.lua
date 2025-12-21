@@ -1,4 +1,4 @@
--- Hotlink (Lua port)
+-- Hotlink
 -- Replaces the JS version that fetches external noise code.
 -- Uses native libnoise bindings: ansl.noise.*
 

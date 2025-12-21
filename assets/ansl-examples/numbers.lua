@@ -1,4 +1,4 @@
--- Numbers (Lua port)
+-- Numbers
 -- Fun with integers
 
 settings = { bg = ansl.color.ansi16.black }

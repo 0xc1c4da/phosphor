@@ -27,7 +27,11 @@ void ApplyImGuiWindowPlacement(const SessionState& session, const char* window_n
         if (default_size.x < 200.0f) default_size.x = 200.0f;
         if (default_size.y < 150.0f) default_size.y = 150.0f;
 
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        // Avoid pivot-centering on first use: new windows can "jump" for one frame
+        // while their size is being established.
+        const ImVec2 top_left(center.x - default_size.x * 0.5f,
+                              center.y - default_size.y * 0.5f);
+        ImGui::SetNextWindowPos(top_left, ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(default_size, ImGuiCond_Appearing);
         return;
     }

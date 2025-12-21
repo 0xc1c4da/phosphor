@@ -1313,12 +1313,17 @@ void RunFrame(AppState& st)
             canvas_path = PhosphorCachePath(rel);
         }
 
-        // Dirty indicator: affect only the visible part of the title, not the ImGui ID (after ##).
+        // Canvas window identity:
+        // - We want the visible title to change (e.g. dirty "* " prefix),
+        //   but we must keep the ImGui window ID stable to avoid one-frame "jumps"
+        //   (ImGui will treat a renamed window as a different window and may re-apply defaults).
+        // - Use the "###" separator so only the suffix participates in the window ID.
         const std::string canvas_id = "canvas:" + sanitize_imgui_id(canvas_path) + "#" + std::to_string(canvas.id);
+        const std::string persist_key = canvas_id;
         const bool dirty = canvas.canvas.IsModifiedSinceLastSave();
-        std::string title = (dirty ? "* " : "") + canvas_path + "##" + canvas_id;
+        std::string title = (dirty ? "* " : "") + canvas_path + "###" + canvas_id;
 
-        const auto it = session_state.imgui_windows.find(title);
+        const auto it = session_state.imgui_windows.find(persist_key);
         const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
 
         // First-time placement sizing block is unchanged from main.cpp.
@@ -1361,21 +1366,26 @@ void RunFrame(AppState& st)
             if (desired.x > max_sz.x) desired.x = max_sz.x;
             if (desired.y > max_sz.y) desired.y = max_sz.y;
 
+            // NOTE: Avoid pivot-based centering here.
+            // For newly-created windows, ImGui's size isn't always fully "settled" on the very first
+            // Begin(), and pivot-centering can cause a visible one-frame jump.
             const float offset = 18.0f * (float)((canvas.id - 1) % 10);
-            const ImVec2 pos(center.x + offset, center.y + offset);
-            ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            const ImVec2 centered(center.x + offset, center.y + offset);
+            const ImVec2 top_left(centered.x - desired.x * 0.5f,
+                                  centered.y - desired.y * 0.5f);
+            ImGui::SetNextWindowPos(top_left, ImGuiCond_Appearing);
             ImGui::SetNextWindowSize(desired, ImGuiCond_Appearing);
         }
 
-        ApplyImGuiWindowPlacement(session_state, title.c_str(),
-                                  has_saved && should_apply_placement(title.c_str()));
+        ApplyImGuiWindowPlacement(session_state, persist_key.c_str(),
+                                  has_saved && should_apply_placement(persist_key.c_str()));
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, title.c_str());
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         const bool open_before_begin = canvas.open;
         ImGui::Begin(title.c_str(), &canvas.open, flags);
-        CaptureImGuiWindowPlacement(session_state, title.c_str());
+        CaptureImGuiWindowPlacement(session_state, persist_key.c_str());
         ApplyImGuiWindowChromeZOrder(&session_state, title.c_str());
         RenderImGuiWindowChromeMenu(&session_state, title.c_str());
 

@@ -1,4 +1,4 @@
--- SDF Wireframe Cube (Lua port)
+-- SDF Wireframe Cube
 -- Uses pre() to project vertices once per frame, then main() renders segments via sdSegment.
 
 settings = { fps = 60 }

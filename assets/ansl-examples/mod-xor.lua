@@ -1,4 +1,4 @@
--- Mod Xor (Lua port)
+-- Mod Xor
 -- Patterns obtained through modulo and XOR
 
 local pattern = ansl.string.utf8chars("└┧─┨┕┪┖┫┘┩┙┪━")
