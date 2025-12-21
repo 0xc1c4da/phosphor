@@ -417,6 +417,9 @@ enum class BlockKind
     List,
     ListItem,
     CodeBlock,
+    Table,
+    TableRow,
+    TableCell,
 };
 
 enum class InlineKind
@@ -445,10 +448,19 @@ struct Block
     int heading_level = 0;
     bool ordered = false;
     int list_start = 1;
+    bool list_is_tight = false;
+    char ul_mark = '-';
+    char ol_delim = '.';
+    bool list_item_is_task = false;
+    char list_item_task_mark = ' ';
     std::string info_string;          // code fence language (best effort)
     std::string code_text;            // code block raw text
     std::vector<Inline> inlines;      // paragraph/heading/list-item content, etc.
     std::vector<Block> children;      // nested blocks
+
+    // Table cell detail.
+    bool table_is_header_cell = false;
+    MD_ALIGN table_align = MD_ALIGN_DEFAULT;
 };
 
 // ---------------------------------------------------------------------------
@@ -610,11 +622,29 @@ static int EnterBlockCb(MD_BLOCKTYPE type, void* detail, void* userdata)
                 b->ordered = true;
                 auto* od = (MD_BLOCK_OL_DETAIL*)detail;
                 b->list_start = (int)od->start;
+                b->list_is_tight = (od->is_tight != 0);
+                b->ol_delim = (char)od->mark_delimiter;
+            }
+            else
+            {
+                auto* ud = (MD_BLOCK_UL_DETAIL*)detail;
+                b->list_is_tight = (ud && ud->is_tight != 0);
+                b->ul_mark = ud ? (char)ud->mark : '-';
             }
             return 0;
         }
         case MD_BLOCK_LI:
-            return p.PushBlock(BlockKind::ListItem) ? 0 : 1;
+        {
+            if (!p.PushBlock(BlockKind::ListItem))
+                return 1;
+            auto* ld = (MD_BLOCK_LI_DETAIL*)detail;
+            if (ld)
+            {
+                p.CurBlock()->list_item_is_task = (ld->is_task != 0);
+                p.CurBlock()->list_item_task_mark = (char)ld->task_mark;
+            }
+            return 0;
+        }
         case MD_BLOCK_HR:
             return p.PushBlock(BlockKind::ThematicBreak) ? 0 : 1;
         case MD_BLOCK_CODE:
@@ -626,9 +656,29 @@ static int EnterBlockCb(MD_BLOCKTYPE type, void* detail, void* userdata)
                 p.CurBlock()->info_string.assign(cd->lang.text, cd->lang.size);
             return 0;
         }
+        case MD_BLOCK_TABLE:
+            return p.PushBlock(BlockKind::Table) ? 0 : 1;
+        case MD_BLOCK_THEAD:
+        case MD_BLOCK_TBODY:
+            // We don't need separate nodes for thead/tbody; keep structure simple.
+            return 0;
+        case MD_BLOCK_TR:
+            return p.PushBlock(BlockKind::TableRow) ? 0 : 1;
+        case MD_BLOCK_TH:
+        case MD_BLOCK_TD:
+        {
+            if (!p.PushBlock(BlockKind::TableCell))
+                return 1;
+            Block* cell = p.CurBlock();
+            cell->table_is_header_cell = (type == MD_BLOCK_TH);
+            auto* td = (MD_BLOCK_TD_DETAIL*)detail;
+            cell->table_align = td ? td->align : MD_ALIGN_DEFAULT;
+            return 0;
+        }
         default:
-            // Ignore other blocks for now (tables, HTML, etc).
-            return p.PushBlock(BlockKind::Paragraph) ? 0 : 1;
+            // Ignore other blocks for now (HTML, math, etc.). Text callbacks will attach to
+            // the nearest supported ancestor block.
+            return 0;
     }
 }
 
@@ -643,8 +693,32 @@ static int LeaveBlockCb(MD_BLOCKTYPE type, void* detail, void* userdata)
     {
         case MD_BLOCK_DOC:
             return 0;
+        case MD_BLOCK_THEAD:
+        case MD_BLOCK_TBODY:
+            // We did not push a block for these container nodes.
+            return 0;
         default:
-            p.PopBlock();
+            // Only pop for block types we actually pushed in EnterBlockCb.
+            switch (type)
+            {
+                case MD_BLOCK_P:
+                case MD_BLOCK_H:
+                case MD_BLOCK_QUOTE:
+                case MD_BLOCK_UL:
+                case MD_BLOCK_OL:
+                case MD_BLOCK_LI:
+                case MD_BLOCK_HR:
+                case MD_BLOCK_CODE:
+                case MD_BLOCK_TABLE:
+                case MD_BLOCK_TR:
+                case MD_BLOCK_TH:
+                case MD_BLOCK_TD:
+                    p.PopBlock();
+                    break;
+                default:
+                    // Ignored blocks (e.g. HTML) were not pushed; do nothing.
+                    break;
+            }
             return 0;
     }
 }
@@ -933,53 +1007,81 @@ static void EnsureIndent(Line& line, const ResolvedStyle& st)
     }
 }
 
-// Append a run of styled cells into layout, with optional wrapping.
-// This works at the "cell" level (codepoint == 1 column) which matches the current canvas model.
-static void AppendRun(Layout& layout,
-                      std::vector<Cell>& cur,
-                      int width,
-                      bool wrap,
-                      const std::vector<Cell>& run)
+static int VisibleWidthCells(std::string_view s)
 {
-    width = std::max(1, width);
-    auto flush_line = [&]() {
+    std::vector<char32_t> cps;
+    Utf8ToCodepointsBestEffort(s, cps);
+    return (int)cps.size();
+}
+
+// Wrap-aware line builder which preserves a continuation prefix for wrapped lines.
+struct WrapCtx
+{
+    Layout& layout;
+    int width = 1;
+    bool wrap = true;
+    std::vector<Cell> cur;
+    std::vector<Cell> cont_prefix;
+    int wrap_min_index = 0; // don't wrap inside prefix
+
+    explicit WrapCtx(Layout& l) : layout(l) {}
+
+    void Start(const std::vector<Cell>& first_prefix, const std::vector<Cell>& continuation_prefix)
+    {
+        cur = first_prefix;
+        cont_prefix = continuation_prefix;
+        wrap_min_index = (int)cur.size();
+    }
+
+    void FlushLine()
+    {
+        Line ln;
+        ln.cells = std::move(cur);
+        layout.lines.push_back(std::move(ln));
+        cur = cont_prefix;
+        wrap_min_index = (int)cur.size();
+    }
+
+    void FinishLine()
+    {
         Line ln;
         ln.cells = std::move(cur);
         layout.lines.push_back(std::move(ln));
         cur.clear();
-    };
+        cont_prefix.clear();
+        wrap_min_index = 0;
+    }
+};
 
-    // Track last whitespace position in `cur` for wrap opportunities.
-    // We treat ASCII spaces only; this keeps behavior deterministic.
+static void AppendRun(WrapCtx& ctx, const std::vector<Cell>& run)
+{
+    ctx.width = std::max(1, ctx.width);
+
     auto is_break_space = [](char32_t cp) -> bool { return cp == U' '; };
 
     size_t i = 0;
     while (i < run.size())
     {
-        if (!wrap)
+        if (!ctx.wrap)
         {
-            cur.push_back(run[i]);
+            ctx.cur.push_back(run[i]);
             ++i;
-            if ((int)cur.size() >= width)
-            {
-                flush_line();
-            }
+            if ((int)ctx.cur.size() >= ctx.width)
+                ctx.FlushLine();
             continue;
         }
 
-        // If it fits, append.
-        if ((int)cur.size() < width)
+        if ((int)ctx.cur.size() < ctx.width)
         {
-            cur.push_back(run[i]);
+            ctx.cur.push_back(run[i]);
             ++i;
             continue;
         }
 
-        // Line is full: try to wrap at the last space in the current line.
         int last_space = -1;
-        for (int k = (int)cur.size() - 1; k >= 0; --k)
+        for (int k = (int)ctx.cur.size() - 1; k >= ctx.wrap_min_index; --k)
         {
-            if (is_break_space(cur[(size_t)k].cp))
+            if (is_break_space(ctx.cur[(size_t)k].cp))
             {
                 last_space = k;
                 break;
@@ -988,46 +1090,35 @@ static void AppendRun(Layout& layout,
 
         if (last_space >= 0)
         {
-            // Move trailing content after the space to next line.
             std::vector<Cell> carry;
-            carry.insert(carry.end(), cur.begin() + (size_t)last_space + 1, cur.end());
-            cur.resize((size_t)last_space); // drop space + tail
-            flush_line();
+            carry.insert(carry.end(), ctx.cur.begin() + (size_t)last_space + 1, ctx.cur.end());
+            ctx.cur.resize((size_t)last_space); // drop space + tail
+            ctx.FlushLine();
 
-            // Drop leading spaces in carry.
             size_t drop = 0;
             while (drop < carry.size() && is_break_space(carry[drop].cp))
                 drop++;
             if (drop > 0)
                 carry.erase(carry.begin(), carry.begin() + (ptrdiff_t)drop);
 
-            cur.insert(cur.end(), carry.begin(), carry.end());
+            ctx.cur.insert(ctx.cur.end(), carry.begin(), carry.end());
         }
         else
         {
-            // No space to break: hard-wrap.
-            flush_line();
+            ctx.FlushLine();
         }
     }
 }
 
-static void AppendText(Layout& layout,
-                       std::vector<Cell>& cur,
-                       int width,
-                       bool wrap,
-                       std::string_view text,
-                       const ResolvedStyle& style)
+static void AppendText(WrapCtx& ctx, std::string_view text, const ResolvedStyle& style)
 {
     std::vector<Cell> run;
     run.reserve(text.size());
     AppendCellsFromUtf8(run, text, style);
-    AppendRun(layout, cur, width, wrap, run);
+    AppendRun(ctx, run);
 }
 
-static void AppendInline(Layout& layout,
-                         std::vector<Cell>& cur,
-                         int width,
-                         bool wrap,
+static void AppendInline(WrapCtx& ctx,
                          const Theme& theme,
                          const ImportOptions& opt,
                          const Inline& n,
@@ -1080,39 +1171,32 @@ static void AppendInline(Layout& layout,
         case InlineKind::Text:
         {
             const ResolvedStyle st = resolve_current_style();
-            AppendText(layout, cur, width, wrap, n.text, st);
+            AppendText(ctx, n.text, st);
             break;
         }
         case InlineKind::SoftBreak:
         {
             if (opt.soft_break == ImportOptions::SoftBreak::Newline)
             {
-                // Hard line break.
-                Line ln;
-                ln.cells = std::move(cur);
-                layout.lines.push_back(std::move(ln));
-                cur.clear();
+                ctx.FlushLine();
             }
             else
             {
                 const ResolvedStyle st = resolve_current_style();
-                AppendText(layout, cur, width, wrap, " ", st);
+                AppendText(ctx, " ", st);
             }
             break;
         }
         case InlineKind::HardBreak:
         {
-            Line ln;
-            ln.cells = std::move(cur);
-            layout.lines.push_back(std::move(ln));
-            cur.clear();
+            ctx.FlushLine();
             break;
         }
         case InlineKind::Emph:
         {
             push_style("emph");
             for (const auto& c : n.children)
-                AppendInline(layout, cur, width, wrap, theme, opt, c, style_stack);
+                AppendInline(ctx, theme, opt, c, style_stack);
             pop_style();
             break;
         }
@@ -1120,7 +1204,7 @@ static void AppendInline(Layout& layout,
         {
             push_style("strong");
             for (const auto& c : n.children)
-                AppendInline(layout, cur, width, wrap, theme, opt, c, style_stack);
+                AppendInline(ctx, theme, opt, c, style_stack);
             pop_style();
             break;
         }
@@ -1128,7 +1212,7 @@ static void AppendInline(Layout& layout,
         {
             push_style("strikethrough");
             for (const auto& c : n.children)
-                AppendInline(layout, cur, width, wrap, theme, opt, c, style_stack);
+                AppendInline(ctx, theme, opt, c, style_stack);
             pop_style();
             break;
         }
@@ -1139,10 +1223,10 @@ static void AppendInline(Layout& layout,
             const StyleSpec spec = ResolveElementStyle(theme, "code_inline");
             const ResolvedStyle st = resolve_current_style();
             if (spec.prefix)
-                AppendText(layout, cur, width, wrap, *spec.prefix, st);
-            AppendText(layout, cur, width, wrap, n.text, st);
+                AppendText(ctx, *spec.prefix, st);
+            AppendText(ctx, n.text, st);
             if (spec.suffix)
-                AppendText(layout, cur, width, wrap, *spec.suffix, st);
+                AppendText(ctx, *spec.suffix, st);
             pop_style();
             break;
         }
@@ -1160,16 +1244,16 @@ static void AppendInline(Layout& layout,
             // Apply optional formatting.
             const std::string label_fmt = apply_format_if_any("link_text", label_plain);
             const ResolvedStyle st_label = resolve_current_style();
-            AppendText(layout, cur, width, wrap, label_fmt, st_label);
+            AppendText(ctx, label_fmt, st_label);
             pop_style();
 
             if (opt.link_mode == ImportOptions::LinkMode::InlineUrl && !n.text.empty())
             {
                 push_style("link");
                 const ResolvedStyle st_url = resolve_current_style();
-                AppendText(layout, cur, width, wrap, " (", st_url);
-                AppendText(layout, cur, width, wrap, n.text, st_url);
-                AppendText(layout, cur, width, wrap, ")", st_url);
+                AppendText(ctx, " (", st_url);
+                AppendText(ctx, n.text, st_url);
+                AppendText(ctx, ")", st_url);
                 pop_style();
             }
             break;
@@ -1185,13 +1269,278 @@ static void AppendInline(Layout& layout,
                 alt = "image";
             const std::string text = apply_format_if_any("image_text", alt);
             const ResolvedStyle st = resolve_current_style();
-            AppendText(layout, cur, width, wrap, text, st);
+            AppendText(ctx, text, st);
             pop_style();
             break;
         }
         default:
             break;
     }
+}
+
+static std::optional<std::string> InlinePrefixForElement(const Theme& theme, std::string_view elem)
+{
+    StyleSpec spec = ResolveElementStyle(theme, elem);
+    if (spec.prefix && !spec.prefix->empty())
+        return *spec.prefix;
+    // Many existing themes use block_prefix for inline-ish prefixes (e.g. list markers).
+    if (spec.block_prefix && !spec.block_prefix->empty() && spec.block_prefix->find('\n') == std::string::npos)
+        return *spec.block_prefix;
+    return std::nullopt;
+}
+
+static std::optional<std::string> InlineSuffixForElement(const Theme& theme, std::string_view elem)
+{
+    StyleSpec spec = ResolveElementStyle(theme, elem);
+    if (spec.suffix && !spec.suffix->empty())
+        return *spec.suffix;
+    if (spec.block_suffix && !spec.block_suffix->empty() && spec.block_suffix->find('\n') == std::string::npos)
+        return *spec.block_suffix;
+    return std::nullopt;
+}
+
+static std::vector<Inline> ExtractListItemInlinesBestEffort(const Block& li)
+{
+    if (!li.inlines.empty())
+        return li.inlines;
+    for (const auto& c : li.children)
+    {
+        if (c.kind == BlockKind::Paragraph && !c.inlines.empty())
+            return c.inlines;
+    }
+    return {};
+}
+
+static std::vector<Inline> ExtractTableCellInlinesBestEffort(const Block& cell)
+{
+    if (!cell.inlines.empty())
+        return cell.inlines;
+
+    // md4c typically nests a paragraph inside TD cells.
+    std::vector<Inline> out;
+    bool first_para = true;
+    for (const auto& c : cell.children)
+    {
+        if (c.kind != BlockKind::Paragraph)
+            continue;
+        if (c.inlines.empty())
+            continue;
+        if (!first_para)
+        {
+            Inline br;
+            br.kind = InlineKind::HardBreak;
+            br.text = "\n";
+            out.push_back(std::move(br));
+        }
+        out.insert(out.end(), c.inlines.begin(), c.inlines.end());
+        first_para = false;
+    }
+    return out;
+}
+
+static std::vector<Line> RenderInlinesToLines(const Theme& theme,
+                                              const ImportOptions& opt,
+                                              const std::vector<Inline>& inlines,
+                                              int width,
+                                              bool wrap,
+                                              std::initializer_list<std::string_view> style_keys,
+                                              const std::vector<Cell>& first_prefix = {},
+                                              const std::vector<Cell>& cont_prefix = {})
+{
+    Layout tmp;
+    WrapCtx ctx(tmp);
+    ctx.width = std::max(1, width);
+    ctx.wrap = wrap;
+    ctx.Start(first_prefix, cont_prefix);
+
+    std::vector<std::string_view> style_stack;
+    for (auto k : style_keys)
+        style_stack.push_back(k);
+
+    for (const auto& inl : inlines)
+        AppendInline(ctx, theme, opt, inl, style_stack);
+
+    ctx.FinishLine();
+    return std::move(tmp.lines);
+}
+
+static void AppendTable(Layout& layout,
+                        const Theme& theme,
+                        const ImportOptions& opt,
+                        const Block& table,
+                        int width,
+                        int quote_depth)
+{
+    // Gather rows/cells.
+    std::vector<const Block*> rows;
+    for (const auto& c : table.children)
+    {
+        if (c.kind == BlockKind::TableRow)
+            rows.push_back(&c);
+    }
+    if (rows.empty())
+        return;
+
+    int col_count = 0;
+    for (auto* r : rows)
+        col_count = std::max<int>(col_count, (int)r->children.size());
+    if (col_count <= 0)
+        return;
+
+    // Build quote prefix cells (best-effort; matches existing quote rendering style).
+    std::vector<Cell> quote_prefix;
+    if (quote_depth > 0)
+    {
+        ResolvedStyle qst = ResolveStyleForElement(theme, "block_quote");
+        for (int i = 0; i < quote_depth; ++i)
+            AppendCellsFromUtf8(quote_prefix, "> ", qst);
+    }
+
+    // Compute natural column widths from plain text.
+    std::vector<int> colw((size_t)col_count, 1);
+    for (auto* r : rows)
+    {
+        for (int c = 0; c < col_count; ++c)
+        {
+            if (c >= (int)r->children.size())
+                continue;
+            const Block& cell = r->children[(size_t)c];
+            std::string plain;
+            const std::vector<Inline> inls = ExtractTableCellInlinesBestEffort(cell);
+            for (const auto& inl : inls)
+                plain += PlainTextOfInline(inl);
+            for (char& ch : plain)
+            {
+                if (ch == '\n' || ch == '\r')
+                    ch = ' ';
+            }
+            colw[(size_t)c] = std::max(colw[(size_t)c], VisibleWidthCells(plain));
+        }
+    }
+
+    // Fit to available width (accounting for borders/padding and quote prefix).
+    const int border_overhead = 1 + col_count * 3; // '|' + (space+cell+space+'|') per col
+    const int avail = std::max(8, width - (int)quote_prefix.size());
+    int total = border_overhead;
+    for (int w : colw) total += w;
+
+    if (total > avail)
+    {
+        // Greedy shrink widest columns first, keep minimum 3.
+        while (total > avail)
+        {
+            int best = -1;
+            for (int i = 0; i < col_count; ++i)
+            {
+                if (colw[(size_t)i] > 3 && (best < 0 || colw[(size_t)i] > colw[(size_t)best]))
+                    best = i;
+            }
+            if (best < 0)
+                break;
+            colw[(size_t)best]--;
+            total--;
+        }
+    }
+
+    ResolvedStyle border_st = ResolveStyleForElement(theme, "table");
+
+    auto push_border_line = [&](char left, char mid, char right, char fill)
+    {
+        Line ln;
+        ln.cells.insert(ln.cells.end(), quote_prefix.begin(), quote_prefix.end());
+        AppendCellsFromUtf8(ln.cells, std::string(1, left), border_st);
+        for (int c = 0; c < col_count; ++c)
+        {
+            AppendCellsFromUtf8(ln.cells, std::string((size_t)colw[(size_t)c] + 2, fill), border_st);
+            AppendCellsFromUtf8(ln.cells, std::string(1, (c == col_count - 1) ? right : mid), border_st);
+        }
+        layout.lines.push_back(std::move(ln));
+    };
+
+    auto push_pipe_row = [&](const std::vector<std::vector<Line>>& cell_lines, bool is_header_row)
+    {
+        // Determine max wrapped line count.
+        size_t max_lines = 1;
+        for (const auto& cl : cell_lines)
+            max_lines = std::max(max_lines, cl.size());
+
+        for (size_t li = 0; li < max_lines; ++li)
+        {
+            Line out;
+            out.cells.insert(out.cells.end(), quote_prefix.begin(), quote_prefix.end());
+            AppendCellsFromUtf8(out.cells, "|", border_st);
+            for (int c = 0; c < col_count; ++c)
+            {
+                AppendCellsFromUtf8(out.cells, " ", border_st);
+
+                const bool have = (c < (int)cell_lines.size() && li < cell_lines[(size_t)c].size());
+                const std::vector<Cell>* src_cells = have ? &cell_lines[(size_t)c][li].cells : nullptr;
+
+                int pad_width = colw[(size_t)c];
+                int used = 0;
+                if (src_cells)
+                {
+                    const int take = std::min<int>((int)src_cells->size(), pad_width);
+                    out.cells.insert(out.cells.end(), src_cells->begin(), src_cells->begin() + take);
+                    used = take;
+                }
+                if (used < pad_width)
+                {
+                    std::vector<Cell> spaces;
+                    spaces.reserve((size_t)(pad_width - used));
+                    for (int k = 0; k < pad_width - used; ++k)
+                    {
+                        Cell sc;
+                        sc.cp = U' ';
+                        sc.fg = is_header_row ? border_st.fg : border_st.fg;
+                        sc.bg = border_st.bg;
+                        sc.attrs = border_st.attrs;
+                        spaces.push_back(sc);
+                    }
+                    out.cells.insert(out.cells.end(), spaces.begin(), spaces.end());
+                }
+
+                AppendCellsFromUtf8(out.cells, " |", border_st);
+            }
+            layout.lines.push_back(std::move(out));
+        }
+    };
+
+    // Render top border.
+    push_border_line('+', '+', '+', '-');
+
+    // Render each row with wrapped cells.
+    for (size_t ri = 0; ri < rows.size(); ++ri)
+    {
+        const Block& row = *rows[ri];
+        bool header_row = false;
+        for (const auto& cell : row.children)
+            header_row = header_row || cell.table_is_header_cell;
+
+        std::vector<std::vector<Line>> cell_rendered;
+        cell_rendered.resize((size_t)col_count);
+        for (int c = 0; c < col_count; ++c)
+        {
+            if (c >= (int)row.children.size())
+            {
+                cell_rendered[(size_t)c] = {Line{}};
+                continue;
+            }
+            const Block& cell = row.children[(size_t)c];
+            const std::vector<Inline> inls = ExtractTableCellInlinesBestEffort(cell);
+            // Cells get their own base style role; header cells can override with table_head if present.
+            const char* base = header_row ? "table_head" : "table_row";
+            const auto lines = RenderInlinesToLines(theme, opt, inls, colw[(size_t)c], true, {base});
+            cell_rendered[(size_t)c] = lines;
+        }
+
+        push_pipe_row(cell_rendered, header_row);
+        // Separator after each row.
+        push_border_line('+', '+', '+', '-');
+    }
+
+    if (opt.preserve_blank_lines)
+        layout.lines.push_back(Line{});
 }
 
 static void AppendBlock(Layout& layout,
@@ -1205,13 +1554,6 @@ static void AppendBlock(Layout& layout,
         layout.lines.push_back(std::move(ln));
     };
 
-    auto flush_cur = [&](std::vector<Cell>& cur) {
-        Line ln;
-        ln.cells = std::move(cur);
-        layout.lines.push_back(std::move(ln));
-        cur.clear();
-    };
-
     auto append_blank_line = [&]() {
         if (opt.preserve_blank_lines)
             layout.lines.push_back(Line{});
@@ -1221,6 +1563,10 @@ static void AppendBlock(Layout& layout,
         StyleSpec spec = ResolveElementStyle(theme, elem);
         const std::optional<std::string>& s = prefix ? spec.block_prefix : spec.block_suffix;
         if (!s || s->empty())
+            return;
+        // Heuristic: if the block prefix/suffix has no newline, treat it as an inline prefix/suffix
+        // (used by current bundled themes for list markers) and do not emit it as standalone lines.
+        if (s->find('\n') == std::string::npos)
             return;
         ResolvedStyle st = ResolveStyleForElement(theme, elem);
 
@@ -1307,10 +1653,8 @@ static void AppendBlock(Layout& layout,
 
         case BlockKind::Heading:
         case BlockKind::Paragraph:
-        case BlockKind::ListItem:
         {
             const bool is_heading = (b.kind == BlockKind::Heading);
-            const bool is_item = (b.kind == BlockKind::ListItem);
 
             std::string elem = "paragraph";
             if (is_heading)
@@ -1318,20 +1662,19 @@ static void AppendBlock(Layout& layout,
                 const int lvl = ClampInt(b.heading_level, 1, 6);
                 elem = "h" + std::to_string(lvl);
             }
-            else if (is_item)
-            {
-                elem = "item";
-            }
 
             ResolvedStyle st = ResolveStyleForElement(theme, elem);
             apply_block_prefix_suffix(elem, true);
 
-            std::vector<Cell> cur;
-            // Apply block indentation/margin.
+            // Prefixes (indent + quote + style prefix).
+            std::vector<Cell> first_prefix;
+            std::vector<Cell> cont_prefix;
+
             {
                 Line tmp;
                 EnsureIndent(tmp, st);
-                cur.insert(cur.end(), tmp.cells.begin(), tmp.cells.end());
+                first_prefix.insert(first_prefix.end(), tmp.cells.begin(), tmp.cells.end());
+                cont_prefix.insert(cont_prefix.end(), tmp.cells.begin(), tmp.cells.end());
             }
 
             // Quote prefix (simple: "> " per nesting level).
@@ -1340,28 +1683,40 @@ static void AppendBlock(Layout& layout,
                 ResolvedStyle qst = ResolveStyleForElement(theme, "block_quote");
                 for (int i = 0; i < quote_depth; ++i)
                 {
-                    AppendCellsFromUtf8(cur, "> ", qst);
+                    AppendCellsFromUtf8(first_prefix, "> ", qst);
+                    AppendCellsFromUtf8(cont_prefix, "> ", qst);
                 }
             }
 
-            // List bullet prefix (simple).
-            if (is_item)
+            // Element inline prefix (e.g. heading hashes in bundled themes).
             {
-                // Use either enumeration (ordered) or list bullet.
-                const bool ordered = false; // v1: md4c provides ordered at List block, but item doesn't carry number; keep simple.
-                ResolvedStyle bst = ResolveStyleForElement(theme, ordered ? "enumeration" : "list");
-                AppendCellsFromUtf8(cur, ordered ? "1. " : "- ", bst);
+                if (auto pre = InlinePrefixForElement(theme, elem))
+                {
+                    const ResolvedStyle pst = ResolveStyleForElement(theme, elem);
+                    AppendCellsFromUtf8(first_prefix, *pre, pst);
+                }
             }
 
-            // Inline content
+            WrapCtx ctx(layout);
+            ctx.width = std::max(1, width);
+            ctx.wrap = opt.wrap_paragraphs && !is_heading;
+            ctx.Start(first_prefix, cont_prefix);
+
             std::vector<std::string_view> style_stack;
+            if (is_heading)
+                style_stack.push_back("heading");
             style_stack.push_back(elem);
-            const bool wrap = opt.wrap_paragraphs && (b.kind != BlockKind::Heading);
 
             for (const auto& inl : b.inlines)
-                AppendInline(layout, cur, width, wrap, theme, opt, inl, style_stack);
+                AppendInline(ctx, theme, opt, inl, style_stack);
 
-            flush_cur(cur);
+            if (auto suf = InlineSuffixForElement(theme, elem))
+            {
+                const ResolvedStyle sst = ResolveStyleForElement(theme, elem);
+                AppendText(ctx, *suf, sst);
+            }
+
+            ctx.FinishLine();
             apply_block_prefix_suffix(elem, false);
             append_blank_line();
             break;
@@ -1378,11 +1733,97 @@ static void AppendBlock(Layout& layout,
 
         case BlockKind::List:
         {
-            // Render children list items.
+            // Render list items with proper marker + continuation indentation.
             apply_block_prefix_suffix("list", true);
-            for (const auto& c : b.children)
-                AppendBlock(layout, theme, opt, c, width, quote_depth);
+
+            ResolvedStyle list_st = ResolveStyleForElement(theme, "list");
+            std::vector<Cell> list_indent;
+            {
+                Line tmp;
+                EnsureIndent(tmp, list_st);
+                list_indent = std::move(tmp.cells);
+            }
+
+            for (size_t i = 0; i < b.children.size(); ++i)
+            {
+                const Block& li = b.children[i];
+                if (li.kind != BlockKind::ListItem)
+                {
+                    AppendBlock(layout, theme, opt, li, width, quote_depth);
+                    continue;
+                }
+
+                const int ordinal = b.list_start + (int)i;
+                std::string marker_text;
+                std::string marker_elem;
+                if (li.list_item_is_task)
+                {
+                    const bool checked = (li.list_item_task_mark == 'x' || li.list_item_task_mark == 'X');
+                    marker_elem = checked ? "task_checked" : "task_unchecked";
+                    StyleSpec ms = ResolveElementStyle(theme, marker_elem);
+                    marker_text = ms.block_prefix.value_or(checked ? "[✓] " : "[ ] ");
+                }
+                else if (b.ordered)
+                {
+                    marker_elem = "enumeration";
+                    StyleSpec ms = ResolveElementStyle(theme, marker_elem);
+                    marker_text = std::to_string(ordinal) + ms.block_prefix.value_or(std::string(1, b.ol_delim) + " ");
+                }
+                else
+                {
+                    marker_elem = "item";
+                    StyleSpec ms = ResolveElementStyle(theme, marker_elem);
+                    marker_text = ms.block_prefix.value_or("• ");
+                }
+
+                ResolvedStyle marker_st = ResolveStyleForElement(theme, marker_elem);
+
+                std::vector<Cell> quote_prefix;
+                if (quote_depth > 0)
+                {
+                    ResolvedStyle qst = ResolveStyleForElement(theme, "block_quote");
+                    for (int q = 0; q < quote_depth; ++q)
+                        AppendCellsFromUtf8(quote_prefix, "> ", qst);
+                }
+
+                std::vector<Cell> first_prefix;
+                std::vector<Cell> cont_prefix;
+                first_prefix.insert(first_prefix.end(), list_indent.begin(), list_indent.end());
+                first_prefix.insert(first_prefix.end(), quote_prefix.begin(), quote_prefix.end());
+                cont_prefix.insert(cont_prefix.end(), list_indent.begin(), list_indent.end());
+                cont_prefix.insert(cont_prefix.end(), quote_prefix.begin(), quote_prefix.end());
+
+                AppendCellsFromUtf8(first_prefix, marker_text, marker_st);
+
+                const int marker_w = VisibleWidthCells(marker_text);
+                for (int s = 0; s < marker_w; ++s)
+                {
+                    Cell c;
+                    c.cp = U' ';
+                    c.fg = marker_st.fg;
+                    c.bg = marker_st.bg;
+                    c.attrs = marker_st.attrs;
+                    cont_prefix.push_back(c);
+                }
+
+                const std::vector<Inline> content = ExtractListItemInlinesBestEffort(li);
+                const auto lines = RenderInlinesToLines(theme, opt, content, width, true, {"paragraph"}, first_prefix, cont_prefix);
+                for (const auto& ln : lines)
+                    layout.lines.push_back(ln);
+
+                // Tight lists typically don't have blank lines between items.
+                if (!b.list_is_tight && opt.preserve_blank_lines)
+                    layout.lines.push_back(Line{});
+            }
+
             apply_block_prefix_suffix("list", false);
+            append_blank_line();
+            break;
+        }
+
+        case BlockKind::Table:
+        {
+            AppendTable(layout, theme, opt, b, width, quote_depth);
             break;
         }
 
