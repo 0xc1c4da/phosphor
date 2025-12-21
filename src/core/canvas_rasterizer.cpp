@@ -269,14 +269,91 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
             char32_t cp = U' ';
             AnsiCanvas::Color32 fg = 0;
             AnsiCanvas::Color32 bg = 0;
-            (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg);
+            AnsiCanvas::Attrs attrs = 0;
+            (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, attrs);
 
-            const ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
+            ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
+
+            // Base background paint (note: bg==0 means "unset/transparent" in the editor).
             ImU32 bg_col = paper;
             if (bg != 0)
                 bg_col = (ImU32)bg;
             else if (opt.transparent_unset_bg)
                 bg_col = IM_COL32(0, 0, 0, 0);
+
+            // Reverse video (SGR 7): swap fg/bg for rendering.
+            const bool reverse = (attrs & AnsiCanvas::Attr_Reverse) != 0;
+            if (reverse)
+            {
+                // If bg is unset but we're exporting with transparent unset bg, treat the paper
+                // background as the "default bg" for reverse so it remains visible.
+                const ImU32 bg_for_reverse = (bg != 0) ? (ImU32)bg : paper;
+
+                // Special VGA16 reverse rule (libansilove compatibility) when both colors are exact VGA16 entries.
+                auto vga16_index = [&](ImU32 c, int& out_idx) -> bool
+                {
+                    static const ImU32 vga16[16] = {
+                        IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
+                        IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
+                        IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
+                        IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
+                    };
+                    for (int i = 0; i < 16; ++i)
+                    {
+                        if (vga16[i] == c)
+                        {
+                            out_idx = i;
+                            return true;
+                        }
+                    }
+                    out_idx = 0;
+                    return false;
+                };
+
+                int fi = 0, bi = 0;
+                if (fg != 0 && bg != 0 && vga16_index((ImU32)fg, fi) && vga16_index((ImU32)bg, bi))
+                {
+                    const int inv_bg = fi % 8;
+                    const int inv_fg = bi + (fi & 8);
+                    static const ImU32 vga16[16] = {
+                        IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
+                        IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
+                        IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
+                        IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
+                    };
+                    bg_col = vga16[std::clamp(inv_bg, 0, 15)];
+                    fg_col = vga16[std::clamp(inv_fg, 0, 15)];
+                }
+                else
+                {
+                    const ImU32 tmp = fg_col;
+                    fg_col = bg_for_reverse;
+                    bg_col = tmp;
+                }
+            }
+
+            // Intensity (dim/bold) affects the foreground color.
+            auto apply_mul = [&](ImU32 c, float mul) -> ImU32
+            {
+                int r, g, b, a;
+                UnpackImGui(c, r, g, b, a);
+                r = (int)std::lround((double)r * (double)mul);
+                g = (int)std::lround((double)g * (double)mul);
+                b = (int)std::lround((double)b * (double)mul);
+                return PackImGui(r, g, b, a);
+            };
+            if ((attrs & AnsiCanvas::Attr_Dim) != 0)
+                fg_col = apply_mul(fg_col, 0.60f);
+            if ((attrs & AnsiCanvas::Attr_Bold) != 0)
+                fg_col = apply_mul(fg_col, 1.25f);
 
             const int cell_x0 = col * cell_w * scale;
             const int cell_y0 = row * cell_h * scale;
@@ -287,6 +364,27 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                 for (int xx = 0; xx < cell_w * scale; ++xx)
                 {
                     set_px(cell_x0 + xx, cell_y0 + yy, bg_col);
+                }
+            }
+
+            // Underline / strikethrough (rendered even for spaces).
+            {
+                const bool want_underline = (attrs & AnsiCanvas::Attr_Underline) != 0;
+                const bool want_strike = (attrs & AnsiCanvas::Attr_Strikethrough) != 0;
+                const int thickness = std::max(1, scale);
+                if (want_underline)
+                {
+                    const int y0 = cell_y0 + (cell_h * scale) - thickness;
+                    for (int yy = 0; yy < thickness; ++yy)
+                        for (int xx = 0; xx < cell_w * scale; ++xx)
+                            set_px(cell_x0 + xx, y0 + yy, fg_col);
+                }
+                if (want_strike)
+                {
+                    const int y0 = cell_y0 + (cell_h * scale) / 2 - thickness / 2;
+                    for (int yy = 0; yy < thickness; ++yy)
+                        for (int xx = 0; xx < cell_w * scale; ++xx)
+                            set_px(cell_x0 + xx, y0 + yy, fg_col);
                 }
             }
 

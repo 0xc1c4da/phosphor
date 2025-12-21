@@ -465,6 +465,7 @@ struct ExportCell
     char32_t cp = U' ';
     AnsiCanvas::Color32 fg = 0; // 0 means "unset"
     AnsiCanvas::Color32 bg = 0; // 0 means "unset"
+    AnsiCanvas::Attrs attrs = 0;
 };
 
 static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int row, int col, ExportCell& out)
@@ -472,9 +473,10 @@ static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int r
     char32_t cp = U' ';
     AnsiCanvas::Color32 fg = 0;
     AnsiCanvas::Color32 bg = 0;
+    AnsiCanvas::Attrs attrs = 0;
     if (opt.source == ExportOptions::Source::Composite)
     {
-        if (!canvas.GetCompositeCellPublic(row, col, cp, fg, bg))
+        if (!canvas.GetCompositeCellPublic(row, col, cp, fg, bg, attrs))
             return false;
     }
     else
@@ -482,10 +484,12 @@ static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int r
         const int layer = canvas.GetActiveLayerIndex();
         cp = canvas.GetLayerCell(layer, row, col);
         (void)canvas.GetLayerCellColors(layer, row, col, fg, bg);
+        (void)canvas.GetLayerCellAttrs(layer, row, col, attrs);
     }
     out.cp = cp;
     out.fg = fg;
     out.bg = bg;
+    out.attrs = attrs;
     return true;
 }
 
@@ -688,8 +692,23 @@ enum class Mode
 struct Pen
 {
     bool bold = false;
-    bool blink = false;
-    bool invert = false;
+    bool dim = false;
+    bool italic = false;
+    bool underline = false;
+    bool blink = false;      // SGR 5 (may be treated as iCE bright background depending on ImportOptions)
+    bool invert = false;     // SGR 7
+    bool strike = false;     // SGR 9
+
+    // Import-time latches for DOS/scene conventions:
+    // - In classic ANSI art, SGR 1 is commonly used to select "bright" ANSI16 foregrounds.
+    // - With iCE colors enabled, SGR 5 is commonly used as a latch for "bright background"
+    //   (not actual blinking text).
+    //
+    // We track these so we can correctly apply them across subsequent color changes,
+    // and so we can undo the brightness bump on the corresponding reset codes.
+    bool fg_bright_from_bold = false; // whether current fg_idx was bumped (+8) due to SGR 1 convention
+    bool ice_bg = false;              // whether SGR 5 iCE bright-bg latch is active
+    bool bg_bright_from_ice = false;  // whether current bg_idx was bumped (+8) due to iCE latch
 
     // Track palette indices when applicable so we can reproduce libansilove's
     // invert behavior for bright colors (foreground&8).
@@ -731,8 +750,15 @@ static inline AnsiCanvas::Color32 ColorFromAnsi16(int idx)
 static inline void ApplyDefaults(const ImportOptions& opt, Pen& pen)
 {
     pen.bold = false;
+    pen.dim = false;
+    pen.italic = false;
+    pen.underline = false;
     pen.blink = false;
     pen.invert = false;
+    pen.strike = false;
+    pen.fg_bright_from_bold = false;
+    pen.ice_bg = false;
+    pen.bg_bright_from_ice = false;
 
     pen.fg_mode = Mode::Palette16;
     pen.bg_mode = Mode::Palette16;
@@ -818,6 +844,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     std::vector<char32_t> cells;
     std::vector<AnsiCanvas::Color32> fg;
     std::vector<AnsiCanvas::Color32> bg;
+    std::vector<AnsiCanvas::Attrs> attrs;
 
     auto ensure_rows = [&](int rows_needed)
     {
@@ -828,6 +855,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             cells.resize(need, U' ');
             fg.resize(need, 0);
             bg.resize(need, pen.bg); // default background
+            attrs.resize(need, 0);
         }
     };
 
@@ -856,29 +884,19 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         ensure_rows(row + 1);
         const size_t at = idx_of(row, col);
 
-        // Apply invert per libansilove rules when we have 16-color palette indices.
-        AnsiCanvas::Color32 out_fg = pen.fg;
-        AnsiCanvas::Color32 out_bg = pen.bg;
-        if (pen.invert)
-        {
-            if (pen.fg_mode == Mode::Palette16 && pen.bg_mode == Mode::Palette16)
-            {
-                const int fg_idx = std::clamp(pen.fg_idx, 0, 15);
-                const int bg_idx = std::clamp(pen.bg_idx, 0, 15);
-                const int inv_bg = fg_idx % 8;
-                const int inv_fg = bg_idx + (fg_idx & 8);
-                out_bg = ColorFromAnsi16(inv_bg);
-                out_fg = ColorFromAnsi16(inv_fg);
-            }
-            else
-            {
-                std::swap(out_fg, out_bg);
-            }
-        }
-
         cells[at] = cp;
-        fg[at] = out_fg;
-        bg[at] = out_bg;
+        fg[at] = pen.fg;
+        bg[at] = pen.bg;
+
+        AnsiCanvas::Attrs a = 0;
+        if (pen.bold)      a |= AnsiCanvas::Attr_Bold;
+        if (pen.dim)       a |= AnsiCanvas::Attr_Dim;
+        if (pen.italic)    a |= AnsiCanvas::Attr_Italic;
+        if (pen.underline) a |= AnsiCanvas::Attr_Underline;
+        if (pen.blink)     a |= AnsiCanvas::Attr_Blink;
+        if (pen.invert)    a |= AnsiCanvas::Attr_Reverse;
+        if (pen.strike)    a |= AnsiCanvas::Attr_Strikethrough;
+        attrs[at] = a;
 
         if (row > rowMax) rowMax = row;
         if (col > colMax) colMax = col;
@@ -1071,6 +1089,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     cells.assign((size_t)columns, U' ');
                     fg.assign((size_t)columns, 0);
                     bg.assign((size_t)columns, pen.bg);
+                    attrs.assign((size_t)columns, 0);
                 }
             }
             else if (final == 'm') // SGR
@@ -1092,22 +1111,59 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         {
                             pen.fg_idx += 8;
                             pen.fg = ColorFromAnsi16(pen.fg_idx);
+                            pen.fg_bright_from_bold = true;
                         }
                         pen.bold = true;
                     }
+                    else if (code == 2)
+                    {
+                        pen.dim = true;
+                    }
+                    else if (code == 3)
+                    {
+                        pen.italic = true;
+                    }
+                    else if (code == 4)
+                    {
+                        pen.underline = true;
+                    }
                     else if (code == 5)
                     {
-                        // ICE colors: blink -> bright background.
-                        if (options.icecolors && pen.bg_mode == Mode::Palette16 && pen.bg_idx >= 0 && pen.bg_idx < 8)
+                        // ICE colors: blink -> bright background latch (common ANSI art convention).
+                        //
+                        // In iCE mode, SGR 5 acts like a stateful "bright background" bit that should
+                        // apply to subsequent 40-47 background color changes, not just the current color.
+                        // We therefore track a latch (pen.ice_bg) and apply the +8 bump on bg updates.
+                        if (options.icecolors && pen.bg_mode == Mode::Palette16)
                         {
-                            pen.bg_idx += 8;
-                            pen.bg = ColorFromAnsi16(pen.bg_idx);
+                            pen.ice_bg = true;
+                            if (pen.bg_idx >= 0 && pen.bg_idx < 8)
+                            {
+                                pen.bg_idx += 8;
+                                pen.bg = ColorFromAnsi16(pen.bg_idx);
+                                pen.bg_bright_from_ice = true;
+                            }
+                            else
+                            {
+                                // Background is already bright or non-standard; don't mark it as an iCE bump.
+                                pen.bg_bright_from_ice = false;
+                            }
+                            // Keep pen.blink false here: iCE files shouldn't blink in the editor.
+                            pen.blink = false;
                         }
-                        pen.blink = true;
+                        else
+                        {
+                            // Non-iCE mode: treat as real blink attribute.
+                            pen.blink = true;
+                        }
                     }
                     else if (code == 7)
                     {
                         pen.invert = true;
+                    }
+                    else if (code == 9)
+                    {
+                        pen.strike = true;
                     }
                     else if (code == 27)
                     {
@@ -1115,7 +1171,42 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     }
                     else if (code == 22)
                     {
+                        // Normal intensity: in classic ANSI16 convention, this can undo the SGR 1 "bright fg" bump.
+                        if (pen.fg_bright_from_bold && pen.fg_mode == Mode::Palette16 && pen.fg_idx >= 8 && pen.fg_idx < 16)
+                        {
+                            pen.fg_idx -= 8;
+                            pen.fg = ColorFromAnsi16(pen.fg_idx);
+                        }
                         pen.bold = false;
+                        pen.dim = false;
+                        pen.fg_bright_from_bold = false;
+                    }
+                    else if (code == 23)
+                    {
+                        pen.italic = false;
+                    }
+                    else if (code == 24)
+                    {
+                        pen.underline = false;
+                    }
+                    else if (code == 25)
+                    {
+                        // Blink off. In iCE mode, this also disables the bright-background latch.
+                        if (pen.ice_bg && options.icecolors)
+                        {
+                            pen.ice_bg = false;
+                            if (pen.bg_bright_from_ice && pen.bg_mode == Mode::Palette16 && pen.bg_idx >= 8 && pen.bg_idx < 16)
+                            {
+                                pen.bg_idx -= 8;
+                                pen.bg = ColorFromAnsi16(pen.bg_idx);
+                            }
+                            pen.bg_bright_from_ice = false;
+                        }
+                        pen.blink = false;
+                    }
+                    else if (code == 29)
+                    {
+                        pen.strike = false;
                     }
                     else if (code == 39)
                     {
@@ -1123,6 +1214,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         pen.fg_mode = Mode::Palette16;
                         pen.fg_idx = 7;
                         pen.fg = (options.default_fg != 0) ? options.default_fg : ColorFromAnsi16(7);
+                        pen.fg_bright_from_bold = false;
                     }
                     else if (code == 49)
                     {
@@ -1131,13 +1223,22 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         pen.bg_idx = 0;
                         pen.bg = options.default_bg_unset ? 0
                                : ((options.default_bg != 0) ? options.default_bg : ColorFromAnsi16(0));
+                        // Keep iCE latch state, but this specific bg value is not an iCE bump (unset/default can be transparent).
+                        pen.bg_bright_from_ice = false;
                     }
                     else if (code >= 30 && code <= 37)
                     {
                         pen.fg_mode = Mode::Palette16;
                         pen.fg_idx = code - 30;
                         if (pen.bold)
+                        {
                             pen.fg_idx += 8;
+                            pen.fg_bright_from_bold = true;
+                        }
+                        else
+                        {
+                            pen.fg_bright_from_bold = false;
+                        }
                         pen.fg = ColorFromAnsi16(pen.fg_idx);
                     }
                     else if (code >= 90 && code <= 97)
@@ -1145,13 +1246,21 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         pen.fg_mode = Mode::Palette16;
                         pen.fg_idx = (code - 90) + 8;
                         pen.fg = ColorFromAnsi16(pen.fg_idx);
+                        pen.fg_bright_from_bold = false;
                     }
                     else if (code >= 40 && code <= 47)
                     {
                         pen.bg_mode = Mode::Palette16;
                         pen.bg_idx = code - 40;
-                        if (pen.blink && options.icecolors)
+                        if (pen.ice_bg && options.icecolors)
+                        {
                             pen.bg_idx += 8;
+                            pen.bg_bright_from_ice = true;
+                        }
+                        else
+                        {
+                            pen.bg_bright_from_ice = false;
+                        }
                         pen.bg = ColorFromAnsi16(pen.bg_idx);
                     }
                     else if (code >= 100 && code <= 107)
@@ -1159,6 +1268,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         pen.bg_mode = Mode::Palette16;
                         pen.bg_idx = (code - 100) + 8;
                         pen.bg = ColorFromAnsi16(pen.bg_idx);
+                        pen.bg_bright_from_ice = false;
                     }
                     else if (code == 38 || code == 48)
                     {
@@ -1175,12 +1285,14 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                                     pen.fg_mode = Mode::Xterm256;
                                     pen.fg_idx = idx;
                                     pen.fg = col32;
+                                    pen.fg_bright_from_bold = false;
                                 }
                                 else
                                 {
                                     pen.bg_mode = Mode::Xterm256;
                                     pen.bg_idx = idx;
                                     pen.bg = col32;
+                                    pen.bg_bright_from_ice = false;
                                 }
                             }
                             k += 2;
@@ -1199,11 +1311,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                                 {
                                     pen.fg_mode = Mode::TrueColor;
                                     pen.fg = col32;
+                                    pen.fg_bright_from_bold = false;
                                 }
                                 else
                                 {
                                     pen.bg_mode = Mode::TrueColor;
                                     pen.bg = col32;
+                                    pen.bg_bright_from_ice = false;
                                 }
                             }
                             k += 4;
@@ -1251,7 +1365,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     ensure_rows(out_rows);
 
     AnsiCanvas::ProjectState st;
-    st.version = 3;
+    st.version = 6;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = out_cols;
     st.current.rows = out_rows;
@@ -1291,6 +1405,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].cells = std::move(cells);
     st.current.layers[0].fg = std::move(fg);
     st.current.layers[0].bg = std::move(bg);
+    st.current.layers[0].attrs = std::move(attrs);
 
     // Preserve SAUCE metadata (if present) in the project state so exports and .phos saves can reuse it.
     if (sp.record.present)
@@ -1381,8 +1496,12 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     struct PenOut
     {
         bool bold = false;
+        bool dim = false;
+        bool italic = false;
+        bool underline = false;
         bool blink = false;
         bool invert = false;
+        bool strike = false;
         bool has_fg = false;
         bool has_bg = false;
         bool fg_tc = false; // whether last-set fg was via Pablo `...t` truecolor overlay
@@ -1407,6 +1526,29 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
 
         const AnsiCanvas::Color32 want_fg = fg_unset ? DefaultFgForExport(options) : c.fg;
         const AnsiCanvas::Color32 want_bg = bg_unset ? DefaultBgForExport(options) : c.bg;
+
+        // Attribute filtering based on output target.
+        AnsiCanvas::Attrs want_attrs = c.attrs;
+        AnsiCanvas::Attrs allowed_attrs = 0;
+        if (options.attribute_mode == ExportOptions::AttributeMode::ClassicDos)
+        {
+            allowed_attrs = (AnsiCanvas::Attrs)(AnsiCanvas::Attr_Bold | AnsiCanvas::Attr_Blink | AnsiCanvas::Attr_Reverse);
+        }
+        else
+        {
+            allowed_attrs = (AnsiCanvas::Attrs)(AnsiCanvas::Attr_Bold | AnsiCanvas::Attr_Dim | AnsiCanvas::Attr_Italic |
+                                                AnsiCanvas::Attr_Underline | AnsiCanvas::Attr_Blink | AnsiCanvas::Attr_Reverse |
+                                                AnsiCanvas::Attr_Strikethrough);
+        }
+        want_attrs = (AnsiCanvas::Attrs)(want_attrs & allowed_attrs);
+
+        const bool want_bold = (want_attrs & AnsiCanvas::Attr_Bold) != 0;
+        const bool want_dim = (want_attrs & AnsiCanvas::Attr_Dim) != 0;
+        const bool want_italic = (want_attrs & AnsiCanvas::Attr_Italic) != 0;
+        const bool want_underline = (want_attrs & AnsiCanvas::Attr_Underline) != 0;
+        const bool want_blink = (want_attrs & AnsiCanvas::Attr_Blink) != 0;
+        const bool want_invert = (want_attrs & AnsiCanvas::Attr_Reverse) != 0;
+        const bool want_strike = (want_attrs & AnsiCanvas::Attr_Strikethrough) != 0;
 
         // Pablo/Icy truecolor `...t` mode:
         // Optionally emit an ANSI16 baseline and overlay `...t` only when needed.
@@ -1437,18 +1579,18 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 const int fg16 = NearestAnsi16Index(want_fg);
                 const int bg16 = NearestAnsi16Index(want_bg);
 
-                bool want_bold = false;
-                bool want_blink = false;
+                bool want_bold16 = false;
+                bool want_blink16 = false;
                 int fg_base = fg16;
                 int bg_base = bg16;
                 if (options.ansi16_bright == ExportOptions::Ansi16Bright::BoldAndIceBlink)
                 {
-                    if (fg_base >= 8) { want_bold = true; fg_base -= 8; }
-                    if (options.icecolors && bg_base >= 8) { want_blink = true; bg_base -= 8; }
+                    if (fg_base >= 8) { want_bold16 = true; fg_base -= 8; }
+                    if (options.icecolors && bg_base >= 8) { want_blink16 = true; bg_base -= 8; }
                 }
 
                 // If we need to turn attributes OFF, simplest is reset + rebuild.
-                if ((pen.bold && !want_bold) || (pen.blink && !want_blink))
+                if ((pen.bold && !want_bold16) || (pen.blink && !want_blink16))
                     reset();
 
                 std::string params;
@@ -1456,6 +1598,10 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                     if (!params.empty()) params.push_back(';');
                     params += std::to_string(v);
                 };
+
+                // Reverse video (SGR 7/27). (Other attrs are intentionally ignored in ANSI16/Pablo-T export.)
+                if (want_invert && !pen.invert) add(7);
+                if (!want_invert && pen.invert) add(27);
 
                 if (options.ansi16_bright == ExportOptions::Ansi16Bright::Sgr90_100)
                 {
@@ -1469,8 +1615,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 }
                 else
                 {
-                    if (want_bold && !pen.bold) add(1);
-                    if (want_blink && !pen.blink) add(5);
+                    if (want_bold16 && !pen.bold) add(1);
+                    if (want_blink16 && !pen.blink) add(5);
                     if (pen.fg_tc || (!pen.has_fg || pen.fg_idx != fg16)) add(30 + fg_base);
                     if (pen.bg_tc || (!pen.has_bg || pen.bg_idx != bg16)) add(40 + bg_base);
                 }
@@ -1478,8 +1624,9 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 if (!params.empty())
                     EmitSgr(out_bytes, params);
 
-                pen.bold = want_bold;
-                pen.blink = want_blink;
+                pen.bold = want_bold16;
+                pen.blink = want_blink16;
+                pen.invert = want_invert;
                 pen.has_fg = true;
                 pen.has_bg = true;
                 pen.fg_idx = fg16;
@@ -1524,6 +1671,13 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             }
             else
             {
+                // Pure `...t` mode: attributes are emitted via SGR separately.
+                if (want_invert != pen.invert)
+                {
+                    EmitSgr(out_bytes, want_invert ? "7" : "27");
+                    pen.invert = want_invert;
+                }
+
                 // Pure `...t` mode: only emit `...t` for non-unset channels.
                 if (!fg_unset && (!pen.has_fg || pen.fg != want_fg || !pen.fg_tc))
                 {
@@ -1562,19 +1716,19 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             const int bg16 = NearestAnsi16Index(want_bg);
 
             // Map into classic SGR codes.
-            bool want_bold = false;
-            bool want_blink = false;
+            bool want_bold16 = false;
+            bool want_blink16 = false;
             int fg_base = fg16;
             int bg_base = bg16;
 
             if (options.ansi16_bright == ExportOptions::Ansi16Bright::BoldAndIceBlink)
             {
-                if (fg_base >= 8) { want_bold = true; fg_base -= 8; }
-                if (options.icecolors && bg_base >= 8) { want_blink = true; bg_base -= 8; }
+                if (fg_base >= 8) { want_bold16 = true; fg_base -= 8; }
+                if (options.icecolors && bg_base >= 8) { want_blink16 = true; bg_base -= 8; }
             }
 
             // If we need to turn attributes OFF, simplest is reset + rebuild.
-            if ((pen.bold && !want_bold) || (pen.blink && !want_blink))
+            if ((pen.bold && !want_bold16) || (pen.blink && !want_blink16))
             {
                 reset();
             }
@@ -1584,6 +1738,10 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 if (!params.empty()) params.push_back(';');
                 params += std::to_string(v);
             };
+
+            // Reverse video (SGR 7/27). (Other attrs are intentionally ignored in ANSI16 export.)
+            if (want_invert && !pen.invert) add(7);
+            if (!want_invert && pen.invert) add(27);
 
             if (options.ansi16_bright == ExportOptions::Ansi16Bright::Sgr90_100)
             {
@@ -1596,8 +1754,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             }
             else
             {
-                if (want_bold && !pen.bold) add(1);
-                if (want_blink && !pen.blink) add(5);
+                if (want_bold16 && !pen.bold) add(1);
+                if (want_blink16 && !pen.blink) add(5);
                 if (!pen.has_fg || pen.fg_idx != fg16) add(30 + fg_base);
                 if (!pen.has_bg || pen.bg_idx != bg16) add(40 + bg_base);
             }
@@ -1605,8 +1763,9 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (!params.empty())
                 EmitSgr(out_bytes, params);
 
-            pen.bold = want_bold;
-            pen.blink = want_blink;
+            pen.bold = want_bold16;
+            pen.blink = want_blink16;
+            pen.invert = want_invert;
             pen.has_fg = true;
             pen.has_bg = true;
             pen.fg_idx = fg16;
@@ -1625,6 +1784,30 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             params.append(s.begin(), s.end());
         };
         auto add_int = [&](int v) { add(std::to_string(v)); };
+
+        // Attributes (SGR effects).
+        //
+        // Notes:
+        // - We treat bold+dim as a coupled "intensity" group because SGR 22 resets both.
+        // - Attributes are emitted only for modern color modes (xterm256 / truecolor SGR),
+        //   and filtered by ExportOptions::attribute_mode above.
+        {
+            const bool need_reset22 = (pen.bold && !want_bold) || (pen.dim && !want_dim);
+            if (need_reset22)
+            {
+                add("22");
+                pen.bold = false;
+                pen.dim = false;
+            }
+            if (want_bold && !pen.bold) { add("1"); pen.bold = true; }
+            if (want_dim && !pen.dim)   { add("2"); pen.dim = true; }
+
+            if (pen.italic != want_italic) { add(want_italic ? "3" : "23"); pen.italic = want_italic; }
+            if (pen.underline != want_underline) { add(want_underline ? "4" : "24"); pen.underline = want_underline; }
+            if (pen.blink != want_blink) { add(want_blink ? "5" : "25"); pen.blink = want_blink; }
+            if (pen.invert != want_invert) { add(want_invert ? "7" : "27"); pen.invert = want_invert; }
+            if (pen.strike != want_strike) { add(want_strike ? "9" : "29"); pen.strike = want_strike; }
+        }
 
         // Foreground
         if (fg_unset && options.use_default_fg_39)
@@ -1724,7 +1907,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                     continue;
 
                 const bool bg_defaultish = (c.bg == 0) || (c.bg == DefaultBgForExport(options));
-                const bool interesting = !IsBlankish(c.cp) || !bg_defaultish;
+                const bool interesting = !IsBlankish(c.cp) || !bg_defaultish || (c.attrs != 0);
                 if (interesting)
                 {
                     x_end = x;
@@ -1743,7 +1926,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (options.compress && options.use_cursor_forward)
             {
                 const bool bg_defaultish = (c.bg == 0) || (c.bg == DefaultBgForExport(options));
-                if (c.cp == U' ' && bg_defaultish)
+                if (c.cp == U' ' && bg_defaultish && c.attrs == 0)
                 {
                     int run = 1;
                     while (x + run <= x_end)
@@ -1751,7 +1934,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                         ExportCell n;
                         (void)SampleCell(canvas, options, y, x + run, n);
                         const bool n_bg_defaultish = (n.bg == 0) || (n.bg == DefaultBgForExport(options));
-                        if (n.cp != U' ' || !n_bg_defaultish)
+                        if (n.cp != U' ' || !n_bg_defaultish || n.attrs != 0)
                             break;
                         run++;
                     }
@@ -1885,6 +2068,7 @@ const std::vector<Preset>& Presets()
             p.description = "Classic ANSI art interchange: CP437 bytes, 16-color SGR, CRLF, optional SAUCE.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.icecolors = true;
             p.export_.newline = ExportOptions::Newline::CRLF;
@@ -1903,6 +2087,7 @@ const std::vector<Preset>& Presets()
             p.description = "UTF-8 text with xterm indexed colors, remapping low-16 palette to stable 16..255; LF; no SAUCE by default.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
             p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.xterm_240_safe = true;
             p.export_.newline = ExportOptions::Newline::LF;
             p.export_.preserve_line_length = false;
@@ -1917,6 +2102,7 @@ const std::vector<Preset>& Presets()
             p.description = "UTF-8 text with xterm indexed colors 0..255; LF; no SAUCE by default.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
             p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.xterm_240_safe = false;
             p.export_.newline = ExportOptions::Newline::LF;
             p.export_.preserve_line_length = false;
@@ -1931,6 +2117,7 @@ const std::vector<Preset>& Presets()
             p.description = "UTF-8 text with standard-ish truecolor SGR; LF; no SAUCE by default.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
             p.export_.color_mode = ExportOptions::ColorMode::TrueColorSgr;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.newline = ExportOptions::Newline::LF;
             p.export_.preserve_line_length = false;
             p.export_.write_sauce = false;
@@ -1944,6 +2131,7 @@ const std::vector<Preset>& Presets()
             p.description = "Scene-friendly: CP437 + ANSI16 baseline (bold/iCE), with Pablo/Icy `...t` RGB overlay when needed; CRLF; SAUCE on.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.color_mode = ExportOptions::ColorMode::TrueColorPabloT;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.pablo_t_with_ansi16_fallback = true;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.icecolors = true;
@@ -1963,6 +2151,7 @@ const std::vector<Preset>& Presets()
             p.description = "Durdraw-style terminal output: UTF-8 + 38;5/48;5, LF, no SAUCE.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Utf8;
             p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.newline = ExportOptions::Newline::LF;
             p.export_.preserve_line_length = true; // Durdraw tends to be fixed-grid-ish per export.
             p.export_.write_sauce = false;
@@ -1977,6 +2166,7 @@ const std::vector<Preset>& Presets()
             p.description = "Moebius classic: CP437 + ANSI16 + CRLF + SAUCE (+^Z).";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.newline = ExportOptions::Newline::CRLF;
             p.export_.write_sauce = true;
@@ -1991,6 +2181,7 @@ const std::vector<Preset>& Presets()
             p.description = "PabloDraw-friendly: CP437 + ANSI16; allow cursor-forward compression on safe spaces; CRLF; optional SAUCE.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.color_mode = ExportOptions::ColorMode::Ansi16;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.newline = ExportOptions::Newline::CRLF;
             p.export_.preserve_line_length = false;
@@ -2007,6 +2198,7 @@ const std::vector<Preset>& Presets()
             p.description = "Icy-style modern output: UTF-8 (BOM) + xterm256 or truecolor; LF; SAUCE optional.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Utf8Bom;
             p.export_.color_mode = ExportOptions::ColorMode::Xterm256;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.newline = ExportOptions::Newline::LF;
             p.export_.preserve_line_length = false;
             p.export_.compress = true;

@@ -22,4 +22,20 @@ bool LoadColourPalettesFromJson(const char* path,
                                 std::vector<ColourPaletteDef>& out,
                                 std::string& error);
 
+// UI helper for rendering a colour swatch (palette grid cell) with:
+// - Left click / Enter: select "primary" (typically the active FG/BG)
+// - Right click / Shift+Enter: select "secondary" (the other of FG/BG)
+// - Optional foreground/background selection indicators (outline + corner triangles)
+struct ColourPaletteSwatchAction
+{
+    bool set_primary = false;
+    bool set_secondary = false;
+};
+
+ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
+                                                         const ImVec4& color,
+                                                         const ImVec2& size,
+                                                         bool mark_foreground,
+                                                         bool mark_background);
+
 

@@ -181,26 +181,30 @@ static inline int NormalizeLayerIndex(const AnsiCanvas& c, int layer_index)
     return layer_index;
 }
 
-static inline bool IsTransparentCellValue(char32_t cp, AnsiCanvas::Color32 fg, AnsiCanvas::Color32 bg)
+static inline bool IsTransparentCellValue(char32_t cp, AnsiCanvas::Color32 fg, AnsiCanvas::Color32 bg, AnsiCanvas::Attrs attrs)
 {
+    (void)attrs;
     // In this editor, a cell is considered "transparent" (no contribution) iff:
     // - glyph is space
     // - fg is unset (0)
     // - bg is unset (0)
     // Note: space with a non-zero bg is visually opaque (background fill).
+    //
+    // IMPORTANT: attributes alone do NOT make a cell opaque for compositing/transparency-lock.
+    // A space cell remains transparent even if attrs are set.
     return (cp == U' ') && (fg == 0) && (bg == 0);
 }
 
 // When a layer has "transparency lock" enabled, mutations must not change a cell's
 // transparency state (transparent <-> opaque).
 static inline bool TransparencyTransitionAllowed(bool lock_transparency,
-                                                char32_t old_cp, AnsiCanvas::Color32 old_fg, AnsiCanvas::Color32 old_bg,
-                                                char32_t new_cp, AnsiCanvas::Color32 new_fg, AnsiCanvas::Color32 new_bg)
+                                                char32_t old_cp, AnsiCanvas::Color32 old_fg, AnsiCanvas::Color32 old_bg, AnsiCanvas::Attrs old_attrs,
+                                                char32_t new_cp, AnsiCanvas::Color32 new_fg, AnsiCanvas::Color32 new_bg, AnsiCanvas::Attrs new_attrs)
 {
     if (!lock_transparency)
         return true;
-    const bool old_t = IsTransparentCellValue(old_cp, old_fg, old_bg);
-    const bool new_t = IsTransparentCellValue(new_cp, new_fg, new_bg);
+    const bool old_t = IsTransparentCellValue(old_cp, old_fg, old_bg, old_attrs);
+    const bool new_t = IsTransparentCellValue(new_cp, new_fg, new_bg, new_attrs);
     return old_t == new_t;
 }
 

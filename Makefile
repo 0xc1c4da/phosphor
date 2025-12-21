@@ -115,8 +115,8 @@ DEPS     = $(OBJS:.o=.d)
 
 # SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd libcurl)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl) -ldl
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd libcurl md4c)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl md4c) -ldl
 
 # Optional, provided by the Nix dev shell (see flake.nix).
 # libnoise in nixpkgs is static-only, so we link it explicitly via these env vars.

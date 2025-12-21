@@ -28,6 +28,7 @@ struct GlobalClipboard
     std::vector<char32_t> cp;
     std::vector<AnsiCanvas::Color32> fg;
     std::vector<AnsiCanvas::Color32> bg;
+    std::vector<AnsiCanvas::Attrs> attrs;
 };
 
 // Shared across all canvases (translation-unit global).
@@ -110,7 +111,7 @@ bool AnsiCanvas::ClipboardHas()
     if (g_clipboard.w <= 0 || g_clipboard.h <= 0)
         return false;
     const size_t n = (size_t)g_clipboard.w * (size_t)g_clipboard.h;
-    return g_clipboard.cp.size() == n && g_clipboard.fg.size() == n && g_clipboard.bg.size() == n;
+    return g_clipboard.cp.size() == n && g_clipboard.fg.size() == n && g_clipboard.bg.size() == n && g_clipboard.attrs.size() == n;
 }
 
 AnsiCanvas::Rect AnsiCanvas::ClipboardRect()
@@ -146,6 +147,7 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
     g_clipboard.cp.assign(n, U' ');
     g_clipboard.fg.assign(n, 0);
     g_clipboard.bg.assign(n, 0);
+    g_clipboard.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
     for (int j = 0; j < h; ++j)
@@ -169,6 +171,8 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
                 g_clipboard.fg[out] = layer.fg[idx];
             if (idx < layer.bg.size())
                 g_clipboard.bg[out] = layer.bg[idx];
+            if (idx < layer.attrs.size())
+                g_clipboard.attrs[out] = layer.attrs[idx];
         }
     }
     return true;
@@ -193,6 +197,7 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
     g_clipboard.cp.assign(n, U' ');
     g_clipboard.fg.assign(n, 0);
     g_clipboard.bg.assign(n, 0);
+    g_clipboard.attrs.assign(n, 0);
 
     for (int j = 0; j < h; ++j)
     {
@@ -209,6 +214,7 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
             g_clipboard.cp[out] = c.cp;
             g_clipboard.fg[out] = c.fg;
             g_clipboard.bg[out] = c.bg;
+            g_clipboard.attrs[out] = c.attrs;
         }
     }
     return true;
@@ -258,15 +264,19 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
             const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
             const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const char32_t new_cp = U' ';
             const Color32  new_fg = 0;
             const Color32  new_bg = 0;
+            const Attrs    new_attrs = 0;
 
-            if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                              old_cp, old_fg, old_bg, old_attrs,
+                                              new_cp, new_fg, new_bg, new_attrs))
                 continue;
 
-            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
                 continue; // no-op
 
             prepare();
@@ -281,6 +291,8 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
                 layer.fg[widx] = new_fg;
             if (widx < layer.bg.size())
                 layer.bg[widx] = new_bg;
+            if (widx < layer.attrs.size())
+                layer.attrs[widx] = new_attrs;
             did_anything = true;
         }
     return did_anything;
@@ -348,22 +360,27 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
             const char32_t old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : U' ';
             const Color32  old_fg = (in_bounds && dst < layer.fg.size())    ? layer.fg[dst]    : 0;
             const Color32  old_bg = (in_bounds && dst < layer.bg.size())    ? layer.bg[dst]    : 0;
+            const Attrs    old_attrs = (in_bounds && dst < layer.attrs.size()) ? layer.attrs[dst] : 0;
 
             char32_t new_cp = old_cp;
             Color32  new_fg = old_fg;
             Color32  new_bg = old_bg;
+            Attrs    new_attrs = old_attrs;
             if (mode == PasteMode::Both || mode == PasteMode::CharOnly)
                 new_cp = cp;
             if (mode == PasteMode::Both || mode == PasteMode::ColorOnly)
             {
                 new_fg = g_clipboard.fg[s];
                 new_bg = g_clipboard.bg[s];
+                new_attrs = g_clipboard.attrs[s];
             }
 
-            if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                              old_cp, old_fg, old_bg, old_attrs,
+                                              new_cp, new_fg, new_bg, new_attrs))
                 continue;
 
-            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
                 continue;
 
             prepare();
@@ -378,6 +395,8 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
                 layer.fg[widx] = new_fg;
             if (widx < layer.bg.size())
                 layer.bg[widx] = new_bg;
+            if (widx < layer.attrs.size())
+                layer.attrs[widx] = new_attrs;
             did_anything = true;
         }
 
@@ -443,6 +462,8 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                 mv.cells[out].fg = layer.fg[idx];
             if (idx < layer.bg.size())
                 mv.cells[out].bg = layer.bg[idx];
+            if (idx < layer.attrs.size())
+                mv.cells[out].attrs = layer.attrs[idx];
         }
 
     if (mv.cut)
@@ -474,14 +495,18 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                 const char32_t old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : U' ';
                 const Color32  old_fg = (in_bounds && idx < mut.fg.size())    ? mut.fg[idx]    : 0;
                 const Color32  old_bg = (in_bounds && idx < mut.bg.size())    ? mut.bg[idx]    : 0;
+                const Attrs    old_attrs = (in_bounds && idx < mut.attrs.size()) ? mut.attrs[idx] : 0;
                 const char32_t new_cp = U' ';
                 const Color32  new_fg = 0;
                 const Color32  new_bg = 0;
+                const Attrs    new_attrs = 0;
 
-                if (!TransparencyTransitionAllowed(mut.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+                if (!TransparencyTransitionAllowed(mut.lock_transparency,
+                                                  old_cp, old_fg, old_bg, old_attrs,
+                                                  new_cp, new_fg, new_bg, new_attrs))
                     continue;
 
-                if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+                if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
                     continue;
 
                 prepare();
@@ -496,6 +521,8 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                     mut.fg[widx] = new_fg;
                 if (widx < mut.bg.size())
                     mut.bg[widx] = new_bg;
+                if (widx < mut.attrs.size())
+                    mut.attrs[widx] = new_attrs;
             }
     }
 
@@ -563,15 +590,19 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
             const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
             const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const char32_t new_cp = src.cp;
             const Color32  new_fg = src.fg;
             const Color32  new_bg = src.bg;
+            const Attrs    new_attrs = src.attrs;
 
-            if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                              old_cp, old_fg, old_bg, old_attrs,
+                                              new_cp, new_fg, new_bg, new_attrs))
                 continue;
 
-            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
                 continue;
 
             prepare();
@@ -586,6 +617,8 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
                 layer.fg[widx] = new_fg;
             if (widx < layer.bg.size())
                 layer.bg[widx] = new_bg;
+            if (widx < layer.attrs.size())
+                layer.attrs[widx] = new_attrs;
             did_anything = true;
         }
 
@@ -641,15 +674,19 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                     const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
                     const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
                     const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+                    const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
                     const char32_t new_cp = src.cp;
                     const Color32  new_fg = src.fg;
                     const Color32  new_bg = src.bg;
+                    const Attrs    new_attrs = src.attrs;
 
-                    if (!TransparencyTransitionAllowed(layer.lock_transparency, old_cp, old_fg, old_bg, new_cp, new_fg, new_bg))
+                    if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                                      old_cp, old_fg, old_bg, old_attrs,
+                                                      new_cp, new_fg, new_bg, new_attrs))
                         continue;
 
-                    if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+                    if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
                         continue;
 
                     prepare();
@@ -664,6 +701,8 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                         layer.fg[widx] = new_fg;
                     if (widx < layer.bg.size())
                         layer.bg[widx] = new_bg;
+                    if (widx < layer.attrs.size())
+                        layer.attrs[widx] = new_attrs;
                     did_anything = true;
                 }
             (void)did_anything;

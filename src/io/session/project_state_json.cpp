@@ -80,6 +80,7 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
 
     jl["fg"] = l.fg;
     jl["bg"] = l.bg;
+    jl["attrs"] = l.attrs;
     return jl;
 }
 
@@ -142,6 +143,8 @@ static bool ProjectLayerFromJson(const json& jl, AnsiCanvas::ProjectLayer& out, 
         out.fg = jl["fg"].get<std::vector<AnsiCanvas::Color32>>();
     if (jl.contains("bg") && jl["bg"].is_array())
         out.bg = jl["bg"].get<std::vector<AnsiCanvas::Color32>>();
+    if (jl.contains("attrs") && jl["attrs"].is_array())
+        out.attrs = jl["attrs"].get<std::vector<AnsiCanvas::Attrs>>();
 
     // If missing, AnsiCanvas::SetProjectState will default these to all-zero.
     return true;
@@ -243,6 +246,7 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
             jp["cells"] = std::move(cells);
             jp["fg"] = pg.fg;
             jp["bg"] = pg.bg;
+            jp["attrs"] = pg.attrs;
             pages.push_back(std::move(jp));
         }
         je["pages"] = std::move(pages);
@@ -344,6 +348,8 @@ static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectU
                     pg.fg = jp["fg"].get<std::vector<AnsiCanvas::Color32>>();
                 if (jp.contains("bg") && jp["bg"].is_array())
                     pg.bg = jp["bg"].get<std::vector<AnsiCanvas::Color32>>();
+                if (jp.contains("attrs") && jp["attrs"].is_array())
+                    pg.attrs = jp["attrs"].get<std::vector<AnsiCanvas::Attrs>>();
                 p.pages.push_back(std::move(pg));
             }
         }

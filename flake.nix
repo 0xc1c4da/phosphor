@@ -36,6 +36,7 @@
           luajit
           zstd
           libnoise
+          md4c
         ];
 
         phosphor = pkgs.stdenv.mkDerivation {

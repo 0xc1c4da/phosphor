@@ -97,6 +97,20 @@ bool ImportFileToCanvas(const std::string& path,
 // ---------------------------------------------------------------------------
 struct ExportOptions
 {
+    // Which SGR attribute codes we will emit (independent of color mode).
+    //
+    // Rationale:
+    // - "Classic" DOS-era drivers (ANSI.SYS / BBSes) widely supported only a small subset:
+    //     0 reset, 1 bold/bright (often mapped to high-intensity colors), 5 blink (often used for iCE),
+    //     7 reverse video.
+    // - Modern terminals support the larger set (dim/italic/underline/strikethrough and per-attr resets).
+    enum class AttributeMode
+    {
+        ClassicDos = 0,
+        Modern,
+    };
+    AttributeMode attribute_mode = AttributeMode::Modern;
+
     enum class Source
     {
         // Export the composited "what you see" result (visible layers composited; spaces are transparent).

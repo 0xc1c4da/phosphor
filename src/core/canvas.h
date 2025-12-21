@@ -31,6 +31,21 @@ public:
     //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
     using Color32 = std::uint32_t;
 
+    // Per-cell attribute bitmask (stored alongside glyph + fg/bg).
+    // These correspond to ANSI SGR effects (m-codes).
+    using Attrs = std::uint16_t;
+    enum Attr : Attrs
+    {
+        Attr_None          = 0,
+        Attr_Bold          = 1u << 0, // SGR 1  (reset: 22)
+        Attr_Dim           = 1u << 1, // SGR 2  (reset: 22)
+        Attr_Italic        = 1u << 2, // SGR 3  (reset: 23)
+        Attr_Underline     = 1u << 3, // SGR 4  (reset: 24)
+        Attr_Blink         = 1u << 4, // SGR 5  (reset: 25)
+        Attr_Reverse       = 1u << 5, // SGR 7  (reset: 27)
+        Attr_Strikethrough = 1u << 6, // SGR 9  (reset: 29)
+    };
+
     // Embedded bitmap font support (used by XBin and other binary formats).
     //
     // Some formats (notably XBin) can embed a raw 1bpp bitmap font table where the on-disk
@@ -164,6 +179,8 @@ public:
     // Composite cell sampling (used by preview/minimap).
     // Returns false if out of bounds.
     bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const;
+    // Extended composite sampling including attributes.
+    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg, Attrs& out_attrs) const;
 
     // ---------------------------------------------------------------------
     // Content revision (for minimaps/caches)
@@ -259,6 +276,7 @@ public:
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
+        std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
     struct ProjectSnapshot
@@ -274,7 +292,7 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 5;
+        int                     version = 6;
 
         // Optional: UI colour palette identity (from assets/color-palettes.json).
         // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
@@ -349,6 +367,7 @@ public:
                 std::vector<char32_t> cells;
                 std::vector<Color32>  fg;
                 std::vector<Color32>  bg;
+                std::vector<Attrs>    attrs;
             };
             struct Patch
             {
@@ -452,9 +471,14 @@ public:
     // Sets glyph + optional foreground/background colors for the cell.
     // Pass 0 for fg/bg to leave them "unset" (default fg / transparent bg).
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg);
+    // Sets glyph + colors + attributes for the cell.
+    // Pass 0 for fg/bg to leave them "unset". Pass 0 for attrs for "no attributes".
+    bool     SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg, Attrs attrs);
     char32_t GetLayerCell(int layer_index, int row, int col) const;
     // Returns false if `layer_index` is invalid or out of bounds.
     bool     GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const;
+    // Returns false if `layer_index` is invalid or out of bounds.
+    bool     GetLayerCellAttrs(int layer_index, int row, int col, Attrs& out_attrs) const;
     // Clears fg/bg style for a cell (sets to 0/unset). Returns false if layer_index invalid.
     bool     ClearLayerCellStyle(int layer_index, int row, int col);
 
@@ -603,6 +627,7 @@ private:
         std::vector<char32_t> cells; // size == rows * columns
         std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
         std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
+        std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
     struct Snapshot
@@ -651,6 +676,7 @@ private:
             std::vector<char32_t> cells;
             std::vector<Color32>  fg;
             std::vector<Color32>  bg;
+            std::vector<Attrs>    attrs;
         };
         struct Patch
         {
@@ -768,6 +794,7 @@ private:
         char32_t cp = U' ';
         Color32  fg = 0;
         Color32  bg = 0;
+        Attrs    attrs = 0;
     };
 
     // Floating selection state for interactive move/copy preview (per-canvas, transient).
@@ -830,6 +857,7 @@ private:
         char32_t cp = U' ';
         Color32  fg = 0;
         Color32  bg = 0;
+        Attrs    attrs = 0;
     };
 
     CompositeCell GetCompositeCell(int row, int col) const;

@@ -14,6 +14,28 @@
 namespace appui
 {
 
+// Some window managers ignore maximize requests while the window is still in the
+// fullscreen transition. We opportunistically maximize immediately, but also
+// retry once SDL reports we're no longer fullscreen.
+static bool g_pending_maximize_after_fullscreen_exit = false;
+
+static void MaybeApplyPendingMaximize(SDL_Window* window, SessionState& session_state)
+{
+    if (!g_pending_maximize_after_fullscreen_exit)
+        return;
+
+    const SDL_WindowFlags wf = SDL_GetWindowFlags(window);
+    if ((wf & SDL_WINDOW_FULLSCREEN) != 0)
+        return;
+
+    // Either we're already maximized (e.g. WM applied it asynchronously), or we can request it now.
+    if ((wf & SDL_WINDOW_MAXIMIZED) == 0)
+        SDL_MaximizeWindow(window);
+
+    session_state.window_maximized = true;
+    g_pending_maximize_after_fullscreen_exit = false;
+}
+
 std::string ShortcutForAction(const kb::KeyBindingsEngine& keybinds,
                               std::string_view action_id,
                               std::string_view preferred_context)
@@ -101,6 +123,8 @@ void RenderMainMenuBar(SDL_Window* window,
                        bool& show_16colors_browser_window,
                        const std::function<void()>& create_new_canvas)
 {
+    MaybeApplyPendingMaximize(window, session_state);
+
     const int requested_top_menu = RequestedTopMenu(keybinds);
 
     if (!ImGui::BeginMainMenuBar())
@@ -246,6 +270,7 @@ void RenderMainMenuBar(SDL_Window* window,
         ImGui::Separator();
         if (ImGui::MenuItem("Fullscreen", nullptr, &window_fullscreen))
         {
+            const bool exiting_fullscreen = !window_fullscreen;
             if (!SDL_SetWindowFullscreen(window, window_fullscreen))
             {
                 // Revert UI state if the window manager denies the request.
@@ -255,6 +280,13 @@ void RenderMainMenuBar(SDL_Window* window,
             {
                 // Persist immediately in-memory; file is written at shutdown.
                 session_state.window_fullscreen = window_fullscreen;
+
+                if (exiting_fullscreen)
+                {
+                    // Best-effort: request maximize now, and retry once fullscreen is fully cleared.
+                    SDL_MaximizeWindow(window);
+                    g_pending_maximize_after_fullscreen_exit = true;
+                }
             }
         }
         ImGui::EndMenu();
@@ -285,6 +317,8 @@ void HandleKeybindings(SDL_Window* window,
                        ImVec4& bg_color,
                        const std::function<void()>& create_new_canvas)
 {
+    MaybeApplyPendingMaximize(window, session_state);
+
     const bool any_popup =
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
@@ -356,10 +390,19 @@ void HandleKeybindings(SDL_Window* window,
         if (keybinds.ActionPressed("view.fullscreen_toggle", kctx))
         {
             window_fullscreen = !window_fullscreen;
+            const bool exiting_fullscreen = !window_fullscreen;
             if (!SDL_SetWindowFullscreen(window, window_fullscreen))
                 window_fullscreen = !window_fullscreen;
             else
+            {
                 session_state.window_fullscreen = window_fullscreen;
+
+                if (exiting_fullscreen)
+                {
+                    SDL_MaximizeWindow(window);
+                    g_pending_maximize_after_fullscreen_exit = true;
+                }
+            }
         }
         if (keybinds.ActionPressed("ui.toggle_preview", kctx))
             show_minimap_window = !show_minimap_window;

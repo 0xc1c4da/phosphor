@@ -82,6 +82,22 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
     return true;
 }
 
+bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg, Attrs& out_attrs) const
+{
+    out_cp = U' ';
+    out_fg = 0;
+    out_bg = 0;
+    out_attrs = 0;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_cp = c.cp;
+    out_fg = c.fg;
+    out_bg = c.bg;
+    out_attrs = c.attrs;
+    return true;
+}
+
 // ---- end inlined from canvas_core.inc ----
 
 

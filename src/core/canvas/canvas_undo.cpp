@@ -234,6 +234,7 @@ void AnsiCanvas::CaptureUndoPageIfNeeded(int layer_index, int row)
     page_data.cells.assign(n, U' ');
     page_data.fg.assign(n, 0);
     page_data.bg.assign(n, 0);
+    page_data.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
     for (int r = 0; r < row_count; ++r)
@@ -248,6 +249,7 @@ void AnsiCanvas::CaptureUndoPageIfNeeded(int layer_index, int row)
             if (idx < layer.cells.size()) page_data.cells[out] = layer.cells[idx];
             if (idx < layer.fg.size())    page_data.fg[out]    = layer.fg[idx];
             if (idx < layer.bg.size())    page_data.bg[out]    = layer.bg[idx];
+            if (idx < layer.attrs.size()) page_data.attrs[out] = layer.attrs[idx];
         }
     }
 
@@ -322,6 +324,7 @@ bool AnsiCanvas::Undo()
             outp.cells.assign(n, U' ');
             outp.fg.assign(n, 0);
             outp.bg.assign(n, 0);
+            outp.attrs.assign(n, 0);
             if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
             {
                 const Layer& layer = m_layers[(size_t)outp.layer];
@@ -337,6 +340,7 @@ bool AnsiCanvas::Undo()
                         if (idx < layer.cells.size()) outp.cells[outi] = layer.cells[idx];
                         if (idx < layer.fg.size())    outp.fg[outi]    = layer.fg[idx];
                         if (idx < layer.bg.size())    outp.bg[outi]    = layer.bg[idx];
+                        if (idx < layer.attrs.size()) outp.attrs[outi] = layer.attrs[idx];
                     }
                 }
             }
@@ -388,7 +392,7 @@ bool AnsiCanvas::Undo()
             if (row_count <= 0 || cols <= 0)
                 continue;
             const size_t expected = (size_t)row_count * (size_t)cols;
-            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected)
+            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected || pg.attrs.size() != expected)
                 continue;
             if (start_row >= m_rows)
                 continue;
@@ -406,6 +410,7 @@ bool AnsiCanvas::Undo()
                     if (idx < layer.cells.size()) layer.cells[idx] = pg.cells[src];
                     if (idx < layer.fg.size())    layer.fg[idx]    = pg.fg[src];
                     if (idx < layer.bg.size())    layer.bg[idx]    = pg.bg[src];
+                    if (idx < layer.attrs.size()) layer.attrs[idx] = pg.attrs[src];
                 }
             }
         }
@@ -479,6 +484,7 @@ bool AnsiCanvas::Redo()
             outp.cells.assign(n, U' ');
             outp.fg.assign(n, 0);
             outp.bg.assign(n, 0);
+            outp.attrs.assign(n, 0);
             if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
             {
                 const Layer& layer = m_layers[(size_t)outp.layer];
@@ -494,6 +500,7 @@ bool AnsiCanvas::Redo()
                         if (idx < layer.cells.size()) outp.cells[outi] = layer.cells[idx];
                         if (idx < layer.fg.size())    outp.fg[outi]    = layer.fg[idx];
                         if (idx < layer.bg.size())    outp.bg[outi]    = layer.bg[idx];
+                        if (idx < layer.attrs.size()) outp.attrs[outi] = layer.attrs[idx];
                     }
                 }
             }
@@ -547,7 +554,7 @@ bool AnsiCanvas::Redo()
             if (row_count <= 0 || cols <= 0)
                 continue;
             const size_t expected = (size_t)row_count * (size_t)cols;
-            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected)
+            if (pg.cells.size() != expected || pg.fg.size() != expected || pg.bg.size() != expected || pg.attrs.size() != expected)
                 continue;
             if (start_row >= m_rows)
                 continue;
@@ -565,6 +572,7 @@ bool AnsiCanvas::Redo()
                     if (idx < layer.cells.size()) layer.cells[idx] = pg.cells[src];
                     if (idx < layer.fg.size())    layer.fg[idx]    = pg.fg[src];
                     if (idx < layer.bg.size())    layer.bg[idx]    = pg.bg[src];
+                    if (idx < layer.attrs.size()) layer.attrs[idx] = pg.attrs[src];
                 }
             }
         }

@@ -1,6 +1,7 @@
 #include "app/run_frame.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <unordered_set>
@@ -1087,24 +1088,35 @@ void RunFrame(AppState& st)
         ImVec4& pal_primary   = (active_fb == 0) ? fg_color : bg_color;
         ImVec4& pal_secondary = (active_fb == 0) ? bg_color : fg_color;
 
+        ImGui::TextDisabled("Enter/LMB: set active (%s)    Shift+Enter/RMB: set %s",
+                            (active_fb == 0) ? "FG" : "BG",
+                            (active_fb == 0) ? "BG" : "FG");
+
+        auto same_rgb = [](const ImVec4& a, const ImVec4& b) -> bool {
+            // Colors are normalized floats; compare with ~0.5/255 tolerance.
+            const float eps = 0.002f;
+            return (std::fabs(a.x - b.x) <= eps) &&
+                   (std::fabs(a.y - b.y) <= eps) &&
+                   (std::fabs(a.z - b.z) <= eps);
+        };
+
         for (int n = 0; n < count; n++)
         {
             ImGui::PushID(n);
             if (n % cols != 0)
-                ImGui::SameLine(0.0f, style.ItemSpacing.y);
+                ImGui::SameLine(0.0f, style.ItemSpacing.x);
 
-            ImGuiColorEditFlags palette_button_flags =
-                ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoPicker | ImGuiColorEditFlags_NoTooltip;
-            bool left_clicked = ImGui::ColorButton("##palette", saved_palette[n],
-                                                   palette_button_flags, button_size);
-            if (left_clicked)
+            const bool mark_fg = same_rgb(saved_palette[n], fg_color);
+            const bool mark_bg = same_rgb(saved_palette[n], bg_color);
+            const ColourPaletteSwatchAction a =
+                RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg);
+            if (a.set_primary)
             {
                 pal_primary.x = saved_palette[n].x;
                 pal_primary.y = saved_palette[n].y;
                 pal_primary.z = saved_palette[n].z;
             }
-
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+            if (a.set_secondary)
             {
                 pal_secondary.x = saved_palette[n].x;
                 pal_secondary.y = saved_palette[n].y;
