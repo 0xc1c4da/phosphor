@@ -35,6 +35,7 @@
 
 #include "ui/ansl_editor.h"
 #include "ui/ansl_params_ui.h"
+#include "ui/brush_palette_window.h"
 #include "ui/character_palette.h"
 #include "ui/character_picker.h"
 #include "ui/character_set.h"
@@ -84,6 +85,7 @@ void RunFrame(AppState& st)
     MinimapWindow& minimap_window = *st.ui.minimap_window;
     CanvasPreviewTexture& preview_texture = *st.ui.preview_texture;
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
+    BrushPaletteWindow& brush_palette = *st.ui.brush_palette_window;
 
     auto& canvases = *st.workspace.canvases;
     auto& images = *st.workspace.images;
@@ -100,6 +102,7 @@ void RunFrame(AppState& st)
     bool& show_layer_manager_window = *st.toggles.show_layer_manager_window;
     bool& show_ansl_editor_window = *st.toggles.show_ansl_editor_window;
     bool& show_tool_palette_window = *st.toggles.show_tool_palette_window;
+    bool& show_brush_palette_window = *st.toggles.show_brush_palette_window;
     bool& show_minimap_window = *st.toggles.show_minimap_window;
     bool& show_settings_window = *st.toggles.show_settings_window;
     bool& show_16colors_browser_window = *st.toggles.show_16colors_browser_window;
@@ -154,6 +157,7 @@ void RunFrame(AppState& st)
 
     std::uint32_t& tool_brush_cp = *st.tools.tool_brush_cp;
     std::string& tool_brush_utf8 = *st.tools.tool_brush_utf8;
+    std::uint32_t& tool_attrs_mask = *st.tools.tool_attrs_mask;
 
     std::string& tools_error = *st.tools.tools_error;
     std::string& tool_compile_error = *st.tools.tool_compile_error;
@@ -386,6 +390,30 @@ void RunFrame(AppState& st)
         }
     }
 
+    // If the active canvas window changes, switch the global tool brush glyph and keep
+    // picker/palette selections synchronized with that canvas' stored active glyph.
+    {
+        static int s_prev_active_canvas_id = -999999;
+        const int cur_id = active_canvas_window ? active_canvas_window->id : -1;
+        if (cur_id != s_prev_active_canvas_id)
+        {
+            s_prev_active_canvas_id = cur_id;
+            if (active_canvas)
+            {
+                tool_brush_cp = active_canvas->GetActiveGlyphCodePoint();
+                if (tool_brush_cp == 0)
+                    tool_brush_cp = (std::uint32_t)U' ';
+                tool_brush_utf8 = active_canvas->GetActiveGlyphUtf8();
+                if (tool_brush_utf8.empty())
+                    tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+
+                character_picker.RestoreSelectedCodePoint(tool_brush_cp);
+                character_palette.SyncSelectionFromActiveGlyph(tool_brush_cp, tool_brush_utf8, active_canvas);
+                character_sets.OnExternalSelectedCodePoint(tool_brush_cp);
+            }
+        }
+    }
+
     // Apply the user's global undo limit preference to all open canvases.
     // Convention: 0 = unlimited.
     for (auto& cptr : canvases)
@@ -450,6 +478,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetColumns(80);
         canvas_window->canvas.EnsureRowsPublic(25);
         canvas_window->canvas.MarkSaved();
+        canvas_window->canvas.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
 
         last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
@@ -466,6 +495,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
         canvas_window->canvas.MarkSaved();
+        canvas_window->canvas.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
         last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
     };
@@ -491,6 +521,7 @@ void RunFrame(AppState& st)
                              show_layer_manager_window,
                              show_ansl_editor_window,
                              show_tool_palette_window,
+                             show_brush_palette_window,
                              show_minimap_window,
                              show_settings_window,
                              show_16colors_browser_window,
@@ -741,6 +772,8 @@ void RunFrame(AppState& st)
             character_sets.OnExternalSelectedCodePoint(cp);
             tool_brush_cp = cp;
             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            if (active_canvas)
+                active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
         }
     }
 
@@ -768,6 +801,8 @@ void RunFrame(AppState& st)
                 // Use the palette's stored UTF-8 string directly (supports multi-codepoint glyphs,
                 // and avoids any encode/decode mismatch).
                 tool_brush_utf8 = (!utf8.empty()) ? utf8 : ansl::utf8::encode((char32_t)tool_brush_cp);
+                if (active_canvas)
+                    active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
             }
             else
             {
@@ -776,6 +811,8 @@ void RunFrame(AppState& st)
                 character_sets.OnExternalSelectedCodePoint(cp);
                 tool_brush_cp = cp;
                 tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+                if (active_canvas)
+                    active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
             }
         }
     }
@@ -798,6 +835,8 @@ void RunFrame(AppState& st)
             character_palette.OnPickerSelectedCodePoint(cp);
             tool_brush_cp = cp;
             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+            if (active_canvas)
+                active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
         }
     }
 
@@ -1385,10 +1424,24 @@ void RunFrame(AppState& st)
             ctx.focused = c.HasFocus();
             ctx.fg = fg_idx;
             ctx.bg = bg_idx;
-            ctx.brush_utf8 = tool_brush_utf8;
-            ctx.brush_cp = (int)tool_brush_cp;
+            ctx.glyph_utf8 = tool_brush_utf8;
+            ctx.glyph_cp = (int)tool_brush_cp;
+            ctx.attrs = tool_attrs_mask;
             ctx.palette_xterm = nullptr;
             ctx.allow_caret_writeback = true;
+            // Multi-cell brush stamp (optional; provided by the canvas).
+            AnslFrameContext::BrushStamp stamp;
+            ctx.brush = nullptr;
+            if (const AnsiCanvas::Brush* b = c.GetCurrentBrush())
+            {
+                stamp.w = b->w;
+                stamp.h = b->h;
+                stamp.cp = b->cp.data();
+                stamp.fg = b->fg.data();
+                stamp.bg = b->bg.data();
+                stamp.attrs = b->attrs.data();
+                ctx.brush = &stamp;
+            }
 
             c.GetCaretCell(ctx.caret_x, ctx.caret_y);
 
@@ -1544,6 +1597,7 @@ void RunFrame(AppState& st)
                             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
                             character_palette.OnPickerSelectedCodePoint(cp);
                             character_sets.OnExternalSelectedCodePoint(cp);
+                            c.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
                         }
                     } break;
                     case ToolCommand::Type::PaletteSet:
@@ -1552,6 +1606,10 @@ void RunFrame(AppState& st)
                             apply_idx_to_color(cmd.fg, fg_color);
                         if (cmd.has_bg)
                             apply_idx_to_color(cmd.bg, bg_color);
+                    } break;
+                    case ToolCommand::Type::AttrsSet:
+                    {
+                        tool_attrs_mask = cmd.attrs;
                     } break;
                     case ToolCommand::Type::ToolActivatePrev:
                     {
@@ -1577,6 +1635,7 @@ void RunFrame(AppState& st)
                             char32_t cp = U' ';
                             AnsiCanvas::Color32 fg = 0;
                             AnsiCanvas::Color32 bg = 0;
+                            AnsiCanvas::Attrs attrs = 0;
                         };
 
                         const int layer_count = c.GetLayerCount();
@@ -1595,6 +1654,7 @@ void RunFrame(AppState& st)
                                     CropCell cell;
                                     cell.cp = c.GetLayerCell(li, sy, sx);
                                     (void)c.GetLayerCellColors(li, sy, sx, cell.fg, cell.bg);
+                                    (void)c.GetLayerCellAttrs(li, sy, sx, cell.attrs);
                                     saved[(size_t)li][idx] = cell;
                                 }
                         }
@@ -1613,8 +1673,8 @@ void RunFrame(AppState& st)
                                     if (idx >= cells.size())
                                         continue;
                                     const CropCell& cell = cells[idx];
-                                    if (cell.fg != 0 || cell.bg != 0)
-                                        (void)c.SetLayerCell(li, y, x, cell.cp, cell.fg, cell.bg);
+                                    if (cell.fg != 0 || cell.bg != 0 || cell.attrs != 0)
+                                        (void)c.SetLayerCell(li, y, x, cell.cp, cell.fg, cell.bg, cell.attrs);
                                     else
                                         (void)c.SetLayerCell(li, y, x, cell.cp);
                                 }
@@ -1749,6 +1809,15 @@ void RunFrame(AppState& st)
                                           return cwptr && should_close(cwptr->id);
                                       }),
                       canvases.end());
+    }
+
+    // Brush Palette window
+    if (show_brush_palette_window)
+    {
+        const char* name = "Brush Palette";
+        AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
+        brush_palette.Render(name, &show_brush_palette_window, ui_active_canvas,
+                             &session_state, should_apply_placement(name));
     }
 
     // Layer Manager window
@@ -1927,6 +1996,7 @@ void RunFrame(AppState& st)
                                                          show_layer_manager_window,
                                                          show_ansl_editor_window,
                                                          show_tool_palette_window,
+                                                         show_brush_palette_window,
                                                          show_minimap_window,
                                                          show_settings_window,
                                                          show_16colors_browser_window,

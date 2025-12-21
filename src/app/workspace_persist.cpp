@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "ansl/ansl_native.h"
 #include "io/image_loader.h"
 #include "io/session/open_canvas_cache.h"
 #include "io/session/open_canvas_codec.h"
@@ -36,6 +37,17 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
             cw->canvas.SetFilePath(oc.file_path);
         // Loaded/restored canvases are "clean" until the user edits.
         cw->canvas.MarkSaved();
+
+        // Per-canvas active glyph selection (tools brush).
+        {
+            std::uint32_t cp = oc.active_glyph_cp;
+            if (cp == 0)
+                cp = (std::uint32_t)U' ';
+            std::string utf8 = oc.active_glyph_utf8;
+            if (utf8.empty())
+                utf8 = ansl::utf8::encode((char32_t)cp);
+            cw->canvas.SetActiveGlyph(cp, std::move(utf8));
+        }
 
         // Prefer cache-backed restore (fast session.json parse, project loaded lazily).
         if (!oc.project_phos_cache_rel.empty())
@@ -116,6 +128,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             bool show_layer_manager_window,
                             bool show_ansl_editor_window,
                             bool show_tool_palette_window,
+                            bool show_brush_palette_window,
                             bool show_minimap_window,
                             bool show_settings_window,
                             bool show_16colors_browser_window,
@@ -156,6 +169,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
     st.show_layer_manager_window = show_layer_manager_window;
     st.show_ansl_editor_window = show_ansl_editor_window;
     st.show_tool_palette_window = show_tool_palette_window;
+    st.show_brush_palette_window = show_brush_palette_window;
     st.show_minimap_window = show_minimap_window;
     st.show_settings_window = show_settings_window;
     st.show_16colors_browser_window = show_16colors_browser_window;
@@ -209,6 +223,8 @@ void SaveSessionStateOnExit(const SessionState& session_state,
         oc.file_path = cw.canvas.GetFilePath();
         oc.zoom = cw.canvas.GetZoom();
         oc.canvas_bg_white = cw.canvas.IsCanvasBackgroundWhite();
+        oc.active_glyph_cp = cw.canvas.GetActiveGlyphCodePoint();
+        oc.active_glyph_utf8 = cw.canvas.GetActiveGlyphUtf8();
         const auto& vs = cw.canvas.GetLastViewState();
         if (vs.valid)
         {

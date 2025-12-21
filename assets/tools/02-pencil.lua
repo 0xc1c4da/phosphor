@@ -29,7 +29,7 @@ local function clamp(v, a, b)
 end
 
 local function current_brush(ctx)
-  local b = ctx and ctx.brush or nil
+  local b = ctx and ctx.glyph or nil
   if type(b) ~= "string" or #b == 0 then
     return " "
   end
@@ -60,6 +60,12 @@ local function paint(ctx, layer, x, y, half_y_override)
   if not useFg or type(fg) ~= "number" then fg = nil end
   local bg = ctx.bg
   if not useBg or type(bg) ~= "number" then bg = nil end
+
+  -- Current attribute bitmask (0 = none).
+  local attrs = ctx.attrs
+  if type(attrs) ~= "number" then attrs = 0 end
+  attrs = math.floor(attrs)
+  if attrs < 0 then attrs = 0 end
 
   local cursor = ctx.cursor or {}
   local secondary = cursor.right == true
@@ -163,9 +169,17 @@ local function paint(ctx, layer, x, y, half_y_override)
     end
 
     if fg == nil and bg == nil then
-      layer:set(px, py, ch)
+      if attrs == 0 then
+        layer:set(px, py, ch)
+      else
+        layer:set(px, py, ch, nil, nil, attrs)
+      end
     else
-      layer:set(px, py, ch, fg, bg)
+      if attrs == 0 then
+        layer:set(px, py, ch, fg, bg)
+      else
+        layer:set(px, py, ch, fg, bg, attrs)
+      end
     end
   end
 
@@ -239,21 +253,41 @@ local function paint(ctx, layer, x, y, half_y_override)
     if is_blocky then
       -- If the other half already matches the paint color, collapse to a full block.
       if (paint_top and lower == col) or ((not paint_top) and upper == col) then
-        layer:set(hx, py, "█", col, 0)
+        if attrs == 0 then
+          layer:set(hx, py, "█", col, 0)
+        else
+          layer:set(hx, py, "█", col, 0, attrs)
+        end
         return
       end
       if paint_top then
-        layer:set(hx, py, "▀", col, lower)
+        if attrs == 0 then
+          layer:set(hx, py, "▀", col, lower)
+        else
+          layer:set(hx, py, "▀", col, lower, attrs)
+        end
       else
-        layer:set(hx, py, "▄", col, upper)
+        if attrs == 0 then
+          layer:set(hx, py, "▄", col, upper)
+        else
+          layer:set(hx, py, "▄", col, upper, attrs)
+        end
       end
     else
       -- Non-blocky cell: preserve the existing background (or fallback) for the other half.
       local base_bg = (cur_bg ~= nil) and cur_bg or fallback_bg
       if paint_top then
-        layer:set(hx, py, "▀", col, base_bg)
+        if attrs == 0 then
+          layer:set(hx, py, "▀", col, base_bg)
+        else
+          layer:set(hx, py, "▀", col, base_bg, attrs)
+        end
       else
-        layer:set(hx, py, "▄", col, base_bg)
+        if attrs == 0 then
+          layer:set(hx, py, "▄", col, base_bg)
+        else
+          layer:set(hx, py, "▄", col, base_bg, attrs)
+        end
       end
     end
   end
@@ -412,6 +446,10 @@ function render(ctx, layer)
           if not useFg or type(fg) ~= "number" then fg = nil end
           local bg = ctx.bg
           if not useBg or type(bg) ~= "number" then bg = nil end
+          local attrs = ctx.attrs
+          if type(attrs) ~= "number" then attrs = 0 end
+          attrs = math.floor(attrs)
+          if attrs < 0 then attrs = 0 end
 
           local brush = current_brush(ctx)
 
@@ -423,10 +461,10 @@ function render(ctx, layer)
             fg, bg = bg, fg
           end
 
-          if fg == nil and bg == nil then
+          if fg == nil and bg == nil and attrs == 0 then
             layer:set(caret.x, caret.y, brush)
           else
-            layer:set(caret.x, caret.y, brush, fg, bg)
+            layer:set(caret.x, caret.y, brush, fg, bg, attrs)
           end
         end
       end

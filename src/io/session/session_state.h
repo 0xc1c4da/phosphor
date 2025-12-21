@@ -83,6 +83,13 @@ struct SessionState
         // Canvas background (independent of ImGui theme). False = black, true = white.
         // Per-canvas-window instance setting (so multiple open canvases can differ).
         bool canvas_bg_white = false;
+
+        // Per-canvas "active glyph" (what tools draw with by default).
+        // - `active_glyph_cp` is the canvas codepoint (Unicode scalar), including PUA for embedded fonts.
+        // - `active_glyph_utf8` is the UTF-8 string used by tools (may be multi-codepoint).
+        //   If empty, the host should fall back to encoding `active_glyph_cp`.
+        std::uint32_t active_glyph_cp = 0; // 0 means "unset" (host should treat as space)
+        std::string   active_glyph_utf8;
     };
 
     struct OpenImage
@@ -109,6 +116,30 @@ struct SessionState
         std::string selected_example_path;
     };
 
+    // ---------------------------------------------------------------------
+    // Brush Palette (persisted)
+    // ---------------------------------------------------------------------
+    // Stores the user's captured multi-cell brushes (stamps).
+    // This is global app state (not per-canvas) and is persisted in session.json.
+    struct BrushPaletteEntry
+    {
+        std::string name;
+        int w = 0;
+        int h = 0;
+        // Row-major arrays, length = w*h
+        std::vector<std::uint32_t> cp;    // Unicode scalar values
+        std::vector<std::uint32_t> fg;    // packed RGBA Color32 (0 = unset)
+        std::vector<std::uint32_t> bg;    // packed RGBA Color32 (0 = unset)
+        std::vector<std::uint32_t> attrs; // Attrs bitmask (stored as u32 for JSON simplicity)
+    };
+    struct BrushPaletteState
+    {
+        int version = 1;
+        std::vector<BrushPaletteEntry> entries;
+        int selected = -1;
+    };
+    BrushPaletteState brush_palette;
+
     // Main window geometry (SDL window coordinates)
     int window_w = 0;
     int window_h = 0;
@@ -126,6 +157,7 @@ struct SessionState
     bool show_layer_manager_window = true;
     bool show_ansl_editor_window = true;
     bool show_tool_palette_window = true;
+    bool show_brush_palette_window = false;
     bool show_minimap_window = true;
     bool show_settings_window = false;
     bool show_16colors_browser_window = false;

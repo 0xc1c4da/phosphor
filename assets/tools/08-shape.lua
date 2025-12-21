@@ -785,7 +785,7 @@ local function redraw_preview(ctx, layer)
   active.bx = bx; active.by = by; active.bw = bw; active.bh = bh
 
   local st = style_pack(style)
-  local brush = ctx.brush
+  local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
   if st ~= nil and st.fill ~= nil and fill == "filled" and p.mode == "char" then
     brush = st.fill

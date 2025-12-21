@@ -220,6 +220,133 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
     return true;
 }
 
+static bool ValidateBrushInternal(const AnsiCanvas::Brush& b)
+{
+    if (b.w <= 0 || b.h <= 0)
+        return false;
+    const size_t n = (size_t)b.w * (size_t)b.h;
+    return b.cp.size() == n && b.fg.size() == n && b.bg.size() == n && b.attrs.size() == n;
+}
+
+bool AnsiCanvas::HasCurrentBrush() const
+{
+    return m_current_brush.has_value() && ValidateBrushInternal(*m_current_brush);
+}
+
+const AnsiCanvas::Brush* AnsiCanvas::GetCurrentBrush() const
+{
+    if (!HasCurrentBrush())
+        return nullptr;
+    return &(*m_current_brush);
+}
+
+void AnsiCanvas::ClearCurrentBrush()
+{
+    m_current_brush.reset();
+}
+
+bool AnsiCanvas::SetCurrentBrush(const Brush& brush)
+{
+    if (!ValidateBrushInternal(brush))
+        return false;
+    m_current_brush = brush;
+    return true;
+}
+
+bool AnsiCanvas::CaptureBrushFromSelection(Brush& out, int layer_index)
+{
+    EnsureDocument();
+    out = Brush{};
+    if (!HasSelection())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    const size_t n = (size_t)w * (size_t)h;
+    out.w = w;
+    out.h = h;
+    out.cp.assign(n, U' ');
+    out.fg.assign(n, 0);
+    out.bg.assign(n, 0);
+    out.attrs.assign(n, 0);
+
+    const Layer& layer = m_layers[(size_t)layer_index];
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int x = x0 + i;
+            const int y = y0 + j;
+            const size_t out_idx = (size_t)j * (size_t)w + (size_t)i;
+
+            if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                continue;
+
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForRead(layer_index, y, x, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.cells.size())
+                out.cp[out_idx] = layer.cells[idx];
+            if (idx < layer.fg.size())
+                out.fg[out_idx] = layer.fg[idx];
+            if (idx < layer.bg.size())
+                out.bg[out_idx] = layer.bg[idx];
+            if (idx < layer.attrs.size())
+                out.attrs[out_idx] = layer.attrs[idx];
+        }
+    return ValidateBrushInternal(out);
+}
+
+bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
+{
+    EnsureDocument();
+    out = Brush{};
+    if (!HasSelection())
+        return false;
+
+    const int x0 = m_selection.x;
+    const int y0 = m_selection.y;
+    const int w = m_selection.w;
+    const int h = m_selection.h;
+    if (w <= 0 || h <= 0)
+        return false;
+
+    const size_t n = (size_t)w * (size_t)h;
+    out.w = w;
+    out.h = h;
+    out.cp.assign(n, U' ');
+    out.fg.assign(n, 0);
+    out.bg.assign(n, 0);
+    out.attrs.assign(n, 0);
+
+    for (int j = 0; j < h; ++j)
+        for (int i = 0; i < w; ++i)
+        {
+            const int x = x0 + i;
+            const int y = y0 + j;
+            const size_t out_idx = (size_t)j * (size_t)w + (size_t)i;
+
+            if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                continue;
+
+            const CompositeCell c = GetCompositeCell(y, x);
+            out.cp[out_idx] = c.cp;
+            out.fg[out_idx] = c.fg;
+            out.bg[out_idx] = c.bg;
+            out.attrs[out_idx] = c.attrs;
+        }
+    return ValidateBrushInternal(out);
+}
+
 bool AnsiCanvas::DeleteSelection(int layer_index)
 {
     EnsureDocument();

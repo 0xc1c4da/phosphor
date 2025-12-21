@@ -68,6 +68,10 @@ struct AnslFrameContext
     // Compatibility with classic ANSL runner context.
     float metrics_aspect = 1.0f;
 
+    // Current "format/attributes" selection for tools (bitmask of AnsiCanvas::Attr_*).
+    // 0 means "no attributes".
+    std::uint32_t attrs = 0;
+
     // Caret = the editing caret used by keyboard operations (cell space).
     int caret_x = 0;
     int caret_y = 0;
@@ -143,11 +147,31 @@ struct AnslFrameContext
     int fg = -1;
     int bg = -1;
 
-    // Current "brush" glyph selection for tools (UTF-8). Empty means " " (space).
+    // Current single-cell glyph selection for tools (UTF-8). Empty means " " (space).
     // Provided by the host (e.g. character picker/palette selection).
-    std::string_view brush_utf8;
-    // Optional brush codepoint (Unicode scalar). 0 means "unknown".
-    int brush_cp = 0;
+    std::string_view glyph_utf8;
+    // Optional glyph codepoint (Unicode scalar). 0 means "unknown".
+    int glyph_cp = 0;
+
+    // Optional multi-cell brush stamp (a rectangular block of cells).
+    // This is separate from the single-cell glyph selection above:
+    // - `ctx.glyph` is one UTF-8 glyph for pencil-like tools
+    // - `ctx.brush` is a multi-cell stamp defined by the host (e.g. captured from selection)
+    struct BrushStamp
+    {
+        int w = 0;
+        int h = 0;
+        // Arrays are row-major, length = w*h.
+        // - cp: Unicode codepoints (space means transparent by convention)
+        // - fg/bg: packed RGBA, 0 = unset
+        // - attrs: attribute bitmask, 0 = none
+        const char32_t*      cp = nullptr;
+        const std::uint32_t* fg = nullptr;
+        const std::uint32_t* bg = nullptr;
+        const std::uint16_t* attrs = nullptr;
+    };
+    // If null, ctx.brush is considered empty/unset.
+    const BrushStamp* brush = nullptr;
 
     // Active UI colour palette (optional): list of xterm-256 indices allowed for tools.
     // If provided, tools should quantize/snap any computed colors to this list.
@@ -178,6 +202,7 @@ struct ToolCommand
     {
         PaletteSet,
         BrushSet,
+        AttrsSet,
         ToolActivatePrev,
         ToolActivate,
         CanvasCropToSelection,
@@ -192,7 +217,10 @@ struct ToolCommand
     int  bg = -1; // xterm-256 index (0..255)
 
     // BrushSet
-    uint32_t brush_cp = 0; // Unicode scalar value (>=0)
+    uint32_t brush_cp = 0; // Unicode scalar value (>=0). Note: this sets ctx.glyph (single-cell), not ctx.brush.
+
+    // AttrsSet
+    std::uint32_t attrs = 0; // bitmask of AnsiCanvas::Attr_* (host-defined)
 
     // ToolActivate
     std::string tool_id;

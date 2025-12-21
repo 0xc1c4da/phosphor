@@ -82,6 +82,8 @@ struct AppState
 
         std::uint32_t* tool_brush_cp = nullptr;
         std::string* tool_brush_utf8 = nullptr;
+        // Current attribute bitmask used by tools (e.g. bold/underline). 0 = none.
+        std::uint32_t* tool_attrs_mask = nullptr;
 
         // Tool helpers (defined in main, used inside the per-frame loop)
         std::function<void(const std::string& tool_path)> compile_tool_script;
@@ -111,6 +113,7 @@ struct AppState
         MinimapWindow* minimap_window = nullptr;
         CanvasPreviewTexture* preview_texture = nullptr;
         SixteenColorsBrowserWindow* sixteen_browser = nullptr;
+        class BrushPaletteWindow* brush_palette_window = nullptr;
     } ui;
 
     struct Colors
@@ -135,6 +138,7 @@ struct AppState
         bool* show_layer_manager_window = nullptr;
         bool* show_ansl_editor_window = nullptr;
         bool* show_tool_palette_window = nullptr;
+        bool* show_brush_palette_window = nullptr;
         bool* show_minimap_window = nullptr;
         bool* show_settings_window = nullptr;
         bool* show_16colors_browser_window = nullptr;

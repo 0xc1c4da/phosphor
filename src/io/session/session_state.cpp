@@ -57,7 +57,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 14;
+    j["schema_version"] = 16;
 
     json win;
     win["w"] = st.window_w;
@@ -77,6 +77,7 @@ static json ToJson(const SessionState& st)
     ui["show_layer_manager_window"] = st.show_layer_manager_window;
     ui["show_ansl_editor_window"] = st.show_ansl_editor_window;
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
+    ui["show_brush_palette_window"] = st.show_brush_palette_window;
     ui["show_minimap_window"] = st.show_minimap_window;
     ui["show_settings_window"] = st.show_settings_window;
     ui["show_16colors_browser_window"] = st.show_16colors_browser_window;
@@ -122,6 +123,29 @@ static json ToJson(const SessionState& st)
         ws["recent_files"] = st.recent_files;
     j["workspace"] = std::move(ws);
 
+    // Brush palette (global, persisted)
+    {
+        json bp;
+        bp["version"] = st.brush_palette.version;
+        bp["selected"] = st.brush_palette.selected;
+        json entries = json::array();
+        for (const auto& e : st.brush_palette.entries)
+        {
+            json je;
+            if (!e.name.empty())
+                je["name"] = e.name;
+            je["w"] = e.w;
+            je["h"] = e.h;
+            if (!e.cp.empty()) je["cp"] = e.cp;
+            if (!e.fg.empty()) je["fg"] = e.fg;
+            if (!e.bg.empty()) je["bg"] = e.bg;
+            if (!e.attrs.empty()) je["attrs"] = e.attrs;
+            entries.push_back(std::move(je));
+        }
+        bp["entries"] = std::move(entries);
+        j["brush_palette"] = std::move(bp);
+    }
+
     // Workspace content
     json content;
     if (!st.active_tool_path.empty())
@@ -152,6 +176,10 @@ static json ToJson(const SessionState& st)
         jc["scroll_x"] = c.scroll_x;
         jc["scroll_y"] = c.scroll_y;
         jc["canvas_bg_white"] = c.canvas_bg_white;
+        if (c.active_glyph_cp != 0)
+            jc["active_glyph_cp"] = c.active_glyph_cp;
+        if (!c.active_glyph_utf8.empty())
+            jc["active_glyph_utf8"] = c.active_glyph_utf8;
         canvases.push_back(std::move(jc));
     }
     content["open_canvases"] = std::move(canvases);
@@ -255,6 +283,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_ansl_editor_window = ui["show_ansl_editor_window"].get<bool>();
         if (ui.contains("show_tool_palette_window") && ui["show_tool_palette_window"].is_boolean())
             out.show_tool_palette_window = ui["show_tool_palette_window"].get<bool>();
+        if (ui.contains("show_brush_palette_window") && ui["show_brush_palette_window"].is_boolean())
+            out.show_brush_palette_window = ui["show_brush_palette_window"].get<bool>();
         // Rename/migration: Preview -> Minimap
         if (ui.contains("show_minimap_window") && ui["show_minimap_window"].is_boolean())
             out.show_minimap_window = ui["show_minimap_window"].get<bool>();
@@ -382,6 +412,10 @@ static void FromJson(const json& j, SessionState& out)
                 if (jc.contains("scroll_y") && jc["scroll_y"].is_number()) oc.scroll_y = jc["scroll_y"].get<float>();
                 if (jc.contains("canvas_bg_white") && jc["canvas_bg_white"].is_boolean())
                     oc.canvas_bg_white = jc["canvas_bg_white"].get<bool>();
+                if (jc.contains("active_glyph_cp") && (jc["active_glyph_cp"].is_number_unsigned() || jc["active_glyph_cp"].is_number_integer()))
+                    oc.active_glyph_cp = jc["active_glyph_cp"].get<std::uint32_t>();
+                if (jc.contains("active_glyph_utf8") && jc["active_glyph_utf8"].is_string())
+                    oc.active_glyph_utf8 = jc["active_glyph_utf8"].get<std::string>();
 
                 if (oc.id > 0)
                     out.open_canvases.push_back(std::move(oc));
@@ -490,6 +524,63 @@ static void FromJson(const json& j, SessionState& out)
             }
         }
     }
+
+    // Brush palette (global)
+    if (j.contains("brush_palette") && j["brush_palette"].is_object())
+    {
+        const json& bp = j["brush_palette"];
+        if (bp.contains("version") && bp["version"].is_number_integer())
+            out.brush_palette.version = bp["version"].get<int>();
+        if (bp.contains("selected") && bp["selected"].is_number_integer())
+            out.brush_palette.selected = bp["selected"].get<int>();
+
+        out.brush_palette.entries.clear();
+        if (bp.contains("entries") && bp["entries"].is_array())
+        {
+            for (const auto& je : bp["entries"])
+            {
+                if (!je.is_object())
+                    continue;
+                SessionState::BrushPaletteEntry e;
+                if (je.contains("name") && je["name"].is_string())
+                    e.name = je["name"].get<std::string>();
+                if (je.contains("w") && je["w"].is_number_integer())
+                    e.w = je["w"].get<int>();
+                if (je.contains("h") && je["h"].is_number_integer())
+                    e.h = je["h"].get<int>();
+
+                auto load_u32_vec = [&](const char* key, std::vector<std::uint32_t>& dst) {
+                    dst.clear();
+                    if (!je.contains(key) || !je[key].is_array())
+                        return;
+                    for (const auto& v : je[key])
+                    {
+                        if (v.is_number_unsigned() || v.is_number_integer())
+                            dst.push_back(v.get<std::uint32_t>());
+                    }
+                };
+                load_u32_vec("cp", e.cp);
+                load_u32_vec("fg", e.fg);
+                load_u32_vec("bg", e.bg);
+                load_u32_vec("attrs", e.attrs);
+
+                // Basic validation: dimensions must match payload if present.
+                if (e.w <= 0 || e.h <= 0)
+                    continue;
+                const size_t n = (size_t)e.w * (size_t)e.h;
+                if (!e.cp.empty() && e.cp.size() != n) continue;
+                if (!e.fg.empty() && e.fg.size() != n) continue;
+                if (!e.bg.empty() && e.bg.size() != n) continue;
+                if (!e.attrs.empty() && e.attrs.size() != n) continue;
+
+                out.brush_palette.entries.push_back(std::move(e));
+            }
+        }
+        // Clamp selection
+        if (out.brush_palette.selected < -1) out.brush_palette.selected = -1;
+        if (out.brush_palette.selected >= (int)out.brush_palette.entries.size())
+            out.brush_palette.selected = (int)out.brush_palette.entries.size() - 1;
+    }
 }
 
 bool LoadSessionState(SessionState& out, std::string& err)
@@ -531,7 +622,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         {
             const int ver = dj["schema_version"].get<int>();
             if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14)
+                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16)
             {
                 // Unknown schema: ignore file rather than failing startup.
                 return true;
@@ -558,7 +649,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
     {
         const int ver = j["schema_version"].get<int>();
         if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14)
+            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

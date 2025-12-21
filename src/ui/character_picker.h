@@ -47,6 +47,10 @@ public:
     // Programmatically navigate the picker to a codepoint (updates plane selection, scrolls into view).
     void JumpToCodePoint(uint32_t cp);
 
+    // Restore a selection from external state (e.g. session/canvas) without emitting a "selection changed" event.
+    // This is intended for startup and canvas switching; callers can still call TakeSelectionChanged() for user edits.
+    void RestoreSelectedCodePoint(uint32_t cp);
+
     // Returns true if selection changed since last call, and outputs the current selection.
     bool TakeSelectionChanged(uint32_t& out_cp);
 

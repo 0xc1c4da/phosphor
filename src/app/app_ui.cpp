@@ -118,6 +118,7 @@ void RenderMainMenuBar(SDL_Window* window,
                        bool& show_layer_manager_window,
                        bool& show_ansl_editor_window,
                        bool& show_tool_palette_window,
+                       bool& show_brush_palette_window,
                        bool& show_minimap_window,
                        bool& show_settings_window,
                        bool& show_16colors_browser_window,
@@ -265,6 +266,7 @@ void RenderMainMenuBar(SDL_Window* window,
         ImGui::MenuItem("Layer Manager", nullptr, &show_layer_manager_window);
         ImGui::MenuItem("ANSL Editor", nullptr, &show_ansl_editor_window);
         ImGui::MenuItem("Tool Palette", nullptr, &show_tool_palette_window);
+        ImGui::MenuItem("Brush Palette", nullptr, &show_brush_palette_window);
         ImGui::MenuItem("Minimap", nullptr, &show_minimap_window);
         ImGui::MenuItem("16colo.rs Browser", nullptr, &show_16colors_browser_window);
         ImGui::Separator();

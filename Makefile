@@ -43,6 +43,7 @@ SOURCES  = \
            src/ui/ImGuiDatePicker.cpp \
            src/ui/ansl_editor.cpp \
            src/ui/ansl_params_ui.cpp \
+           src/ui/brush_palette_window.cpp \
            src/ui/character_palette.cpp \
            src/ui/character_picker.cpp \
            src/ui/character_set.cpp \

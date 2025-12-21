@@ -60,6 +60,11 @@ public:
     // Otherwise, it will only select an existing matching glyph (no palette mutation).
     void OnPickerSelectedCodePoint(uint32_t cp);
 
+    // Synchronize the palette selection from an external "active glyph" (e.g. per-canvas tool brush).
+    // This never mutates palette contents.
+    void SyncSelectionFromActiveGlyph(uint32_t cp, const std::string& utf8,
+                                      AnsiCanvas* active_canvas = nullptr);
+
     // Returns true if the user clicked a glyph in the palette grid this frame.
     bool TakeUserSelectionChanged(GlyphToken& out_glyph, std::string& out_utf8);
 

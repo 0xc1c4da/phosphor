@@ -39,8 +39,14 @@ function render(ctx, layer)
   local bg = ctx.bg
   if type(bg) ~= "number" then bg = nil end
 
+  -- Current attribute bitmask (0 = none).
+  local attrs = ctx.attrs
+  if type(attrs) ~= "number" then attrs = 0 end
+  attrs = math.floor(attrs)
+  if attrs < 0 then attrs = 0 end
+
   -- Current brush glyph selection (from character picker/palette).
-  local brush = ctx.brush
+  local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
 
   -- Normalize caret.
@@ -105,10 +111,10 @@ function render(ctx, layer)
 
   if keys.enter then
     -- Insert the currently selected brush glyph (character palette / picker selection).
-    if fg == nil and bg == nil then
+    if fg == nil and bg == nil and attrs == 0 then
       layer:set(caret.x, caret.y, brush)
     else
-      layer:set(caret.x, caret.y, brush, fg, bg)
+      layer:set(caret.x, caret.y, brush, fg, bg, attrs)
     end
     caret.x = caret.x + 1
     if caret.x >= cols then
@@ -130,7 +136,11 @@ function render(ctx, layer)
         else
           -- Apply current fg/bg selection when placing glyphs.
           -- Passing nil keeps the channel "unset" (theme default / transparent bg).
-          layer:set(caret.x, caret.y, ch, fg, bg)
+          if fg == nil and bg == nil and attrs == 0 then
+            layer:set(caret.x, caret.y, ch)
+          else
+            layer:set(caret.x, caret.y, ch, fg, bg, attrs)
+          end
           caret.x = caret.x + 1
           if caret.x >= cols then
             caret.x = 0

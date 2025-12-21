@@ -41,7 +41,7 @@ local function clamp(v, lo, hi)
 end
 
 -- Read the selection contents from the active layer.
--- Returns: x, y, w, h, cells[] where cells is row-major array of {cp=..., fg=..., bg=...}
+-- Returns: x, y, w, h, cells[] where cells is row-major array of {cp=..., fg=..., bg=..., attrs=...}
 local function read_selection(canvas, layer)
   if not canvas or not layer or not canvas:hasSelection() then
     return nil
@@ -54,8 +54,8 @@ local function read_selection(canvas, layer)
   local idx = 1
   for j = 0, h - 1 do
     for i = 0, w - 1 do
-      local _, fg, bg, cp = layer:get(x + i, y + j)
-      cells[idx] = { cp = to_int(cp, 32), fg = fg, bg = bg }
+      local _, fg, bg, cp, attrs = layer:get(x + i, y + j)
+      cells[idx] = { cp = to_int(cp, 32), fg = fg, bg = bg, attrs = to_int(attrs, 0) }
       idx = idx + 1
     end
   end
@@ -67,11 +67,13 @@ local function write_cell(layer, x, y, cell)
   local cp = cell.cp
   local fg = cell.fg
   local bg = cell.bg
-  if fg == nil and bg == nil then
+  local attrs = cell.attrs
+  if type(attrs) ~= "number" then attrs = 0 end
+  if fg == nil and bg == nil and attrs == 0 then
     layer:set(x, y, cp)
     layer:clearStyle(x, y)
   else
-    layer:set(x, y, cp, fg, bg)
+    layer:set(x, y, cp, fg, bg, attrs)
   end
 end
 

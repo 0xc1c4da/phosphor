@@ -334,9 +334,17 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     EnsureLoaded();
     EnsureNonEmpty();
 
-    // If the palette is showing the active canvas' embedded font, picker selections are not meaningful.
+    // Embedded font: picker cp may be a PUA codepoint (U+E000 + glyph_index). Treat it as a selection.
     if (source_ == Source::EmbeddedFont)
+    {
+        if (cp >= (uint32_t)AnsiCanvas::kEmbeddedGlyphBase)
+        {
+            const uint32_t idx = cp - (uint32_t)AnsiCanvas::kEmbeddedGlyphBase;
+            selected_cell_ = (int)idx;
+            request_focus_selected_ = true;
+        }
         return;
+    }
 
     if (cp == 0)
         return;
@@ -349,6 +357,48 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
         selected_cell_ = *idx;
 
     request_focus_selected_ = true;
+}
+
+void CharacterPalette::SyncSelectionFromActiveGlyph(uint32_t cp, const std::string& utf8, AnsiCanvas* active_canvas)
+{
+    EnsureLoaded();
+    EnsureNonEmpty();
+    active_canvas_ = active_canvas;
+
+    // Embedded font source: select by glyph index if cp is PUA.
+    if (source_ == Source::EmbeddedFont)
+    {
+        if (cp >= (uint32_t)AnsiCanvas::kEmbeddedGlyphBase)
+        {
+            const uint32_t idx = cp - (uint32_t)AnsiCanvas::kEmbeddedGlyphBase;
+            selected_cell_ = (int)idx;
+            request_focus_selected_ = true;
+        }
+        return;
+    }
+
+    // JSON palettes: prefer exact UTF-8 match (supports multi-codepoint graphemes),
+    // then fall back to first codepoint match.
+    if (!utf8.empty() && !palettes_.empty())
+    {
+        const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
+        const auto& glyphs = palettes_[pi].glyphs;
+        for (int i = 0; i < (int)glyphs.size(); ++i)
+        {
+            if (glyphs[(size_t)i].utf8 == utf8)
+            {
+                selected_cell_ = i;
+                request_focus_selected_ = true;
+                return;
+            }
+        }
+    }
+
+    if (auto idx = FindGlyphIndexByFirstCp(cp))
+    {
+        selected_cell_ = *idx;
+        request_focus_selected_ = true;
+    }
 }
 
 bool CharacterPalette::TakeUserSelectionChanged(GlyphToken& out_glyph, std::string& out_utf8)

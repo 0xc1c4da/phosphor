@@ -111,6 +111,23 @@ public:
     bool HasFilePath() const { return !m_file_path.empty(); }
     const std::string& GetFilePath() const { return m_file_path; }
 
+    // ---------------------------------------------------------------------
+    // Active glyph selection (UI/session metadata; not part of the editable project state)
+    // ---------------------------------------------------------------------
+    // This is the "current brush glyph" associated with this canvas window.
+    // - Used by tools (ctx.glyph / ctx.glyphCp)
+    // - Persisted by session.json (per open canvas)
+    // - NOT included in ProjectState (.phos) and NOT tracked by undo/redo
+    //
+    // Note: `active_glyph_utf8` may be empty (hosts can derive UTF-8 from cp).
+    std::uint32_t GetActiveGlyphCodePoint() const { return m_active_glyph_cp; }
+    const std::string& GetActiveGlyphUtf8() const { return m_active_glyph_utf8; }
+    void SetActiveGlyph(std::uint32_t cp, std::string utf8)
+    {
+        m_active_glyph_cp = cp;
+        m_active_glyph_utf8 = std::move(utf8);
+    }
+
     // Set the fixed number of columns in the grid.
     // Rows are dynamic and grow as needed ("infinite rows").
     void SetColumns(int columns);
@@ -572,6 +589,33 @@ public:
         int h = 0;
     };
 
+    // ---------------------------------------------------------------------
+    // Multi-cell brush ("stamp") support
+    // ---------------------------------------------------------------------
+    // A brush is a rectangular block of cells (glyph + fg + bg + attrs).
+    // This is transient tool state (like selection), not part of the project file and not undo-tracked.
+    struct Brush
+    {
+        int w = 0;
+        int h = 0;
+        // Stored per-cell, row-major, length = w*h.
+        std::vector<char32_t> cp;
+        std::vector<Color32>  fg;    // 0 = unset
+        std::vector<Color32>  bg;    // 0 = unset (transparent)
+        std::vector<Attrs>    attrs; // 0 = none
+    };
+
+    bool HasCurrentBrush() const;
+    const Brush* GetCurrentBrush() const;
+    void ClearCurrentBrush();
+    bool SetCurrentBrush(const Brush& brush);
+
+    // Captures a brush from the current selection.
+    // - `CaptureBrushFromSelection`: captures cells from a specific layer (default active layer)
+    // - `CaptureBrushFromSelectionComposite`: captures composited "what you see" result
+    bool CaptureBrushFromSelection(Brush& out, int layer_index = -1);
+    bool CaptureBrushFromSelectionComposite(Brush& out);
+
     // Selection rectangle is stored in cell space. Corners are inclusive.
     bool HasSelection() const { return m_selection.active && m_selection.w > 0 && m_selection.h > 0; }
     Rect GetSelectionRect() const;
@@ -699,6 +743,10 @@ private:
     // User-facing document path (see SetFilePath()).
     std::string m_file_path;
 
+    // Per-canvas active glyph selection (see SetActiveGlyph()).
+    std::uint32_t m_active_glyph_cp = (std::uint32_t)U' ';
+    std::string   m_active_glyph_utf8 = " ";
+
     std::vector<Layer> m_layers;
     int                m_active_layer = 0;
 
@@ -817,6 +865,9 @@ private:
         std::vector<ClipCell> cells; // size w*h
     };
     MoveState m_move;
+
+    // Current multi-cell brush (stamp) for tools (per-canvas, transient).
+    std::optional<Brush> m_current_brush;
 
     // Status-line edit buffers (so inline numeric InputText can be edited across frames).
     char m_status_cols_buf[16] = {};

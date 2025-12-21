@@ -35,6 +35,7 @@
 #include "io/session/session_state.h"
 
 #include "ui/ansl_editor.h"
+#include "ui/brush_palette_window.h"
 #include "ui/character_palette.h"
 #include "ui/character_picker.h"
 #include "ui/character_set.h"
@@ -211,6 +212,7 @@ int main(int, char**)
     bool show_layer_manager_window = session_state.show_layer_manager_window;
     bool show_ansl_editor_window = session_state.show_ansl_editor_window;
     bool show_tool_palette_window = session_state.show_tool_palette_window;
+    bool show_brush_palette_window = session_state.show_brush_palette_window;
     bool show_minimap_window = session_state.show_minimap_window;
     bool show_settings_window = session_state.show_settings_window;
     bool show_16colors_browser_window = session_state.show_16colors_browser_window;
@@ -259,10 +261,13 @@ int main(int, char**)
     CharacterPicker character_picker;
     CharacterPalette character_palette;
     CharacterSetWindow character_sets;
+    BrushPaletteWindow brush_palette;
 
     // Current brush glyph for tools (from picker/palette selection).
     std::uint32_t tool_brush_cp = character_picker.SelectedCodePoint();
     std::string tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+    // Current attribute selection for tools (bitmask of AnsiCanvas::Attr_*). 0 = none.
+    std::uint32_t tool_attrs_mask = 0;
 
     LayerManager layer_manager;
 
@@ -408,6 +413,24 @@ int main(int, char**)
                                                   canvases, next_canvas_id, last_active_canvas_id,
                                                   images, next_image_id);
 
+    // Seed the global tool brush glyph from the active canvas (per-canvas state),
+    // and synchronize the picker/palette selections for a consistent startup state.
+    {
+        AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
+        if (ui_active_canvas)
+        {
+            tool_brush_cp = ui_active_canvas->GetActiveGlyphCodePoint();
+            if (tool_brush_cp == 0)
+                tool_brush_cp = (std::uint32_t)U' ';
+            tool_brush_utf8 = ui_active_canvas->GetActiveGlyphUtf8();
+            if (tool_brush_utf8.empty())
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+
+            character_picker.RestoreSelectedCodePoint(tool_brush_cp);
+            character_palette.SyncSelectionFromActiveGlyph(tool_brush_cp, tool_brush_utf8, ui_active_canvas);
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Main loop (per-frame logic lives in app::RunFrame)
     // ---------------------------------------------------------------------
@@ -443,9 +466,11 @@ int main(int, char**)
     st.ui.minimap_window = &minimap_window;
     st.ui.preview_texture = &preview_texture;
     st.ui.sixteen_browser = &sixteen_browser;
+    st.ui.brush_palette_window = &brush_palette;
 
     st.tools.tool_brush_cp = &tool_brush_cp;
     st.tools.tool_brush_utf8 = &tool_brush_utf8;
+    st.tools.tool_attrs_mask = &tool_attrs_mask;
 
     st.colors.clear_color = &clear_color;
     st.colors.fg_color = &fg_color;
@@ -464,6 +489,7 @@ int main(int, char**)
     st.toggles.show_layer_manager_window = &show_layer_manager_window;
     st.toggles.show_ansl_editor_window = &show_ansl_editor_window;
     st.toggles.show_tool_palette_window = &show_tool_palette_window;
+    st.toggles.show_brush_palette_window = &show_brush_palette_window;
     st.toggles.show_minimap_window = &show_minimap_window;
     st.toggles.show_settings_window = &show_settings_window;
     st.toggles.show_16colors_browser_window = &show_16colors_browser_window;
@@ -494,6 +520,7 @@ int main(int, char**)
                                               show_layer_manager_window,
                                               show_ansl_editor_window,
                                               show_tool_palette_window,
+                                              show_brush_palette_window,
                                               show_minimap_window,
                                               show_settings_window,
                                               show_16colors_browser_window,

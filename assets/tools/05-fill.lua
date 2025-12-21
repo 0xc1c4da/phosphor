@@ -55,7 +55,7 @@ local function fill(ctx, layer, sx, sy, shalfy)
     fg, bg = bg, fg
   end
 
-  local brush = ctx.brush
+  local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
 
   -- ---------------------------------------------------------------------------

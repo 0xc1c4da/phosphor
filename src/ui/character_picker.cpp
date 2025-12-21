@@ -130,6 +130,30 @@ void CharacterPicker::JumpToCodePoint(uint32_t cp)
     MarkSelectionChanged();
 }
 
+void CharacterPicker::RestoreSelectedCodePoint(uint32_t cp)
+{
+    if (!IsScalarValue(cp))
+        return;
+
+    // Restore is "silent": don't emit selection_changed_.
+    selection_changed_ = false;
+    double_clicked_ = false;
+    double_clicked_cp_ = 0;
+
+    ClearSearch();
+
+    block_index_ = 0;
+    subpage_index_ = static_cast<int>(cp / 0x10000u);
+    subpage_index_ = std::clamp(subpage_index_, 0, 16);
+    SyncRangeFromSelection();
+
+    selected_cp_ = cp;
+    ClampSelectionToCurrentView();
+    confusables_for_cp_ = 0xFFFFFFFFu;
+    scroll_to_selected_ = true;          // UX: scroll into view on activation
+    request_focus_selected_ = true;      // keep nav highlight synced
+}
+
 // -------------------- ICU helpers --------------------
 
 bool CharacterPicker::IsScalarValue(uint32_t cp)

@@ -565,27 +565,71 @@ static int l_layer_set(lua_State* L)
     const int y = (int)luaL_checkinteger(L, 3);
     const char32_t cp = LuaCharArg(L, 4);
 
-    // Optional fg/bg: xterm-256 indices (0..255). nil means "unset".
+    // Optional fg/bg: xterm-256 indices (0..255).
+    //
+    // Semantics:
+    // - omit arg or pass nil  => preserve existing channel
+    // - pass -1 (or any <0)   => unset channel
+    // - pass 0..255           => set channel (xterm-256 index)
+    //
+    // This is intentionally "preserve-friendly" so tools can override FG/BG independently.
     AnsiCanvas::Color32 fg = 0;
     AnsiCanvas::Color32 bg = 0;
+    AnsiCanvas::Attrs attrs = 0;
+    bool has_attrs = false;
     const int nargs = lua_gettop(L);
-    if (nargs >= 5 && !lua_isnil(L, 5))
+
+    // Default to preserving existing colors when any color args are present.
+    bool fg_arg_present = (nargs >= 5);
+    bool bg_arg_present = (nargs >= 6);
+    if (fg_arg_present || bg_arg_present)
     {
-        const int idx = (int)luaL_checkinteger(L, 5);
-        if (idx >= 0 && idx <= 255)
-            fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
-    }
-    if (nargs >= 6 && !lua_isnil(L, 6))
-    {
-        const int idx = (int)luaL_checkinteger(L, 6);
-        if (idx >= 0 && idx <= 255)
-            bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
+        AnsiCanvas::Color32 cur_fg = 0, cur_bg = 0;
+        (void)b->canvas->GetLayerCellColors(b->layer_index, y, x, cur_fg, cur_bg);
+        fg = cur_fg;
+        bg = cur_bg;
     }
 
-    if (fg != 0 || bg != 0)
+    auto parse_color_arg = [&](int idx, AnsiCanvas::Color32& out) {
+        if (nargs < idx)
+            return;
+        if (lua_isnil(L, idx))
+            return; // preserve
+        lua_Integer v = luaL_checkinteger(L, idx);
+        if (v < 0)
+        {
+            out = 0; // unset
+            return;
+        }
+        const int xidx = (int)std::clamp((int)v, 0, 255);
+        out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+    };
+    parse_color_arg(5, fg);
+    parse_color_arg(6, bg);
+    if (nargs >= 7 && !lua_isnil(L, 7))
+    {
+        lua_Integer v = luaL_checkinteger(L, 7);
+        if (v < 0) v = 0;
+        if (v > 0xFFFF) v = 0xFFFF;
+        attrs = (AnsiCanvas::Attrs)v;
+        has_attrs = true;
+    }
+
+    if (has_attrs)
+    {
+        // Explicit attrs provided: write glyph + colors + attrs.
+        b->canvas->SetLayerCell(b->layer_index, y, x, cp, fg, bg, attrs);
+    }
+    else if (fg_arg_present || bg_arg_present)
+    {
+        // Colors provided but attrs not specified: preserve existing attrs.
         b->canvas->SetLayerCell(b->layer_index, y, x, cp, fg, bg);
+    }
     else
+    {
+        // Glyph only: preserve existing style (colors+attrs) unless caller clears it explicitly.
         b->canvas->SetLayerCell(b->layer_index, y, x, cp);
+    }
     return 0;
 }
 
@@ -621,7 +665,12 @@ static int l_layer_get(lua_State* L)
     else lua_pushnil(L);
     // Also return cp as an integer (safe additive API).
     lua_pushinteger(L, (lua_Integer)cp);
-    return 4;
+
+    // Also return attrs bitmask as an integer (safe additive API).
+    AnsiCanvas::Attrs a = 0;
+    (void)b->canvas->GetLayerCellAttrs(b->layer_index, y, x, a);
+    lua_pushinteger(L, (lua_Integer)a);
+    return 5;
 }
 
 static int l_layer_clear(lua_State* L)
@@ -1378,6 +1427,7 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
     // Pre-create a reusable ctx table to avoid per-frame allocations/GC churn.
     // ctx = {
     //   cols, rows, frame, time, fg, bg,
+    //   attrs,
     //   focused, phase,
     //   keys={...}, typed={...},
     //   mods={ctrl,shift,alt,super},
@@ -1390,6 +1440,10 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
     //   canvas=<AnsiCanvas userdata>
     // }
     lua_newtable(impl_->L); // ctx
+    // Tool formatting attributes selection (bitmask); default none.
+    lua_pushinteger(impl_->L, 0);
+    lua_setfield(impl_->L, -2, "attrs");
+
     lua_newtable(impl_->L); // metrics
     lua_pushnumber(impl_->L, 1.0);
     lua_setfield(impl_->L, -2, "aspect");
@@ -1468,11 +1522,20 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
     lua_newtable(impl_->L);
     lua_setfield(impl_->L, -2, "palette");
 
-    // Tool brush defaults
+    // Tool glyph defaults (single-cell)
     lua_pushliteral(impl_->L, " ");
-    lua_setfield(impl_->L, -2, "brush");
+    lua_setfield(impl_->L, -2, "glyph");
     lua_pushinteger(impl_->L, 32);
-    lua_setfield(impl_->L, -2, "brushCp");
+    lua_setfield(impl_->L, -2, "glyphCp");
+
+    // Multi-cell brush stamp (reused): ctx.brush = { w=0, h=0, cells={} }
+    // Host fills this when a multi-cell brush is active (e.g. from a selection).
+    lua_newtable(impl_->L); // brush
+    lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "w");
+    lua_pushinteger(impl_->L, 0); lua_setfield(impl_->L, -2, "h");
+    lua_newtable(impl_->L); // cells array
+    lua_setfield(impl_->L, -2, "cells");
+    lua_setfield(impl_->L, -2, "brush");
 
     // Canvas userdata (reused): ctx.canvas
     (void)PushCanvasObject(impl_->L, nullptr);
@@ -1583,11 +1646,13 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
                 "          if type(ch) == 'number' then ch = tostring(ch) end\n"
                 "          local fg = out.fg; if fg == nil then fg = out.color end\n"
                 "          local bg = out.bg; if bg == nil then bg = out.backgroundColor end\n"
+                "          local attrs = out.attrs\n"
                 "          if type(fg) ~= 'number' then fg = nil end\n"
                 "          if type(bg) ~= 'number' then bg = nil end\n"
+                "          if type(attrs) ~= 'number' then attrs = nil end\n"
                 "          if fg ~= nil or bg ~= nil then\n"
                 "            anyStyle = true\n"
-                "            layer:set(x, y, ch, fg, bg)\n"
+                "            layer:set(x, y, ch, fg, bg, attrs)\n"
                 "          else\n"
                 "            row[x + 1] = tostring(ch)\n"
                 "          end\n"
@@ -1734,15 +1799,89 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
     if (frame_ctx.bg >= 0) { lua_pushinteger(L, frame_ctx.bg); lua_setfield(L, -2, "bg"); }
     else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
+    lua_pushinteger(L, (lua_Integer)frame_ctx.attrs);
+    lua_setfield(L, -2, "attrs");
 
-    // Brush selection for tools
-    if (!frame_ctx.brush_utf8.empty())
-        lua_pushlstring(L, frame_ctx.brush_utf8.data(), frame_ctx.brush_utf8.size());
+    // Single-cell glyph selection for tools
+    if (!frame_ctx.glyph_utf8.empty())
+        lua_pushlstring(L, frame_ctx.glyph_utf8.data(), frame_ctx.glyph_utf8.size());
     else
         lua_pushliteral(L, " ");
-    lua_setfield(L, -2, "brush");
-    lua_pushinteger(L, (lua_Integer)frame_ctx.brush_cp);
-    lua_setfield(L, -2, "brushCp");
+    lua_setfield(L, -2, "glyph");
+    lua_pushinteger(L, (lua_Integer)frame_ctx.glyph_cp);
+    lua_setfield(L, -2, "glyphCp");
+
+    // Multi-cell brush stamp: ctx.brush = { w, h, cells = { {ch, fg, bg, attrs}, ... } }
+    // We reuse the table each frame: clear previous cells and repopulate.
+    lua_getfield(L, -1, "brush");
+    if (lua_istable(L, -1))
+    {
+        // cells array
+        lua_getfield(L, -1, "cells");
+        if (lua_istable(L, -1))
+        {
+            const int n = LuaArrayLen(L, -1);
+            for (int i = 1; i <= n; ++i)
+            {
+                lua_pushnil(L);
+                lua_rawseti(L, -2, i);
+            }
+        }
+        // pop cells (or non-table)
+        lua_pop(L, 1);
+
+        int bw = 0, bh = 0;
+        if (frame_ctx.brush && frame_ctx.brush->w > 0 && frame_ctx.brush->h > 0 &&
+            frame_ctx.brush->cp && frame_ctx.brush->fg && frame_ctx.brush->bg && frame_ctx.brush->attrs)
+        {
+            bw = frame_ctx.brush->w;
+            bh = frame_ctx.brush->h;
+
+            lua_pushinteger(L, bw); lua_setfield(L, -2, "w");
+            lua_pushinteger(L, bh); lua_setfield(L, -2, "h");
+
+            lua_getfield(L, -1, "cells");
+            if (lua_istable(L, -1))
+            {
+                const size_t total = (size_t)bw * (size_t)bh;
+                for (size_t i = 0; i < total; ++i)
+                {
+                    lua_newtable(L); // cell
+
+                    const std::string ch = EncodeCodepointUtf8(frame_ctx.brush->cp[i]);
+                    lua_pushlstring(L, ch.data(), ch.size());
+                    lua_setfield(L, -2, "ch");
+
+                    // fg/bg are stored as packed RGBA Color32 in the canvas.
+                    // Tools use xterm-256 indices, so convert here (nil = unset),
+                    // matching layer:get() semantics.
+                    const std::uint32_t fg32 = frame_ctx.brush->fg[i];
+                    const std::uint32_t bg32 = frame_ctx.brush->bg[i];
+                    const std::uint16_t attrs = frame_ctx.brush->attrs[i];
+
+                    const int fg_idx = Color32ToXtermIndex((AnsiCanvas::Color32)fg32);
+                    const int bg_idx = Color32ToXtermIndex((AnsiCanvas::Color32)bg32);
+
+                    if (fg_idx >= 0) { lua_pushinteger(L, (lua_Integer)fg_idx); lua_setfield(L, -2, "fg"); }
+                    else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
+                    if (bg_idx >= 0) { lua_pushinteger(L, (lua_Integer)bg_idx); lua_setfield(L, -2, "bg"); }
+                    else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
+                    lua_pushinteger(L, (lua_Integer)attrs);
+                    lua_setfield(L, -2, "attrs");
+
+                    lua_rawseti(L, -2, (lua_Integer)i + 1);
+                }
+            }
+            lua_pop(L, 1); // brush.cells
+        }
+        else
+        {
+            // Empty brush
+            lua_pushinteger(L, 0); lua_setfield(L, -2, "w");
+            lua_pushinteger(L, 0); lua_setfield(L, -2, "h");
+        }
+    }
+    lua_pop(L, 1); // brush
 
     // params table: sync host values into ctx.params.* each frame
     if (impl_->params_ref != LUA_NOREF && !impl_->params.empty())
@@ -1994,7 +2133,7 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     lua_pop(L, 1);
                     tool_cmds.out_commands->push_back(std::move(cmd));
                 }
-                else if (type == "brush.set")
+                else if (type == "brush.set" || type == "glyph.set")
                 {
                     cmd.type = ToolCommand::Type::BrushSet;
                     lua_getfield(L, -1, "cp");
@@ -2003,6 +2142,26 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                         lua_Integer v = lua_tointeger(L, -1);
                         if (v < 0) v = 0;
                         cmd.brush_cp = (uint32_t)v;
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                    }
+                    lua_pop(L, 1);
+                }
+                else if (type == "attrs.set")
+                {
+                    cmd.type = ToolCommand::Type::AttrsSet;
+                    // Field name: "mask" preferred; fallback to "attrs".
+                    lua_getfield(L, -1, "mask");
+                    if (!lua_isnumber(L, -1))
+                    {
+                        lua_pop(L, 1);
+                        lua_getfield(L, -1, "attrs");
+                    }
+                    if (lua_isnumber(L, -1))
+                    {
+                        lua_Integer v = lua_tointeger(L, -1);
+                        if (v < 0) v = 0;
+                        if (v > 0xFFFFFFFFLL) v = 0xFFFFFFFFLL;
+                        cmd.attrs = (std::uint32_t)v;
                         tool_cmds.out_commands->push_back(std::move(cmd));
                     }
                     lua_pop(L, 1);
