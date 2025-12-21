@@ -39,6 +39,9 @@ void BrushPaletteWindow::LoadFromSessionIfNeeded(SessionState* session)
         return;
 
     entries_.clear();
+    inline_rename_index_ = -1;
+    inline_rename_buf_[0] = '\0';
+    inline_rename_request_focus_ = false;
     entries_.reserve(session->brush_palette.entries.size());
     for (const auto& se : session->brush_palette.entries)
     {
@@ -157,9 +160,22 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
     ImGui::BeginDisabled(!can_delete);
     if (ImGui::Button("Delete"))
     {
-        entries_.erase(entries_.begin() + selected_);
+        const int erased_index = selected_;
+        entries_.erase(entries_.begin() + erased_index);
         if (selected_ >= (int)entries_.size())
             selected_ = (int)entries_.size() - 1;
+        // Keep inline-rename state consistent with the new indices.
+        if (inline_rename_index_ == erased_index)
+            inline_rename_index_ = -1;
+        else if (inline_rename_index_ > erased_index)
+            inline_rename_index_--;
+        if (inline_rename_index_ < 0 || inline_rename_index_ >= (int)entries_.size())
+            inline_rename_index_ = -1;
+        if (inline_rename_index_ == -1)
+        {
+            inline_rename_buf_[0] = '\0';
+            inline_rename_request_focus_ = false;
+        }
         // Keep the active canvas brush synchronized with the current selection.
         if (active_canvas)
         {
@@ -198,7 +214,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
         if (i % cols != 0)
             ImGui::SameLine();
 
-        const Entry& e = entries_[(size_t)i];
+        Entry& e = entries_[(size_t)i];
         const AnsiCanvas::Brush& b = e.brush;
         const bool valid = IsValidBrush(b);
 
@@ -267,8 +283,53 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
         }
 
         // Label
-        ImGui::SetNextItemWidth((float)thumb_px_);
-        ImGui::TextWrapped("%s", e.name.empty() ? "(unnamed)" : e.name.c_str());
+        const char* display_name = e.name.empty() ? "(unnamed)" : e.name.c_str();
+        const float label_w = (float)thumb_px_;
+
+        // Detect double-click on the label region *before* emitting any widgets,
+        // so we can swap in InputText this same frame (focus + select-all works immediately).
+        const ImVec2 label_pos = ImGui::GetCursorScreenPos();
+        const ImVec2 label_ts = ImGui::CalcTextSize(display_name, nullptr, false, label_w);
+        const float label_h = std::max(ImGui::GetTextLineHeight(), label_ts.y);
+        const ImVec2 label_max(label_pos.x + label_w, label_pos.y + label_h);
+        const bool hovered = ImGui::IsMouseHoveringRect(label_pos, label_max, /*clip=*/true);
+        const bool start_edit = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+        if (start_edit)
+        {
+            inline_rename_index_ = i;
+            std::snprintf(inline_rename_buf_, sizeof(inline_rename_buf_), "%s", e.name.c_str());
+            inline_rename_request_focus_ = true;
+        }
+
+        const bool editing = (inline_rename_index_ == i);
+        ImGui::SetNextItemWidth(label_w);
+        if (editing)
+        {
+            if (inline_rename_request_focus_)
+            {
+                ImGui::SetKeyboardFocusHere();
+                inline_rename_request_focus_ = false;
+            }
+            const ImGuiInputTextFlags flags =
+                ImGuiInputTextFlags_EnterReturnsTrue |
+                ImGuiInputTextFlags_AutoSelectAll;
+            const bool enter = ImGui::InputText("##inline_rename", inline_rename_buf_, IM_ARRAYSIZE(inline_rename_buf_), flags);
+            const bool deactivate_commit = ImGui::IsItemDeactivatedAfterEdit();
+            if (enter || deactivate_commit)
+            {
+                e.name = std::string(inline_rename_buf_);
+                inline_rename_index_ = -1;
+                inline_rename_buf_[0] = '\0';
+                inline_rename_request_focus_ = false;
+                SaveToSession(session);
+            }
+        }
+        else
+        {
+            ImGui::PushTextWrapPos(label_pos.x + label_w);
+            ImGui::TextUnformatted(display_name);
+            ImGui::PopTextWrapPos();
+        }
         ImGui::EndGroup();
 
         ImGui::PopID();

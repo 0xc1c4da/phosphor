@@ -44,6 +44,11 @@ private:
     bool capture_composite_ = true;
     int thumb_px_ = 72;
     char new_name_buf_[128] = {};
+
+    // Inline rename UI state (double-click label to rename).
+    int inline_rename_index_ = -1;
+    char inline_rename_buf_[128] = {};
+    bool inline_rename_request_focus_ = false;
 };
 
 

@@ -1712,6 +1712,18 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
             return false;
         }
 
+        auto enum_value_valid = [](const AnslParamSpec& spec, const std::string& v) -> bool
+        {
+            if (spec.type != AnslParamType::Enum)
+                return true;
+            for (const std::string& item : spec.enum_items)
+            {
+                if (item == v)
+                    return true;
+            }
+            return false;
+        };
+
         // Preserve compatible previous values when possible; otherwise use defaults.
         std::unordered_map<std::string, AnslParamValue> new_values;
         for (const auto& s : specs)
@@ -1723,9 +1735,19 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
 
             auto old_it = impl_->param_values.find(s.key);
             if (old_it != impl_->param_values.end() && old_it->second.type == def.type)
-                new_values[s.key] = old_it->second;
+            {
+                // Important: enums must be validated against the *current* tool's enum items.
+                // Otherwise switching tools can preserve an invalid enum string (shared key names like "mode"),
+                // causing confusing behavior that only appears after tool switches.
+                if (def.type == AnslParamType::Enum && !enum_value_valid(s, old_it->second.s))
+                    new_values[s.key] = def;
+                else
+                    new_values[s.key] = old_it->second;
+            }
             else
+            {
                 new_values[s.key] = def;
+            }
         }
 
         impl_->params = std::move(specs);
