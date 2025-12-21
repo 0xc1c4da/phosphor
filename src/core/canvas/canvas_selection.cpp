@@ -484,6 +484,8 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
             const int py = y + j;
             if (px < 0 || px >= m_columns || py < 0)
                 continue;
+            if (!ToolWriteAllowed(py, px))
+                continue;
             const size_t s = (size_t)j * (size_t)w + (size_t)i;
             if (s >= g_clipboard.cp.size())
                 continue;

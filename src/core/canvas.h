@@ -664,6 +664,25 @@ public:
     bool CancelMoveSelection(int layer_index = -1);
 
 private:
+    // Selection-as-mask for tool/script-driven edits:
+    // when a selection exists, tools/ANSL scripts may only mutate cells *inside* it.
+    //
+    // This is intentionally scoped to tool execution (`m_tool_running`) so non-tool core operations
+    // (file I/O, undo replay, etc) are unaffected.
+    //
+    // Important: while moving a floating selection (`m_move.active`), we do NOT clip writes,
+    // otherwise committing the move outside the original selection would be blocked.
+    bool ToolWriteAllowed(int canvas_row, int canvas_col) const
+    {
+        if (!m_tool_running)
+            return true;
+        if (m_move.active)
+            return true;
+        if (!HasSelection())
+            return true;
+        return SelectionContains(canvas_col, canvas_row);
+    }
+
     struct Layer
     {
         std::string           name;

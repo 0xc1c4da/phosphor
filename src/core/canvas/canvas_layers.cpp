@@ -686,6 +686,8 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
 
     auto write_one = [&](int write_col)
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return;
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
             return;
@@ -746,6 +748,8 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
 
     auto write_one = [&](int write_col)
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return;
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
             return;
@@ -810,6 +814,8 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
 
     auto write_one = [&](int write_col)
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return;
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(m_active_layer, row, write_col, lr, lc))
             return;
@@ -871,6 +877,8 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 
     auto write_one = [&](int write_col) -> bool
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
             return false;
@@ -933,6 +941,8 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
 
     auto write_one = [&](int write_col) -> bool
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
             return false;
@@ -999,6 +1009,8 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
 
     auto write_one = [&](int write_col) -> bool
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
             return false;
@@ -1172,6 +1184,8 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
 
     auto write_one = [&](int write_col) -> bool
     {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
         int lr = 0, lc = 0;
         if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
             return false;
@@ -1232,6 +1246,54 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
         }
     };
 
+    const bool clip_to_selection = m_tool_running && HasSelection() && !m_move.active;
+    if (clip_to_selection)
+    {
+        const Rect r = GetSelectionRect();
+        if (r.w <= 0 || r.h <= 0 || m_columns <= 0 || m_rows <= 0)
+            return false;
+        const int x0 = std::clamp(r.x, 0, m_columns - 1);
+        const int x1 = std::clamp(r.x + r.w - 1, 0, m_columns - 1);
+        const int y0 = std::max(0, r.y);
+        const int y1 = std::min(m_rows - 1, r.y + r.h - 1);
+        if (y0 > y1)
+            return false;
+
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const size_t idx = (size_t)y * (size_t)m_columns + (size_t)x;
+                if (idx >= layer.cells.size())
+                    continue;
+
+                const char32_t old_cp = layer.cells[idx];
+                const Color32  old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : 0;
+                const Color32  old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : 0;
+                const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+                const char32_t new_cp = cp;
+                const Color32  new_fg = 0;
+                const Color32  new_bg = 0;
+                const Attrs    new_attrs = 0;
+
+                if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                                  old_cp, old_fg, old_bg, old_attrs,
+                                                  new_cp, new_fg, new_bg, new_attrs))
+                    continue;
+                if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                    continue;
+
+                prepare();
+                CaptureUndoPageIfNeeded(layer_index, y);
+                if (idx < layer.cells.size()) layer.cells[idx] = new_cp;
+                if (idx < layer.fg.size())    layer.fg[idx]    = new_fg;
+                if (idx < layer.bg.size())    layer.bg[idx]    = new_bg;
+                if (idx < layer.attrs.size()) layer.attrs[idx] = new_attrs;
+                did_anything = true;
+            }
+        return did_anything;
+    }
+
     const size_t n = layer.cells.size();
     for (size_t idx = 0; idx < n; ++idx)
     {
@@ -1284,6 +1346,53 @@ bool AnsiCanvas::FillLayer(int layer_index,
             prepared = true;
         }
     };
+
+    const bool clip_to_selection = m_tool_running && HasSelection() && !m_move.active;
+    if (clip_to_selection)
+    {
+        const Rect r = GetSelectionRect();
+        if (r.w <= 0 || r.h <= 0 || m_columns <= 0 || m_rows <= 0)
+            return false;
+        const int x0 = std::clamp(r.x, 0, m_columns - 1);
+        const int x1 = std::clamp(r.x + r.w - 1, 0, m_columns - 1);
+        const int y0 = std::max(0, r.y);
+        const int y1 = std::min(m_rows - 1, r.y + r.h - 1);
+        if (y0 > y1)
+            return false;
+
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+            {
+                const size_t idx = (size_t)y * (size_t)m_columns + (size_t)x;
+                if (idx >= layer.cells.size())
+                    continue;
+
+                const char32_t old_cp = layer.cells[idx];
+                const Color32  old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : 0;
+                const Color32  old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : 0;
+                const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+                const char32_t new_cp = cp.has_value() ? *cp : old_cp;
+                const Color32  new_fg = fg.has_value() ? *fg : old_fg;
+                const Color32  new_bg = bg.has_value() ? *bg : old_bg;
+                const Attrs    new_attrs = old_attrs;
+
+                if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                                  old_cp, old_fg, old_bg, old_attrs,
+                                                  new_cp, new_fg, new_bg, new_attrs))
+                    continue;
+                if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg)
+                    continue;
+
+                prepare();
+                CaptureUndoPageIfNeeded(layer_index, y);
+                if (idx < layer.cells.size()) layer.cells[idx] = new_cp;
+                if (idx < layer.fg.size())    layer.fg[idx]    = new_fg;
+                if (idx < layer.bg.size())    layer.bg[idx]    = new_bg;
+                did_anything = true;
+            }
+        return did_anything;
+    }
 
     const size_t n = layer.cells.size();
     for (size_t idx = 0; idx < n; ++idx)
