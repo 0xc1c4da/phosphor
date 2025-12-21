@@ -4,6 +4,10 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <SDL3/SDL.h>
@@ -55,6 +59,42 @@
 
 namespace app
 {
+
+namespace
+{
+struct FallbackToolState
+{
+    std::unique_ptr<AnslScriptEngine> engine;
+    std::string                      last_source;
+    std::string                      last_error;
+};
+
+static std::string ReadFileToString(const std::string& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return {};
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static bool ToolClaimsAction(const ToolSpec* t, std::string_view action_id)
+{
+    if (!t)
+        return false;
+    for (const ToolSpec::HandleRule& r : t->handles)
+        if (r.when == ToolSpec::HandleWhen::Active && r.action == action_id)
+            return true;
+    return false;
+}
+
+static bool ToolFallbackClaimsAction(const ToolSpec& t, std::string_view action_id)
+{
+    for (const ToolSpec::HandleRule& r : t.handles)
+        if (r.when == ToolSpec::HandleWhen::Inactive && r.action == action_id)
+            return true;
+    return false;
+}
+} // namespace
 
 void RunFrame(AppState& st)
 {
@@ -1195,6 +1235,14 @@ void RunFrame(AppState& st)
                 tools_error = err;
             else
                 tools_error.clear();
+
+            // Keep keybinding engine's tool action registry in sync with the current tool set
+            // (used by Settings UI and the host action router).
+            std::vector<kb::Action> all;
+            for (const ToolSpec& t : tool_palette.GetTools())
+                for (const kb::Action& a : t.actions)
+                    all.push_back(a);
+            keybinds.SetToolActions(std::move(all));
         }
 
         std::string tool_path;
@@ -1554,21 +1602,191 @@ void RunFrame(AppState& st)
                 kctx.selection = c.HasSelection();
                 kctx.platform = kb::RuntimePlatform();
 
-                const kb::Hotkeys hk = keybinds.EvalCommonHotkeys(kctx);
-                ctx.hotkeys.copy = hk.copy;
-                ctx.hotkeys.cut = hk.cut;
-                ctx.hotkeys.paste = hk.paste;
-                ctx.hotkeys.selectAll = hk.select_all;
-                ctx.hotkeys.cancel = hk.cancel;
-                ctx.hotkeys.deleteSelection = hk.delete_selection;
+                // -----------------------
+                // Action Router (Option A)
+                // -----------------------
+                // Precedence: active tool > fallback tool handlers > host.
+                //
+                // We start by evaluating a small "common action layer" through the key bindings engine,
+                // then route based on explicit tool handles (settings.handles).
+                //
+                // This makes actions like selection delete work even when Select isn't the active tool,
+                // while still letting tools (e.g. Edit) override behavior.
 
+                const ToolSpec* active_tool = tool_palette.GetActiveTool();
+
+                // Cache fallback tool engines across frames (path -> engine).
+                static std::unordered_map<std::string, FallbackToolState> fallback_tools;
+
+                auto ensure_fallback_engine = [&](const ToolSpec& t) -> AnslScriptEngine* {
+                    if (t.path.empty())
+                        return nullptr;
+                    FallbackToolState& st = fallback_tools[t.path];
+                    if (!st.engine)
+                    {
+                        st.engine = std::make_unique<AnslScriptEngine>();
+                        std::string err;
+                        if (!st.engine->Init(GetPhosphorAssetsDir(), err, &session_state.font_sanity_cache, false))
+                        {
+                            st.last_error = err;
+                            st.engine.reset();
+                            return nullptr;
+                        }
+                    }
+
+                    const std::string src = ReadFileToString(t.path);
+                    if (src.empty())
+                        return st.engine.get();
+                    if (src != st.last_source)
+                    {
+                        std::string err;
+                        if (!st.engine->CompileUserScript(src, err))
+                        {
+                            st.last_error = err;
+                            return st.engine.get();
+                        }
+                        st.last_error.clear();
+                        st.last_source = src;
+                    }
+                    return st.engine.get();
+                };
+
+                auto run_fallback_tool_action = [&](const ToolSpec& t, std::string_view action_id) -> bool {
+                    AnslScriptEngine* eng = ensure_fallback_engine(t);
+                    if (!eng)
+                        return false;
+
+                    std::vector<std::string> actions;
+                    actions.emplace_back(action_id);
+
+                    AnslFrameContext fctx = ctx;
+                    // Keyboard-only dispatch.
+                    fctx.phase = 0;
+                    // Avoid accidental key-driven behavior in the fallback tool: drive only via ctx.actions.
+                    fctx.key_left = false;
+                    fctx.key_right = false;
+                    fctx.key_up = false;
+                    fctx.key_down = false;
+                    fctx.key_home = false;
+                    fctx.key_end = false;
+                    fctx.key_backspace = false;
+                    fctx.key_delete = false;
+                    fctx.key_enter = false;
+                    fctx.key_c = false;
+                    fctx.key_v = false;
+                    fctx.key_x = false;
+                    fctx.key_a = false;
+                    fctx.key_escape = false;
+                    fctx.hotkeys = {};
+                    fctx.typed = nullptr;
+                    fctx.cursor_valid = false;
+                    fctx.actions_pressed = &actions;
+                    fctx.allow_caret_writeback = false;
+
+                    ToolCommandSink sink;
+                    sink.allow_tool_commands = false;
+                    sink.out_commands = nullptr;
+
+                    std::string err;
+                    const bool ok = eng->RunFrame(c, c.GetActiveLayerIndex(), fctx, sink, false, err);
+                    (void)ok;
+                    // Even if the tool errors, don't crash routing; treat as handled to avoid host fallback duplication.
+                    return true;
+                };
+
+                auto host_fallback = [&](std::string_view action_id) -> bool {
+                    if (action_id == "edit.select_all")
+                    {
+                        c.SelectAll();
+                        return true;
+                    }
+                    if (action_id == "selection.clear_or_cancel")
+                    {
+                        if (c.IsMovingSelection())
+                            (void)c.CancelMoveSelection();
+                        else
+                            c.ClearSelection();
+                        return true;
+                    }
+                    if (action_id == "selection.delete")
+                    {
+                        if (c.IsMovingSelection())
+                            (void)c.CommitMoveSelection();
+                        (void)c.DeleteSelection();
+                        return true;
+                    }
+                    if (action_id == "edit.copy")
+                        return c.CopySelectionToClipboard();
+                    if (action_id == "edit.cut")
+                        return c.CutSelectionToClipboard();
+                    if (action_id == "edit.paste")
+                        return c.PasteClipboard(ctx.caret_x, ctx.caret_y);
+                    return false;
+                };
+
+                // Evaluate common semantic hotkeys from the keybinding engine.
+                const kb::Hotkeys hk_raw = keybinds.EvalCommonHotkeys(kctx);
+                struct Candidate
+                {
+                    std::string_view id;
+                    bool             pressed = false;
+                };
+                Candidate candidates[] = {
+                    {"edit.copy", hk_raw.copy},
+                    {"edit.cut", hk_raw.cut},
+                    {"edit.paste", hk_raw.paste},
+                    {"edit.select_all", hk_raw.select_all},
+                    {"selection.clear_or_cancel", hk_raw.cancel},
+                    {"selection.delete", hk_raw.delete_selection},
+                };
+
+                // Decide which of the common actions to deliver to the active tool, and which to handle via fallback.
+                // - If the active tool handles the action (when="active"): deliver it via ctx.hotkeys + ctx.actions.
+                // - Otherwise: run the first fallback tool that handles it (when="inactive"), excluding the active tool.
+                // - Otherwise: host fallback.
+                kb::Hotkeys hk_to_tool;
                 pressed_actions.clear();
-                if (hk.copy) pressed_actions.push_back("edit.copy");
-                if (hk.cut) pressed_actions.push_back("edit.cut");
-                if (hk.paste) pressed_actions.push_back("edit.paste");
-                if (hk.select_all) pressed_actions.push_back("edit.select_all");
-                if (hk.cancel) pressed_actions.push_back("selection.clear_or_cancel");
-                if (hk.delete_selection) pressed_actions.push_back("selection.delete");
+
+                for (const Candidate& cand : candidates)
+                {
+                    if (!cand.pressed)
+                        continue;
+
+                    const bool claimed_by_active = ToolClaimsAction(active_tool, cand.id);
+                    if (claimed_by_active)
+                    {
+                        pressed_actions.push_back(std::string(cand.id));
+                        if (cand.id == "edit.copy") hk_to_tool.copy = true;
+                        else if (cand.id == "edit.cut") hk_to_tool.cut = true;
+                        else if (cand.id == "edit.paste") hk_to_tool.paste = true;
+                        else if (cand.id == "edit.select_all") hk_to_tool.select_all = true;
+                        else if (cand.id == "selection.clear_or_cancel") hk_to_tool.cancel = true;
+                        else if (cand.id == "selection.delete") hk_to_tool.delete_selection = true;
+                        continue;
+                    }
+
+                    bool handled = false;
+                    for (const ToolSpec& t : tool_palette.GetTools())
+                    {
+                        if (active_tool && t.id == active_tool->id)
+                            continue;
+                        if (!ToolFallbackClaimsAction(t, cand.id))
+                            continue;
+                        handled = run_fallback_tool_action(t, cand.id);
+                        if (handled)
+                            break;
+                    }
+                    if (!handled)
+                        (void)host_fallback(cand.id);
+                }
+
+                // Expose routed hotkeys/actions to the active tool.
+                ctx.hotkeys.copy = hk_to_tool.copy;
+                ctx.hotkeys.cut = hk_to_tool.cut;
+                ctx.hotkeys.paste = hk_to_tool.paste;
+                ctx.hotkeys.selectAll = hk_to_tool.select_all;
+                ctx.hotkeys.cancel = hk_to_tool.cancel;
+                ctx.hotkeys.deleteSelection = hk_to_tool.delete_selection;
 
                 if (active_tool_id() == "select")
                 {

@@ -24,6 +24,32 @@ struct ToolSpec
     // Optional tool-registered actions (for keybinding engine + Settings UI).
     // Tools may define these under `settings.actions` in their Lua file.
     std::vector<kb::Action> actions;
+
+    // Optional action routing hints (used by host Action Router).
+    //
+    // Tools can declare which actions they handle, and whether they should be considered
+    // when the tool is active (highest precedence) or inactive (fallback tier).
+    //
+    // Lua schema:
+    //   settings.handles = {
+    //     { action = "selection.delete", when = "active" },
+    //     { action = "selection.delete", when = "inactive" },
+    //   }
+    //
+    // Back-compat: older tools may still use:
+    //   settings.claims = { "id", ... }          -> when="active"
+    //   settings.fallbackClaims = { "id", ... }  -> when="inactive"
+    enum class HandleWhen : std::uint8_t
+    {
+        Active = 0,
+        Inactive,
+    };
+    struct HandleRule
+    {
+        std::string action;
+        HandleWhen  when = HandleWhen::Active;
+    };
+    std::vector<HandleRule> handles;
 };
 
 class ToolPalette

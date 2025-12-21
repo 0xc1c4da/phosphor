@@ -934,6 +934,7 @@ std::vector<Action> DefaultActions()
             .description="Erase selection contents.",
             .bindings={
                 {.enabled=true, .chord="Delete", .context="selection", .platform="any"},
+                {.enabled=true, .chord="Backspace", .context="selection", .platform="any"},
             }
         },
         {

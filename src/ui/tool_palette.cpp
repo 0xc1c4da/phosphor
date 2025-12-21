@@ -52,6 +52,78 @@ static std::string BasenameNoExt(const std::string& path)
     return name;
 }
 
+static void LuaReadStringArrayField(lua_State* L, int table_idx, const char* key, std::vector<std::string>& out)
+{
+    out.clear();
+    lua_getfield(L, table_idx, key);
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        return;
+    }
+    const int n = LuaArrayLen(L, -1);
+    out.reserve((size_t)std::max(0, n));
+    for (int i = 1; i <= n; ++i)
+    {
+        lua_rawgeti(L, -1, i);
+        if (lua_isstring(L, -1))
+        {
+            const char* s = lua_tostring(L, -1);
+            if (s && *s)
+                out.emplace_back(s);
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1); // field table
+}
+
+static ToolSpec::HandleWhen ParseHandleWhen(std::string_view s)
+{
+    if (s == "inactive")
+        return ToolSpec::HandleWhen::Inactive;
+    return ToolSpec::HandleWhen::Active;
+}
+
+static void LuaReadHandlesField(lua_State* L, int table_idx, std::vector<ToolSpec::HandleRule>& out)
+{
+    out.clear();
+    lua_getfield(L, table_idx, "handles");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        return;
+    }
+    const int n = LuaArrayLen(L, -1);
+    out.reserve((size_t)std::max(0, n));
+    for (int i = 1; i <= n; ++i)
+    {
+        lua_rawgeti(L, -1, i);
+        if (!lua_istable(L, -1))
+        {
+            lua_pop(L, 1);
+            continue;
+        }
+
+        ToolSpec::HandleRule r;
+
+        lua_getfield(L, -1, "action");
+        if (lua_isstring(L, -1))
+            r.action = lua_tostring(L, -1);
+        lua_pop(L, 1);
+
+        lua_getfield(L, -1, "when");
+        if (lua_isstring(L, -1))
+            r.when = ParseHandleWhen(lua_tostring(L, -1));
+        lua_pop(L, 1);
+
+        if (!r.action.empty())
+            out.push_back(std::move(r));
+
+        lua_pop(L, 1); // rule table
+    }
+    lua_pop(L, 1); // handles
+}
+
 bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec& out, std::string& error)
 {
     out = ToolSpec{};
@@ -60,6 +132,7 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
     out.icon = "?";
     out.label = BasenameNoExt(path);
     out.actions.clear();
+    out.handles.clear();
 
     const std::string src = ReadFileToString(path);
     if (src.empty())
@@ -113,6 +186,23 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
         if (lua_isstring(L, -1))
             out.label = lua_tostring(L, -1);
         lua_pop(L, 1);
+
+        // Optional routing hints:
+        // - preferred: settings.handles = { {action=..., when="active"/"inactive"}, ... }
+        // - back-compat: settings.claims / settings.fallbackClaims (string arrays)
+        LuaReadHandlesField(L, -1, out.handles);
+        if (out.handles.empty())
+        {
+            std::vector<std::string> claims;
+            std::vector<std::string> fallback;
+            LuaReadStringArrayField(L, -1, "claims", claims);
+            LuaReadStringArrayField(L, -1, "fallbackClaims", fallback);
+            out.handles.reserve(claims.size() + fallback.size());
+            for (const std::string& s : claims)
+                out.handles.push_back(ToolSpec::HandleRule{.action = s, .when = ToolSpec::HandleWhen::Active});
+            for (const std::string& s : fallback)
+                out.handles.push_back(ToolSpec::HandleRule{.action = s, .when = ToolSpec::HandleWhen::Inactive});
+        }
 
         // Optional: settings.actions = { {id=..., title=..., category=..., description=..., bindings={...}}, ... }
         lua_getfield(L, -1, "actions");

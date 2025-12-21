@@ -3,6 +3,30 @@ settings = {
   icon = "⬚",
   label = "Select",
 
+  -- Action routing hints (used by host Action Router).
+  -- - When active, this tool handles selection ops + clipboard + selection transforms.
+  -- - When inactive, we still want selection/clipboard actions to work as a fallback.
+  handles = {
+    { action = "selection.clear_or_cancel", when = "active" },
+    { action = "selection.delete", when = "active" },
+    { action = "edit.select_all", when = "active" },
+    { action = "edit.copy", when = "active" },
+    { action = "edit.cut", when = "active" },
+    { action = "edit.paste", when = "active" },
+    { action = "selection.op.rotate_cw", when = "active" },
+    { action = "selection.op.flip_x", when = "active" },
+    { action = "selection.op.flip_y", when = "active" },
+    { action = "selection.op.center", when = "active" },
+    { action = "selection.crop", when = "active" },
+
+    { action = "selection.clear_or_cancel", when = "inactive" },
+    { action = "selection.delete", when = "inactive" },
+    { action = "edit.select_all", when = "inactive" },
+    { action = "edit.copy", when = "inactive" },
+    { action = "edit.cut", when = "inactive" },
+    { action = "edit.paste", when = "inactive" },
+  },
+
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     -- Stable ordering for host UI.
@@ -331,12 +355,9 @@ function render(ctx, layer)
     end
 
     -- Backspace: delete selection contents (match eraser/edit-tool "backspace clears" behavior).
-    if keys.backspace and canvas:hasSelection() then
-      commit_if_moving(canvas)
-      canvas:deleteSelection()
-      selecting = false
-      return
-    end
+    -- NOTE: Backspace is bound to the `selection.delete` action in key-bindings.json.
+    -- We intentionally do not special-case `keys.backspace` here to avoid double-execution
+    -- when the host Action Router dispatches `selection.delete`.
 
     -- Delete selection contents.
     if (hotkeys.deleteSelection or actions["selection.delete"]) and canvas:hasSelection() then

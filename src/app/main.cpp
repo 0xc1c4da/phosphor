@@ -307,6 +307,14 @@ int main(int, char**)
     if (!session_state.active_tool_path.empty())
         tool_palette.SetActiveToolByPath(session_state.active_tool_path);
 
+    auto set_all_tool_actions = [&]() {
+        std::vector<kb::Action> all;
+        for (const ToolSpec& t : tool_palette.GetTools())
+            for (const kb::Action& a : t.actions)
+                all.push_back(a);
+        keybinds.SetToolActions(std::move(all));
+    };
+
     // Compile initial tool and seed keybinding tool actions.
     {
         std::string tool_path;
@@ -320,8 +328,9 @@ int main(int, char**)
             else
                 tool_compile_error.clear();
 
-            if (const ToolSpec* t = tool_palette.GetActiveTool())
-                keybinds.SetToolActions(t->actions);
+            // Register tool actions for all tools (not just active) so keybindings UI is complete
+            // and the host action router can route fallback actions deterministically.
+            set_all_tool_actions();
         }
     }
 
@@ -335,8 +344,7 @@ int main(int, char**)
             tool_compile_error = cerr;
         else
             tool_compile_error.clear();
-        if (const ToolSpec* t = tool_palette.GetActiveTool())
-            keybinds.SetToolActions(t->actions);
+        set_all_tool_actions();
     };
 
     // Tool history: stable ids, not filenames.

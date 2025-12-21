@@ -2,6 +2,16 @@ settings = {
   id = "00-edit",
   icon = "⌶",
   label = "Edit"
+  ,
+  -- Action routing hints (used by host Action Router).
+  -- This tool intentionally overrides selection-delete semantics: with an active selection,
+  -- Backspace/Delete continue to behave like text editing (single-cell delete) rather than
+  -- deleting the whole selection.
+  handles = {
+    { action = "editor.backspace", when = "active" },
+    { action = "editor.new_line", when = "active" },
+    { action = "selection.delete", when = "active" },
+  },
 }
 
 local function clamp(v, a, b)
