@@ -663,6 +663,22 @@ public:
     bool CommitMoveSelection(int layer_index = -1);
     bool CancelMoveSelection(int layer_index = -1);
 
+    // Marks tool/script execution so we can scope certain behaviors (mirror mode, selection clipping)
+    // to user-driven mutations, without affecting file I/O, undo replay, or other core operations.
+    //
+    // Intended usage:
+    //   {
+    //     AnsiCanvas::ToolRunScope scope(canvas);
+    //     ... tool or ANSL script code that mutates the canvas ...
+    //   }
+    struct ToolRunScope
+    {
+        AnsiCanvas& c;
+        bool        prev = false;
+        explicit ToolRunScope(AnsiCanvas& canvas) : c(canvas), prev(canvas.m_tool_running) { c.m_tool_running = true; }
+        ~ToolRunScope() { c.m_tool_running = prev; }
+    };
+
 private:
     // Selection-as-mask for tool/script-driven edits:
     // when a selection exists, tools/ANSL scripts may only mutate cells *inside* it.

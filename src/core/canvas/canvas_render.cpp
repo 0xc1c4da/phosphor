@@ -1214,15 +1214,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         m_key_events.enter;
     if (tool_runner)
     {
-        // Mark tool execution so we can scope behaviors (e.g. mirror-mode mutations) to tools/scripts,
-        // without affecting file import, undo replay, or other core operations.
-        struct ToolRunScope
-        {
-            AnsiCanvas& c;
-            bool        prev = false;
-            explicit ToolRunScope(AnsiCanvas& canvas) : c(canvas), prev(canvas.m_tool_running) { c.m_tool_running = true; }
-            ~ToolRunScope() { c.m_tool_running = prev; }
-        } scope(*this);
+        ToolRunScope scope(*this);
 
         tool_runner(*this, 0); // keyboard phase
     }
@@ -1365,13 +1357,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // Mouse phase: tools can react to cursor state for this frame.
     if (tool_runner)
     {
-        struct ToolRunScope
-        {
-            AnsiCanvas& c;
-            bool        prev = false;
-            explicit ToolRunScope(AnsiCanvas& canvas) : c(canvas), prev(canvas.m_tool_running) { c.m_tool_running = true; }
-            ~ToolRunScope() { c.m_tool_running = prev; }
-        } scope(*this);
+        ToolRunScope scope(*this);
 
         tool_runner(*this, 1);
     }

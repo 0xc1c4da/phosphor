@@ -377,6 +377,8 @@ void AnslEditor::Render(const char* id,
             // One-shot fg/bg fill (also re-applied per-frame on clear in the engine).
             if (c && (s.has_foreground || s.has_background))
             {
+                // Treat script-driven fills as tool/script mutations so they respect selection clipping.
+                AnsiCanvas::ToolRunScope scope(*c);
                 std::optional<AnsiCanvas::Color32> fg;
                 std::optional<AnsiCanvas::Color32> bg;
                 if (s.has_foreground)
@@ -536,6 +538,10 @@ void AnslEditor::Render(const char* id,
 
         if (canvas && should_run)
         {
+            // Ensure ANSL scripts behave like tools: respect selection-as-mask and mirror-mode,
+            // while keeping core operations (I/O, undo replay) unaffected.
+            AnsiCanvas::ToolRunScope scope(*canvas);
+
             AnslFrameContext fctx;
             fctx.cols = canvas->GetColumns();
             fctx.rows = canvas->GetRows();
