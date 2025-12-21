@@ -273,21 +273,24 @@ static int l_canvas_getCell(lua_State* L)
     char32_t cp = U' ';
     AnsiCanvas::Color32 fg32 = 0;
     AnsiCanvas::Color32 bg32 = 0;
+    AnsiCanvas::Attrs attrs = 0;
 
     if (want_layer || layer != -9999)
     {
         const int li = (layer == -9999) ? b->canvas->GetActiveLayerIndex() : layer;
         cp = b->canvas->GetLayerCell(li, y, x);
         (void)b->canvas->GetLayerCellColors(li, y, x, fg32, bg32);
+        (void)b->canvas->GetLayerCellAttrs(li, y, x, attrs);
     }
     else
     {
         // Composite is bounded and returns false if out-of-range.
-        if (!b->canvas->GetCompositeCellPublic(y, x, cp, fg32, bg32))
+        if (!b->canvas->GetCompositeCellPublic(y, x, cp, fg32, bg32, attrs))
         {
             cp = U' ';
             fg32 = 0;
             bg32 = 0;
+            attrs = 0;
         }
     }
 
@@ -303,7 +306,9 @@ static int l_canvas_getCell(lua_State* L)
 
     // Also return cp as an integer (handy for tools; safe additive API).
     lua_pushinteger(L, (lua_Integer)cp);
-    return 4;
+    // Also return attrs bitmask as an integer (safe additive API; enables pipette to respect reverse video).
+    lua_pushinteger(L, (lua_Integer)attrs);
+    return 5;
 }
 
 static int l_canvas_setSelection(lua_State* L)

@@ -87,7 +87,14 @@ local function pick_color(ctx, cell, which, source, apply)
   if not apply then
     return nil -- preserve
   end
-  local cur = (which == "fg") and ctx.fg or ctx.bg
+  -- NOTE: avoid Lua's `(cond and a or b)` ternary idiom here: if `a` is nil it will
+  -- fall through to `b` and can silently "swap" channels when one is unset.
+  local cur = nil
+  if which == "fg" then
+    cur = ctx.fg
+  else
+    cur = ctx.bg
+  end
   if type(cur) ~= "number" then cur = nil end
   local cel = nil
   if type(cell) == "table" and type(cell[which]) == "number" then
