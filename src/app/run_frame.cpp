@@ -441,6 +441,8 @@ void RunFrame(AppState& st)
         }
         cw.restore_pending = false;
         cw.canvas.SetUndoLimit(session_state.undo_limit);
+        // Restored cached projects should be "clean" until the user edits.
+        cw.canvas.MarkSaved();
     };
 
     // Session restore (cached .phos projects):

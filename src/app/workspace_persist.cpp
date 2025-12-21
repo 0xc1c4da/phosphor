@@ -35,8 +35,6 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
         cw->canvas.SetKeyBindingsEngine(&keybinds);
         if (!oc.file_path.empty())
             cw->canvas.SetFilePath(oc.file_path);
-        // Loaded/restored canvases are "clean" until the user edits.
-        cw->canvas.MarkSaved();
 
         // Per-canvas active glyph selection (tools brush).
         {
@@ -60,6 +58,8 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
             // Provide a sane blank canvas until the cached project is loaded.
             cw->canvas.SetColumns(80);
             cw->canvas.EnsureRowsPublic(25);
+            // Placeholder canvas should not appear dirty during startup restore.
+            cw->canvas.MarkSaved();
         }
         else
         {
