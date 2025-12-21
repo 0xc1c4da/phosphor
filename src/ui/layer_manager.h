@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 class AnsiCanvas;
@@ -26,7 +27,8 @@ public:
                 bool* p_open,
                 AnsiCanvas* active_canvas,
                 SessionState* session = nullptr,
-                bool apply_placement_this_frame = false);
+                bool apply_placement_this_frame = false,
+                bool allow_thumbnail_refresh = false);
 
 private:
     char rename_buf_[256] = {0};
@@ -43,6 +45,24 @@ private:
     int         inline_rename_layer_index_ = -1;
     char        inline_rename_buf_[256] = {0};
     bool        inline_rename_request_focus_ = false;
+
+    // Layer thumbnail cache:
+    // - Normally: refresh lazily when the canvas content revision changes.
+    // - During ANSL playback: freeze (avoid recomputing per frame).
+    struct LayerThumbCache
+    {
+        bool              valid = false;
+        std::uint64_t     canvas_revision = 0;
+        int               cols = 0;
+        int               rows = 0;
+        int               font_id = 0;
+        bool              canvas_bg_white = false;
+        int               gw = 0;
+        int               gh = 0;
+        std::vector<std::uint32_t> colors; // packed ImU32
+    };
+    AnsiCanvas*                 thumb_cache_canvas_ = nullptr;
+    std::vector<LayerThumbCache> thumb_cache_;
 };
 
 

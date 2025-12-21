@@ -54,27 +54,19 @@ static void DrawCheckerboard(ImDrawList* dl, const ImVec2& p0, const ImVec2& p1,
     }
 }
 
-static void DrawLayerThumbnail(const AnsiCanvas& canvas, int layer_index, const ImVec2& size, bool dim)
+static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
+                                      int layer_index,
+                                      int& out_gw,
+                                      int& out_gh,
+                                      std::vector<std::uint32_t>& out_colors)
 {
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
-
-    // Reserve item space without capturing input; the row's Selectable should receive clicks/drags.
-    ImGui::Dummy(size);
-
-    // Background frame + checkerboard for transparency.
-    dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 24, 255), 3.0f);
-    const float pad = 2.0f;
-    const ImVec2 i0(p0.x + pad, p0.y + pad);
-    const ImVec2 i1(p1.x - pad, p1.y - pad);
-    DrawCheckerboard(dl, i0, i1, 6.0f);
-
     const int cols = canvas.GetColumns();
     const int rows = canvas.GetRows();
     if (cols <= 0 || rows <= 0)
     {
-        dl->AddRect(p0, p1, IM_COL32(90, 90, 105, 255), 3.0f);
+        out_gw = 0;
+        out_gh = 0;
+        out_colors.clear();
         return;
     }
 
@@ -200,26 +192,21 @@ static void DrawLayerThumbnail(const AnsiCanvas& canvas, int layer_index, const 
     gw = std::clamp(gw, 1, max_dim);
     gh = std::clamp(gh, 1, max_dim);
 
-    const float iw = std::max(1.0f, i1.x - i0.x);
-    const float ih = std::max(1.0f, i1.y - i0.y);
-    const float cw = iw / (float)gw;
-    const float ch = ih / (float)gh;
+    out_gw = gw;
+    out_gh = gh;
+    out_colors.assign((size_t)gw * (size_t)gh, 0u);
 
     // Defaults when fg is unset.
     const ImU32 default_fg = canvas.IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
     for (int y = 0; y < gh; ++y)
     {
-        const float y0 = i0.y + (float)y * ch;
-        const float y1 = y0 + ch;
         const float fy = ((y + 0.5f) * (float)rows) / (float)gh;
         const int src_row = std::clamp((int)std::floor(fy), 0, rows - 1);
         const float ly = std::clamp(fy - (float)src_row, 0.0f, 1.0f);
 
         for (int x = 0; x < gw; ++x)
         {
-            const float x0 = i0.x + (float)x * cw;
-            const float x1 = x0 + cw;
             // Map x in "aspect-adjusted" units back to canvas columns.
             const float u_units = ((x + 0.5f) / (float)gw) * src_w_units;
             const float fx = (aspect > 0.0f) ? (u_units / aspect) : 0.0f;
@@ -259,7 +246,7 @@ static void DrawLayerThumbnail(const AnsiCanvas& canvas, int layer_index, const 
                 const int r = (int)std::lround((double)br + ((double)fr - (double)br) * (double)t);
                 const int g = (int)std::lround((double)bgc + ((double)fgcc - (double)bgc) * (double)t);
                 const int b = (int)std::lround((double)bb + ((double)fb - (double)bb) * (double)t);
-                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), pack(r, g, b, 255));
+                out_colors[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, 255);
             }
             else
             {
@@ -269,8 +256,60 @@ static void DrawLayerThumbnail(const AnsiCanvas& canvas, int layer_index, const 
                 int r, g, b, a;
                 unpack(fg_col, r, g, b, a);
                 const int aa = (int)std::lround(255.0 * (double)t);
-                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), pack(r, g, b, aa));
+                out_colors[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, aa);
             }
+        }
+    }
+}
+
+static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colors,
+                                       int gw,
+                                       int gh,
+                                       const ImVec2& size,
+                                       bool dim)
+{
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
+
+    // Reserve item space without capturing input; the row's Selectable should receive clicks/drags.
+    ImGui::Dummy(size);
+
+    // Background frame + checkerboard for transparency.
+    dl->AddRectFilled(p0, p1, IM_COL32(20, 20, 24, 255), 3.0f);
+    const float pad = 2.0f;
+    const ImVec2 i0(p0.x + pad, p0.y + pad);
+    const ImVec2 i1(p1.x - pad, p1.y - pad);
+    DrawCheckerboard(dl, i0, i1, 6.0f);
+
+    if (gw <= 0 || gh <= 0 || colors.empty())
+    {
+        dl->AddRect(p0, p1, IM_COL32(90, 90, 105, 255), 3.0f);
+        return;
+    }
+
+    const float iw = std::max(1.0f, i1.x - i0.x);
+    const float ih = std::max(1.0f, i1.y - i0.y);
+    const float cw = iw / (float)gw;
+    const float ch = ih / (float)gh;
+
+    const size_t expected = (size_t)gw * (size_t)gh;
+    const size_t n = std::min(expected, colors.size());
+    for (int y = 0; y < gh; ++y)
+    {
+        const float y0 = i0.y + (float)y * ch;
+        const float y1 = y0 + ch;
+        for (int x = 0; x < gw; ++x)
+        {
+            const size_t idx = (size_t)y * (size_t)gw + (size_t)x;
+            if (idx >= n)
+                break;
+            const ImU32 col = (ImU32)colors[idx];
+            if (col == 0)
+                continue;
+            const float x0 = i0.x + (float)x * cw;
+            const float x1 = x0 + cw;
+            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
         }
     }
 
@@ -284,7 +323,8 @@ void LayerManager::Render(const char* title,
                           bool* p_open,
                           AnsiCanvas* active_canvas,
                           SessionState* session,
-                          bool apply_placement_this_frame)
+                          bool apply_placement_this_frame,
+                          bool allow_thumbnail_refresh)
 {
     if (!p_open || !*p_open)
         return;
@@ -320,6 +360,11 @@ void LayerManager::Render(const char* title,
     }
 
     AnsiCanvas* canvas = active_canvas;
+    if (thumb_cache_canvas_ != canvas)
+    {
+        thumb_cache_canvas_ = canvas;
+        thumb_cache_.clear();
+    }
 
     ImGui::Separator();
 
@@ -335,6 +380,9 @@ void LayerManager::Render(const char* title,
     int active = canvas->GetActiveLayerIndex();
     if (active < 0) active = 0;
     if (active >= layer_count) active = layer_count - 1;
+
+    if ((int)thumb_cache_.size() != layer_count)
+        thumb_cache_.resize((size_t)layer_count);
 
     // If the active canvas changed, cancel any inline rename to avoid dangling pointer / wrong target.
     if (inline_rename_canvas_ && inline_rename_canvas_ != canvas)
@@ -517,7 +565,42 @@ void LayerManager::Render(const char* title,
 
                 // Thumbnail (left)
                 ImGui::SetCursorScreenPos(ImVec2(row_min.x + pad_x, row_min.y + pad_y));
-                DrawLayerThumbnail(*canvas, layer_index, ImVec2(64.0f, thumb_h), !is_visible);
+                {
+                    LayerThumbCache& tc = thumb_cache_[(size_t)layer_index];
+                    const std::uint64_t rev = canvas->GetContentRevision();
+                    const int cols = canvas->GetColumns();
+                    const int rows = canvas->GetRows();
+                    const int font_id = (int)canvas->GetFontId();
+                    const bool bg_white = canvas->IsCanvasBackgroundWhite();
+
+                    const bool params_match =
+                        tc.valid &&
+                        tc.cols == cols &&
+                        tc.rows == rows &&
+                        tc.font_id == font_id &&
+                        tc.canvas_bg_white == bg_white;
+
+                    // Refresh policy:
+                    // - Always compute once if cache is missing/invalid.
+                    // - Always refresh if fundamental render params changed (font/geometry/theme).
+                    // - Otherwise, only refresh on explicit user interaction boundaries (mouse/key release).
+                    const bool content_changed = (tc.canvas_revision != rev);
+                    const bool must_refresh = !params_match;
+                    const bool should_refresh_now = allow_thumbnail_refresh && content_changed;
+
+                    if (!tc.valid || must_refresh || should_refresh_now)
+                    {
+                        ComputeLayerThumbnailGrid(*canvas, layer_index, tc.gw, tc.gh, tc.colors);
+                        tc.cols = cols;
+                        tc.rows = rows;
+                        tc.font_id = font_id;
+                        tc.canvas_bg_white = bg_white;
+                        tc.canvas_revision = rev;
+                        tc.valid = true;
+                    }
+
+                    DrawLayerThumbnailFromGrid(tc.colors, tc.gw, tc.gh, ImVec2(64.0f, thumb_h), !is_visible);
+                }
 
                 // Name (top line) + controls (second line) to match standard editors.
                 const float x_after_thumb = row_min.x + pad_x + 64.0f + 10.0f;

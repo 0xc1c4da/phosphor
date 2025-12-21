@@ -541,6 +541,10 @@ void AnslEditor::Render(const char* id,
             // Ensure ANSL scripts behave like tools: respect selection-as-mask and mirror-mode,
             // while keeping core operations (I/O, undo replay) unaffected.
             AnsiCanvas::ToolRunScope scope(*canvas);
+            // Performance: scripts frequently touch many cells per tick. When running scripts
+            // outside AnsiCanvas::Render(), we are not capturing undo deltas, so we can batch
+            // state/content revision bumps to once per script tick.
+            AnsiCanvas::ExternalMutationScope batch(*canvas);
 
             AnslFrameContext fctx;
             fctx.cols = canvas->GetColumns();

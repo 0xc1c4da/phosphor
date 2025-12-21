@@ -409,6 +409,7 @@ void RunFrame(AppState& st)
             wait_ms = is_focused ? 50 : 100;
     }
 
+    bool layer_thumbnails_refresh_release = false;
     auto process_event = [&](const SDL_Event& event)
     {
         // Treat these as "activity" to keep UI responsive.
@@ -436,6 +437,11 @@ void RunFrame(AppState& st)
         default:
             break;
         }
+
+        // Thumbnail refresh heuristic: only refresh expensive layer thumbnails on user interaction boundaries.
+        // This intentionally does NOT include mouse motion (dragging) or key down repeats.
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_KEY_UP)
+            layer_thumbnails_refresh_release = true;
 
         ImGui_ImplSDL3_ProcessEvent(&event);
         if (event.type == SDL_EVENT_QUIT)
@@ -2216,7 +2222,7 @@ void RunFrame(AppState& st)
         const char* name = "Layer Manager";
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         layer_manager.Render(name, &show_layer_manager_window, ui_active_canvas,
-                             &session_state, should_apply_placement(name));
+                             &session_state, should_apply_placement(name), layer_thumbnails_refresh_release);
     }
 
     // ANSL Editor window

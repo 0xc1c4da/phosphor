@@ -1843,26 +1843,14 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_getfield(L, -1, "brush");
     if (lua_istable(L, -1))
     {
-        // cells array
-        lua_getfield(L, -1, "cells");
-        if (lua_istable(L, -1))
-        {
-            const int n = LuaArrayLen(L, -1);
-            for (int i = 1; i <= n; ++i)
-            {
-                lua_pushnil(L);
-                lua_rawseti(L, -2, i);
-            }
-        }
-        // pop cells (or non-table)
-        lua_pop(L, 1);
-
         int bw = 0, bh = 0;
+        size_t new_total = 0;
         if (frame_ctx.brush && frame_ctx.brush->w > 0 && frame_ctx.brush->h > 0 &&
             frame_ctx.brush->cp && frame_ctx.brush->fg && frame_ctx.brush->bg && frame_ctx.brush->attrs)
         {
             bw = frame_ctx.brush->w;
             bh = frame_ctx.brush->h;
+            new_total = (size_t)bw * (size_t)bh;
 
             lua_pushinteger(L, bw); lua_setfield(L, -2, "w");
             lua_pushinteger(L, bh); lua_setfield(L, -2, "h");
@@ -1870,8 +1858,18 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
             lua_getfield(L, -1, "cells");
             if (lua_istable(L, -1))
             {
-                const size_t total = (size_t)bw * (size_t)bh;
-                for (size_t i = 0; i < total; ++i)
+                // Only clear the tail when the brush shrinks; we'll overwrite [1..new_total] below.
+                const int old_n = LuaArrayLen(L, -1);
+                if (new_total < (size_t)old_n)
+                {
+                    for (int i = (int)new_total + 1; i <= old_n; ++i)
+                    {
+                        lua_pushnil(L);
+                        lua_rawseti(L, -2, i);
+                    }
+                }
+
+                for (size_t i = 0; i < new_total; ++i)
                 {
                     lua_newtable(L); // cell
 
@@ -1906,6 +1904,18 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
             // Empty brush
             lua_pushinteger(L, 0); lua_setfield(L, -2, "w");
             lua_pushinteger(L, 0); lua_setfield(L, -2, "h");
+
+            lua_getfield(L, -1, "cells");
+            if (lua_istable(L, -1))
+            {
+                const int old_n = LuaArrayLen(L, -1);
+                for (int i = 1; i <= old_n; ++i)
+                {
+                    lua_pushnil(L);
+                    lua_rawseti(L, -2, i);
+                }
+            }
+            lua_pop(L, 1); // brush.cells
         }
     }
     lua_pop(L, 1); // brush
@@ -2083,16 +2093,10 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_getfield(L, -1, "palette");
     if (lua_istable(L, -1))
     {
-        const int n = LuaArrayLen(L, -1);
-        for (int i = 1; i <= n; ++i)
-        {
-            lua_pushnil(L);
-            lua_rawseti(L, -2, i);
-        }
-
+        const int old_n = LuaArrayLen(L, -1);
+        int out_i = 1;
         if (frame_ctx.palette_xterm)
         {
-            int out_i = 1;
             for (int idx : *frame_ctx.palette_xterm)
             {
                 if (idx < 0 || idx > 255)
@@ -2100,6 +2104,13 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                 lua_pushinteger(L, idx);
                 lua_rawseti(L, -2, out_i++);
             }
+        }
+
+        // Clear tail if we shrank; if we grew, no clearing needed.
+        for (int i = out_i; i <= old_n; ++i)
+        {
+            lua_pushnil(L);
+            lua_rawseti(L, -2, i);
         }
     }
     lua_pop(L, 1); // palette

@@ -106,14 +106,33 @@ void AnsiCanvas::PrepareUndoForMutation()
 {
     if (m_undo_applying_snapshot)
         return;
+
+    // Many callers mutate canvas content from outside AnsiCanvas::Render() (e.g. ANSL scripts).
+    // Those mutations still need to bump the content revision so dependent UI caches (minimap
+    // texture, previews) update immediately, even if we're not currently capturing an undo step.
+    //
+    // Performance: if an ExternalMutationScope is active AND we are not capturing undo,
+    // coalesce state/content bumps to at most once per scope.
+    if (!m_undo_capture_active && m_external_mutation_depth > 0)
+    {
+        if (!m_external_mutation_bumped)
+        {
+            // Any mutation to project content changes the document state token.
+            // Avoid wrap to 0 (treat 0 as "uninitialized" in some contexts).
+            ++m_state_token;
+            if (m_state_token == 0)
+                ++m_state_token;
+            TouchContent();
+            m_external_mutation_bumped = true;
+        }
+        return;
+    }
+
     // Any mutation to project content changes the document state token.
     // Avoid wrap to 0 (treat 0 as "uninitialized" in some contexts).
     ++m_state_token;
     if (m_state_token == 0)
         ++m_state_token;
-    // Many callers mutate canvas content from outside AnsiCanvas::Render() (e.g. ANSL scripts).
-    // Those mutations still need to bump the content revision so dependent UI caches (minimap
-    // texture, previews) update immediately, even if we're not currently capturing an undo step.
     if (!m_undo_capture_active)
     {
         TouchContent();

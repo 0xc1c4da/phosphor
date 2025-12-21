@@ -679,6 +679,30 @@ public:
         ~ToolRunScope() { c.m_tool_running = prev; }
     };
 
+    // ---------------------------------------------------------------------
+    // External mutation batching (performance)
+    // ---------------------------------------------------------------------
+    // Many systems mutate the canvas outside AnsiCanvas::Render() (e.g. ANSL scripts run
+    // from the script editor, file importers, batch ops). In that mode we are not capturing
+    // undo deltas, but we still bump state + content revision on every single cell write,
+    // which can be unnecessarily expensive for scripts that touch thousands of cells.
+    //
+    // `ExternalMutationScope` coalesces those bumps: within the scope, the *first* mutation
+    // triggers a state/content bump, and subsequent mutations become cheaper (until the
+    // scope ends). This is ONLY applied when undo capture is inactive.
+    struct ExternalMutationScope
+    {
+        AnsiCanvas& c;
+        explicit ExternalMutationScope(AnsiCanvas& canvas) : c(canvas) { ++c.m_external_mutation_depth; }
+        ~ExternalMutationScope()
+        {
+            if (c.m_external_mutation_depth > 0)
+                --c.m_external_mutation_depth;
+            if (c.m_external_mutation_depth == 0)
+                c.m_external_mutation_bumped = false;
+        }
+    };
+
 private:
     // Selection-as-mask for tool/script-driven edits:
     // when a selection exists, tools/ANSL scripts may only mutate cells *inside* it.
@@ -855,6 +879,10 @@ private:
     bool m_mirror_mode = false;
     // Transient: true while executing the active tool script callback during Render().
     bool m_tool_running = false;
+
+    // External mutation batching state (see ExternalMutationScope).
+    int  m_external_mutation_depth = 0;
+    bool m_external_mutation_bumped = false;
 
     // Input captured from ImGui:
     std::vector<char32_t> m_typed_queue;

@@ -10,7 +10,7 @@ settings = {
 
     -- Rendering options
     resolution = { type = "enum", label = "Resolution", items = { "cell", "half" }, default = "cell" },
-    mode = { type = "enum", label = "Mode", items = { "char", "colorize" }, default = "char" },
+    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "shading" }, default = "char" },
     style = { type = "enum", label = "Style", items = { "brush", "box_single", "box_double", "rounded", "ascii", "block" }, default = "brush" },
     dash = { type = "enum", label = "Dash", items = { "solid", "dashed", "dotted" }, default = "solid" },
     size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
@@ -249,7 +249,46 @@ local function get_paint(ctx, secondary)
   return fg, bg
 end
 
-local function paint_cell(ctx, layer, x, y, glyph, fg, bg)
+local function shade_block_cell(layer, x, y, fg, bg, reduce)
+  if not layer or type(fg) ~= "number" then return end
+
+  local cur_ch, cur_fg = layer:get(x, y)
+  if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
+
+  -- Match Moebius SHADING_BLOCK behavior (space->░->▒->▓->█; right-click reduces).
+  if reduce then
+    if cur_ch == "░" then
+      set_cell(layer, x, y, " ", fg, bg)
+    elseif cur_ch == "▒" then
+      set_cell(layer, x, y, "░", fg, bg)
+    elseif cur_ch == "▓" then
+      set_cell(layer, x, y, "▒", fg, bg)
+    elseif cur_ch == "█" then
+      if type(cur_fg) == "number" and math.floor(cur_fg) == fg then
+        set_cell(layer, x, y, "▓", fg, bg)
+      end
+    end
+    return
+  end
+
+  if cur_ch == "█" then
+    if type(cur_fg) == "number" and math.floor(cur_fg) ~= fg then
+      set_cell(layer, x, y, "░", fg, bg)
+    end
+    return
+  end
+  if cur_ch == "▓" then
+    set_cell(layer, x, y, "█", fg, bg)
+  elseif cur_ch == "▒" then
+    set_cell(layer, x, y, "▓", fg, bg)
+  elseif cur_ch == "░" then
+    set_cell(layer, x, y, "▒", fg, bg)
+  else
+    set_cell(layer, x, y, "░", fg, bg)
+  end
+end
+
+local function paint_cell(ctx, layer, x, y, glyph, fg, bg, secondary)
   local cols = tonumber((ctx and ctx.cols) or 0) or 0
   local rows = tonumber((ctx and ctx.rows) or 0) or 0
   if cols > 0 and (x < 0 or x >= cols) then return end
@@ -259,6 +298,14 @@ local function paint_cell(ctx, layer, x, y, glyph, fg, bg)
   local p = ctx.params or {}
   local mode = p.mode
   if type(mode) ~= "string" then mode = "char" end
+
+  if mode == "shading" then
+    -- Shading operates on existing cell content; right-click reduces density.
+    -- If neither FG nor BG is enabled, do nothing.
+    if fg == nil and bg == nil then return end
+    shade_block_cell(layer, x, y, fg, bg, secondary == true)
+    return
+  end
 
   if mode == "colorize" then
     if fg == nil and bg == nil then return end
@@ -287,14 +334,14 @@ local function style_pack(style)
   return nil
 end
 
-local function paint_point_with_size(ctx, layer, x, y, glyph, fg, bg, size)
+local function paint_point_with_size(ctx, layer, x, y, glyph, fg, bg, size, secondary)
   size = tonumber(size) or 1
   if size < 1 then size = 1 end
   if size > 100 then size = 100 end
   local r = math.floor(size / 2)
   for dy = -r, r do
     for dx = -r, r do
-      paint_cell(ctx, layer, x + dx, y + dy, glyph, fg, bg)
+      paint_cell(ctx, layer, x + dx, y + dy, glyph, fg, bg, secondary)
     end
   end
 end
@@ -308,7 +355,7 @@ local function dash_ok(dash, i)
   return true
 end
 
-local function draw_line_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg)
+local function draw_line_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg, secondary)
   local p = ctx.params or {}
   local dash = p.dash
   if type(dash) ~= "string" then dash = "solid" end
@@ -317,12 +364,12 @@ local function draw_line_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg)
   bresenham(x0, y0, x1, y1, function(x, y)
     i = i + 1
     if dash_ok(dash, i) then
-      paint_point_with_size(ctx, layer, x, y, glyph, fg, bg, size)
+      paint_point_with_size(ctx, layer, x, y, glyph, fg, bg, size, secondary)
     end
   end)
 end
 
-local function draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg, bg)
+local function draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg, bg, secondary)
   local p = ctx.params or {}
   local dash = p.dash
   if type(dash) ~= "string" then dash = "solid" end
@@ -348,15 +395,15 @@ local function draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg,
 
   -- Single row/col special cases:
   if sx == dx and sy == dy then
-    paint_point_with_size(ctx, layer, sx, sy, tl, fg, bg, size)
+    paint_point_with_size(ctx, layer, sx, sy, tl, fg, bg, size, secondary)
     return
   end
   if sy == dy then
-    draw_line_cell(ctx, layer, sx, sy, dx, sy, hh, fg, bg)
+    draw_line_cell(ctx, layer, sx, sy, dx, sy, hh, fg, bg, secondary)
     return
   end
   if sx == dx then
-    draw_line_cell(ctx, layer, sx, sy, sx, dy, vv, fg, bg)
+    draw_line_cell(ctx, layer, sx, sy, sx, dy, vv, fg, bg, secondary)
     return
   end
 
@@ -365,8 +412,8 @@ local function draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg,
   for x = sx + 1, dx - 1 do
     i = i + 1
     if dash_ok(dash, i) then
-      paint_point_with_size(ctx, layer, x, sy, hh, fg, bg, size)
-      paint_point_with_size(ctx, layer, x, dy, hh, fg, bg, size)
+      paint_point_with_size(ctx, layer, x, sy, hh, fg, bg, size, secondary)
+      paint_point_with_size(ctx, layer, x, dy, hh, fg, bg, size, secondary)
     end
   end
   -- Sides
@@ -374,24 +421,24 @@ local function draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg,
   for y = sy + 1, dy - 1 do
     i = i + 1
     if dash_ok(dash, i) then
-      paint_point_with_size(ctx, layer, sx, y, vv, fg, bg, size)
-      paint_point_with_size(ctx, layer, dx, y, vv, fg, bg, size)
+      paint_point_with_size(ctx, layer, sx, y, vv, fg, bg, size, secondary)
+      paint_point_with_size(ctx, layer, dx, y, vv, fg, bg, size, secondary)
     end
   end
   -- Corners (always draw)
-  paint_point_with_size(ctx, layer, sx, sy, tl, fg, bg, size)
-  paint_point_with_size(ctx, layer, dx, sy, tr, fg, bg, size)
-  paint_point_with_size(ctx, layer, sx, dy, bl, fg, bg, size)
-  paint_point_with_size(ctx, layer, dx, dy, br, fg, bg, size)
+  paint_point_with_size(ctx, layer, sx, sy, tl, fg, bg, size, secondary)
+  paint_point_with_size(ctx, layer, dx, sy, tr, fg, bg, size, secondary)
+  paint_point_with_size(ctx, layer, sx, dy, bl, fg, bg, size, secondary)
+  paint_point_with_size(ctx, layer, dx, dy, br, fg, bg, size, secondary)
 end
 
-local function draw_rect_filled_cell(ctx, layer, x0, y0, x1, y1, fill_glyph, fg, bg)
+local function draw_rect_filled_cell(ctx, layer, x0, y0, x1, y1, fill_glyph, fg, bg, secondary)
   -- For filled shapes, keep it cheap and deterministic.
   local sx, dx = reorientate(x0, x1)
   local sy, dy = reorientate(y0, y1)
   for y = sy, dy do
     for x = sx, dx do
-      paint_cell(ctx, layer, x, y, fill_glyph, fg, bg)
+      paint_cell(ctx, layer, x, y, fill_glyph, fg, bg, secondary)
     end
   end
 end
@@ -469,7 +516,7 @@ local function ellipse_outline_points(from_x, from_y, to_x, to_y)
   return pts
 end
 
-local function draw_ellipse_outline_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg)
+local function draw_ellipse_outline_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg, secondary)
   local p = ctx.params or {}
   local dash = p.dash
   if type(dash) ~= "string" then dash = "solid" end
@@ -484,13 +531,13 @@ local function draw_ellipse_outline_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, 
       seen[key] = true
       i = i + 1
       if dash_ok(dash, i) then
-        paint_point_with_size(ctx, layer, pt.x, pt.y, glyph, fg, bg, size)
+        paint_point_with_size(ctx, layer, pt.x, pt.y, glyph, fg, bg, size, secondary)
       end
     end
   end
 end
 
-local function draw_ellipse_filled_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg)
+local function draw_ellipse_filled_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg, secondary)
   local pts = ellipse_outline_points(x0, y0, x1, y1)
   if #pts == 0 then return end
 
@@ -507,7 +554,7 @@ local function draw_ellipse_filled_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, b
     local xhi = maxx[y]
     if xhi ~= nil then
       for x = xlo, xhi do
-        paint_cell(ctx, layer, x, y, glyph, fg, bg)
+        paint_cell(ctx, layer, x, y, glyph, fg, bg, secondary)
       end
     end
   end
@@ -541,7 +588,7 @@ local function tri_vertices_from_drag(x0, y0, x1, y1, constrain)
   return ax, ay, bx, by, cx, cy
 end
 
-local function fill_triangle_cell(ctx, layer, ax, ay, bx, by, cx, cy, glyph, fg, bg)
+local function fill_triangle_cell(ctx, layer, ax, ay, bx, by, cx, cy, glyph, fg, bg, secondary)
   -- Scanline fill by computing x extents per y from edges.
   local minx = {}
   local maxx = {}
@@ -559,16 +606,16 @@ local function fill_triangle_cell(ctx, layer, ax, ay, bx, by, cx, cy, glyph, fg,
     local xhi = maxx[y]
     if xhi ~= nil then
       for x = xlo, xhi do
-        paint_cell(ctx, layer, x, y, glyph, fg, bg)
+        paint_cell(ctx, layer, x, y, glyph, fg, bg, secondary)
       end
     end
   end
 end
 
-local function draw_triangle_outline_cell(ctx, layer, ax, ay, bx, by, cx, cy, glyph, fg, bg)
-  draw_line_cell(ctx, layer, ax, ay, bx, by, glyph, fg, bg)
-  draw_line_cell(ctx, layer, bx, by, cx, cy, glyph, fg, bg)
-  draw_line_cell(ctx, layer, cx, cy, ax, ay, glyph, fg, bg)
+local function draw_triangle_outline_cell(ctx, layer, ax, ay, bx, by, cx, cy, glyph, fg, bg, secondary)
+  draw_line_cell(ctx, layer, ax, ay, bx, by, glyph, fg, bg, secondary)
+  draw_line_cell(ctx, layer, bx, by, cx, cy, glyph, fg, bg, secondary)
+  draw_line_cell(ctx, layer, cx, cy, ax, ay, glyph, fg, bg, secondary)
 end
 
 -- Half-resolution drawing functions: all coordinates are (x, half_y) with half_y in [0, rows*2).
@@ -784,6 +831,37 @@ local function redraw_preview(ctx, layer)
   active.preview = (backup ~= nil)
   active.bx = bx; active.by = by; active.bw = bw; active.bh = bh
 
+  -- IMPORTANT (selection clipping): tools are clipped to the *current* selection during draw.
+  -- If we update selection after drawing, the preview can "outgrow" last frame's selection and get clipped.
+  -- Therefore, when selectAfter is enabled, set the selection bounds *before* drawing.
+  if (p.selectAfter == true) and ctx.canvas ~= nil then
+    local x_min, x_max = reorientate(draw_sx, draw_ex)
+    local y_min, y_max = reorientate(draw_sy, draw_ey)
+
+    -- Expand bounds to cover stroke thickness for outline/line workflows.
+    -- Note: filled shapes currently ignore `size`, so do NOT pad in that case.
+    local pad = 0
+    if resolution ~= "half" then
+      local size = tonumber(p.size) or 1
+      if size < 1 then size = 1 end
+      if fill ~= "filled" or shape == "line" then
+        pad = math.floor(size / 2)
+      end
+    end
+
+    x_min = x_min - pad
+    x_max = x_max + pad
+    y_min = y_min - pad
+    y_max = y_max + pad
+
+    if resolution == "half" then
+      y_min = math.floor(y_min / 2)
+      y_max = math.floor(y_max / 2)
+    end
+
+    ctx.canvas:setSelection(x_min, y_min, x_max, y_max)
+  end
+
   local st = style_pack(style)
   local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
@@ -792,7 +870,13 @@ local function redraw_preview(ctx, layer)
   end
 
   local secondary = (active.button == "right")
-  local fg, bg = get_paint(ctx, secondary)
+  local fg, bg
+  if p.mode == "shading" then
+    -- Match Moebius: right-click reduces shading, but does NOT swap fg/bg.
+    fg, bg = get_paint(ctx, false)
+  else
+    fg, bg = get_paint(ctx, secondary)
+  end
 
   if resolution == "half" then
     -- Half mode paints with a single color into half blocks.
@@ -846,38 +930,27 @@ local function redraw_preview(ctx, layer)
         if y0 == y1 and st.h ~= nil then glyph = st.h end
         if x0 == x1 and st.v ~= nil then glyph = st.v end
       end
-      draw_line_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg)
+      draw_line_cell(ctx, layer, x0, y0, x1, y1, glyph, fg, bg, secondary)
     elseif shape == "rectangle" then
       if fill == "filled" then
-        draw_rect_filled_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg)
+        draw_rect_filled_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg, secondary)
       else
-        draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg, bg)
+        draw_rect_outline_cell(ctx, layer, x0, y0, x1, y1, st, brush, fg, bg, secondary)
       end
     elseif shape == "ellipse" then
       if fill == "filled" then
-        draw_ellipse_filled_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg)
+        draw_ellipse_filled_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg, secondary)
       else
-        draw_ellipse_outline_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg)
+        draw_ellipse_outline_cell(ctx, layer, x0, y0, x1, y1, brush, fg, bg, secondary)
       end
     elseif shape == "triangle" then
       local ax, ay, bx2, by2, cx2, cy2 = tri_vertices_from_drag(x0, y0, x1, y1, constrain)
       if fill == "filled" then
-        fill_triangle_cell(ctx, layer, ax, ay, bx2, by2, cx2, cy2, brush, fg, bg)
+        fill_triangle_cell(ctx, layer, ax, ay, bx2, by2, cx2, cy2, brush, fg, bg, secondary)
       else
-        draw_triangle_outline_cell(ctx, layer, ax, ay, bx2, by2, cx2, cy2, brush, fg, bg)
+        draw_triangle_outline_cell(ctx, layer, ax, ay, bx2, by2, cx2, cy2, brush, fg, bg, secondary)
       end
     end
-  end
-
-  -- Select result region (like font tool), if requested.
-  if (p.selectAfter == true) and ctx.canvas ~= nil then
-    local x_min, x_max = reorientate(draw_sx, draw_ex)
-    local y_min, y_max = reorientate(draw_sy, draw_ey)
-    if resolution == "half" then
-      y_min = math.floor(y_min / 2)
-      y_max = math.floor(y_max / 2)
-    end
-    ctx.canvas:setSelection(x_min, y_min, x_max, y_max)
   end
 end
 
@@ -981,4 +1054,5 @@ function render(ctx, layer)
     return
   end
 end
+  
   
