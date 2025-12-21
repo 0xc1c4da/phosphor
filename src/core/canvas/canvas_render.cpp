@@ -41,48 +41,35 @@ static bool RenderItalicGlyphClipped(ImDrawList* draw_list,
     if (!IsAsciiItalicCandidate(cp))
         return false;
 
-    // ImGui 1.92+: FindGlyphNoFallback() lives on ImFontBaked.
-    ImFontBaked* baked = const_cast<ImFont*>(font)->GetFontBaked(font_size);
-    if (!baked || baked->OwnerFont != font)
+    // Robust synthetic italic:
+    // Render the glyph normally (AddText) inside the cell clip rect, then shear the produced
+    // vertices. This avoids relying on baked-glyph lookup and atlas quad paths, which can fail
+    // depending on font baking lifecycle and zoom-dependent sizes.
+    char buf[5] = {0, 0, 0, 0, 0};
+    EncodeUtf8(cp, buf);
+
+    const float clip_w = clip_max.x - clip_min.x;
+    const float clip_h = clip_max.y - clip_min.y;
+    if (!(clip_w > 0.0f) || !(clip_h > 0.0f))
         return false;
 
-    const ImFontGlyph* g = baked->FindGlyphNoFallback((ImWchar)cp);
-    if (!g)
-        return false;
+    // Bottom-anchored shear (top leans right). Tuned in cell space.
+    // shift_x = shear * (cell_bottom_y - y).
+    const float shear = 0.20f * (clip_w / clip_h);
 
-    // ImGui positions glyphs relative to a baseline at (pos.y + Ascent*scale).
-    // In 1.92, baked metrics are already for the requested size.
-    const float baseline_y = top_left.y + baked->Ascent;
-
-    const float x0 = top_left.x + g->X0;
-    const float x1 = top_left.x + g->X1;
-    const float y0 = baseline_y + g->Y0;
-    const float y1 = baseline_y + g->Y1;
-
-    // Synthetic oblique (LibreOffice-style fallback when no italic face exists):
-    // shear x as a function of distance above baseline so the top leans right.
-    // We clip to the cell rect so glyphs never bleed into neighboring cells.
-    const float shear = 0.12f; // tuned for 8x16-ish glyph cells (top shift ~1-2px)
-    const float sx0 = shear * (baseline_y - y0);
-    const float sx1 = shear * (baseline_y - y1);
-
-    ImFontAtlas* atlas = font->OwnerAtlas ? font->OwnerAtlas : ImGui::GetIO().Fonts;
-    if (!atlas)
-        return false;
-    const ImTextureRef tex_ref = atlas->TexRef;
-
+    const int vtx_start = draw_list->VtxBuffer.Size;
     draw_list->PushClipRect(clip_min, clip_max, true);
-    draw_list->AddImageQuad(tex_ref,
-                            ImVec2(x0 + sx0, y0),
-                            ImVec2(x1 + sx0, y0),
-                            ImVec2(x1 + sx1, y1),
-                            ImVec2(x0 + sx1, y1),
-                            ImVec2(g->U0, g->V0),
-                            ImVec2(g->U1, g->V0),
-                            ImVec2(g->U1, g->V1),
-                            ImVec2(g->U0, g->V1),
-                            col);
+    draw_list->AddText(font, font_size, top_left, col, buf, nullptr);
     draw_list->PopClipRect();
+    const int vtx_end = draw_list->VtxBuffer.Size;
+    if (vtx_end <= vtx_start)
+        return false;
+
+    for (int i = vtx_start; i < vtx_end; ++i)
+    {
+        ImDrawVert& v = draw_list->VtxBuffer[i];
+        v.pos.x += shear * (clip_max.y - v.pos.y);
+    }
     return true;
 }
 } // namespace
@@ -390,13 +377,28 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 EncodeUtf8(cp, buf);
                 const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                 const bool italic = (a & Attr_Italic) != 0;
-                if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
-                                                        cell_min, cell_min, cell_max,
-                                                        text_col, cp)))
+                const bool bold = (a & Attr_Bold) != 0;
+                const float bold_dx = std::max(1.0f, std::floor(cell_w / 8.0f));
+
+                // Clip text to cell: required for synthetic bold/italic to avoid bleeding.
+                draw_list->PushClipRect(cell_min, cell_max, true);
+
+                auto draw_once = [&](float dx)
                 {
-                    ImVec2 text_pos(cell_min.x, cell_min.y);
-                    draw_list->AddText(font, font_size, text_pos, text_col, buf, nullptr);
-                }
+                    const ImVec2 p(cell_min.x + dx, cell_min.y);
+                    if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
+                                                            p, cell_min, cell_max,
+                                                            text_col, cp)))
+                    {
+                        draw_list->AddText(font, font_size, p, text_col, buf, nullptr);
+                    }
+                };
+
+                draw_once(0.0f);
+                if (bold)
+                    draw_once(bold_dx);
+
+                draw_list->PopClipRect();
             }
             else
             {
@@ -455,10 +457,15 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
                 const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
                 const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
+                const bool bold = (a & Attr_Bold) != 0;
+                const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp);
+                const float shear = italic ? (0.20f * (cell_w / std::max(1.0f, cell_h))) : 0.0f;
 
                 for (int yy = 0; yy < glyph_cell_h; ++yy)
                 {
-                    const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
+                    std::uint8_t bits = glyph_row_bits(glyph_index, yy);
+                    if (bold)
+                        bits = (std::uint8_t)(bits | (bits >> 1)); // 1px dilation to the right
                     int run_start = -1;
                     auto bit_set = [&](int x) -> bool
                     {
@@ -479,15 +486,29 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                         if ((!on || xx == glyph_cell_w - 1) && run_start >= 0)
                         {
                             const int run_end = on ? (xx + 1) : xx; // exclusive
-                            const float x0 = cell_min.x + (float)run_start * px_w;
-                            const float x1 = cell_min.x + (float)run_end * px_w;
+                            float x0 = cell_min.x + (float)run_start * px_w;
+                            float x1 = cell_min.x + (float)run_end * px_w;
                             const float y0 = cell_min.y + (float)yy * px_h;
                             const float y1 = cell_min.y + (float)(yy + 1) * px_h;
+                            if (italic)
+                            {
+                                const float y_mid = 0.5f * (y0 + y1);
+                                const float shift = shear * (cell_max.y - y_mid);
+                                x0 += shift;
+                                x1 += shift;
+                            }
+
+                            // Clamp horizontally so italic/bold never bleeds into neighbors.
+                            x0 = std::max(x0, cell_min.x);
+                            x1 = std::min(x1, cell_max.x);
                             (void)y0;
                             (void)y1;
-                            draw_list->AddRectFilled(ImVec2(x0, cell_min.y + (float)yy * px_h),
-                                                     ImVec2(x1, cell_min.y + (float)(yy + 1) * px_h),
-                                                     col);
+                            if (x1 > x0)
+                            {
+                                draw_list->AddRectFilled(ImVec2(x0, cell_min.y + (float)yy * px_h),
+                                                         ImVec2(x1, cell_min.y + (float)(yy + 1) * px_h),
+                                                         col);
+                            }
                             run_start = -1;
                         }
                     }
@@ -639,12 +660,27 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     EncodeUtf8(c.cp, buf);
                     const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                     const bool italic = (a & Attr_Italic) != 0;
-                    if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
-                                                            cell_min, cell_min, cell_max,
-                                                            text_col, c.cp)))
+                    const bool bold = (a & Attr_Bold) != 0;
+                    const float bold_dx = std::max(1.0f, std::floor(cell_w / 8.0f));
+
+                    draw_list->PushClipRect(cell_min, cell_max, true);
+
+                    auto draw_once = [&](float dx)
                     {
-                        draw_list->AddText(font, font_size, cell_min, text_col, buf, nullptr);
-                    }
+                        const ImVec2 p(cell_min.x + dx, cell_min.y);
+                        if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
+                                                                p, cell_min, cell_max,
+                                                                text_col, c.cp)))
+                        {
+                            draw_list->AddText(font, font_size, p, text_col, buf, nullptr);
+                        }
+                    };
+
+                    draw_once(0.0f);
+                    if (bold)
+                        draw_once(bold_dx);
+
+                    draw_list->PopClipRect();
                 }
                 else
                 {
@@ -695,10 +731,15 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                         const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
                         const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
                         const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
+                        const bool bold = (a & Attr_Bold) != 0;
+                        const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(c.cp);
+                        const float shear = italic ? (0.20f * (cell_w / std::max(1.0f, cell_h))) : 0.0f;
 
                         for (int yy = 0; yy < glyph_cell_h; ++yy)
                         {
-                            const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
+                            std::uint8_t bits = glyph_row_bits(glyph_index, yy);
+                            if (bold)
+                                bits = (std::uint8_t)(bits | (bits >> 1));
                             int run_start = -1;
                             auto bit_set = [&](int x) -> bool
                             {
@@ -719,11 +760,27 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                                 if ((!on || xx == glyph_cell_w - 1) && run_start >= 0)
                                 {
                                     const int run_end = on ? (xx + 1) : xx; // exclusive
-                                    const float x0 = cell_min.x + (float)run_start * px_w;
-                                    const float x1 = cell_min.x + (float)run_end * px_w;
-                                    draw_list->AddRectFilled(ImVec2(x0, cell_min.y + (float)yy * px_h),
-                                                             ImVec2(x1, cell_min.y + (float)(yy + 1) * px_h),
-                                                             col);
+                                    float x0 = cell_min.x + (float)run_start * px_w;
+                                    float x1 = cell_min.x + (float)run_end * px_w;
+                                    const float y0 = cell_min.y + (float)yy * px_h;
+                                    const float y1 = cell_min.y + (float)(yy + 1) * px_h;
+
+                                    if (italic)
+                                    {
+                                        const float y_mid = 0.5f * (y0 + y1);
+                                        const float shift = shear * (cell_max.y - y_mid);
+                                        x0 += shift;
+                                        x1 += shift;
+                                    }
+
+                                    x0 = std::max(x0, cell_min.x);
+                                    x1 = std::min(x1, cell_max.x);
+                                    if (x1 > x0)
+                                    {
+                                        draw_list->AddRectFilled(ImVec2(x0, y0),
+                                                                 ImVec2(x1, y1),
+                                                                 col);
+                                    }
                                     run_start = -1;
                                 }
                             }
