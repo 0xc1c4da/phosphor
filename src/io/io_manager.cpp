@@ -3,6 +3,7 @@
 #include "io/file_dialog_tags.h"
 #include "io/formats/ansi.h"
 #include "io/formats/image.h"
+#include "io/formats/markdown.h"
 #include "io/formats/plaintext.h"
 #include "io/formats/xbin.h"
 #include "io/image_loader.h"
@@ -61,6 +62,43 @@ static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
         out.append(exts[i].begin(), exts[i].end());
     }
     return out;
+}
+
+static bool ReadAllBytesLimited(const std::string& path,
+                                std::vector<std::uint8_t>& out,
+                                std::string& err,
+                                std::size_t limit_bytes)
+{
+    err.clear();
+    out.clear();
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+    {
+        err = "Failed to open file for reading.";
+        return false;
+    }
+    in.seekg(0, std::ios::end);
+    std::streamoff sz = in.tellg();
+    if (sz < 0)
+    {
+        err = "Failed to read file size.";
+        return false;
+    }
+    if ((std::uint64_t)sz > (std::uint64_t)limit_bytes)
+    {
+        err = "File too large.";
+        return false;
+    }
+    in.seekg(0, std::ios::beg);
+    out.resize((size_t)sz);
+    if (sz > 0)
+        in.read(reinterpret_cast<char*>(out.data()), sz);
+    if (!in && sz > 0)
+    {
+        err = "Failed to read file contents.";
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -174,6 +212,10 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(text_exts_v, formats::plaintext::ImportExtensions());
     const std::string text_exts = JoinExtsForDialog(text_exts_v);
 
+    std::vector<std::string_view> md_exts_v;
+    AppendUnique(md_exts_v, formats::markdown::ImportExtensions());
+    const std::string md_exts = JoinExtsForDialog(md_exts_v);
+
     std::vector<std::string_view> xbin_exts_v;
     AppendUnique(xbin_exts_v, formats::xbin::ImportExtensions());
     const std::string xbin_exts = JoinExtsForDialog(xbin_exts_v);
@@ -184,15 +226,17 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     std::vector<std::string_view> supported_exts_v;
     supported_exts_v.push_back("phos");
     AppendUnique(supported_exts_v, text_exts_v);
+    AppendUnique(supported_exts_v, md_exts_v);
     AppendUnique(supported_exts_v, xbin_exts_v);
     // Keep the same image list for "Supported files".
     AppendUnique(supported_exts_v, formats::image::ImportExtensions());
     const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
         {"Phosphor Project (*.phos)", "phos"},
         {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", text_exts},
+        {"Markdown (*.md;*.markdown;*.mdown;*.mkd)", md_exts},
         {"XBin (*.xb)", xbin_exts},
         {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", image_exts},
         {"All files", "*"},
@@ -321,6 +365,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
     const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
     const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
     const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
+    const bool looks_markdown = ExtIn(ext, formats::markdown::ImportExtensions());
 
     auto try_load_project = [&]() -> bool
     {
@@ -437,9 +482,37 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
         return false;
     };
 
+    auto try_open_markdown_dialog = [&]() -> bool
+    {
+        if (!cb.open_markdown_import_dialog)
+        {
+            m_last_error = "Internal error: open_markdown_import_dialog callback not set.";
+            m_last_open_event = OpenEvent{OpenEventKind::None, path, m_last_error};
+            return true; // handled (as error)
+        }
+        std::vector<std::uint8_t> bytes;
+        std::string rerr;
+        // Keep IO policy consistent with the importer default (2 MiB cap).
+        if (!ReadAllBytesLimited(path, bytes, rerr, (std::size_t)(2u * 1024u * 1024u)))
+        {
+            err = rerr;
+            return false;
+        }
+        Callbacks::MarkdownPayload mp;
+        mp.path = path;
+        mp.markdown.assign((const char*)bytes.data(), (const char*)bytes.data() + bytes.size());
+        cb.open_markdown_import_dialog(std::move(mp));
+        m_last_error.clear();
+        // IMPORTANT: opening the dialog is not an "open event" for recents; accept path updates recents.
+        m_last_open_event = OpenEvent{OpenEventKind::None, {}, {}};
+        return true;
+    };
+
     bool handled = false;
     if (looks_project)
         handled = try_load_project();
+    else if (looks_markdown)
+        handled = try_open_markdown_dialog();
     else if (looks_plaintext)
         handled = try_import_plaintext();
     else if (looks_ansi)
@@ -449,7 +522,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
     else if (looks_image)
         handled = try_load_image();
     else
-        handled = try_load_project() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
+        handled = try_load_project() || try_open_markdown_dialog() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
 
     if (!handled)
     {
@@ -595,6 +668,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
         const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
         const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
+        const bool looks_markdown = ExtIn(ext, formats::markdown::ImportExtensions());
 
         auto try_load_project = [&]() -> bool
         {
@@ -712,9 +786,34 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
             return false;
         };
 
+        auto try_open_markdown_dialog = [&]() -> bool
+        {
+            if (!cb.open_markdown_import_dialog)
+            {
+                m_last_error = "Internal error: open_markdown_import_dialog callback not set.";
+                return true; // handled (as error)
+            }
+            std::vector<std::uint8_t> bytes;
+            std::string rerr;
+            if (!ReadAllBytesLimited(chosen, bytes, rerr, (std::size_t)(2u * 1024u * 1024u)))
+            {
+                err = rerr;
+                return false;
+            }
+            Callbacks::MarkdownPayload mp;
+            mp.path = chosen;
+            mp.markdown.assign((const char*)bytes.data(), (const char*)bytes.data() + bytes.size());
+            cb.open_markdown_import_dialog(std::move(mp));
+            m_last_error.clear();
+            m_last_open_event = OpenEvent{OpenEventKind::None, {}, {}};
+            return true;
+        };
+
         bool handled = false;
         if (looks_project)
             handled = try_load_project();
+        else if (looks_markdown)
+            handled = try_open_markdown_dialog();
         else if (looks_plaintext)
             handled = try_import_plaintext();
         else if (looks_ansi)
@@ -726,7 +825,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
         else
         {
             // Unknown extension (or URI). Try in descending order of likelihood.
-            handled = try_load_project() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
+            handled = try_load_project() || try_open_markdown_dialog() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
         }
 
         if (!handled)

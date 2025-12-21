@@ -34,6 +34,7 @@ class CharacterSetWindow;
 
 class LayerManager;
 class ImageToChafaDialog;
+class MarkdownToAnsiDialog;
 class MinimapWindow;
 class CanvasPreviewTexture;
 class SixteenColorsBrowserWindow;
@@ -110,6 +111,7 @@ struct AppState
         CharacterSetWindow* character_sets = nullptr;
         LayerManager* layer_manager = nullptr;
         ImageToChafaDialog* image_to_chafa_dialog = nullptr;
+        MarkdownToAnsiDialog* markdown_to_ansi_dialog = nullptr;
         MinimapWindow* minimap_window = nullptr;
         CanvasPreviewTexture* preview_texture = nullptr;
         SixteenColorsBrowserWindow* sixteen_browser = nullptr;

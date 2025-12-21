@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phosphor-md-style.schema.json",
+  "title": "Phosphor Markdown Style (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "elements"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "author": { "type": "string" },
+    "colors": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "defaults": { "$ref": "#/$defs/style" },
+    "elements": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/style" }
+    },
+    "syntax": {
+      "type": "object",
+      "description": "Map of syntax token -> style (e.g. chroma token keys like comment, keyword, literal_string, etc.)",
+      "additionalProperties": { "$ref": "#/$defs/style" }
+    }
+  },
+  "$defs": {
+    "color": {
+      "description": "Color string: #RRGGBB | name:<token>",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        {
+          "type": "string",
+          "pattern": "^name:[A-Za-z0-9._-]+$"
+        }
+      ]
+    },
+    "attrs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "bold",
+          "dim",
+          "italic",
+          "underline",
+          "strike",
+          "inverse",
+          "blink",
+          "conceal",
+          "overline"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fg": { "$ref": "#/$defs/color" },
+        "bg": { "$ref": "#/$defs/color" },
+        "attrs": { "$ref": "#/$defs/attrs" },
+        "prefix": { "type": "string" },
+        "suffix": { "type": "string" },
+        "block_prefix": { "type": "string" },
+        "block_suffix": { "type": "string" },
+        "format": {
+          "type": "string",
+          "description": "Templated string supporting {text}"
+        },
+        "indent": { "type": "integer", "minimum": 0 },
+        "indent_token": { "type": "string" },
+        "margin": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
+
+

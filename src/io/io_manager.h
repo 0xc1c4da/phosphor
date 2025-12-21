@@ -32,6 +32,16 @@ public:
 
         // Called when Load produces a new image window payload.
         std::function<void(LoadedImage&&)> create_image;
+
+        // Called when a Markdown file is selected for import.
+        // The app is expected to open a preview+settings import dialog and only create
+        // a canvas after the user accepts.
+        struct MarkdownPayload
+        {
+            std::string path;     // original path (for window title + recent tracking)
+            std::string markdown; // UTF-8 bytes (best-effort; control chars should be filtered later)
+        };
+        std::function<void(MarkdownPayload&&)> open_markdown_import_dialog;
     };
 
     IoManager();

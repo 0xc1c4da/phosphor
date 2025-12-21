@@ -44,6 +44,7 @@
 #include "ui/export_dialog.h"
 #include "ui/glyph_token.h"
 #include "ui/image_to_chafa_dialog.h"
+#include "ui/markdown_to_ansi_dialog.h"
 #include "ui/image_window.h"
 #include "ui/imgui_window_chrome.h"
 #include "ui/layer_manager.h"
@@ -82,6 +83,7 @@ void RunFrame(AppState& st)
     CharacterSetWindow& character_sets = *st.ui.character_sets;
     LayerManager& layer_manager = *st.ui.layer_manager;
     ImageToChafaDialog& image_to_chafa_dialog = *st.ui.image_to_chafa_dialog;
+    MarkdownToAnsiDialog& markdown_to_ansi_dialog = *st.ui.markdown_to_ansi_dialog;
     MinimapWindow& minimap_window = *st.ui.minimap_window;
     CanvasPreviewTexture& preview_texture = *st.ui.preview_texture;
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
@@ -511,6 +513,10 @@ void RunFrame(AppState& st)
         img.pixels = std::move(li.pixels);
         img.open = true;
         images.push_back(std::move(img));
+    };
+    io_cbs.open_markdown_import_dialog = [&](IoManager::Callbacks::MarkdownPayload&& p)
+    {
+        markdown_to_ansi_dialog.Open(std::move(p));
     };
 
     appui::RenderMainMenuBar(window, keybinds, session_state, io_manager, file_dialogs, io_cbs,
@@ -1969,6 +1975,33 @@ void RunFrame(AppState& st)
             canvas_window->canvas.MarkSaved();
             last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));
+        }
+    }
+
+    // Markdown import UI
+    markdown_to_ansi_dialog.Render(&session_state,
+                                   should_apply_placement("Markdown \xE2\x86\x92 Canvas##md_preview"));
+    {
+        const std::string src_path = markdown_to_ansi_dialog.SourcePath();
+        AnsiCanvas imported;
+        if (markdown_to_ansi_dialog.TakeAccepted(imported))
+        {
+            // Mark the canvas as "imported from markdown" without making Save overwrite the source file.
+            if (!src_path.empty())
+                imported.SetFilePath(std::string("md://") + src_path);
+
+            auto canvas_window = std::make_unique<CanvasWindow>();
+            canvas_window->open = true;
+            canvas_window->id = next_canvas_id++;
+            canvas_window->canvas = std::move(imported);
+            canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+            canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
+            canvas_window->canvas.MarkSaved();
+            last_active_canvas_id = canvas_window->id;
+            canvases.push_back(std::move(canvas_window));
+
+            // Update Recent with the original markdown source path (not the md:// pseudo-path).
+            push_recent(src_path);
         }
     }
 

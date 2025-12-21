@@ -53,6 +53,7 @@ SOURCES  = \
            src/ui/imgui_window_chrome.cpp \
            src/ui/image_window.cpp \
            src/ui/image_to_chafa_dialog.cpp \
+           src/ui/markdown_to_ansi_dialog.cpp \
            src/ui/layer_manager.cpp \
            src/ui/minimap_window.cpp \
            src/ui/skin.cpp \
@@ -65,6 +66,7 @@ SOURCES  = \
            src/io/formats/ansi.cpp \
            src/io/formats/figlet.cpp \
            src/io/formats/image.cpp \
+           src/io/formats/markdown.cpp \
            src/io/formats/plaintext.cpp \
            src/io/formats/sauce.cpp \
            src/io/formats/tdf.cpp \

@@ -1,0 +1,100 @@
+{
+  "name": "pink",
+  "elements": {
+    "document": {
+      "margin": 2
+    },
+    "block_quote": {
+      "indent_token": "│ ",
+      "indent": 1
+    },
+    "list": {
+      "indent": 2
+    },
+    "heading": {
+      "fg": "#ff87d7",
+      "attrs": [
+        "bold"
+      ],
+      "block_suffix": "\n"
+    },
+    "h1": {
+      "block_prefix": "\n",
+      "block_suffix": "\n"
+    },
+    "h2": {
+      "prefix": "▌ "
+    },
+    "h3": {
+      "prefix": "┃ "
+    },
+    "h4": {
+      "prefix": "│ "
+    },
+    "h5": {
+      "prefix": "┆ "
+    },
+    "h6": {
+      "prefix": "┊ "
+    },
+    "strikethrough": {
+      "attrs": [
+        "strike"
+      ]
+    },
+    "emph": {
+      "attrs": [
+        "italic"
+      ]
+    },
+    "strong": {
+      "attrs": [
+        "bold"
+      ]
+    },
+    "hr": {
+      "fg": "#ff87d7",
+      "format": "\n──────\n"
+    },
+    "item": {
+      "block_prefix": "• "
+    },
+    "enumeration": {
+      "block_prefix": ". "
+    },
+    "task_checked": {
+      "block_prefix": "[✓] "
+    },
+    "task_unchecked": {
+      "block_prefix": "[ ] "
+    },
+    "link": {
+      "fg": "#875fff",
+      "attrs": [
+        "underline"
+      ]
+    },
+    "link_text": {
+      "attrs": [
+        "bold"
+      ]
+    },
+    "image": {
+      "attrs": [
+        "underline"
+      ]
+    },
+    "image_text": {
+      "format": "Image: {text}"
+    },
+    "code_inline": {
+      "fg": "#ff87d7",
+      "bg": "#303030",
+      "prefix": " ",
+      "suffix": " "
+    },
+    "definition_description": {
+      "block_prefix": "\n🠶 "
+    }
+  }
+}

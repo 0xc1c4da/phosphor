@@ -41,6 +41,7 @@
 #include "ui/character_set.h"
 #include "ui/export_dialog.h"
 #include "ui/image_to_chafa_dialog.h"
+#include "ui/markdown_to_ansi_dialog.h"
 #include "ui/image_window.h"
 #include "ui/layer_manager.h"
 #include "ui/minimap_window.h"
@@ -379,6 +380,7 @@ int main(int, char**)
     };
 
     ImageToChafaDialog image_to_chafa_dialog;
+    MarkdownToAnsiDialog markdown_to_ansi_dialog;
     MinimapWindow minimap_window;
     CanvasPreviewTexture preview_texture;
     SixteenColorsBrowserWindow sixteen_browser;
@@ -463,6 +465,7 @@ int main(int, char**)
     st.ui.character_sets = &character_sets;
     st.ui.layer_manager = &layer_manager;
     st.ui.image_to_chafa_dialog = &image_to_chafa_dialog;
+    st.ui.markdown_to_ansi_dialog = &markdown_to_ansi_dialog;
     st.ui.minimap_window = &minimap_window;
     st.ui.preview_texture = &preview_texture;
     st.ui.sixteen_browser = &sixteen_browser;

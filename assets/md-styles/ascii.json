@@ -1,0 +1,78 @@
+{
+  "name": "ascii",
+  "elements": {
+    "document": {
+      "block_prefix": "\n",
+      "block_suffix": "\n",
+      "margin": 2
+    },
+    "block_quote": {
+      "indent_token": "| ",
+      "indent": 1
+    },
+    "list": {
+      "indent": 4
+    },
+    "heading": {
+      "block_suffix": "\n"
+    },
+    "h1": {
+      "prefix": "# "
+    },
+    "h2": {
+      "prefix": "## "
+    },
+    "h3": {
+      "prefix": "### "
+    },
+    "h4": {
+      "prefix": "#### "
+    },
+    "h5": {
+      "prefix": "##### "
+    },
+    "h6": {
+      "prefix": "###### "
+    },
+    "strikethrough": {
+      "block_prefix": "~~",
+      "block_suffix": "~~"
+    },
+    "emph": {
+      "block_prefix": "*",
+      "block_suffix": "*"
+    },
+    "strong": {
+      "block_prefix": "**",
+      "block_suffix": "**"
+    },
+    "hr": {
+      "format": "\n--------\n"
+    },
+    "item": {
+      "block_prefix": "• "
+    },
+    "enumeration": {
+      "block_prefix": ". "
+    },
+    "task_checked": {
+      "block_prefix": "[x] "
+    },
+    "task_unchecked": {
+      "block_prefix": "[ ] "
+    },
+    "image_text": {
+      "format": "Image: {text} →"
+    },
+    "code_inline": {
+      "block_prefix": "`",
+      "block_suffix": "`"
+    },
+    "code_block": {
+      "margin": 2
+    },
+    "definition_description": {
+      "block_prefix": "\n* "
+    }
+  }
+}
