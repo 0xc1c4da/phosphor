@@ -262,6 +262,7 @@ function render(ctx, layer)
   local hotkeys = ctx.hotkeys or {}
   local actions = ctx.actions or {}
   local p = ctx.params or {}
+  local keys = ctx.keys or {}
 
   -- Phase 0: keyboard shortcuts.
   if phase == 0 then
@@ -325,6 +326,14 @@ function render(ctx, layer)
       if type(mode) ~= "string" then mode = "both" end
       local transparent = (p.transparentSpaces == true)
       canvas:pasteClipboard(x, y, nil, mode, transparent)
+      selecting = false
+      return
+    end
+
+    -- Backspace: delete selection contents (match eraser/edit-tool "backspace clears" behavior).
+    if keys.backspace and canvas:hasSelection() then
+      commit_if_moving(canvas)
+      canvas:deleteSelection()
       selecting = false
       return
     end
