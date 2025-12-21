@@ -22,7 +22,13 @@ SOURCES  = \
            src/app/run_frame.cpp \
            src/app/canvas_preview_texture.cpp \
            src/io/convert/chafa_convert.cpp \
-           src/core/canvas.cpp \
+           src/core/canvas/canvas_core.cpp \
+           src/core/canvas/canvas_undo.cpp \
+           src/core/canvas/canvas_input.cpp \
+           src/core/canvas/canvas_selection.cpp \
+           src/core/canvas/canvas_layers.cpp \
+           src/core/canvas/canvas_render.cpp \
+           src/core/canvas/canvas_project.cpp \
            src/core/fonts.cpp \
            src/fonts/textmode_font.cpp \
            src/fonts/textmode_font_registry.cpp \
