@@ -162,6 +162,19 @@ function render(ctx, layer)
   caret.x = clamp(to_int(caret.x, 0), 0, cols - 1)
   caret.y = math.max(0, to_int(caret.y, 0))
 
+  -- Brush size preview (host overlay; transient).
+  do
+    local size = to_int(p.size, 1)
+    if size < 1 then size = 1 end
+    if size > 100 then size = 100 end
+    local r = math.floor(size / 2)
+    local cursor = ctx.cursor or {}
+    local anchor = (type(cursor) == "table" and cursor.valid == true) and "cursor" or "caret"
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "brush.preview", anchor = anchor, rx = r, ry = r }
+    end
+  end
+
   -- Phase 0: update host "current attrs" selection and handle selection-apply button.
   if to_int(ctx.phase, 0) == 0 then
     local mask = mask_from_params(p)

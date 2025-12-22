@@ -188,6 +188,44 @@ function render(ctx, layer)
 
   local phase = tonumber(ctx.phase) or 0
 
+  -- Brush preview (host overlay; transient).
+  -- Show the exact stamp footprint for the current brush (from brush palette / selection capture).
+  do
+    local p = ctx.params or {}
+    local anchor = p.anchor
+    if type(anchor) ~= "string" then anchor = "center" end
+
+    local cursor = ctx.cursor or {}
+    local use_cursor = (type(cursor) == "table" and cursor.valid == true)
+    local cx = use_cursor and tonumber(cursor.x) or tonumber(caret.x)
+    local cy = use_cursor and tonumber(cursor.y) or tonumber(caret.y)
+    cx = tonumber(cx) or caret.x
+    cy = tonumber(cy) or caret.y
+
+    local brush = ctx.brush
+    local w = 1
+    local h = 1
+    if brush_is_valid(brush) then
+      w = tonumber(brush.w) or 1
+      h = tonumber(brush.h) or 1
+      if w < 1 then w = 1 end
+      if h < 1 then h = 1 end
+    end
+
+    local x0 = cx
+    local y0 = cy
+    if anchor == "center" then
+      x0 = cx - math.floor(w / 2)
+      y0 = cy - math.floor(h / 2)
+    end
+    local x1 = x0 + w - 1
+    local y1 = y0 + h - 1
+
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "brush.preview", x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
+    end
+  end
+
   -- Phase 1: mouse stamping (click+drag).
   if phase == 1 then
     local cursor = ctx.cursor

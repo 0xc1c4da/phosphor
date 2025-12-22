@@ -64,6 +64,18 @@ function render(ctx, layer)
 
   local phase = tonumber(ctx.phase) or 0
 
+  -- Brush size preview (host overlay; transient).
+  do
+    local p = ctx.params or {}
+    local size = tonumber(p.size) or 1
+    if size < 1 then size = 1 end
+    if size > 200 then size = 200 end
+    local r = math.floor(size / 2)
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "brush.preview", anchor = "cursor", rx = r, ry = r }
+    end
+  end
+
   -- Phase 1: mouse drag erasing (left/right click+hold).
   if phase == 1 then
     local cursor = ctx.cursor

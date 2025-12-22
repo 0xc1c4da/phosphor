@@ -2159,6 +2159,52 @@ void RunFrame(AppState& st)
 
                         c.SetSelectionCorners(0, 0, r.w - 1, r.h - 1);
                     } break;
+                    case ToolCommand::Type::BrushPreviewSet:
+                    {
+                        // Transient: the canvas clears this each frame; tools should re-send while active.
+                        int x0 = 0, y0 = 0, x1 = -1, y1 = -1;
+
+                        if (cmd.preview_has_rect)
+                        {
+                            x0 = cmd.preview_x0;
+                            y0 = cmd.preview_y0;
+                            x1 = cmd.preview_x1;
+                            y1 = cmd.preview_y1;
+                        }
+                        else
+                        {
+                            int ax = 0, ay = 0;
+                            bool anchor_ok = true;
+                            if (cmd.preview_anchor == ToolCommand::BrushPreviewAnchor::Caret)
+                            {
+                                ax = ctx.caret_x;
+                                ay = ctx.caret_y;
+                            }
+                            else
+                            {
+                                // Cursor-anchored previews should only show when the cursor is valid.
+                                if (!ctx.cursor_valid)
+                                    anchor_ok = false;
+                                ax = ctx.cursor_x;
+                                ay = ctx.cursor_y;
+                            }
+
+                            if (anchor_ok)
+                            {
+                                const int rx = std::max(0, cmd.preview_rx);
+                                const int ry = std::max(0, cmd.preview_ry);
+                                const int ox = cmd.preview_ox;
+                                const int oy = cmd.preview_oy;
+                                x0 = (ax + ox) - rx;
+                                y0 = (ay + oy) - ry;
+                                x1 = (ax + ox) + rx;
+                                y1 = (ay + oy) + ry;
+                            }
+                        }
+
+                        if (x1 >= x0 && y1 >= y0)
+                            c.SetToolBrushPreviewRect(x0, y0, x1, y1);
+                    } break;
                     }
                 }
             }

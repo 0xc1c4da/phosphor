@@ -213,6 +213,7 @@ struct ToolCommand
         ToolActivatePrev,
         ToolActivate,
         CanvasCropToSelection,
+        BrushPreviewSet,
     };
 
     Type type = Type::PaletteSet;
@@ -231,6 +232,33 @@ struct ToolCommand
 
     // ToolActivate
     std::string tool_id;
+
+    // BrushPreviewSet
+    // The tool can request a transient brush preview overlay (e.g. size indicator).
+    // Host is expected to clear the preview each frame unless it is re-sent.
+    //
+    // Two modes:
+    // 1) Anchor-based (centered on cursor or caret):
+    //    - anchor = "cursor" (default) or "caret"
+    //    - rx/ry are half-extents in cells (0 => single-cell). Rect is inclusive.
+    //    - ox/oy are integer offsets applied after anchoring.
+    // 2) Explicit rect:
+    //    - set has_rect=true and specify x0,y0,x1,y1 (inclusive, may be outside canvas).
+    enum class BrushPreviewAnchor
+    {
+        Cursor = 0,
+        Caret = 1,
+    };
+    BrushPreviewAnchor preview_anchor = BrushPreviewAnchor::Cursor;
+    int  preview_rx = 0;
+    int  preview_ry = 0;
+    int  preview_ox = 0;
+    int  preview_oy = 0;
+    bool preview_has_rect = false;
+    int  preview_x0 = 0;
+    int  preview_y0 = 0;
+    int  preview_x1 = 0;
+    int  preview_y1 = 0;
 };
 
 struct ToolCommandSink

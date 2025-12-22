@@ -822,6 +822,10 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     EnsureDocument();
 
+    // Tool brush preview is transient (not persisted like selection).
+    // Clear at the start of every Render(); tools re-send via host commands each frame.
+    ClearToolBrushPreview();
+
     // Zoom stabilization:
     // Track whether zoom changed recently, and keep layout decisions stable for a few frames.
     // This prevents scrollbar toggling on rounding thresholds (InnerClipRect changes => flicker/jitter).
@@ -1461,6 +1465,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     DrawVisibleCells(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
     DrawMirrorAxisOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
     DrawActiveLayerBoundsOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h);
+    DrawToolBrushPreviewOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
     DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
@@ -1541,6 +1546,91 @@ void AnsiCanvas::DrawActiveLayerBoundsOverlay(ImDrawList* draw_list,
     p1.x = std::floor(p1.x) - 0.5f;
     p1.y = std::floor(p1.y) - 0.5f;
     draw_list->AddRect(p0, p1, col, 0.0f, 0, 1.0f);
+}
+
+void AnsiCanvas::DrawToolBrushPreviewOverlay(ImDrawList* draw_list,
+                                            const ImVec2& origin,
+                                            float cell_w,
+                                            float cell_h,
+                                            const ImVec2& canvas_size)
+{
+    if (!draw_list)
+        return;
+    if (!m_tool_brush_preview.active)
+        return;
+    if (m_columns <= 0 || m_rows <= 0)
+        return;
+
+    auto invert_rgb_keep_a = [](ImU32 col) -> ImU32 {
+        return col ^ 0x00FFFFFFu;
+    };
+
+    const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
+    const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+
+    const ImVec2 clip0(origin.x, origin.y);
+    const ImVec2 clip1(origin.x + canvas_size.x, origin.y + canvas_size.y);
+
+    auto draw_one = [&](int x0, int y0, int x1, int y1)
+    {
+        if (x1 < x0 || y1 < y0)
+            return;
+
+        // Sample a representative underlying cell to pick a high-contrast outline color.
+        // (We can't do true XOR compositing with ImGui primitives, so we approximate by inverting
+        // the effective cell color under the preview.)
+        int sx = (x0 + x1) / 2;
+        int sy = (y0 + y1) / 2;
+        sx = std::clamp(sx, 0, std::max(0, m_columns - 1));
+        sy = std::clamp(sy, 0, std::max(0, m_rows - 1));
+
+        char32_t cp = U' ';
+        Color32 fg = 0;
+        Color32 bg = 0;
+        Attrs attrs = 0;
+        (void)GetCompositeCellPublic(sy, sx, cp, fg, bg, attrs);
+
+        ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
+        ImU32 bg_col = (bg != 0) ? (ImU32)bg : paper_bg;
+        if ((attrs & Attr_Reverse) != 0)
+            std::swap(fg_col, bg_col);
+
+        ImU32 effective = paper_bg;
+        if (bg != 0 || (attrs & Attr_Reverse) != 0)
+            effective = bg_col;
+        else if (cp != U' ')
+            effective = fg_col;
+
+        const ImU32 outline = ApplyCurrentStyleAlpha(invert_rgb_keep_a(effective));
+
+        // Convert inclusive cell rect -> pixel rect.
+        ImVec2 p0(origin.x + (float)x0 * cell_w, origin.y + (float)y0 * cell_h);
+        ImVec2 p1(origin.x + (float)(x1 + 1) * cell_w, origin.y + (float)(y1 + 1) * cell_h);
+
+        // Pixel-align like selection border for crisp 1px lines.
+        p0.x = std::floor(p0.x) + 0.5f;
+        p0.y = std::floor(p0.y) + 0.5f;
+        p1.x = std::floor(p1.x) - 0.5f;
+        p1.y = std::floor(p1.y) - 0.5f;
+
+        draw_list->PushClipRect(clip0, clip1, true);
+        draw_list->AddRect(p0, p1, outline, 0.0f, 0, 1.0f);
+        draw_list->PopClipRect();
+    };
+
+    const int x0 = m_tool_brush_preview.x0;
+    const int y0 = m_tool_brush_preview.y0;
+    const int x1 = m_tool_brush_preview.x1;
+    const int y1 = m_tool_brush_preview.y1;
+    draw_one(x0, y0, x1, y1);
+
+    // Mirror mode: tool-driven mutations are mirrored, so show the mirrored preview too.
+    if (m_mirror_mode && m_columns > 1)
+    {
+        const int mx0 = (m_columns - 1) - x1;
+        const int mx1 = (m_columns - 1) - x0;
+        draw_one(mx0, y0, mx1, y1);
+    }
 }
 
 // ---- end inlined from canvas_render.inc ----

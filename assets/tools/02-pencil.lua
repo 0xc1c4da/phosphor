@@ -6,7 +6,7 @@ settings = {
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
-    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "recolour", "half", "block", "shade" }, default = "char" },
+    mode = { type = "enum", label = "Mode", items = { "char", "spray", "colorize", "recolour", "half", "block", "shade" }, default = "char" },
     useFg = { type = "bool", label = "Use FG", default = true },
     useBg = { type = "bool", label = "Use BG", default = true },
   },
@@ -14,6 +14,9 @@ settings = {
 
 -- Keyboard navigation drawing toggle (does not affect mouse painting).
 local keyboard_draw_enabled = true
+
+-- RNG init (for spray mode).
+local rng_seeded = false
 
 -- Simple double-click detector for canvas clicks (Lua-side; host cursor state has no dblclick flag).
 local last_click_ms = nil
@@ -305,6 +308,16 @@ local function paint(ctx, layer, x, y, half_y_override)
         paint_half_at(x + dx, base_hy + dh)
       end
     end
+  elseif mode == "spray" then
+    -- Spray is sample-based (not per-cell probability) so it doesn't "solid fill" at larger sizes.
+    -- Each stroke step stamps a small number of random points inside the brush.
+    local side = (2 * r) + 1
+    local n = math.max(1, math.floor(side * 0.45))
+    for i = 1, n do
+      local dx = (r > 0) and math.random(-r, r) or 0
+      local dy = (r > 0) and math.random(-r, r) or 0
+      paint_cell(x + dx, y + dy)
+    end
   else
     for dy = -r, r do
       for dx = -r, r do
@@ -318,6 +331,25 @@ function render(ctx, layer)
   if not ctx or not layer then return end
   if not ctx.focused then return end
 
+  -- Seed RNG once (spray mode). Prefer host time if available.
+  if not rng_seeded then
+    local t = tonumber(ctx.time)
+    local seed = nil
+    if type(t) == "number" then
+      seed = math.floor(t * 1000)
+    else
+      -- Deterministic-ish fallback if host time isn't available.
+      seed = math.floor((tonumber(ctx.phase) or 0) * 100000 + (tonumber(ctx.cols) or 0))
+    end
+    -- Keep seed in 32-bit signed range for Lua implementations that care.
+    seed = seed % 2147483647
+    if seed < 0 then seed = -seed end
+    math.randomseed(seed)
+    -- Discard a few first values (common practice with some RNGs).
+    math.random(); math.random(); math.random()
+    rng_seeded = true
+  end
+
   local cols = tonumber(ctx.cols) or 0
   if cols <= 0 then return end
 
@@ -328,6 +360,18 @@ function render(ctx, layer)
   caret.y = math.max(0, tonumber(caret.y) or 0)
 
   local phase = tonumber(ctx.phase) or 0
+
+  -- Brush size preview (host overlay; transient).
+  do
+    local p = ctx.params or {}
+    local size = tonumber(p.size) or 1
+    if size < 1 then size = 1 end
+    if size > 100 then size = 100 end
+    local r = math.floor(size / 2)
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "brush.preview", anchor = "cursor", rx = r, ry = r }
+    end
+  end
 
   -- Phase 1: mouse drag painting (left click+hold).
   if phase == 1 then

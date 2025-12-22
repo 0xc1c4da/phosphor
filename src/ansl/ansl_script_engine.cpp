@@ -2459,6 +2459,108 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     cmd.type = ToolCommand::Type::CanvasCropToSelection;
                     tool_cmds.out_commands->push_back(std::move(cmd));
                 }
+                else if (type == "brush.preview")
+                {
+                    cmd.type = ToolCommand::Type::BrushPreviewSet;
+
+                    // anchor: "cursor" (default) | "caret"
+                    lua_getfield(L, -1, "anchor");
+                    if (lua_isstring(L, -1))
+                    {
+                        const std::string a = LuaToString(L, -1);
+                        if (a == "caret")
+                            cmd.preview_anchor = ToolCommand::BrushPreviewAnchor::Caret;
+                        else
+                            cmd.preview_anchor = ToolCommand::BrushPreviewAnchor::Cursor;
+                    }
+                    lua_pop(L, 1);
+
+                    auto read_int_field = [&](const char* key, int& out, bool& found) {
+                        lua_getfield(L, -1, key);
+                        if (lua_isnumber(L, -1))
+                        {
+                            out = (int)lua_tointeger(L, -1);
+                            found = true;
+                        }
+                        lua_pop(L, 1);
+                    };
+
+                    // Explicit rect: x0,y0,x1,y1 (inclusive), or x,y,w,h (top-left + size).
+                    bool have_x0 = false, have_y0 = false, have_x1 = false, have_y1 = false;
+                    read_int_field("x0", cmd.preview_x0, have_x0);
+                    read_int_field("y0", cmd.preview_y0, have_y0);
+                    read_int_field("x1", cmd.preview_x1, have_x1);
+                    read_int_field("y1", cmd.preview_y1, have_y1);
+                    if (have_x0 && have_y0 && have_x1 && have_y1)
+                    {
+                        cmd.preview_has_rect = true;
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                        lua_pop(L, 1); // elem
+                        continue;
+                    }
+
+                    bool have_x = false, have_y = false, have_w = false, have_h = false;
+                    int x = 0, y = 0, w = 0, h = 0;
+                    read_int_field("x", x, have_x);
+                    read_int_field("y", y, have_y);
+                    read_int_field("w", w, have_w);
+                    read_int_field("h", h, have_h);
+                    if (have_x && have_y && have_w && have_h && w > 0 && h > 0)
+                    {
+                        cmd.preview_has_rect = true;
+                        cmd.preview_x0 = x;
+                        cmd.preview_y0 = y;
+                        cmd.preview_x1 = x + w - 1;
+                        cmd.preview_y1 = y + h - 1;
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                        lua_pop(L, 1); // elem
+                        continue;
+                    }
+
+                    // Anchor-based: rx/ry (half extents), or r (radius), or size (full extent).
+                    bool have_rx = false, have_ry = false;
+                    read_int_field("rx", cmd.preview_rx, have_rx);
+                    read_int_field("ry", cmd.preview_ry, have_ry);
+                    if (!have_rx && !have_ry)
+                    {
+                        bool have_r = false;
+                        int r = 0;
+                        read_int_field("r", r, have_r);
+                        if (have_r)
+                        {
+                            cmd.preview_rx = r;
+                            cmd.preview_ry = r;
+                            have_rx = have_ry = true;
+                        }
+                        else
+                        {
+                            bool have_size = false;
+                            int size = 0;
+                            read_int_field("size", size, have_size);
+                            if (have_size)
+                            {
+                                if (size < 1) size = 1;
+                                const int rr = size / 2;
+                                cmd.preview_rx = rr;
+                                cmd.preview_ry = rr;
+                                have_rx = have_ry = true;
+                            }
+                        }
+                    }
+
+                    // Offsets (optional)
+                    bool have_ox = false, have_oy = false;
+                    read_int_field("ox", cmd.preview_ox, have_ox);
+                    read_int_field("oy", cmd.preview_oy, have_oy);
+
+                    // Only enqueue if we have something meaningful (at minimum: rx/ry resolved).
+                    if (have_rx || have_ry)
+                    {
+                        if (!have_rx) cmd.preview_rx = 0;
+                        if (!have_ry) cmd.preview_ry = 0;
+                        tool_cmds.out_commands->push_back(std::move(cmd));
+                    }
+                }
 
                 lua_pop(L, 1); // elem
             }

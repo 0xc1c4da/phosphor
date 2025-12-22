@@ -98,6 +98,14 @@ function render(ctx, layer)
   spacing = clamp(spacing, 0.01, 10.0)
   local step = math.max(0.01, size * spacing)
 
+  -- Brush size preview (host overlay; transient).
+  do
+    local r = math.floor(size / 2)
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "brush.preview", anchor = "cursor", rx = r, ry = r }
+    end
+  end
+
   if not down then
     stroke_active = false
     prev_x = nil

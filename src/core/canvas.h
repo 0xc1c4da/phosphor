@@ -685,6 +685,42 @@ public:
     };
 
     // ---------------------------------------------------------------------
+    // Tool brush preview (transient overlay; not serialized)
+    // ---------------------------------------------------------------------
+    // Tools/scripts can request a transient brush outline preview (e.g. size indicator).
+    // This is NOT part of selection state and is NOT persisted. The canvas clears it at the
+    // start of each Render() call; tools should re-send it each frame while active.
+    struct ToolBrushPreview
+    {
+        bool active = false;
+        // Inclusive cell-space rect in canvas coordinates (x=col, y=row).
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = -1;
+        int y1 = -1;
+    };
+
+    void ClearToolBrushPreview()
+    {
+        m_tool_brush_preview.active = false;
+        m_tool_brush_preview.x0 = 0;
+        m_tool_brush_preview.y0 = 0;
+        m_tool_brush_preview.x1 = -1;
+        m_tool_brush_preview.y1 = -1;
+    }
+
+    void SetToolBrushPreviewRect(int x0, int y0, int x1, int y1)
+    {
+        m_tool_brush_preview.active = true;
+        m_tool_brush_preview.x0 = x0;
+        m_tool_brush_preview.y0 = y0;
+        m_tool_brush_preview.x1 = x1;
+        m_tool_brush_preview.y1 = y1;
+    }
+
+    const ToolBrushPreview& GetToolBrushPreview() const { return m_tool_brush_preview; }
+
+    // ---------------------------------------------------------------------
     // External mutation batching (performance)
     // ---------------------------------------------------------------------
     // Many systems mutate the canvas outside AnsiCanvas::Render() (e.g. ANSL scripts run
@@ -940,6 +976,9 @@ private:
     // Current multi-cell brush (stamp) for tools (per-canvas, transient).
     std::optional<Brush> m_current_brush;
 
+    // Transient tool brush preview overlay state (cleared each Render()).
+    ToolBrushPreview m_tool_brush_preview;
+
     // Status-line edit buffers (so inline numeric InputText can be edited across frames).
     char m_status_cols_buf[16] = {};
     char m_status_rows_buf[16] = {};
@@ -1013,6 +1052,11 @@ private:
                               float cell_w,
                               float cell_h,
                               float font_size);
+    void DrawToolBrushPreviewOverlay(ImDrawList* draw_list,
+                                     const ImVec2& origin,
+                                     float cell_w,
+                                     float cell_h,
+                                     const ImVec2& canvas_size);
 
     void DrawMirrorAxisOverlay(ImDrawList* draw_list,
                                const ImVec2& origin,
