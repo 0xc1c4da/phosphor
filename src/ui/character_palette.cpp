@@ -485,6 +485,32 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         RenderImGuiWindowChromeMenu(session, window_title);
     }
 
+    // Title-bar ⋮ settings popup (in addition to the in-window collapsing header).
+    {
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        const bool has_close = (p_open != nullptr);
+        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+        if (RenderImGuiWindowChromeTitleBarButton("##charpal_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+            ImGui::OpenPopup("##charpal_settings");
+
+        if (ImGui::IsPopupOpen("##charpal_settings"))
+            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f, 0.0f), ImVec2(780.0f, 560.0f));
+        if (ImGui::BeginPopup("##charpal_settings"))
+        {
+            ImGui::TextUnformatted("Settings");
+            ImGui::Separator();
+            // Use a scrollable child to avoid huge popups for long palette lists.
+            ImGui::BeginChild("##charpal_settings_scroll", ImVec2(720.0f, 420.0f), false, ImGuiWindowFlags_None);
+            RenderTopBar(active_canvas);
+            ImGui::EndChild();
+            ImGui::Separator();
+            if (ImGui::Button("Close"))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
     // Handle queued file operations (triggered by UI buttons).
     if (request_reload_)
     {
@@ -506,17 +532,7 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
             last_error_.clear();
     }
 
-    // Collapsible settings panel (keeps the window mostly “just the grid”).
-    ImGui::SetNextItemOpen(settings_open_, ImGuiCond_Once);
-    const bool open = ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_None);
-    settings_open_ = open;
-    if (session)
-        session->character_palette_settings_open = settings_open_;
-    if (open)
-    {
-        RenderTopBar(active_canvas);
-        ImGui::Separator();
-    }
+    // Settings live in the title-bar ⋮ popup.
 
     // Single full-width grid (no side editor panel).
     // Scrollbar appears only if needed (e.g. very large palettes with min cell size).

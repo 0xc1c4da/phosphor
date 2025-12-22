@@ -3,12 +3,19 @@
 #include "imgui.h"
 
 #include "ansl/ansl_native.h"
+#include "core/paths.h"
 #include "io/session/imgui_persistence.h"
+#include "misc/cpp/imgui_stdlib.h"
 #include "ui/imgui_window_chrome.h"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <utility>
+
+using nlohmann::json;
 
 static std::string DefaultBrushName(int idx)
 {
@@ -30,11 +37,13 @@ static bool IsValidBrush(const AnsiCanvas::Brush& b)
     return b.cp.size() == n && b.fg.size() == n && b.bg.size() == n && b.attrs.size() == n;
 }
 
-void BrushPaletteWindow::LoadFromSessionIfNeeded(SessionState* session)
+BrushPaletteWindow::BrushPaletteWindow()
 {
-    if (loaded_from_session_)
-        return;
-    loaded_from_session_ = true;
+    file_path_ = PhosphorAssetPath("brush-palettes.json");
+}
+
+void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session)
+{
     if (!session)
         return;
 
@@ -80,49 +89,223 @@ void BrushPaletteWindow::LoadFromSessionIfNeeded(SessionState* session)
         selected_ = (int)entries_.size() - 1;
 }
 
-void BrushPaletteWindow::SaveToSession(SessionState* session) const
+bool BrushPaletteWindow::LoadFromFile(const char* path, std::string& error)
 {
-    if (!session)
-        return;
+    error.clear();
+    if (!path || !*path)
+    {
+        error = "Invalid path";
+        return false;
+    }
 
-    session->brush_palette.entries.clear();
-    session->brush_palette.entries.reserve(entries_.size());
+    std::ifstream f(path);
+    if (!f)
+    {
+        error = std::string("Failed to open ") + path;
+        return false;
+    }
+
+    json j;
+    try
+    {
+        f >> j;
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+
+    if (!j.is_object())
+    {
+        error = "Expected JSON object in brush-palettes.json";
+        return false;
+    }
+
+    if (!j.contains("brushes") || !j["brushes"].is_array())
+    {
+        error = "Expected 'brushes' array in brush-palettes.json";
+        return false;
+    }
+
+    int sel = -1;
+    if (j.contains("selected") && j["selected"].is_number_integer())
+        sel = j["selected"].get<int>();
+
+    std::vector<Entry> parsed;
+    for (const auto& item : j["brushes"])
+    {
+        if (!item.is_object())
+            continue;
+
+        Entry e;
+        if (item.contains("name") && item["name"].is_string())
+            e.name = item["name"].get<std::string>();
+
+        int w = 0;
+        int h = 0;
+        if (item.contains("w") && item["w"].is_number_integer())
+            w = item["w"].get<int>();
+        if (item.contains("h") && item["h"].is_number_integer())
+            h = item["h"].get<int>();
+        if (w <= 0 || h <= 0)
+            continue;
+
+        const size_t n = (size_t)w * (size_t)h;
+
+        auto read_u32_array = [&](const char* key, std::vector<std::uint32_t>& out) -> bool {
+            out.clear();
+            if (!item.contains(key) || !item[key].is_array())
+                return false;
+            out.reserve(n);
+            for (const auto& v : item[key])
+            {
+                if (!v.is_number_unsigned() && !v.is_number_integer())
+                    return false;
+                out.push_back(v.get<std::uint32_t>());
+            }
+            return out.size() == n;
+        };
+
+        std::vector<std::uint32_t> cp;
+        std::vector<std::uint32_t> fg;
+        std::vector<std::uint32_t> bg;
+        std::vector<std::uint32_t> attrs;
+        if (!read_u32_array("cp", cp) ||
+            !read_u32_array("fg", fg) ||
+            !read_u32_array("bg", bg) ||
+            !read_u32_array("attrs", attrs))
+        {
+            continue;
+        }
+
+        AnsiCanvas::Brush b;
+        b.w = w;
+        b.h = h;
+        b.cp.resize(n);
+        b.fg.resize(n);
+        b.bg.resize(n);
+        b.attrs.resize(n);
+        for (size_t i = 0; i < n; ++i)
+        {
+            b.cp[i] = (char32_t)cp[i];
+            b.fg[i] = (AnsiCanvas::Color32)fg[i];
+            b.bg[i] = (AnsiCanvas::Color32)bg[i];
+            b.attrs[i] = (AnsiCanvas::Attrs)attrs[i];
+        }
+        if (!IsValidBrush(b))
+            continue;
+
+        e.brush = std::move(b);
+        parsed.push_back(std::move(e));
+    }
+
+    entries_ = std::move(parsed);
+    selected_ = std::clamp(sel, -1, (int)entries_.size() - 1);
+    inline_rename_index_ = -1;
+    inline_rename_buf_[0] = '\0';
+    inline_rename_request_focus_ = false;
+    return true;
+}
+
+bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
+{
+    error.clear();
+    if (!path || !*path)
+    {
+        error = "Invalid path";
+        return false;
+    }
+
+    json j;
+    j["schema_version"] = 1;
+    j["selected"] = selected_;
+
+    json brushes = json::array();
     for (const auto& e : entries_)
     {
         const AnsiCanvas::Brush& b = e.brush;
         if (!IsValidBrush(b))
             continue;
         const size_t n = (size_t)b.w * (size_t)b.h;
-        SessionState::BrushPaletteEntry se;
-        se.name = e.name;
-        se.w = b.w;
-        se.h = b.h;
-        se.cp.resize(n);
-        se.fg.resize(n);
-        se.bg.resize(n);
-        se.attrs.resize(n);
+
+        json item;
+        item["name"] = e.name;
+        item["w"] = b.w;
+        item["h"] = b.h;
+
+        json cp = json::array();
+        json fg = json::array();
+        json bg = json::array();
+        json attrs = json::array();
         for (size_t i = 0; i < n; ++i)
         {
-            se.cp[i] = (std::uint32_t)b.cp[i];
-            se.fg[i] = (std::uint32_t)b.fg[i];
-            se.bg[i] = (std::uint32_t)b.bg[i];
-            se.attrs[i] = (std::uint32_t)b.attrs[i];
+            cp.push_back((std::uint32_t)b.cp[i]);
+            fg.push_back((std::uint32_t)b.fg[i]);
+            bg.push_back((std::uint32_t)b.bg[i]);
+            attrs.push_back((std::uint32_t)b.attrs[i]);
         }
-        session->brush_palette.entries.push_back(std::move(se));
+        item["cp"] = std::move(cp);
+        item["fg"] = std::move(fg);
+        item["bg"] = std::move(bg);
+        item["attrs"] = std::move(attrs);
+        brushes.push_back(std::move(item));
     }
-    session->brush_palette.selected = selected_;
+    j["brushes"] = std::move(brushes);
+
+    std::ofstream f(path);
+    if (!f)
+    {
+        error = std::string("Failed to write ") + path;
+        return false;
+    }
+
+    try
+    {
+        f << j.dump(2) << "\n";
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+    return true;
+}
+
+void BrushPaletteWindow::EnsureLoaded(SessionState* session)
+{
+    if (loaded_)
+        return;
+
+    std::string err;
+    if (!LoadFromFile(file_path_.c_str(), err))
+    {
+        last_error_ = err;
+
+        // Migration: import from legacy session.json data if present.
+        if (session && !session->brush_palette.entries.empty() && !migrated_from_session_)
+        {
+            LoadFromSessionBrushPalette(session);
+            migrated_from_session_ = true;
+            std::string save_err;
+            if (!SaveToFile(file_path_.c_str(), save_err))
+                last_error_ = save_err;
+            else
+                last_error_.clear();
+        }
+    }
+    else
+    {
+        last_error_.clear();
+    }
+
+    loaded_ = true;
 }
 
 void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* session)
 {
+    (void)session;
     const bool can_capture = active_canvas && active_canvas->HasSelection();
-
-    ImGui::Checkbox("Composite", &capture_composite_);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(90.0f);
-    ImGui::SliderInt("Thumb", &thumb_px_, 32, 160, "%dpx");
-
-    ImGui::Separator();
 
     ImGui::SetNextItemWidth(220.0f);
     ImGui::InputTextWithHint("##brush_name", "Name (optional)", new_name_buf_, IM_ARRAYSIZE(new_name_buf_));
@@ -148,7 +331,7 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
             // Apply immediately so tools see ctx.brush without requiring an extra click.
             if (active_canvas)
                 (void)active_canvas->SetCurrentBrush(entries_.back().brush);
-            SaveToSession(session);
+            request_save_ = true;
             // Clear the buffer after successful add
             new_name_buf_[0] = '\0';
         }
@@ -184,7 +367,7 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
             else
                 active_canvas->ClearCurrentBrush();
         }
-        SaveToSession(session);
+        request_save_ = true;
     }
     ImGui::EndDisabled();
 
@@ -194,8 +377,34 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
     }
 }
 
+void BrushPaletteWindow::RenderSettingsContents()
+{
+    // File
+    ImGui::TextUnformatted("File");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputText("##brushpal_file", &file_path_);
+    if (!last_error_.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
+    if (ImGui::Button("Reload"))
+        request_reload_ = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Save"))
+        request_save_ = true;
+
+    ImGui::Separator();
+
+    ImGui::Checkbox("Composite", &capture_composite_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90.0f);
+    ImGui::SliderInt("Thumb", &thumb_px_, 32, 160, "%dpx");
+
+    ImGui::Separator();
+}
+
 void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* session)
 {
+    (void)session;
     if (entries_.empty())
     {
         ImGui::TextDisabled("(No brushes yet)");
@@ -228,7 +437,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
             selected_ = i;
             if (active_canvas && valid)
                 (void)active_canvas->SetCurrentBrush(b);
-            SaveToSession(session);
+            request_save_ = true;
         }
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -321,7 +530,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
                 inline_rename_index_ = -1;
                 inline_rename_buf_[0] = '\0';
                 inline_rename_request_focus_ = false;
-                SaveToSession(session);
+                request_save_ = true;
             }
         }
         else
@@ -360,6 +569,28 @@ bool BrushPaletteWindow::Render(const char* window_title,
         RenderImGuiWindowChromeMenu(session, window_title);
     }
 
+    // Title-bar ⋮ settings popup (in addition to the in-window collapsing header).
+    {
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        const bool has_close = (p_open != nullptr);
+        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+        if (RenderImGuiWindowChromeTitleBarButton("##brushpal_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+            ImGui::OpenPopup("##brushpal_settings");
+
+        if (ImGui::IsPopupOpen("##brushpal_settings"))
+            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 0.0f), ImVec2(520.0f, 420.0f));
+        if (ImGui::BeginPopup("##brushpal_settings"))
+        {
+            ImGui::TextUnformatted("Settings");
+            ImGui::Separator();
+            RenderSettingsContents();
+            if (ImGui::Button("Close"))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
     if (!open)
     {
         ImGui::End();
@@ -367,7 +598,27 @@ bool BrushPaletteWindow::Render(const char* window_title,
         return p_open ? *p_open : false;
     }
 
-    LoadFromSessionIfNeeded(session);
+    EnsureLoaded(session);
+
+    // Handle queued file operations (triggered by UI buttons).
+    if (request_reload_)
+    {
+        request_reload_ = false;
+        std::string err;
+        if (!LoadFromFile(file_path_.c_str(), err))
+            last_error_ = err;
+        else
+            last_error_.clear();
+    }
+    if (request_save_)
+    {
+        request_save_ = false;
+        std::string err;
+        if (!SaveToFile(file_path_.c_str(), err))
+            last_error_ = err;
+        else
+            last_error_.clear();
+    }
 
     // If the active canvas changed, re-apply the currently selected brush so tools stay in sync.
     if (active_canvas != last_active_canvas_)
@@ -385,9 +636,6 @@ bool BrushPaletteWindow::Render(const char* window_title,
     RenderTopBar(active_canvas, session);
     ImGui::Separator();
     RenderGrid(active_canvas, session);
-
-    // Always keep session copy updated while window is open (cheap; brush counts are small).
-    SaveToSession(session);
 
     ImGui::End();
     if (session) PopImGuiWindowChromeAlpha(alpha_pushed);

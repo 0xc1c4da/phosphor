@@ -61,6 +61,7 @@ private:
     void EnsureNonEmpty();
 
     void RenderTopBar(AnsiCanvas* active_canvas);
+    void RenderSettingsContents(AnsiCanvas* active_canvas);
     void RenderSlots();
 
     static bool     IsScalarValue(uint32_t cp);

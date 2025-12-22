@@ -479,6 +479,34 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
     ImGui::Checkbox("Edit mode (picker/palette assigns selected slot)", &edit_mode_);
 }
 
+void CharacterSetWindow::RenderSettingsContents(AnsiCanvas* active_canvas)
+{
+    RenderTopBar(active_canvas);
+
+    // Selected slot actions live here (not in the always-visible grid).
+    EnsureNonEmpty();
+    if (!sets_.empty())
+    {
+        const int si = std::clamp(active_set_index_, 0, (int)sets_.size() - 1);
+        auto& cps = sets_[(size_t)si].cps;
+        if ((int)cps.size() != 12)
+            cps.assign(12, (uint32_t)U' ');
+        selected_slot_ = std::clamp(selected_slot_, 0, 11);
+
+        ImGui::Separator();
+        const uint32_t scp = cps[(size_t)selected_slot_];
+        ImGui::Text("Slot F%d  %s", selected_slot_ + 1, CodePointHex(scp).c_str());
+        if (ImGui::Button("Clear slot (space)"))
+            cps[(size_t)selected_slot_] = (uint32_t)U' ';
+        ImGui::SameLine();
+        if (ImGui::Button("Insert slot"))
+        {
+            insert_requested_ = true;
+            insert_requested_cp_ = scp;
+        }
+    }
+}
+
 void CharacterSetWindow::RenderSlots()
 {
     EnsureNonEmpty();
@@ -623,6 +651,29 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         RenderImGuiWindowChromeMenu(session, window_title);
     }
 
+    // Title-bar ⋮ settings popup (in addition to the in-window collapsing header).
+    {
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        const bool has_close = (p_open != nullptr);
+        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+        if (RenderImGuiWindowChromeTitleBarButton("##charset_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+            ImGui::OpenPopup("##charset_settings");
+
+        if (ImGui::IsPopupOpen("##charset_settings"))
+            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(360.0f, 0.0f), ImVec2(620.0f, 520.0f));
+        if (ImGui::BeginPopup("##charset_settings"))
+        {
+            ImGui::TextUnformatted("Settings");
+            ImGui::Separator();
+            RenderSettingsContents(active_canvas);
+            ImGui::Separator();
+            if (ImGui::Button("Close"))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
     // Handle queued file operations
     if (request_reload_)
     {
@@ -645,42 +696,9 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
             last_error_.clear();
     }
 
-    // Settings panel (collapsible) so the window can be "just the buttons" most of the time.
-    ImGui::SetNextItemOpen(false, ImGuiCond_Once);
-    const bool settings_open = ImGui::CollapsingHeader("Settings", ImGuiTreeNodeFlags_None);
-    if (settings_open)
-    {
-        RenderTopBar(active_canvas);
-
-        // Selected slot actions live here (not in the always-visible grid).
-        EnsureNonEmpty();
-        if (!sets_.empty())
-        {
-            const int si = std::clamp(active_set_index_, 0, (int)sets_.size() - 1);
-            auto& cps = sets_[(size_t)si].cps;
-            if ((int)cps.size() != 12)
-                cps.assign(12, (uint32_t)U' ');
-            selected_slot_ = std::clamp(selected_slot_, 0, 11);
-
-            ImGui::Separator();
-            const uint32_t scp = cps[(size_t)selected_slot_];
-            ImGui::Text("Slot F%d  %s", selected_slot_ + 1, CodePointHex(scp).c_str());
-            if (ImGui::Button("Clear slot (space)"))
-                cps[(size_t)selected_slot_] = (uint32_t)U' ';
-            ImGui::SameLine();
-            if (ImGui::Button("Insert slot"))
-            {
-                insert_requested_ = true;
-                insert_requested_cp_ = scp;
-            }
-        }
-
-        ImGui::Separator();
-    }
-
-    // Extra affordance for set switching even when Settings is collapsed:
-    // scroll mouse wheel over the window to cycle sets.
-    if (!settings_open && ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
+    // Extra affordance for set switching:
+    // scroll mouse wheel over the window to cycle sets (when not interacting with popups).
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
     {
         ImGuiIO& io = ImGui::GetIO();
         if (io.MouseWheel != 0.0f && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))

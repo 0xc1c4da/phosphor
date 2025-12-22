@@ -123,29 +123,6 @@ static json ToJson(const SessionState& st)
         ws["recent_files"] = st.recent_files;
     j["workspace"] = std::move(ws);
 
-    // Brush palette (global, persisted)
-    {
-        json bp;
-        bp["version"] = st.brush_palette.version;
-        bp["selected"] = st.brush_palette.selected;
-        json entries = json::array();
-        for (const auto& e : st.brush_palette.entries)
-        {
-            json je;
-            if (!e.name.empty())
-                je["name"] = e.name;
-            je["w"] = e.w;
-            je["h"] = e.h;
-            if (!e.cp.empty()) je["cp"] = e.cp;
-            if (!e.fg.empty()) je["fg"] = e.fg;
-            if (!e.bg.empty()) je["bg"] = e.bg;
-            if (!e.attrs.empty()) je["attrs"] = e.attrs;
-            entries.push_back(std::move(je));
-        }
-        bp["entries"] = std::move(entries);
-        j["brush_palette"] = std::move(bp);
-    }
-
     // Workspace content
     json content;
     if (!st.active_tool_path.empty())

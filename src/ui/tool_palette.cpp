@@ -19,6 +19,7 @@ extern "C"
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -480,6 +481,48 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
     {
         ApplyImGuiWindowChromeZOrder(session, title);
         RenderImGuiWindowChromeMenu(session, title);
+    }
+
+    // Title-bar ⋮ popup for tool-palette actions/info.
+    {
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        const bool has_close = (p_open != nullptr);
+        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+        if (RenderImGuiWindowChromeTitleBarButton("##toolpal_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+            ImGui::OpenPopup("##toolpal_menu");
+
+        if (ImGui::IsPopupOpen("##toolpal_menu"))
+            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 0.0f), ImVec2(520.0f, 420.0f));
+        if (ImGui::BeginPopup("##toolpal_menu"))
+        {
+            ImGui::TextUnformatted("Tools");
+            ImGui::Separator();
+
+            ImGui::Text("Count: %d", (int)tools_.size());
+            if (!tools_dir_.empty())
+                ImGui::Text("Dir: %s", tools_dir_.c_str());
+
+            const ToolSpec* t = GetActiveTool();
+            if (t)
+            {
+                ImGui::Separator();
+                ImGui::Text("Active: %s", t->label.c_str());
+                ImGui::TextDisabled("%s", t->path.c_str());
+            }
+
+            ImGui::Separator();
+            if (ImGui::Button("Refresh tools"))
+            {
+                reload_requested_ = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Close"))
+                ImGui::CloseCurrentPopup();
+
+            ImGui::EndPopup();
+        }
     }
 
     if (tools_.empty())

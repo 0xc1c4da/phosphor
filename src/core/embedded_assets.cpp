@@ -286,7 +286,9 @@ bool EnsureBundledAssetsExtracted(std::string& error)
     // If we previously extracted, we're done unless some key files are missing.
     if (fs::exists(marker) &&
         fs::exists(dest_root / "character-palettes.json") &&
+        fs::exists(dest_root / "brush-palettes.json") &&
         fs::exists(dest_root / "color-palettes.json") &&
+        fs::exists(dest_root / "tool-presets.json") &&
         fs::exists(dest_root / "key-bindings.json") &&
         fs::exists(dest_root / "character-sets.json") &&
         fs::exists(dest_root / "session.json") &&

@@ -60,12 +60,20 @@
 #include "ui/settings.h"
 #include "ui/sixteen_colors_browser.h"
 #include "ui/tool_palette.h"
+#include "ui/tool_parameters_window.h"
+#include "ui/tool_params.h"
+
+#include "misc/cpp/imgui_stdlib.h"
+
+#include <nlohmann/json.hpp>
 
 namespace app
 {
 
 namespace
 {
+using nlohmann::json;
+
 struct FallbackToolState
 {
     std::unique_ptr<AnslScriptEngine> engine;
@@ -79,119 +87,6 @@ static std::string ReadFileToString(const std::string& path)
     if (!in)
         return {};
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-static void SaveToolParamsToSession(SessionState& session, const std::string& tool_id, const AnslScriptEngine& eng)
-{
-    if (tool_id.empty())
-        return;
-    if (!eng.HasParams())
-        return;
-
-    std::unordered_map<std::string, SessionState::ToolParamValue> out;
-    const auto& specs = eng.GetParamSpecs();
-    out.reserve(specs.size());
-
-    for (const auto& spec : specs)
-    {
-        if (spec.key.empty())
-            continue;
-
-        SessionState::ToolParamValue v;
-        v.type = (int)spec.type;
-
-        switch (spec.type)
-        {
-            case AnslParamType::Bool:
-            {
-                bool b = false;
-                if (!eng.GetParamBool(spec.key, b))
-                    continue;
-                v.b = b;
-            } break;
-            case AnslParamType::Int:
-            {
-                int i = 0;
-                if (!eng.GetParamInt(spec.key, i))
-                    continue;
-                v.i = i;
-            } break;
-            case AnslParamType::Float:
-            {
-                float f = 0.0f;
-                if (!eng.GetParamFloat(spec.key, f))
-                    continue;
-                v.f = f;
-            } break;
-            case AnslParamType::Enum:
-            {
-                std::string s;
-                if (!eng.GetParamEnum(spec.key, s))
-                    continue;
-                v.s = std::move(s);
-            } break;
-            case AnslParamType::Button:
-            {
-                // Edge-triggered; never persist "pressed" state.
-                v.b = false;
-            } break;
-        }
-
-        out[spec.key] = std::move(v);
-    }
-
-    if (!out.empty())
-        session.tool_param_values[tool_id] = std::move(out);
-}
-
-static void RestoreToolParamsFromSession(const SessionState& session, const std::string& tool_id, AnslScriptEngine& eng)
-{
-    if (tool_id.empty())
-        return;
-    if (!eng.HasParams())
-        return;
-
-    const auto it_tool = session.tool_param_values.find(tool_id);
-    if (it_tool == session.tool_param_values.end())
-        return;
-    const auto& saved = it_tool->second;
-    if (saved.empty())
-        return;
-
-    auto enum_value_valid = [](const AnslParamSpec& spec, const std::string& v) -> bool {
-        if (spec.type != AnslParamType::Enum)
-            return true;
-        for (const std::string& item : spec.enum_items)
-            if (item == v)
-                return true;
-        return false;
-    };
-
-    for (const auto& spec : eng.GetParamSpecs())
-    {
-        if (spec.key.empty())
-            continue;
-        const auto it = saved.find(spec.key);
-        if (it == saved.end())
-            continue;
-        const SessionState::ToolParamValue& v = it->second;
-        if (v.type != (int)spec.type)
-            continue;
-
-        switch (spec.type)
-        {
-            case AnslParamType::Bool:  (void)eng.SetParamBool(spec.key, v.b); break;
-            case AnslParamType::Int:   (void)eng.SetParamInt(spec.key, v.i); break;
-            case AnslParamType::Float: (void)eng.SetParamFloat(spec.key, v.f); break;
-            case AnslParamType::Enum:
-            {
-                if (enum_value_valid(spec, v.s))
-                    (void)eng.SetParamEnum(spec.key, v.s);
-            } break;
-            case AnslParamType::Button:
-                break;
-        }
-    }
 }
 
 static bool ToolClaimsAction(const ToolSpec* t, std::string_view action_id)
@@ -377,7 +272,7 @@ void RunFrame(AppState& st)
     static bool s_restored_initial_tool_params = false;
     if (!s_restored_initial_tool_params)
     {
-        RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+        tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
         s_restored_initial_tool_params = true;
     }
 
@@ -1308,11 +1203,7 @@ void RunFrame(AppState& st)
 
         ImVec4& pal_primary   = (active_fb == 0) ? fg_color : bg_color;
         ImVec4& pal_secondary = (active_fb == 0) ? bg_color : fg_color;
-
-        ImGui::TextDisabled("Enter/LMB: set active (%s)    Shift+Enter/RMB: set %s",
-                            (active_fb == 0) ? "FG" : "BG",
-                            (active_fb == 0) ? "BG" : "FG");
-
+        
         auto same_rgb = [](const ImVec4& a, const ImVec4& b) -> bool {
             // Colors are normalized floats; compare with ~0.5/255 tolerance.
             const float eps = 0.002f;
@@ -1383,7 +1274,7 @@ void RunFrame(AppState& st)
         if (tool_palette.TakeActiveToolChanged(tool_path))
         {
             // Persist params of the previously-compiled tool before compiling the new script.
-            SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+            tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
 
             if (st.tools.compile_tool_script) st.tools.compile_tool_script(tool_path);
             if (st.tools.sync_tool_stack) st.tools.sync_tool_stack();
@@ -1392,7 +1283,7 @@ void RunFrame(AppState& st)
             if (tool_compile_error.empty())
             {
                 s_compiled_tool_id = active_tool_id();
-                RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
                 if (const ToolSpec* t = tool_palette.GetActiveTool())
                     session_state.active_tool_path = t->path;
             }
@@ -1430,27 +1321,13 @@ void RunFrame(AppState& st)
             PopImGuiWindowChromeAlpha(alpha_pushed);
         }
 
-        // Tool parameters UI (settings.params -> ctx.params)
-        if (tool_engine.HasParams())
-        {
-            const ToolSpec* t = tool_palette.GetActiveTool();
-            const char* base_id = "Tool Parameters";
-            // Show tool label in the visible title, but keep a stable window ID for persistence.
-            std::string wname = std::string(t ? t->label : "Tool Parameters") + "###" + base_id;
-            ApplyImGuiWindowPlacement(session_state, base_id, should_apply_placement(base_id));
-            const ImGuiWindowFlags flags =
-                ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, base_id);
-            const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, base_id);
-            ImGui::Begin(wname.c_str(), nullptr, flags);
-            CaptureImGuiWindowPlacement(session_state, base_id);
-            ApplyImGuiWindowChromeZOrder(&session_state, base_id);
-            RenderImGuiWindowChromeMenu(&session_state, base_id);
-            const bool params_changed = RenderAnslParamsUI("tool_params", tool_engine);
-            if (params_changed)
-                SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
-            ImGui::End();
-            PopImGuiWindowChromeAlpha(alpha_pushed);
-        }
+        // Tool parameters UI (settings.params -> ctx.params), extracted into src/ui.
+        static ToolParametersWindow tool_params_window;
+        (void)tool_params_window.Render(tool_palette.GetActiveTool(),
+                                        s_compiled_tool_id,
+                                        tool_engine,
+                                        session_state,
+                                        should_apply_placement("Tool Parameters"));
     }
 
     // Render each canvas window
@@ -2073,24 +1950,24 @@ void RunFrame(AppState& st)
                     } break;
                     case ToolCommand::Type::ToolActivatePrev:
                     {
-                        SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+                        tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
                         activate_prev_tool();
                         if (tool_compile_error.empty())
                         {
                             s_compiled_tool_id = active_tool_id();
-                            RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                            tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
                             if (const ToolSpec* t = tool_palette.GetActiveTool())
                                 session_state.active_tool_path = t->path;
                         }
                     } break;
                     case ToolCommand::Type::ToolActivate:
                     {
-                        SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+                        tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
                         activate_tool_by_id(cmd.tool_id);
                         if (tool_compile_error.empty())
                         {
                             s_compiled_tool_id = active_tool_id();
-                            RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                            tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
                             if (const ToolSpec* t = tool_palette.GetActiveTool())
                                 session_state.active_tool_path = t->path;
                         }

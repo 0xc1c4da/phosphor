@@ -22,6 +22,19 @@ void PopImGuiWindowChromeAlpha(bool pushed);
 // Title-bar right-click menu for pinning + opacity.
 void RenderImGuiWindowChromeMenu(SessionState* session, const char* window_name);
 
+// Renders a small button in the title bar, near the standard collapse/close buttons.
+// Returns true if clicked. Optionally outputs the button rect in screen space.
+//
+// Notes:
+// - This uses Dear ImGui internals (TitleBarRect), so keep it in this chrome module.
+// - This does not open any popup by itself; callers typically OpenPopup() when clicked.
+bool RenderImGuiWindowChromeTitleBarButton(const char* id,
+                                          const char* label_utf8,
+                                          bool has_close_button,
+                                          bool has_collapse_button,
+                                          ImVec2* out_rect_min = nullptr,
+                                          ImVec2* out_rect_max = nullptr);
+
 // Applies the pinned z-order behavior (front/back) for the current window.
 void ApplyImGuiWindowChromeZOrder(const SessionState* session, const char* window_name);
 
