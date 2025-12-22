@@ -12,12 +12,74 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <limits>
 
 static inline std::uint16_t ClampU16FromInt(int v)
 {
     if (v < 0) return 0;
     if (v > 65535) return 65535;
     return (std::uint16_t)v;
+}
+
+// Coordinate helper: convert canvas-space (row/col) into layer-local (row/col) given an integer offset.
+//
+// This mirrors AnsiCanvas::CanvasToLayerLocalForWrite/Read semantics, but is header-only so
+// hot loops in other translation units (e.g. selection/clipboard) can avoid cross-TU calls.
+//
+// Important behaviors preserved:
+// - Reject negative results and out-of-range columns.
+// - For "write": do NOT check the row upper bound (doc can grow on demand).
+// - For "read": additionally require row within [0, rows).
+static inline bool CanvasToLayerLocalForWriteFast(int canvas_row,
+                                                 int canvas_col,
+                                                 int offset_x,
+                                                 int offset_y,
+                                                 int columns,
+                                                 int& out_local_row,
+                                                 int& out_local_col)
+{
+    if (columns <= 0)
+        return false;
+
+    // Fast path: common case (no offset).
+    if (offset_x == 0 && offset_y == 0)
+    {
+        if (canvas_row < 0 || canvas_col < 0)
+            return false;
+        if (canvas_col >= columns)
+            return false;
+        out_local_row = canvas_row;
+        out_local_col = canvas_col;
+        return true;
+    }
+
+    const long long lr = (long long)canvas_row - (long long)offset_y;
+    const long long lc = (long long)canvas_col - (long long)offset_x;
+    if (lr < 0 || lc < 0)
+        return false;
+    if (lc >= (long long)columns)
+        return false;
+    if (lr > (long long)std::numeric_limits<int>::max() || lc > (long long)std::numeric_limits<int>::max())
+        return false;
+    out_local_row = (int)lr;
+    out_local_col = (int)lc;
+    return true;
+}
+
+static inline bool CanvasToLayerLocalForReadFast(int canvas_row,
+                                                int canvas_col,
+                                                int offset_x,
+                                                int offset_y,
+                                                int columns,
+                                                int rows,
+                                                int& out_local_row,
+                                                int& out_local_col)
+{
+    if (!CanvasToLayerLocalForWriteFast(canvas_row, canvas_col, offset_x, offset_y, columns, out_local_row, out_local_col))
+        return false;
+    if (out_local_row < 0 || out_local_row >= rows)
+        return false;
+    return true;
 }
 
 static inline void EnsureSauceDefaultsAndSyncGeometry(AnsiCanvas::ProjectState::SauceMeta& s,

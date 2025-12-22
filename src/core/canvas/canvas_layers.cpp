@@ -588,6 +588,19 @@ bool AnsiCanvas::CanvasToLayerLocalForWrite(int layer_index,
         return false;
 
     const Layer& layer = m_layers[(size_t)layer_index];
+    // Fast path: most layers sit at (0,0). Avoid 64-bit math + extra branches.
+    // Note: Write-conversion intentionally does NOT clamp/check row upper bound because
+    // the document can grow on demand (EnsureRows happens at the mutation site).
+    if (layer.offset_x == 0 && layer.offset_y == 0)
+    {
+        if (canvas_row < 0 || canvas_col < 0)
+            return false;
+        if (canvas_col >= m_columns)
+            return false;
+        out_local_row = canvas_row;
+        out_local_col = canvas_col;
+        return true;
+    }
     const long long lr = (long long)canvas_row - (long long)layer.offset_y;
     const long long lc = (long long)canvas_col - (long long)layer.offset_x;
     if (lr < 0 || lc < 0)
@@ -622,34 +635,14 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
         return out;
 
-    // Background: topmost visible non-zero background wins (space remains "transparent"
-    // for glyph compositing, but background can be colored independently).
-    for (int i = (int)m_layers.size() - 1; i >= 0; --i)
-    {
-        const Layer& layer = m_layers[(size_t)i];
-        if (!layer.visible)
-            continue;
-        int lr = 0, lc = 0;
-        if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
-            continue;
-        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        if (idx >= layer.bg.size())
-            continue;
-        const Color32 bg = layer.bg[idx];
-        if (bg != 0)
-        {
-            out.bg = bg;
-            break;
-        }
-    }
-
-    // Glyph + foreground: topmost visible non-space glyph wins. Foreground color and
-    // attributes are taken from that same layer.
+    // Compositing rules (preserved):
+    // - Background: topmost visible non-zero bg wins (independent of glyph transparency).
+    // - Glyph/fg/attrs: topmost visible non-space glyph wins (attrs only apply with glyph).
     //
-    // IMPORTANT compositing rule:
-    // A space cell does NOT contribute to the foreground plane, even if it has attrs set.
-    // This ensures style-only overlays (e.g. underline on spaces) do not occlude glyphs
-    // from lower layers, and matches the editor rule: "no glyph => transparent".
+    // Optimization: do this in ONE top-to-bottom scan rather than two; this roughly halves
+    // the number of offset transforms per sampled cell in render/selection/minimap paths.
+    bool have_bg = false;
+    bool have_fg = false;
     for (int i = (int)m_layers.size() - 1; i >= 0; --i)
     {
         const Layer& layer = m_layers[(size_t)i];
@@ -659,16 +652,37 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
         if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
             continue;
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        if (idx >= layer.cells.size())
-            continue;
-        const char32_t cp = layer.cells[idx];
-        if (cp == U' ')
-            continue;
+        // Background plane (topmost non-zero wins)
+        if (!have_bg)
+        {
+            if (idx < layer.bg.size())
+            {
+                const Color32 bg = layer.bg[idx];
+                if (bg != 0)
+                {
+                    out.bg = bg;
+                    have_bg = true;
+                }
+            }
+        }
 
-        out.cp = cp;
-        out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : 0;
-        out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
-        break;
+        // Foreground plane (topmost non-space glyph wins)
+        if (!have_fg)
+        {
+            if (idx >= layer.cells.size())
+                continue;
+            const char32_t cp = layer.cells[idx];
+            if (cp != U' ')
+            {
+                out.cp = cp;
+                out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : 0;
+                out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+                have_fg = true;
+            }
+        }
+
+        if (have_bg && have_fg)
+            break;
     }
 
     return out;

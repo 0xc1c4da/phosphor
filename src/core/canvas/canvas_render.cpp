@@ -229,21 +229,71 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     if (end_row > rows) end_row = rows;
     if (end_col > m_columns) end_col = m_columns;
 
-    for (int row = start_row; row < end_row; ++row)
+    // Hoist invariants out of the inner loops (hot path).
+    const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
+    // The "default" foreground must remain readable regardless of UI skin.
+    const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+    const int caret_row = m_caret_row;
+    const int caret_col = m_caret_col;
+    const ImU32 caret_fill = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
+    const float now = (float)ImGui::GetTime();
+    const bool blink_phase_on = (std::fmod(now, 1.0f) < 0.5f);
+    const float deco_thickness = std::max(1.0f, std::floor(cell_h / 16.0f));
+    const float underline_y_off = cell_h - deco_thickness;
+    const float strike_y_off = std::floor(cell_h * 0.5f - deco_thickness * 0.5f);
+    const float bold_dx = std::max(1.0f, std::floor(cell_w / 8.0f));
+
+    auto adjust_intensity = [&](ImU32 c, float mul) -> ImU32
     {
-        for (int col = start_col; col < end_col; ++col)
+        ImVec4 v = ImGui::ColorConvertU32ToFloat4(c);
+        v.x = std::clamp(v.x * mul, 0.0f, 1.0f);
+        v.y = std::clamp(v.y * mul, 0.0f, 1.0f);
+        v.z = std::clamp(v.z * mul, 0.0f, 1.0f);
+        return ImGui::ColorConvertFloat4ToU32(v);
+    };
+
+    static const ImU32 kVga16[16] = {
+        IM_COL32(0x00, 0x00, 0x00, 0xFF), // 0
+        IM_COL32(0xAA, 0x00, 0x00, 0xFF), // 1
+        IM_COL32(0x00, 0xAA, 0x00, 0xFF), // 2
+        IM_COL32(0xAA, 0x55, 0x00, 0xFF), // 3
+        IM_COL32(0x00, 0x00, 0xAA, 0xFF), // 4
+        IM_COL32(0xAA, 0x00, 0xAA, 0xFF), // 5
+        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), // 6
+        IM_COL32(0xAA, 0xAA, 0xAA, 0xFF), // 7
+        IM_COL32(0x55, 0x55, 0x55, 0xFF), // 8
+        IM_COL32(0xFF, 0x55, 0x55, 0xFF), // 9
+        IM_COL32(0x55, 0xFF, 0x55, 0xFF), // 10
+        IM_COL32(0xFF, 0xFF, 0x55, 0xFF), // 11
+        IM_COL32(0x55, 0x55, 0xFF, 0xFF), // 12
+        IM_COL32(0xFF, 0x55, 0xFF, 0xFF), // 13
+        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), // 14
+        IM_COL32(0xFF, 0xFF, 0xFF, 0xFF), // 15
+    };
+    auto vga16_index = [&](ImU32 c, int& out_idx) -> bool
+    {
+        for (int i = 0; i < 16; ++i)
         {
-            ImVec2 cell_min(origin.x + col * cell_w,
-                            origin.y + row * cell_h);
-            ImVec2 cell_max(cell_min.x + cell_w,
-                            cell_min.y + cell_h);
+            if (kVga16[i] == c)
+            {
+                out_idx = i;
+                return true;
+            }
+        }
+        out_idx = 0;
+        return false;
+    };
+
+    float y = origin.y + (float)start_row * cell_h;
+    for (int row = start_row; row < end_row; ++row, y += cell_h)
+    {
+        float x = origin.x + (float)start_col * cell_w;
+        for (int col = start_col; col < end_col; ++col, x += cell_w)
+        {
+            ImVec2 cell_min(x, y);
+            ImVec2 cell_max(x + cell_w, y + cell_h);
 
             CompositeCell cell = GetCompositeCell(row, col);
-
-            // Canvas background is a fixed black/white fill (not theme-driven).
-            const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
-            // The "default" foreground must remain readable regardless of UI skin.
-            const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
             // Resolve base fg/bg (note: bg==0 means "unset/transparent" in the editor).
             ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : default_fg;
@@ -255,38 +305,6 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             {
                 // If both colors are exact VGA16 palette entries, emulate libansilove's
                 // special reverse rule that preserves the bright-foreground bit.
-                auto vga16_index = [&](ImU32 c, int& out_idx) -> bool
-                {
-                    static const ImU32 vga16[16] = {
-                        IM_COL32(0x00, 0x00, 0x00, 0xFF), // 0
-                        IM_COL32(0xAA, 0x00, 0x00, 0xFF), // 1
-                        IM_COL32(0x00, 0xAA, 0x00, 0xFF), // 2
-                        IM_COL32(0xAA, 0x55, 0x00, 0xFF), // 3
-                        IM_COL32(0x00, 0x00, 0xAA, 0xFF), // 4
-                        IM_COL32(0xAA, 0x00, 0xAA, 0xFF), // 5
-                        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), // 6
-                        IM_COL32(0xAA, 0xAA, 0xAA, 0xFF), // 7
-                        IM_COL32(0x55, 0x55, 0x55, 0xFF), // 8
-                        IM_COL32(0xFF, 0x55, 0x55, 0xFF), // 9
-                        IM_COL32(0x55, 0xFF, 0x55, 0xFF), // 10
-                        IM_COL32(0xFF, 0xFF, 0x55, 0xFF), // 11
-                        IM_COL32(0x55, 0x55, 0xFF, 0xFF), // 12
-                        IM_COL32(0xFF, 0x55, 0xFF, 0xFF), // 13
-                        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), // 14
-                        IM_COL32(0xFF, 0xFF, 0xFF, 0xFF), // 15
-                    };
-                    for (int i = 0; i < 16; ++i)
-                    {
-                        if (vga16[i] == c)
-                        {
-                            out_idx = i;
-                            return true;
-                        }
-                    }
-                    out_idx = 0;
-                    return false;
-                };
-
                 int fi = 0, bi = 0;
                 // IMPORTANT: only apply the VGA16 special case when both fg/bg are explicitly set.
                 // Unset channels are represented as 0, which would otherwise spuriously match VGA16 black.
@@ -294,33 +312,14 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 {
                     const int inv_bg = fi % 8;
                     const int inv_fg = bi + (fi & 8);
-                    const ImU32 vga16[16] = {
-                        IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
-                        IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
-                        IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
-                        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
-                        IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
-                        IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
-                        IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
-                        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
-                    };
-                    bg_col = vga16[std::clamp(inv_bg, 0, 15)];
-                    fg_col = vga16[std::clamp(inv_fg, 0, 15)];
+                    bg_col = kVga16[std::clamp(inv_bg, 0, 15)];
+                    fg_col = kVga16[std::clamp(inv_fg, 0, 15)];
                 }
                 else
                 {
                     std::swap(fg_col, bg_col);
                 }
             }
-
-            auto adjust_intensity = [&](ImU32 c, float mul) -> ImU32
-            {
-                ImVec4 v = ImGui::ColorConvertU32ToFloat4(c);
-                v.x = std::clamp(v.x * mul, 0.0f, 1.0f);
-                v.y = std::clamp(v.y * mul, 0.0f, 1.0f);
-                v.z = std::clamp(v.z * mul, 0.0f, 1.0f);
-                return ImGui::ColorConvertFloat4ToU32(v);
-            };
             if ((a & Attr_Dim) != 0)
                 fg_col = adjust_intensity(fg_col, 0.60f);
             if ((a & Attr_Bold) != 0)
@@ -333,15 +332,14 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
 
             // Caret highlight.
-            if (row == m_caret_row && col == m_caret_col)
+            if (row == caret_row && col == caret_col)
             {
-                ImU32 cursor_col = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
-                draw_list->AddRectFilled(cell_min, cell_max, cursor_col);
+                draw_list->AddRectFilled(cell_min, cell_max, caret_fill);
             }
 
             // Blink (SGR 5): blink foreground/attributes only (background remains).
             const bool blink = (a & Attr_Blink) != 0;
-            const bool blink_on = !blink || (std::fmod((float)ImGui::GetTime(), 1.0f) < 0.5f);
+            const bool blink_on = !blink || blink_phase_on;
 
             const bool want_underline = (a & Attr_Underline) != 0;
             const bool want_strike = (a & Attr_Strikethrough) != 0;
@@ -349,17 +347,16 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             // Underline / strikethrough (draw even for spaces).
             if (blink_on && (want_underline || want_strike))
             {
-                const float thickness = std::max(1.0f, std::floor(cell_h / 16.0f));
                 const ImU32 lc = ApplyCurrentStyleAlpha(fg_col);
                 if (want_underline)
                 {
-                    const float y0 = cell_max.y - thickness;
-                    draw_list->AddRectFilled(ImVec2(cell_min.x, y0), ImVec2(cell_max.x, y0 + thickness), lc);
+                    const float y0 = cell_min.y + underline_y_off;
+                    draw_list->AddRectFilled(ImVec2(cell_min.x, y0), ImVec2(cell_max.x, y0 + deco_thickness), lc);
                 }
                 if (want_strike)
                 {
-                    const float y0 = cell_min.y + std::floor(cell_h * 0.5f - thickness * 0.5f);
-                    draw_list->AddRectFilled(ImVec2(cell_min.x, y0), ImVec2(cell_max.x, y0 + thickness), lc);
+                    const float y0 = cell_min.y + strike_y_off;
+                    draw_list->AddRectFilled(ImVec2(cell_min.x, y0), ImVec2(cell_max.x, y0 + deco_thickness), lc);
                 }
             }
 
@@ -378,7 +375,6 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                 const bool italic = (a & Attr_Italic) != 0;
                 const bool bold = (a & Attr_Bold) != 0;
-                const float bold_dx = std::max(1.0f, std::floor(cell_w / 8.0f));
 
                 // Clip text to cell: required for synthetic bold/italic to avoid bleeding.
                 draw_list->PushClipRect(cell_min, cell_max, true);

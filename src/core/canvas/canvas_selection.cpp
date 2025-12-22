@@ -164,6 +164,8 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
     g_clipboard.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
     for (int j = 0; j < h; ++j)
     {
         for (int i = 0; i < w; ++i)
@@ -176,7 +178,7 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
                 continue;
 
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForRead(layer_index, y, x, lr, lc))
+            if (!CanvasToLayerLocalForReadFast(y, x, off_x, off_y, m_columns, m_rows, lr, lc))
                 continue;
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx < layer.cells.size())
@@ -294,6 +296,8 @@ bool AnsiCanvas::CaptureBrushFromSelection(Brush& out, int layer_index)
     out.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
     for (int j = 0; j < h; ++j)
         for (int i = 0; i < w; ++i)
         {
@@ -305,7 +309,7 @@ bool AnsiCanvas::CaptureBrushFromSelection(Brush& out, int layer_index)
                 continue;
 
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForRead(layer_index, y, x, lr, lc))
+            if (!CanvasToLayerLocalForReadFast(y, x, off_x, off_y, m_columns, m_rows, lr, lc))
                 continue;
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx < layer.cells.size())
@@ -372,6 +376,8 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
         return false;
 
     Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
 
     const int x0 = m_selection.x;
     const int y0 = m_selection.y;
@@ -396,7 +402,7 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
             if (x < 0 || x >= m_columns || y < 0)
                 continue;
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForWrite(layer_index, y, x, lr, lc))
+            if (!CanvasToLayerLocalForWriteFast(y, x, off_x, off_y, m_columns, lr, lc))
                 continue;
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
@@ -465,6 +471,8 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
         return false;
 
     Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
     bool did_anything = false;
     bool prepared = false;
     auto prepare = [&]()
@@ -495,7 +503,7 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
                 continue;
 
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
                 continue;
             const size_t dst = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
@@ -587,6 +595,8 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
     mv.cells.assign((size_t)w * (size_t)h, ClipCell{});
 
     const Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
     for (int j = 0; j < h; ++j)
         for (int i = 0; i < w; ++i)
         {
@@ -596,7 +606,7 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
             if (sx < 0 || sx >= m_columns || sy < 0 || sy >= m_rows)
                 continue;
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForRead(layer_index, sy, sx, lr, lc))
+            if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, m_columns, m_rows, lr, lc))
                 continue;
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx < layer.cells.size())
@@ -612,6 +622,8 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
     if (mv.cut)
     {
         Layer& mut = m_layers[(size_t)layer_index];
+        const int mut_off_x = mut.offset_x;
+        const int mut_off_y = mut.offset_y;
         bool prepared = false;
         auto prepare = [&]()
         {
@@ -630,7 +642,7 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                 if (sx < 0 || sx >= m_columns || sy < 0)
                     continue;
                 int lr = 0, lc = 0;
-                if (!CanvasToLayerLocalForWrite(layer_index, sy, sx, lr, lc))
+                if (!CanvasToLayerLocalForWriteFast(sy, sx, mut_off_x, mut_off_y, m_columns, lr, lc))
                     continue;
                 const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
@@ -704,6 +716,8 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
         return false;
 
     Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
     bool did_anything = false;
     bool prepared = false;
     auto prepare = [&]()
@@ -724,7 +738,7 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
             if (px < 0 || px >= m_columns || py < 0)
                 continue;
             int lr = 0, lc = 0;
-            if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
                 continue;
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
@@ -789,6 +803,8 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
         if (w > 0 && h > 0 && (int)m_move.cells.size() == w * h)
         {
             Layer& layer = m_layers[(size_t)layer_index];
+            const int off_x = layer.offset_x;
+            const int off_y = layer.offset_y;
             bool did_anything = false;
             bool prepared = false;
             auto prepare = [&]()
@@ -808,7 +824,7 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                     if (px < 0 || px >= m_columns || py < 0)
                         continue;
                     int lr = 0, lc = 0;
-                    if (!CanvasToLayerLocalForWrite(layer_index, py, px, lr, lc))
+                    if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
                         continue;
                     const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
                     const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
