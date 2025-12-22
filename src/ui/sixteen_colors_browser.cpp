@@ -243,19 +243,12 @@ static std::string BuildLatestUrl()
 }
 
 // Fast coarse draw: downsample into a small grid of solid rects.
-static void DrawRgbaPreviewGrid(const unsigned char* rgba, int w, int h, const ImVec2& size_px, int max_grid_dim = 32)
+static void DrawRgbaGridExact(const unsigned char* rgba, int grid_w, int grid_h, const ImVec2& size_px)
 {
-    if (!rgba || w <= 0 || h <= 0)
+    if (!rgba || grid_w <= 0 || grid_h <= 0)
         return;
     if (size_px.x <= 0.0f || size_px.y <= 0.0f)
         return;
-
-    int grid_w = std::min(w, max_grid_dim);
-    int grid_h = std::min(h, max_grid_dim);
-    if (w >= h)
-        grid_h = std::max(1, (int)std::lround((double)h * ((double)grid_w / (double)w)));
-    else
-        grid_w = std::max(1, (int)std::lround((double)w * ((double)grid_h / (double)h)));
 
     ImGui::InvisibleButton("##thumb_canvas", size_px);
     const ImVec2 p0 = ImGui::GetItemRectMin();
@@ -270,23 +263,102 @@ static void DrawRgbaPreviewGrid(const unsigned char* rgba, int w, int h, const I
     {
         const float y0 = p0.y + gy * cell_h;
         const float y1 = y0 + cell_h;
-        int src_y = (int)std::floor(((gy + 0.5f) * (float)h) / (float)grid_h);
-        src_y = std::clamp(src_y, 0, h - 1);
         for (int gx = 0; gx < grid_w; ++gx)
         {
             const float x0 = p0.x + gx * cell_w;
             const float x1 = x0 + cell_w;
-            int src_x = (int)std::floor(((gx + 0.5f) * (float)w) / (float)grid_w);
-            src_x = std::clamp(src_x, 0, w - 1);
-            const size_t base = ((size_t)src_y * (size_t)w + (size_t)src_x) * 4u;
+            const size_t base = ((size_t)gy * (size_t)grid_w + (size_t)gx) * 4u;
             const unsigned char r = rgba[base + 0];
             const unsigned char g = rgba[base + 1];
             const unsigned char b = rgba[base + 2];
             const unsigned char a = rgba[base + 3];
-            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), IM_COL32(r, g, b, a));
+
+            // IMPORTANT: apply current style alpha (window opacity).
+            const ImVec4 v((float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, (float)a / 255.0f);
+            const ImU32 col = ImGui::GetColorU32(v);
+            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
         }
     }
     dl->AddRect(p0, p1, IM_COL32(90, 90, 105, 255), 4.0f);
+}
+
+static inline unsigned char ClampU8(int v)
+{
+    return (unsigned char)std::clamp(v, 0, 255);
+}
+
+// Build a small, consistent preview by center-cropping to the target aspect ratio and bilinear resampling.
+// This makes very tall thumbs look consistent (no squashing) and avoids expensive per-frame resampling.
+static bool BuildThumbPreviewCoverBilinear(const unsigned char* src_rgba, int sw, int sh,
+                                           int dw, int dh,
+                                           std::vector<unsigned char>& out_rgba)
+{
+    if (!src_rgba || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
+        return false;
+
+    out_rgba.assign((size_t)dw * (size_t)dh * 4u, 0);
+
+    const float src_w = (float)sw;
+    const float src_h = (float)sh;
+    const float dst_aspect = (float)dw / (float)dh;
+    const float src_aspect = src_w / src_h;
+
+    // Crop rect in source space (float) to match the destination aspect ratio.
+    float crop_x0 = 0.0f, crop_y0 = 0.0f, crop_w = src_w, crop_h = src_h;
+    if (src_aspect > dst_aspect)
+    {
+        // Too wide: crop width.
+        crop_h = src_h;
+        crop_w = crop_h * dst_aspect;
+        crop_x0 = (src_w - crop_w) * 0.5f;
+        crop_y0 = 0.0f;
+    }
+    else if (src_aspect < dst_aspect)
+    {
+        // Too tall: crop height.
+        crop_w = src_w;
+        crop_h = crop_w / dst_aspect;
+        crop_x0 = 0.0f;
+        crop_y0 = (src_h - crop_h) * 0.5f;
+    }
+
+    auto sample = [&](int x, int y, int c) -> int {
+        x = std::clamp(x, 0, sw - 1);
+        y = std::clamp(y, 0, sh - 1);
+        return (int)src_rgba[((size_t)y * (size_t)sw + (size_t)x) * 4u + (size_t)c];
+    };
+
+    for (int y = 0; y < dh; ++y)
+    {
+        for (int x = 0; x < dw; ++x)
+        {
+            // Pixel-center mapping.
+            const float u = ((float)x + 0.5f) / (float)dw;
+            const float v = ((float)y + 0.5f) / (float)dh;
+            const float sx = crop_x0 + u * crop_w - 0.5f;
+            const float sy = crop_y0 + v * crop_h - 0.5f;
+
+            const int x0 = (int)std::floor(sx);
+            const int y0 = (int)std::floor(sy);
+            const int x1 = x0 + 1;
+            const int y1 = y0 + 1;
+            const float tx = sx - (float)x0;
+            const float ty = sy - (float)y0;
+
+            for (int c = 0; c < 4; ++c)
+            {
+                const float c00 = (float)sample(x0, y0, c);
+                const float c10 = (float)sample(x1, y0, c);
+                const float c01 = (float)sample(x0, y1, c);
+                const float c11 = (float)sample(x1, y1, c);
+                const float cx0 = c00 + (c10 - c00) * tx;
+                const float cx1 = c01 + (c11 - c01) * tx;
+                const float cv = cx0 + (cx1 - cx0) * ty;
+                out_rgba[((size_t)y * (size_t)dw + (size_t)x) * 4u + (size_t)c] = ClampU8((int)std::lround(cv));
+            }
+        }
+    }
+    return true;
 }
 } // namespace
 
@@ -473,11 +545,28 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                 t.err = ierr;
                 continue;
             }
+
+            // Precompute a consistent, good-looking preview:
+            // - center-crop to the thumbnail box aspect ratio (so tall thumbs don't get squashed)
+            // - bilinear resample to a small fixed grid (so draw cost is bounded)
+            constexpr int kPreviewW = 32;
+            constexpr int kPreviewH = 21; // ~1.52 aspect, close to 170x110 (~1.545)
+
+            std::vector<unsigned char> preview;
+            if (!BuildThumbPreviewCoverBilinear(rgba.data(), w, h, kPreviewW, kPreviewH, preview))
+            {
+                t.failed = true;
+                t.err = "Failed to build thumbnail preview.";
+                continue;
+            }
+
             t.ready = true;
             t.failed = false;
             t.w = w;
             t.h = h;
-            t.rgba = std::move(rgba);
+            t.preview_w = kPreviewW;
+            t.preview_h = kPreviewH;
+            t.preview_rgba = std::move(preview);
             t.err.clear();
         }
         else if (dr.job.kind == "raw")
@@ -1923,7 +2012,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
 
                             if (t.ready)
                             {
-                                DrawRgbaPreviewGrid(t.rgba.data(), t.w, t.h, ImVec2(thumb_w, thumb_h), 28);
+                                DrawRgbaGridExact(t.preview_rgba.data(), t.preview_w, t.preview_h, ImVec2(thumb_w, thumb_h));
                             }
                             else
                             {

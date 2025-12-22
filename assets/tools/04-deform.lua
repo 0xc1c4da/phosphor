@@ -4,16 +4,18 @@ settings = {
   label = "Deform",
 
   params = {
-    mode = { type = "enum", label = "Mode", items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
-    algo = { type = "enum", label = "Algorithm", items = { "warp_quantize", "warp_quantize_sticky", "cell_resample" }, default = "warp_quantize" },
-    size = { type = "int", label = "Size", min = 1, max = 61, step = 1, default = 15 },
-    hardness = { type = "int", label = "Hardness", min = 0, max = 100, step = 1, default = 80 },
-    strength = { type = "float", label = "Strength", min = 0.0, max = 1.0, step = 0.01, default = 0.75 },
-    amount = { type = "float", label = "Amount", min = 0.0, max = 2.0, step = 0.05, default = 1.0, same_line = true },
-    spacing = { type = "float", label = "Spacing", min = 0.05, max = 2.0, step = 0.05, default = 0.25 },
-    sample = { type = "enum", label = "Sample", items = { "layer", "composite" }, default = "layer" },
-    scope = { type = "enum", label = "Scope", items = { "selection_if_any", "selection_only", "full_canvas" }, default = "selection_if_any" },
-    hysteresis = { type = "float", label = "Hysteresis", min = 0.0, max = 1.0, step = 0.01, default = 0.05 },
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 61, step = 1, default = 15, width = 160 },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Deform", primary = true, order = 1, inline = true, items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
+    strength = { type = "float", label = "Strength", ui = "slider", section = "Brush", primary = true, order = 2, min = 0.0, max = 1.0, step = 0.01, default = 0.75, inline = true, width = 160 },
+    spacing = { type = "float", label = "Spacing", ui = "slider", section = "Brush", primary = true, order = 3, min = 0.05, max = 2.0, step = 0.05, default = 0.25, inline = true, width = 160 },
+
+    hardness = { type = "int", label = "Hardness", ui = "slider", section = "Brush", min = 0, max = 100, step = 1, default = 80 },
+    amount = { type = "float", label = "Amount", ui = "slider", section = "Brush", min = 0.0, max = 2.0, step = 0.05, default = 1.0, inline = true },
+
+    algo = { type = "enum", label = "Algorithm", ui = "combo", section = "Sampling", items = { "warp_quantize", "warp_quantize_sticky", "cell_resample" }, default = "warp_quantize" },
+    sample = { type = "enum", label = "Sample", ui = "segmented", section = "Sampling", items = { "layer", "composite" }, default = "layer", inline = true },
+    scope = { type = "enum", label = "Scope", ui = "combo", section = "Sampling", items = { "selection_if_any", "selection_only", "full_canvas" }, default = "selection_if_any" },
+    hysteresis = { type = "float", label = "Hysteresis", ui = "slider", section = "Sampling", min = 0.0, max = 1.0, step = 0.01, default = 0.05, inline = true },
   },
 }
 

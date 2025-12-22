@@ -5,15 +5,15 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    size = { type = "int", label = "Size", min = 1, max = 31, step = 1, default = 7 },
-    flow = { type = "float", label = "Flow", min = 0.0, max = 1.0, step = 0.01, default = 0.65 },
-    kernel = { type = "int", label = "Kernel", min = 1, max = 3, step = 1, default = 1 }, -- 1 => 3x3, 2 => 5x5, 3 => 7x7
-    sample = { type = "enum", label = "Sample", items = { "composite", "layer" }, default = "composite" },
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 31, step = 1, default = 7, width = 180 },
+    flow = { type = "float", label = "Flow", ui = "slider", section = "Brush", primary = true, order = 1, min = 0.0, max = 1.0, step = 0.01, default = 0.65, inline = true, width = 180 },
+    kernel = { type = "int", label = "Kernel", ui = "segmented", section = "Sampling", primary = true, order = 2, min = 1, max = 3, step = 1, default = 1, tooltip = "1=3x3, 2=5x5, 3=7x7", inline = true }, -- 1 => 3x3, 2 => 5x5, 3 => 7x7
+    sample = { type = "enum", label = "Sample", ui = "segmented", section = "Sampling", primary = true, order = 3, items = { "composite", "layer" }, default = "composite", inline = true },
 
-    affectChar = { type = "bool", label = "Affect Char", default = false },
-    affectFg = { type = "bool", label = "Affect FG", default = true },
-    affectBg = { type = "bool", label = "Affect BG", default = true },
-    snapPalette = { type = "bool", label = "Snap to palette", default = true },
+    affectChar = { type = "bool", label = "Char", ui = "toggle", section = "Affect", default = false },
+    affectFg = { type = "bool", label = "FG", ui = "toggle", section = "Affect", default = true, inline = true },
+    affectBg = { type = "bool", label = "BG", ui = "toggle", section = "Affect", default = true, inline = true },
+    snapPalette = { type = "bool", label = "Snap to palette", ui = "toggle", section = "Affect", default = true, inline = true },
   },
 }
 

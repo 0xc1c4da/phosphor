@@ -178,9 +178,15 @@ private:
         bool requested = false;
         bool ready = false;
         bool failed = false;
+        // Original decoded thumb dimensions (from the downloaded PNG/JPG/etc)
         int w = 0;
         int h = 0;
-        std::vector<unsigned char> rgba;
+
+        // Precomputed UI preview (small, aspect-consistent, RGBA8).
+        // This keeps draw cost bounded and avoids storing large full RGBA thumbs.
+        int preview_w = 0;
+        int preview_h = 0;
+        std::vector<unsigned char> preview_rgba; // preview_w * preview_h * 4
         std::string err;
     };
     std::unordered_map<std::string, Thumb> m_thumbs;

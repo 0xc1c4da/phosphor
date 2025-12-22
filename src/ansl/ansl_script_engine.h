@@ -26,11 +26,37 @@ struct AnslParamSpec
 {
     std::string key;   // lua identifier under ctx.params.<key>
     std::string label; // human-friendly label for UI (optional)
+    std::string tooltip; // optional help text (shown in UI tooltip)
     AnslParamType type = AnslParamType::Bool;
 
     // Optional layout hints for the host parameter UI.
     // If true, render this parameter on the same line as the previous one.
-    bool same_line = false;
+    bool inline_with_prev = false;
+
+    // Optional grouping for host UI (e.g. "Brush", "Sampling", "Advanced").
+    // Empty means "General".
+    std::string section;
+
+    // Optional enablement condition: when set, this param is disabled unless
+    // ctx.params.<enabled_if> is true (bool param).
+    std::string enabled_if;
+
+    // Optional UI hint:
+    // - "auto" (default)
+    // - "toggle"      (bool)
+    // - "checkbox"    (bool)
+    // - "slider"      (int/float)
+    // - "drag"        (int/float)
+    // - "segmented"   (enum)
+    // - "combo"       (enum)
+    // - "action"      (button)
+    std::string ui;
+
+    // If true, this param should be shown in the compact "options bar" region.
+    bool primary = false;
+
+    // Optional width hint for the widget (ImGui item width in px). 0 means auto.
+    float width = 0.0f;
 
     // Optional explicit ordering. If multiple params share the same order, we fall back to label/key.
     int  order = 0;

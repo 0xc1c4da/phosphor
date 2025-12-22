@@ -1433,19 +1433,18 @@ void RunFrame(AppState& st)
         // Tool parameters UI (settings.params -> ctx.params)
         if (tool_engine.HasParams())
         {
-            const char* wname = "Tool Parameters";
-            ApplyImGuiWindowPlacement(session_state, wname, should_apply_placement(wname));
-            const ImGuiWindowFlags flags =
-                ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, wname);
-            const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, wname);
-            ImGui::Begin("Tool Parameters", nullptr, flags);
-            CaptureImGuiWindowPlacement(session_state, wname);
-            ApplyImGuiWindowChromeZOrder(&session_state, wname);
-            RenderImGuiWindowChromeMenu(&session_state, wname);
             const ToolSpec* t = tool_palette.GetActiveTool();
-            if (t)
-                ImGui::Text("%s", t->label.c_str());
-            ImGui::Separator();
+            const char* base_id = "Tool Parameters";
+            // Show tool label in the visible title, but keep a stable window ID for persistence.
+            std::string wname = std::string(t ? t->label : "Tool Parameters") + "###" + base_id;
+            ApplyImGuiWindowPlacement(session_state, base_id, should_apply_placement(base_id));
+            const ImGuiWindowFlags flags =
+                ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, base_id);
+            const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, base_id);
+            ImGui::Begin(wname.c_str(), nullptr, flags);
+            CaptureImGuiWindowPlacement(session_state, base_id);
+            ApplyImGuiWindowChromeZOrder(&session_state, base_id);
+            RenderImGuiWindowChromeMenu(&session_state, base_id);
             const bool params_changed = RenderAnslParamsUI("tool_params", tool_engine);
             if (params_changed)
                 SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);

@@ -5,14 +5,16 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    font = { type = "enum", label = "Font", items = { "(no fonts)" }, default = "(no fonts)" },
-    useFontColors = { type = "bool", label = "Use font colors", default = true },
-    useFg = { type = "bool", label = "Fallback: Use FG", default = true },
-    useBg = { type = "bool", label = "Fallback: Use BG", default = false },
-    editMode = { type = "bool", label = "Edit markers (outline)", default = false },
-    outlineStyle = { type = "int", label = "Outline style", min = 0, max = 18, step = 1, default = 0 },
-    place = { type = "button", label = "Place (Enter)", order = 50 },
-    clearText = { type = "button", label = "Clear text", sameLine = true, order = 51 },
+    font = { type = "enum", label = "Font", ui = "combo_filter", section = "Font", primary = true, items = { "(no fonts)" }, default = "(no fonts)" },
+    place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", primary = true, inline = true },
+    clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", primary = true, inline = true },
+
+    useFontColors = { type = "bool", label = "Use font colors", ui = "toggle", section = "Color", default = true },
+    useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Color", default = true, inline = true },
+    useBg = { type = "bool", label = "Fallback: Use BG", ui = "toggle", section = "Color", default = false, inline = true },
+
+    editMode = { type = "bool", label = "Edit markers (outline)", ui = "toggle", section = "Outline", default = false },
+    outlineStyle = { type = "int", label = "Outline style", ui = "slider", section = "Outline", min = 0, max = 18, step = 1, default = 0, inline = true, width = 180 },
   },
 }
 

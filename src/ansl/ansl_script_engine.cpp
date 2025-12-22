@@ -1426,8 +1426,22 @@ static bool ReadScriptParams(lua_State* L,
 
         // label (optional)
         (void)LuaIsStringField(L, -1, "label", spec.label);
-        // layout hints (optional)
-        (void)LuaIsBoolField(L, -1, "sameLine", spec.same_line);
+        // tooltip/help (optional)
+        (void)LuaIsStringField(L, -1, "tooltip", spec.tooltip);
+        if (spec.tooltip.empty())
+            (void)LuaIsStringField(L, -1, "help", spec.tooltip);
+
+        // grouping + layout hints (optional)
+        (void)LuaIsStringField(L, -1, "section", spec.section);
+        (void)LuaIsBoolField(L, -1, "inline", spec.inline_with_prev);
+
+        // UI hints (optional)
+        (void)LuaIsStringField(L, -1, "ui", spec.ui);
+        (void)LuaIsBoolField(L, -1, "primary", spec.primary);
+        (void)LuaIsStringField(L, -1, "enabled_if", spec.enabled_if);
+        lua_Number widthn = 0;
+        if (LuaIsNumberField(L, -1, "width", widthn))
+            spec.width = (float)widthn;
         // ordering (optional)
         lua_Number ordn = 0;
         if (LuaIsNumberField(L, -1, "order", ordn))
@@ -1563,6 +1577,7 @@ static bool ReadScriptParams(lua_State* L,
         {
             if (a.order != b.order) return a.order < b.order;
         }
+        if (a.section != b.section) return a.section < b.section;
         if (a.label != b.label) return a.label < b.label;
         return a.key < b.key;
     });

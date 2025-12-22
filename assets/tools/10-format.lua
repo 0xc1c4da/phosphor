@@ -5,32 +5,41 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 20, step = 1, default = 1, width = 180 },
     mode = {
       type = "enum",
       label = "Op",
+      ui = "segmented",
+      section = "Format",
+      primary = true,
+      order = 1,
       items = { "set", "clear", "toggle", "replace" },
       default = "set",
-      order = 0,
     },
     applyTo = {
       type = "enum",
       label = "Apply To",
+      ui = "segmented",
+      section = "Format",
+      primary = true,
+      order = 2,
       items = { "paint", "selection" },
       default = "paint",
-      order = 1,
+      inline = true,
     },
-    size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1, order = 2 },
-    clipToSelection = { type = "bool", label = "Clip to selection", default = false, order = 3 },
+    clipToSelection = { type = "bool", label = "Clip to selection", ui = "toggle", section = "Brush", primary = true, order = 3, default = false, inline = true },
 
-    bold = { type = "bool", label = "Bold", default = false, order = 10 },
-    dim = { type = "bool", label = "Dim", default = false, sameLine = true, order = 11 },
-    italic = { type = "bool", label = "Italic", default = false, sameLine = true, order = 12 },
-    underline = { type = "bool", label = "Underline", default = false, order = 13 },
-    blink = { type = "bool", label = "Blink", default = false, sameLine = true, order = 14 },
-    reverse = { type = "bool", label = "Reverse", default = false, sameLine = true, order = 15 },
-    strike = { type = "bool", label = "Strike", default = false, order = 16 },
+    -- Break attributes across two rows to avoid insane width.
+    bold = { type = "bool", label = "Bold", ui = "toggle", section = "Attributes", primary = true, order = 10, default = false },
+    dim = { type = "bool", label = "Dim", ui = "toggle", section = "Attributes", primary = true, order = 11, default = false, inline = true },
+    italic = { type = "bool", label = "Italic", ui = "toggle", section = "Attributes", primary = true, order = 12, default = false, inline = true },
+    underline = { type = "bool", label = "Underline", ui = "toggle", section = "Attributes", primary = true, order = 13, default = false, inline = true },
 
-    apply = { type = "button", label = "Apply", order = 30 },
+    blink = { type = "bool", label = "Blink", ui = "toggle", section = "Attributes", primary = true, order = 20, default = false },
+    reverse = { type = "bool", label = "Reverse", ui = "toggle", section = "Attributes", primary = true, order = 21, default = false, inline = true },
+    strike = { type = "bool", label = "Strike", ui = "toggle", section = "Attributes", primary = true, order = 22, default = false, inline = true },
+
+    apply = { type = "button", label = "Apply", ui = "action", section = "Actions", primary = true, order = 99 },
   },
 }
 

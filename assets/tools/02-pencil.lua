@@ -5,10 +5,21 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
-    mode = { type = "enum", label = "Mode", items = { "char", "spray", "colorize", "recolour", "half", "block", "shade" }, default = "char" },
-    useFg = { type = "bool", label = "Use FG", default = true },
-    useBg = { type = "bool", label = "Use BG", default = true },
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 20, step = 1, default = 1, width = 160 },
+    mode = {
+      type = "enum",
+      label = "Mode",
+      ui = "segmented",
+      section = "Brush",
+      primary = true,
+      order = 1,
+      inline = true,
+      items = { "char", "spray", "colorize", "recolour", "half", "block", "shade" },
+      default = "char",
+      tooltip = "Right click swaps FG/BG in most modes. Half mode uses half-cell vertical resolution.",
+    },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Brush", primary = true, order = 2, default = true },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Brush", primary = true, order = 3, default = true, inline = true },
   },
 }
 

@@ -5,20 +5,21 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    shape = { type = "enum", label = "Shape", items = { "line", "rectangle", "ellipse", "triangle" }, default = "line" },
-    fill = { type = "enum", label = "Fill", items = { "outline", "filled" }, default = "outline" },
+    size = { type = "int", label = "Size", ui = "slider", section = "Render", primary = true, order = 0, min = 1, max = 20, step = 1, default = 1, width = 160 },
+    shape = { type = "enum", label = "Shape", ui = "segmented", section = "Shape", primary = true, order = 1, inline = true, items = { "line", "rectangle", "ellipse", "triangle" }, default = "line" },
+    fill = { type = "enum", label = "Fill", ui = "segmented", section = "Shape", primary = true, order = 2, inline = true, items = { "outline", "filled" }, default = "outline" },
 
     -- Rendering options
-    resolution = { type = "enum", label = "Resolution", items = { "cell", "half" }, default = "cell" },
-    mode = { type = "enum", label = "Mode", items = { "char", "colorize", "shading" }, default = "char" },
-    style = { type = "enum", label = "Style", items = { "brush", "box_single", "box_double", "rounded", "ascii", "block" }, default = "brush" },
-    dash = { type = "enum", label = "Dash", items = { "solid", "dashed", "dotted" }, default = "solid" },
-    size = { type = "int", label = "Size", min = 1, max = 20, step = 1, default = 1 },
-    useFg = { type = "bool", label = "Use FG", default = true },
-    useBg = { type = "bool", label = "Use BG", default = true },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Render", primary = true, order = 3, items = { "char", "colorize", "shading" }, default = "char" },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Render", primary = true, default = true, inline = true },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Render", primary = true, default = true, inline = true },
+
+    resolution = { type = "enum", label = "Resolution", ui = "segmented", section = "Render", items = { "cell", "half" }, default = "cell" },
+    style = { type = "enum", label = "Style", ui = "combo", section = "Render", items = { "brush", "box_single", "box_double", "rounded", "ascii", "block" }, default = "brush" },
+    dash = { type = "enum", label = "Dash", ui = "segmented", section = "Render", items = { "solid", "dashed", "dotted" }, default = "solid", inline = true },
 
     -- UX
-    selectAfter = { type = "bool", label = "Select result", default = true },
+    selectAfter = { type = "bool", label = "Select result", ui = "toggle", section = "UX", default = true },
   },
 }
 
