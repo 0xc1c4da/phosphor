@@ -22,7 +22,11 @@
 #include "app/workspace_persist.h"
 #include "app/vulkan_state.h"
 #include "app/canvas_preview_texture.h"
+#include "app/clipboard_utils.h"
 
+#include <cfloat>
+
+#include "core/fonts.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 
@@ -1535,9 +1539,40 @@ void RunFrame(AppState& st)
             const ImVec2 center(work_pos.x + work_size.x * 0.5f,
                                 work_pos.y + work_size.y * 0.5f);
 
-            const float font_size = ImGui::GetFontSize();
-            const float base_cell_w = std::max(1.0f, font_size * 0.5f);
-            const float base_cell_h = std::max(1.0f, font_size);
+            // IMPORTANT: initial canvas window sizing must match the canvas renderer's cell metrics.
+            // Some canvas fonts are 8x16, others are 9x16, 8x8, or embedded bitmap fonts; using a
+            // fixed ratio (e.g. font_size * 0.5f) causes incorrect initial width for many fonts.
+            ImFont* font = ImGui::GetFont();
+            const float base_font_size = ImGui::GetFontSize();
+            const fonts::FontInfo& finfo = fonts::Get(canvas.canvas.GetFontId());
+            const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.canvas.GetEmbeddedFont();
+            const bool embedded_font =
+                (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+                 ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+
+            float base_cell_w = 0.0f;
+            float base_cell_h = 0.0f;
+            if (embedded_font)
+            {
+                const float base_scale = base_font_size / 16.0f;
+                base_cell_w = (float)ef->cell_w * base_scale;
+                base_cell_h = (float)ef->cell_h * base_scale;
+            }
+            else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
+            {
+                const float base_scale = base_font_size / 16.0f;
+                base_cell_w = (float)finfo.cell_w * base_scale;
+                base_cell_h = (float)finfo.cell_h * base_scale;
+            }
+            else
+            {
+                // ImGui atlas font case (e.g. Unscii): sample a representative glyph width.
+                base_cell_w = font ? font->CalcTextSizeA(base_font_size, FLT_MAX, 0.0f, "M", "M" + 1).x : 0.0f;
+                base_cell_h = base_font_size;
+            }
+
+            base_cell_w = std::max(1.0f, base_cell_w);
+            base_cell_h = std::max(1.0f, base_cell_h);
             const float zoom = canvas.canvas.GetZoom();
 
             float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
@@ -1549,7 +1584,9 @@ void RunFrame(AppState& st)
 
             const int cols2 = canvas.canvas.GetColumns();
             const int rows2 = canvas.canvas.GetRows();
-            const ImVec2 grid_px(scaled_cell_w * (float)cols2,
+            // Add +1 cell of horizontal slack so the initial window doesn't start with a tiny
+            // horizontal scrollbar due to rounding/inner-rect thresholds.
+            const ImVec2 grid_px(scaled_cell_w * (float)(cols2 + 2),
                                  scaled_cell_h * (float)rows2);
 
             const float status_h =
@@ -1870,11 +1907,21 @@ void RunFrame(AppState& st)
                         return true;
                     }
                     if (action_id == "edit.copy")
+                    {
+                        (void)app::CopySelectionToSystemClipboardText(c);
                         return c.CopySelectionToClipboard();
+                    }
                     if (action_id == "edit.cut")
+                    {
+                        (void)app::CopySelectionToSystemClipboardText(c);
                         return c.CutSelectionToClipboard();
+                    }
                     if (action_id == "edit.paste")
+                    {
+                        if (app::PasteSystemClipboardText(c, ctx.caret_x, ctx.caret_y))
+                            return true;
                         return c.PasteClipboard(ctx.caret_x, ctx.caret_y);
+                    }
                     return false;
                 };
 
@@ -1900,6 +1947,7 @@ void RunFrame(AppState& st)
                 // - Otherwise: host fallback.
                 kb::Hotkeys hk_to_tool;
                 pressed_actions.clear();
+                bool request_switch_to_select_tool = false;
 
                 for (const Candidate& cand : candidates)
                 {
@@ -1909,6 +1957,24 @@ void RunFrame(AppState& st)
                     const bool claimed_by_active = ToolClaimsAction(active_tool, cand.id);
                     if (claimed_by_active)
                     {
+                        // If a tool claims clipboard actions, we still want OS clipboard interop:
+                        // - Copy/Cut: mirror selection to OS clipboard as UTF-8 text.
+                        // - Paste: prefer OS clipboard paste; if it succeeds, don't also deliver to the tool
+                        //          (to avoid double-paste). If it fails, fall back to tool behavior.
+                        if (cand.id == "edit.copy" || cand.id == "edit.cut")
+                        {
+                            (void)app::CopySelectionToSystemClipboardText(c);
+                        }
+                        else if (cand.id == "edit.paste")
+                        {
+                            if (app::PasteSystemClipboardText(c, ctx.caret_x, ctx.caret_y))
+                            {
+                                // After pasting, switch to Select so the pasted region can be moved immediately.
+                                request_switch_to_select_tool = true;
+                                continue;
+                            }
+                        }
+
                         pressed_actions.push_back(std::string(cand.id));
                         if (cand.id == "edit.copy") hk_to_tool.copy = true;
                         else if (cand.id == "edit.cut") hk_to_tool.cut = true;
@@ -1941,6 +2007,11 @@ void RunFrame(AppState& st)
                 ctx.hotkeys.selectAll = hk_to_tool.select_all;
                 ctx.hotkeys.cancel = hk_to_tool.cancel;
                 ctx.hotkeys.deleteSelection = hk_to_tool.delete_selection;
+
+                if (request_switch_to_select_tool)
+                {
+                    (void)tool_palette.SetActiveToolById("select");
+                }
 
                 if (active_tool_id() == "select")
                 {

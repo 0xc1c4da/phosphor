@@ -18,6 +18,7 @@ SOURCES  = \
            src/app/main.cpp \
            src/app/vulkan_state.cpp \
            src/app/app_ui.cpp \
+           src/app/clipboard_utils.cpp \
            src/app/workspace_persist.cpp \
            src/app/run_frame.cpp \
            src/app/canvas_preview_texture.cpp \

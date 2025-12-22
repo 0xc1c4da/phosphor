@@ -626,6 +626,77 @@ static bool LooksLikeUtf8Text(const std::vector<std::uint8_t>& bytes)
     return ratio >= 0.95 && ok >= 4;
 }
 
+static std::vector<std::uint8_t> ExtractTextBytesIgnoringAnsi(const std::vector<std::uint8_t>& bytes, size_t parse_len)
+{
+    // Extracts "likely text payload" bytes for encoding heuristics by stripping common ANSI
+    // sequences. This lets us detect UTF-8 content even when ESC sequences are present.
+    //
+    // We remove:
+    // - CSI sequences: ESC [ ... <final>
+    // We also skip SUB (0x1A) as end-of-stream marker.
+    //
+    // We keep:
+    // - printable ASCII (>= 0x20)
+    // - all bytes >= 0x80 (these carry the signal for UTF-8 vs CP437)
+    std::vector<std::uint8_t> out;
+    out.reserve(std::min<size_t>(parse_len, 1u << 20)); // cap reserve to avoid huge spikes
+
+    size_t i = 0;
+    static constexpr size_t kSeqMaxLen = 64;
+    while (i < parse_len)
+    {
+        const std::uint8_t b = bytes[i];
+        if (b == SUB)
+            break;
+        if (b != ESC)
+        {
+            if (b >= 0x20u || b >= 0x80u)
+                out.push_back(b);
+            i += 1;
+            continue;
+        }
+        // ESC
+        if (i + 1 < parse_len && bytes[i + 1] == (std::uint8_t)'[')
+        {
+            // CSI: skip until final byte.
+            size_t j = i + 2;
+            size_t consumed = 0;
+            while (j < parse_len && consumed < kSeqMaxLen)
+            {
+                const char ch = (char)bytes[j];
+                if (((unsigned char)ch >= 0x40 && (unsigned char)ch <= 0x7E) || ch == '!')
+                {
+                    j += 1;
+                    break;
+                }
+                j += 1;
+                consumed += 1;
+            }
+            i = j;
+            continue;
+        }
+        // Unknown ESC sequence: skip ESC itself; keep following bytes as potential text.
+        i += 1;
+    }
+    return out;
+}
+
+static bool ShouldDecodeAsUtf8(const ImportOptions& options,
+                               const std::vector<std::uint8_t>& bytes,
+                               size_t parse_len)
+{
+    // Auto-detect UTF-8 ANSI art vs classic CP437 ANSI art.
+    //
+    // Historically, this code treated "ESC present" as a signal for CP437, but modern ANSI
+    // streams often embed ESC sequences with UTF-8 glyph payloads. We therefore run a UTF-8
+    // validity heuristic on the *text payload bytes* (ANSI sequences stripped).
+    if (!options.cp437)
+        return true; // caller forced UTF-8
+
+    const auto text_bytes = ExtractTextBytesIgnoringAnsi(bytes, parse_len);
+    return LooksLikeUtf8Text(text_bytes);
+}
+
 static void GetSauceDimensions(const sauce::Parsed& sp, int& out_cols, int& out_rows)
 {
     out_cols = 0;
@@ -795,6 +866,318 @@ static inline bool DecodeTextUtf8(const ImportOptions& opt, const std::vector<st
     out_cp = U'\uFFFD';
     return false;
 }
+
+static inline bool IsValidColumns(int cols)
+{
+    return cols >= 1 && cols <= 4096;
+}
+
+static inline int NormalizeInferredColumns(int cols)
+{
+    // Preserve long-standing UX expectations: don't auto-infer widths below 80 unless the
+    // user explicitly forces it. For wider art, snap up to common terminal widths.
+    cols = ClampColumns(cols);
+    if (cols <= 80)
+        return 80;
+    if (cols <= 100)
+        return 100;
+    if (cols <= 132)
+        return 132;
+    if (cols <= 160)
+        return 160;
+    return cols;
+}
+
+static int MaxExplicitColumn1BasedFromCsi(const std::vector<std::uint8_t>& bytes, size_t parse_len)
+{
+    // Scans for CSI cursor positioning that explicitly references a column.
+    // - CUP/HVP: ESC [ row ; col H/f  (1-based)
+    // - CHA:     ESC [ col G          (1-based)
+    //
+    // This is a strong signal for intended width, especially for wrap-free positioning.
+    int max_col_1 = 0;
+    size_t i = 0;
+    while (i < parse_len)
+    {
+        const std::uint8_t b = bytes[i];
+        if (b != ESC)
+        {
+            i += 1;
+            continue;
+        }
+        if (i + 1 >= parse_len || bytes[i + 1] != (std::uint8_t)'[')
+        {
+            i += 1;
+            continue;
+        }
+        const size_t seq_start = i + 2; // after ESC[
+        size_t j = seq_start;
+        size_t consumed = 0;
+        static constexpr size_t kSeqMaxLen = 64;
+        char final = '\0';
+        while (j < parse_len && consumed < kSeqMaxLen)
+        {
+            const char ch = (char)bytes[j];
+            if (((unsigned char)ch >= 0x40 && (unsigned char)ch <= 0x7E) || ch == '!')
+            {
+                final = ch;
+                break;
+            }
+            j++;
+            consumed++;
+        }
+        if (final == '\0')
+        {
+            i += 1;
+            continue;
+        }
+
+        const std::string_view params_view(reinterpret_cast<const char*>(bytes.data() + seq_start), j - seq_start);
+        std::vector<int> params;
+        ParseParams(params_view, params);
+        auto param = [&](size_t idx, int def) -> int {
+            if (idx >= params.size()) return def;
+            return params[idx];
+        };
+
+        if (final == 'H' || final == 'f')
+        {
+            const int c1 = param(1, 1);
+            if (c1 > max_col_1)
+                max_col_1 = c1;
+        }
+        else if (final == 'G')
+        {
+            const int c1 = param(0, 1);
+            if (c1 > max_col_1)
+                max_col_1 = c1;
+        }
+
+        // Advance past the whole CSI.
+        i = (j < parse_len) ? (j + 1) : parse_len;
+    }
+    return max_col_1;
+}
+
+static int MaxColumnUsedWithNewlines(const std::vector<std::uint8_t>& bytes, size_t parse_len, const ImportOptions& options)
+{
+    // Conservative width inference for newline-delimited content:
+    // simulate cursor positioning + printing without wrapping (i.e. "infinite width"),
+    // and record the maximum column reached in any row.
+    //
+    // This handles mixed CR/LF, TABs, and common CSI cursor motions.
+    int row = 0;
+    int col = 0;
+    int saved_row = 0;
+    int saved_col = 0;
+    // We intentionally ignore trailing padding spaces when inferring width from newline-delimited content.
+    // Many ANSI exporters pad lines with spaces to a working width, but those spaces should not force a
+    // wider canvas when importing into an editor.
+    int max_last_non_space_col0 = -1; // maximum "last non-space" column across rows (0-based)
+    int line_last_non_space_col0 = -1;
+
+    // Use same text decoding mode decision as the importer, because UTF-8 may consume
+    // multiple bytes per displayed column.
+    bool decode_cp437 = options.cp437;
+    if (ShouldDecodeAsUtf8(options, bytes, parse_len))
+        decode_cp437 = false;
+
+    enum class State { Text, Sequence, End };
+    State state = State::Text;
+    size_t i = 0;
+    static constexpr size_t kSeqMaxLen = 64;
+
+    while (i < parse_len && state != State::End)
+    {
+        const std::uint8_t b = bytes[i];
+        if (state == State::Text)
+        {
+            switch (b)
+            {
+                case LF:
+                    row += 1;
+                    if (line_last_non_space_col0 > max_last_non_space_col0)
+                        max_last_non_space_col0 = line_last_non_space_col0;
+                    line_last_non_space_col0 = -1;
+                    col = 0;
+                    i += 1;
+                    break;
+                case CR:
+                    col = 0;
+                    i += 1;
+                    break;
+                case TAB:
+                {
+                    const int tab_w = 8;
+                    const int next = ((col / tab_w) + 1) * tab_w;
+                    col = next;
+                    i += 1;
+                    break;
+                }
+                case SUB:
+                    state = State::End;
+                    break;
+                case ESC:
+                    if (i + 1 < parse_len && bytes[i + 1] == (std::uint8_t)'[')
+                    {
+                        state = State::Sequence;
+                        i += 2;
+                    }
+                    else
+                    {
+                        i += 1;
+                    }
+                    break;
+                default:
+                {
+                    char32_t cp = U'\0';
+                    if (decode_cp437)
+                        cp = DecodeTextCp(options, bytes, i);
+                    else
+                        DecodeTextUtf8(options, bytes, i, cp);
+
+                    // Mirror importer behavior: in CP437 mode, control bytes can map to glyphs/spaces;
+                    // in UTF-8 mode, ASCII control codes are treated as non-printing.
+                    if (decode_cp437 || cp >= 0x20)
+                    {
+                        if (cp != U' ')
+                            line_last_non_space_col0 = std::max(line_last_non_space_col0, col);
+                        col += 1;
+                    }
+                    break;
+                }
+            }
+            continue;
+        }
+
+        // CSI sequence parsing (same terminator rules as importer).
+        if (state == State::Sequence)
+        {
+            const size_t seq_start = i;
+            size_t j = i;
+            size_t consumed = 0;
+            char final = '\0';
+            while (j < parse_len && consumed < kSeqMaxLen)
+            {
+                const char ch = (char)bytes[j];
+                if (((unsigned char)ch >= 0x40 && (unsigned char)ch <= 0x7E) || ch == '!')
+                {
+                    final = ch;
+                    break;
+                }
+                j++;
+                consumed++;
+            }
+            if (final == '\0')
+            {
+                state = State::Text;
+                i = std::min(parse_len, seq_start + consumed + 1);
+                continue;
+            }
+
+            const std::string_view params_view(reinterpret_cast<const char*>(bytes.data() + seq_start), j - seq_start);
+            std::vector<int> params;
+            ParseParams(params_view, params);
+            auto param = [&](size_t idx, int def) -> int {
+                if (idx >= params.size()) return def;
+                return params[idx];
+            };
+
+            if (final == 'H' || final == 'f')
+            {
+                const int r1 = param(0, 1);
+                const int c1 = param(1, 1);
+                row = std::max(0, (r1 ? r1 : 1) - 1);
+                col = std::max(0, (c1 ? c1 : 1) - 1);
+            }
+            else if (final == 'A')
+            {
+                const int n = param(0, 0);
+                row -= (n ? n : 1);
+                if (row < 0) row = 0;
+            }
+            else if (final == 'B')
+            {
+                const int n = param(0, 0);
+                row += (n ? n : 1);
+            }
+            else if (final == 'C')
+            {
+                const int n = param(0, 0);
+                col += (n ? n : 1);
+            }
+            else if (final == 'D')
+            {
+                const int n = param(0, 0);
+                col -= (n ? n : 1);
+                if (col < 0) col = 0;
+            }
+            else if (final == 'G')
+            {
+                const int c1 = param(0, 1);
+                col = std::max(0, (c1 ? c1 : 1) - 1);
+            }
+            else if (final == 's')
+            {
+                saved_row = row;
+                saved_col = col;
+            }
+            else if (final == 'u')
+            {
+                row = saved_row;
+                col = saved_col;
+            }
+
+            state = State::Text;
+            i = (j < parse_len) ? (j + 1) : parse_len;
+            continue;
+        }
+    }
+
+    // Commit final line (if any).
+    if (line_last_non_space_col0 > max_last_non_space_col0)
+        max_last_non_space_col0 = line_last_non_space_col0;
+    return max_last_non_space_col0;
+}
+
+static int DetermineAutoColumns(const std::vector<std::uint8_t>& bytes,
+                                size_t parse_len,
+                                const sauce::Parsed& sp,
+                                const ImportOptions& options)
+{
+    int sauce_cols = 0;
+    int sauce_rows = 0;
+    GetSauceDimensions(sp, sauce_cols, sauce_rows);
+    if (IsValidColumns(sauce_cols))
+        return NormalizeInferredColumns(sauce_cols);
+
+    // Strong signal: explicit cursor positioning to a column.
+    const int max_col_1 = MaxExplicitColumn1BasedFromCsi(bytes, parse_len);
+    if (max_col_1 > 0)
+        return NormalizeInferredColumns(max_col_1);
+
+    // Newline-delimited content: infer from maximum used column without wrapping.
+    bool has_newlines = false;
+    for (size_t i = 0; i < parse_len; ++i)
+    {
+        const std::uint8_t b = bytes[i];
+        if (b == LF || b == CR)
+        {
+            has_newlines = true;
+            break;
+        }
+    }
+    if (has_newlines)
+    {
+        const int max_col0 = MaxColumnUsedWithNewlines(bytes, parse_len, options);
+        const int cols = (max_col0 >= 0) ? (max_col0 + 1) : 1;
+        return NormalizeInferredColumns(cols);
+    }
+
+    // Wrap-only content without SAUCE or explicit cursor width is inherently ambiguous.
+    // Keep legacy behavior as the last resort.
+    return 80;
+}
 } // namespace
 
 bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
@@ -804,24 +1187,38 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 {
     err.clear();
 
-    // Prefer SAUCE columns only when caller requests "auto" columns.
+    // Guard: if the payload looks like an XBin file, fail fast so callers can route to the XBin importer.
+    // XBin starts with "XBIN" + 0x1A, which would otherwise be interpreted as an ANSI SUB (end).
+    if (bytes.size() >= 5 &&
+        bytes[0] == (std::uint8_t)'X' && bytes[1] == (std::uint8_t)'B' &&
+        bytes[2] == (std::uint8_t)'I' && bytes[3] == (std::uint8_t)'N' &&
+        bytes[4] == (std::uint8_t)0x1A)
+    {
+        err = "File appears to be XBin (XBIN header). Use the XBin (.xb) importer.";
+        return false;
+    }
+
+    // Auto-width + SAUCE detection (SAUCE fields are spec'd as CP437).
     sauce::Parsed sp;
     std::string serr;
     (void)sauce::ParseFromBytes(bytes, sp, serr, true /* SAUCE fields are spec'd as CP437 */);
-    int sauce_cols = 0;
-    int sauce_rows = 0;
-    GetSauceDimensions(sp, sauce_cols, sauce_rows);
-    int columns = ClampColumns(options.columns > 0 ? options.columns : 80);
-    if (sauce_cols > 0 && options.columns <= 0)
-        columns = ClampColumns(sauce_cols);
+    const size_t parse_len = sp.record.present ? std::min(sp.payload_size, bytes.size()) : bytes.size();
+
+    int columns = 80;
+    if (options.columns > 0)
+    {
+        columns = ClampColumns(options.columns);
+    }
+    else
+    {
+        columns = ClampColumns(DetermineAutoColumns(bytes, parse_len, sp, options));
+    }
     if (bytes.empty())
     {
         out_canvas = AnsiCanvas(columns);
         out_canvas.EnsureRowsPublic(1);
         return true;
     }
-
-    const size_t parse_len = sp.record.present ? std::min(sp.payload_size, bytes.size()) : bytes.size();
 
     // Document state we build and apply as a ProjectState for efficient import.
     int row = 0;
@@ -835,9 +1232,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     ApplyDefaults(options, pen);
 
     // Auto-detect UTF-8 ANSI art vs classic CP437 ANSI art.
-    // If the content contains ESC, we assume "classic ANSI" unless the caller forces UTF-8.
     bool decode_cp437 = options.cp437;
-    if (options.cp437 && !ContainsEsc(bytes) && LooksLikeUtf8Text(bytes))
+    if (ShouldDecodeAsUtf8(options, bytes, parse_len))
         decode_cp437 = false;
 
     // We build a single layer (Base).
@@ -927,7 +1323,12 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         if (options.wrap_policy == ImportOptions::WrapPolicy::LibAnsiLoveEager)
         {
             // libansilove wraps before processing the next character.
-            if (state == State::Text && col == columns)
+            //
+            // However, for streams that include explicit newlines, wrapping *before* consuming
+            // an LF/CR at the exact boundary can double-advance (blank lines). Avoid pre-wrap
+            // when the next byte is a newline control.
+            const std::uint8_t next_b = bytes[i];
+            if (state == State::Text && col == columns && next_b != LF && next_b != CR)
             {
                 row += 1;
                 col = 0;
@@ -983,6 +1384,11 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                         cp = DecodeTextCp(options, bytes, i);
                     else
                         DecodeTextUtf8(options, bytes, i, cp);
+
+                    // Skip a leading UTF-8 BOM if present (common in some modern ANSI exports).
+                    // Treat it as a zero-width marker rather than a printable glyph.
+                    if (!decode_cp437 && row == 0 && col == 0 && cp == (char32_t)0xFEFF)
+                        break;
 
                     // For CP437, bytes 0x01..0x1F are valid glyphs (☺☻♥…).
                     // For UTF-8, treat ASCII control codes as non-printing.

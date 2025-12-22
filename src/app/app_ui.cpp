@@ -11,6 +11,7 @@
 #include "imgui.h"
 #include <nlohmann/json.hpp>
 
+#include "app/clipboard_utils.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 #include "io/formats/plaintext.h"
@@ -396,9 +397,14 @@ void RenderMainMenuBar(SDL_Window* window,
         const bool can_redo = active_canvas && active_canvas->CanRedo();
         const bool can_select_all = (active_canvas != nullptr);
         const bool can_select_none = (active_canvas != nullptr) && active_canvas->HasSelection();
+        const bool can_copy_cut = (active_canvas != nullptr) && active_canvas->HasSelection();
+        const bool can_paste = (active_canvas != nullptr);
 
         const std::string sc_undo = ShortcutForAction(keybinds, "edit.undo", "editor");
         const std::string sc_redo = ShortcutForAction(keybinds, "edit.redo", "editor");
+        const std::string sc_copy = ShortcutForAction(keybinds, "edit.copy", "editor");
+        const std::string sc_cut = ShortcutForAction(keybinds, "edit.cut", "editor");
+        const std::string sc_paste = ShortcutForAction(keybinds, "edit.paste", "editor");
         const std::string sc_select_all = ShortcutForAction(keybinds, "edit.select_all", "editor");
         const std::string sc_select_none = ShortcutForAction(keybinds, "selection.clear_or_cancel", "selection");
         const std::string sc_mirror = ShortcutForAction(keybinds, "editor.mirror_mode_toggle", "editor");
@@ -407,6 +413,25 @@ void RenderMainMenuBar(SDL_Window* window,
             active_canvas->Undo();
         if (ImGui::MenuItem("Redo", sc_redo.empty() ? nullptr : sc_redo.c_str(), false, can_redo))
             active_canvas->Redo();
+
+        ImGui::Separator();
+        if (ImGui::MenuItem("Copy", sc_copy.empty() ? nullptr : sc_copy.c_str(), false, can_copy_cut))
+        {
+            (void)app::CopySelectionToSystemClipboardText(*active_canvas);
+            (void)active_canvas->CopySelectionToClipboard();
+        }
+        if (ImGui::MenuItem("Cut", sc_cut.empty() ? nullptr : sc_cut.c_str(), false, can_copy_cut))
+        {
+            (void)app::CopySelectionToSystemClipboardText(*active_canvas);
+            (void)active_canvas->CutSelectionToClipboard();
+        }
+        if (ImGui::MenuItem("Paste", sc_paste.empty() ? nullptr : sc_paste.c_str(), false, can_paste))
+        {
+            int cx = 0, cy = 0;
+            active_canvas->GetCaretCell(cx, cy);
+            if (!app::PasteSystemClipboardText(*active_canvas, cx, cy))
+                (void)active_canvas->PasteClipboard(cx, cy);
+        }
 
         ImGui::Separator();
         if (ImGui::MenuItem("Select All", sc_select_all.empty() ? nullptr : sc_select_all.c_str(), false, can_select_all))

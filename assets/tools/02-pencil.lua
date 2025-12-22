@@ -461,10 +461,34 @@ function render(ctx, layer)
             fg, bg = bg, fg
           end
 
-          if fg == nil and bg == nil and attrs == 0 then
-            layer:set(caret.x, caret.y, brush)
-          else
-            layer:set(caret.x, caret.y, brush, fg, bg, attrs)
+          local size = tonumber(p.size) or 1
+          if size < 1 then size = 1 end
+          if size > 100 then size = 100 end
+          local r = math.floor(size / 2)
+
+          local function stamp_cell(px, py)
+            if px < 0 or px >= cols then return end
+            if py < 0 then return end
+
+            if fg == nil and bg == nil then
+              if attrs == 0 then
+                layer:set(px, py, brush)
+              else
+                layer:set(px, py, brush, nil, nil, attrs)
+              end
+            else
+              if attrs == 0 then
+                layer:set(px, py, brush, fg, bg)
+              else
+                layer:set(px, py, brush, fg, bg, attrs)
+              end
+            end
+          end
+
+          for dy = -r, r do
+            for dx = -r, r do
+              stamp_cell(caret.x + dx, caret.y + dy)
+            end
           end
         end
       end

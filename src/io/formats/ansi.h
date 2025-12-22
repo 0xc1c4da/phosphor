@@ -34,9 +34,16 @@ const std::vector<std::string_view>& ExportExtensions();
 // ---------------------------------------------------------------------------
 struct ImportOptions
 {
-    // Logical column count. Most ANSI art targets 80.
-    // If <= 0, importer will default to 80 but may use SAUCE width when present.
-    int columns = 80;
+    // Logical column count (canvas width).
+    //
+    // Semantics:
+    // - If > 0: treat as an explicit override (force this width).
+    // - If <= 0: auto-width mode (prefer SAUCE width when present/valid; otherwise infer;
+    //           fall back to 80 only if inference fails).
+    //
+    // Rationale: many ANSI art files rely on terminal wrapping and/or cursor positioning,
+    // so forcing 80 by default can be wrong for SAUCE'd works (e.g. 100/132 cols).
+    int columns = 0;
 
     // If true, SGR 5 (blink) is interpreted as "bright background" (ICE colors),
     // matching common ANSI art conventions.
