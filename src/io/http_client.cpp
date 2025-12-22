@@ -89,6 +89,17 @@ static std::filesystem::path HttpCacheFileFor(const std::string& url,
     return std::filesystem::path(GetPhosphorCacheDir()) / "http" / name;
 }
 
+static bool CacheFileLooksPresent(const std::filesystem::path& p)
+{
+    std::error_code ec;
+    if (!std::filesystem::exists(p, ec) || ec)
+        return false;
+    const auto sz = std::filesystem::file_size(p, ec);
+    if (ec)
+        return false;
+    return sz > 0;
+}
+
 static bool ReadFileBytes(const std::filesystem::path& p,
                           std::vector<std::uint8_t>& out,
                           std::string& err,
@@ -293,6 +304,15 @@ Response Get(const std::string& url, const std::map<std::string, std::string>& h
     }
 
     return r;
+}
+
+bool HasCached(const std::string& url, const std::map<std::string, std::string>& headers)
+{
+    const bool cacheable = IsCacheableGet(headers);
+    if (!cacheable)
+        return false;
+    const std::filesystem::path cache_file = HttpCacheFileFor(url, headers);
+    return CacheFileLooksPresent(cache_file);
 }
 } // namespace http
 

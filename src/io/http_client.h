@@ -32,6 +32,11 @@ Response Get(const std::string& url,
              CacheMode cache_mode = CacheMode::Default);
 
 inline bool Ok(const Response& r) { return r.err.empty() && r.status >= 200 && r.status < 300; }
+
+// Returns true if this URL (with these headers) is already present in the on-disk cache.
+// Never hits the network.
+bool HasCached(const std::string& url,
+               const std::map<std::string, std::string>& headers = {});
 } // namespace http
 
 

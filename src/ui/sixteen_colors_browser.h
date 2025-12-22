@@ -2,7 +2,9 @@
 
 #include "io/http_client.h"
 
+#include <chrono>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -11,6 +13,7 @@
 #include <thread>
 #include <atomic>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct SessionState;
@@ -69,6 +72,12 @@ private:
         // Cache behavior for this request.
         http::CacheMode cache_mode = http::CacheMode::Default;
         bool is_background_refresh = false; // if true: don't drive "Loading..." UI state; update only when changed
+
+        // Background spider jobs:
+        // - always lowest priority
+        // - never touch UI state (spinner, selections, etc.)
+        // - should only exist in tiny quantities (scheduler enforces this)
+        bool is_spider = false;
     };
 
     struct DownloadResult
@@ -87,11 +96,18 @@ private:
     void Enqueue(const DownloadJob& j);
     bool DequeueResult(DownloadResult& out);
 
+    // Datahoarder spider internals
+    void DatahoarderSeedIfNeeded();
+    void DatahoarderTick();
+    void DatahoarderOnResult(const DownloadResult& dr);
+    bool DatahoarderShouldYieldToUser() const;
+    void DatahoarderEnqueueUnique(DownloadJob j);
+
     // State
     std::vector<std::thread> m_workers;
     bool m_worker_running = false;
 
-    std::mutex m_mu;
+    mutable std::mutex m_mu;
     std::vector<DownloadJob> m_jobs;
     std::vector<DownloadResult> m_results;
 
@@ -181,6 +197,24 @@ private:
     bool m_auto_selected_drill_pack = false;
 
     int m_raw_pending = 0;
+
+    // Datahoarder spider (opt-in): low-priority cache fill.
+    bool m_datahoarder_enabled = false;
+    bool m_datahoarder_seeded = false;
+    int m_datahoarder_inflight = 0;
+    std::uint64_t m_datahoarder_last_url_hash = 0;
+
+    // Spider frontier (deduped by URL hash)
+    std::deque<DownloadJob> m_datahoarder_todo;
+    std::unordered_set<std::uint64_t> m_datahoarder_seen;
+
+    // Progress + pacing
+    std::uint64_t m_datahoarder_enqueued = 0;
+    std::uint64_t m_datahoarder_completed = 0;
+    std::uint64_t m_datahoarder_errors = 0;
+    std::uint64_t m_datahoarder_backoff_ms = 0;
+    // Network throttling: cache hits can run fast; network misses are rate-limited/backed off.
+    std::chrono::steady_clock::time_point m_datahoarder_next_network_allowed = {};
 };
 
 

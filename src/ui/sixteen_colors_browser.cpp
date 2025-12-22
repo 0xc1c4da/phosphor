@@ -22,6 +22,17 @@ using json = nlohmann::json;
 
 namespace
 {
+static std::uint64_t Fnv1a64(const std::string& s)
+{
+    std::uint64_t h = 14695981039346656037ull;
+    for (unsigned char c : s)
+    {
+        h ^= (std::uint64_t)c;
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
 static std::string JsonStringOrEmpty(const json& j, const char* key)
 {
     if (!key || !*key)
@@ -360,6 +371,7 @@ void SixteenColorsBrowserWindow::Enqueue(const DownloadJob& j)
     // 1) raw (user action)
     // 2) pack_detail + lists (navigation)
     // 3) thumbnails (background)
+    // 4) spider (datahoarder) (lowest priority)
     if (j.kind == "raw")
     {
         m_jobs.insert(m_jobs.begin(), j);
@@ -373,11 +385,20 @@ void SixteenColorsBrowserWindow::Enqueue(const DownloadJob& j)
 
     if (nav)
     {
-        auto it = std::find_if(m_jobs.begin(), m_jobs.end(), [](const DownloadJob& q) { return q.kind == "thumb"; });
+        auto it = std::find_if(m_jobs.begin(), m_jobs.end(), [](const DownloadJob& q) { return q.kind == "thumb" || q.is_spider; });
         m_jobs.insert(it, j);
         return;
     }
 
+    if (j.kind == "thumb" && !j.is_spider)
+    {
+        // Keep thumbs ahead of spider work.
+        auto it = std::find_if(m_jobs.begin(), m_jobs.end(), [](const DownloadJob& q) { return q.is_spider; });
+        m_jobs.insert(it, j);
+        return;
+    }
+
+    // Spider or other low-priority: always at the very end.
     m_jobs.push_back(j);
 }
 
@@ -425,6 +446,12 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     DownloadResult dr;
     while (DequeueResult(dr))
     {
+        if (dr.job.is_spider)
+        {
+            DatahoarderOnResult(dr);
+            continue;
+        }
+
         if (dr.job.kind == "thumb")
         {
             // If the user navigated away, don't let stale thumbs repopulate the cache or waste work on decoding.
@@ -901,6 +928,38 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         if (m_mode == BrowseMode::Latest)
             m_auto_selected_latest = false;
         m_auto_selected_drill_pack = false;
+    }
+
+    // Top-right: Datahoarder toggle (background cache fill)
+    {
+        const char* label = "Datahoarder";
+        const ImGuiStyle& st = ImGui::GetStyle();
+        // Checkbox approximate width: label + frame + spacing.
+        const float w = ImGui::CalcTextSize(label).x + st.FramePadding.x * 2.0f + ImGui::GetFrameHeight() + st.ItemInnerSpacing.x;
+        const float right_x = ImGui::GetWindowContentRegionMax().x;
+        const float x = std::max(ImGui::GetCursorPosX(), right_x - w);
+        ImGui::SameLine(x);
+        if (ImGui::Checkbox(label, &m_datahoarder_enabled))
+        {
+            // Start immediately when enabled; keep progress when paused.
+            if (m_datahoarder_enabled)
+                m_datahoarder_next_network_allowed = std::chrono::steady_clock::time_point{};
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        {
+            ImGui::SetTooltip(
+                "This is a slow background spider of 16colo.rs.\n"
+                "It is used to pre-populate the cache to archive 16colo.rs for offline use.\n"
+                "You will have to intentionally turn this on between runs to continue archiving.\n\n"
+                "Enqueued: %llu\n"
+                "Completed: %llu\n"
+                "Errors: %llu\n"
+                "Pending: %llu\n",
+                (unsigned long long)m_datahoarder_enqueued,
+                (unsigned long long)m_datahoarder_completed,
+                (unsigned long long)m_datahoarder_errors,
+                (unsigned long long)m_datahoarder_todo.size());
+        }
     }
 
     if (m_left_view == LeftView::PacksList && (m_mode == BrowseMode::Groups || m_mode == BrowseMode::Artists || m_mode == BrowseMode::Years))
@@ -1926,8 +1985,388 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
 
     ImGui::Columns(1);
 
+    // Tick after UI so user-driven jobs for this frame have already been queued.
+    // Must happen before ImGui::End() to keep ImGui's stack valid.
+    DatahoarderTick();
+
     ImGui::End();
     PopImGuiWindowChromeAlpha(alpha_pushed);
+}
+
+bool SixteenColorsBrowserWindow::DatahoarderShouldYieldToUser() const
+{
+    if (m_raw_pending > 0)
+        return true;
+    if (m_loading_list || m_loading_pack)
+        return true;
+    if (m_pack_list_pending || m_pack_detail_pending || m_root_list_pending || m_drill_packs_pending)
+        return true;
+
+    // If there are queued non-spider navigation jobs, let them drain first.
+    {
+        std::lock_guard<std::mutex> lock(m_mu);
+        for (const auto& j : m_jobs)
+        {
+            if (j.is_spider)
+                continue;
+            if (j.kind == "thumb")
+                continue;
+            // Anything else is user-visible navigation / open.
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void SixteenColorsBrowserWindow::DatahoarderEnqueueUnique(DownloadJob j)
+{
+    if (j.url.empty())
+        return;
+    const std::uint64_t h = Fnv1a64(j.url);
+    if (!m_datahoarder_seen.insert(h).second)
+        return;
+
+    j.is_spider = true;
+    j.is_background_refresh = true;
+    j.cache_mode = http::CacheMode::Default; // cache miss => fetch once; cache hit => disk
+    m_datahoarder_todo.push_back(std::move(j));
+    m_datahoarder_enqueued++;
+}
+
+void SixteenColorsBrowserWindow::DatahoarderSeedIfNeeded()
+{
+    if (m_datahoarder_seeded)
+        return;
+    m_datahoarder_seeded = true;
+
+    // Seed the crawl frontier. Use large pagesize (<=500) to reduce API request count.
+    DatahoarderEnqueueUnique(DownloadJob{BuildLatestUrl(), "latest_list", "", ""});
+    DatahoarderEnqueueUnique(DownloadJob{BuildYearListUrl(), "year_list", "", ""});
+
+    // Packs/groups/artists root lists (page 1); subsequent pages are discovered from the response.
+    DatahoarderEnqueueUnique(DownloadJob{BuildPackListUrl(1, 500, false, false, ""), "pack_list", "", "", 1});
+    DatahoarderEnqueueUnique(DownloadJob{BuildGroupListUrl(1, 500, 0, 0, ""), "group_list", "", "", 1});
+    DatahoarderEnqueueUnique(DownloadJob{BuildArtistListUrl(1, 500, ""), "artist_list", "", "", 1});
+}
+
+void SixteenColorsBrowserWindow::DatahoarderTick()
+{
+    if (!m_datahoarder_enabled)
+        return;
+
+    DatahoarderSeedIfNeeded();
+
+    if (m_datahoarder_inflight > 0)
+        return;
+
+    if (DatahoarderShouldYieldToUser())
+        return;
+
+    // Don't add background work when the shared queue already has work.
+    {
+        std::lock_guard<std::mutex> lock(m_mu);
+        if (m_jobs.size() > 8)
+            return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_datahoarder_todo.empty())
+        return;
+
+    // If the next job is a cache miss, it will hit the network; respect the network rate limit.
+    // Cache hits are allowed to run fast.
+    const DownloadJob& peek = m_datahoarder_todo.front();
+    const bool cached = http::HasCached(peek.url, {});
+    if (!cached)
+    {
+        if (m_datahoarder_next_network_allowed != std::chrono::steady_clock::time_point{} && now < m_datahoarder_next_network_allowed)
+            return;
+    }
+
+    DownloadJob j = std::move(m_datahoarder_todo.front());
+    m_datahoarder_todo.pop_front();
+    m_datahoarder_inflight = 1;
+    m_datahoarder_last_url_hash = Fnv1a64(j.url);
+    Enqueue(j);
+}
+
+void SixteenColorsBrowserWindow::DatahoarderOnResult(const DownloadResult& dr)
+{
+    if (!dr.job.is_spider)
+        return;
+
+    if (m_datahoarder_inflight > 0 && m_datahoarder_last_url_hash == Fnv1a64(dr.job.url))
+        m_datahoarder_inflight = 0;
+    else
+        m_datahoarder_inflight = 0; // best-effort; scheduler keeps this at 1 anyway
+
+    m_datahoarder_completed++;
+
+    const bool ok = dr.err.empty() && dr.status >= 200 && dr.status < 300;
+    const bool rate_limited = (dr.status == 429);
+    const bool server_error = (dr.status >= 500 && dr.status < 600);
+    if (!ok)
+        m_datahoarder_errors++;
+
+    // Pacing (network only):
+    // - cache hits can run fast (disk is fine to hammer)
+    // - cache misses are network hits and are rate-limited
+    // - errors back off aggressively (and start high) to avoid hammering the API
+    constexpr std::uint64_t kSpiderMinNetworkIntervalMs = 1000; // 1 req/sec max (network)
+    constexpr std::uint64_t kSpiderBackoffStartMs = 10000; // start at 10s on errors
+    constexpr std::uint64_t kSpiderBackoffCapMs = 10ull * 60ull * 1000ull; // 10 minutes
+
+    const auto now = std::chrono::steady_clock::now();
+    std::uint64_t delay_ms = 0;
+    const bool did_network = !dr.from_cache;
+    if (did_network && (!ok || rate_limited || server_error))
+    {
+        if (m_datahoarder_backoff_ms == 0)
+            m_datahoarder_backoff_ms = kSpiderBackoffStartMs;
+        else
+            m_datahoarder_backoff_ms = std::min<std::uint64_t>(m_datahoarder_backoff_ms * 2, kSpiderBackoffCapMs);
+        delay_ms = m_datahoarder_backoff_ms;
+    }
+    else if (did_network)
+    {
+        m_datahoarder_backoff_ms = 0;
+        delay_ms = kSpiderMinNetworkIntervalMs;
+    }
+    // Cache hit: do not adjust network pacing.
+    if (delay_ms > 0)
+        m_datahoarder_next_network_allowed = now + std::chrono::milliseconds((long long)delay_ms);
+
+    if (!ok)
+        return;
+
+    // Expand frontier from successful API responses.
+    // NOTE: We only parse JSON endpoints. Thumbs are just cached by http::Get and ignored.
+    const auto parse_json = [&](json& out) -> bool {
+        try
+        {
+            out = json::parse((const char*)dr.bytes.data(), (const char*)dr.bytes.data() + dr.bytes.size());
+            return true;
+        }
+        catch (...) { out = json(); return false; }
+    };
+
+    if (dr.job.kind == "thumb")
+    {
+        // Never decode/store thumbs for the spider: it would explode memory.
+        return;
+    }
+
+    json j;
+    if (!parse_json(j))
+        return;
+
+    if (dr.job.kind == "pack_list")
+    {
+        int pages = 0;
+        if (j.is_object() && j.contains("page") && j["page"].is_object())
+            pages = JsonIntOrDefault(j["page"], "pages", 0);
+        if (dr.job.page == 1 && pages > 1)
+        {
+            for (int p = 2; p <= pages; ++p)
+                DatahoarderEnqueueUnique(DownloadJob{BuildPackListUrl(p, 500, false, false, ""), "pack_list", "", "", p});
+        }
+        if (j.is_object() && j.contains("results") && j["results"].is_array())
+        {
+            for (const auto& it : j["results"])
+            {
+                if (!it.is_object())
+                    continue;
+                const std::string name = JsonStringOrEmpty(it, "name");
+                if (!name.empty())
+                    DatahoarderEnqueueUnique(DownloadJob{BuildPackDetailUrl(name), "pack_detail", name, ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "group_list")
+    {
+        int pages = 0;
+        if (j.is_object() && j.contains("page") && j["page"].is_object())
+            pages = JsonIntOrDefault(j["page"], "pages", 0);
+        if (dr.job.page == 1 && pages > 1)
+        {
+            for (int p = 2; p <= pages; ++p)
+                DatahoarderEnqueueUnique(DownloadJob{BuildGroupListUrl(p, 500, 0, 0, ""), "group_list", "", "", p});
+        }
+        if (j.is_object() && j.contains("results") && j["results"].is_array())
+        {
+            for (const auto& it : j["results"])
+            {
+                if (!it.is_object())
+                    continue;
+                std::string name;
+                if (it.contains("name") && it["name"].is_string())
+                    name = it["name"].get<std::string>();
+                else if (it.size() == 1)
+                    name = it.begin().key();
+                if (!name.empty())
+                    DatahoarderEnqueueUnique(DownloadJob{BuildGroupDetailUrl(name), "group_packs", name, ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "artist_list")
+    {
+        int pages = 0;
+        if (j.is_object() && j.contains("page") && j["page"].is_object())
+            pages = JsonIntOrDefault(j["page"], "pages", 0);
+        if (dr.job.page == 1 && pages > 1)
+        {
+            for (int p = 2; p <= pages; ++p)
+                DatahoarderEnqueueUnique(DownloadJob{BuildArtistListUrl(p, 500, ""), "artist_list", "", "", p});
+        }
+        if (j.is_object() && j.contains("results") && j["results"].is_array())
+        {
+            for (const auto& it : j["results"])
+            {
+                if (!it.is_object())
+                    continue;
+                json a;
+                if (it.contains("artist") && it["artist"].is_object())
+                    a = it["artist"];
+                else if (it.size() == 1 && it.begin().value().is_object())
+                    a = it.begin().value();
+                else
+                    a = it;
+                const std::string name = JsonStringOrEmpty(a, "name");
+                if (!name.empty())
+                    DatahoarderEnqueueUnique(DownloadJob{BuildArtistPacksUrl(name), "artist_packs", name, ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "year_list")
+    {
+        if (j.is_object())
+        {
+            for (auto it = j.begin(); it != j.end(); ++it)
+            {
+                int y = 0;
+                try { y = std::stoi(it.key()); } catch (...) { y = 0; }
+                if (y <= 0)
+                    continue;
+                // Cache both variants (packs + mags) so the Years mode toggle works offline.
+                DatahoarderEnqueueUnique(DownloadJob{BuildYearPacksUrl(y, false, ""), "year_packs", std::to_string(y), ""});
+                DatahoarderEnqueueUnique(DownloadJob{BuildYearPacksUrl(y, true, ""), "year_packs", std::to_string(y), ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "latest_list")
+    {
+        if (j.is_object() && j.contains("results") && j["results"].is_array())
+        {
+            for (const auto& it : j["results"])
+            {
+                if (!it.is_object())
+                    continue;
+                std::string name = JsonStringOrEmpty(it, "pack");
+                if (name.empty())
+                    name = JsonStringOrEmpty(it, "name");
+                if (!name.empty())
+                    DatahoarderEnqueueUnique(DownloadJob{BuildPackDetailUrl(name), "pack_detail", name, ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "year_packs")
+    {
+        // Same shape as pack list: results[].name/year
+        if (j.is_object() && j.contains("results") && j["results"].is_array())
+        {
+            for (const auto& it : j["results"])
+            {
+                if (!it.is_object())
+                    continue;
+                std::string name = JsonStringOrEmpty(it, "name");
+                if (name.empty())
+                    name = JsonStringOrEmpty(it, "pack");
+                if (!name.empty())
+                    DatahoarderEnqueueUnique(DownloadJob{BuildPackDetailUrl(name), "pack_detail", name, ""});
+            }
+        }
+    }
+    else if (dr.job.kind == "group_packs")
+    {
+        // Best-effort: extract pack names too, so we can reach pack_detail even if pack_list misses something.
+        // Expected: { "results": { "packs": { "1998": ["pack1", ...] } } }
+        json packs_obj;
+        if (j.is_object() && j.contains("results") && j["results"].is_object())
+        {
+            const json& r = j["results"];
+            if (r.contains("packs") && r["packs"].is_object())
+                packs_obj = r["packs"];
+        }
+        if (packs_obj.is_object())
+        {
+            for (auto it = packs_obj.begin(); it != packs_obj.end(); ++it)
+            {
+                if (!it.value().is_array())
+                    continue;
+                for (const auto& pn : it.value())
+                {
+                    if (pn.is_string())
+                    {
+                        const std::string name = pn.get<std::string>();
+                        if (!name.empty())
+                            DatahoarderEnqueueUnique(DownloadJob{BuildPackDetailUrl(name), "pack_detail", name, ""});
+                    }
+                }
+            }
+        }
+    }
+    else if (dr.job.kind == "pack_detail")
+    {
+        // Cache pack-detail + thumbnails for offline browsing.
+        if (!(j.is_object() && j.contains("results") && j["results"].is_array() && !j["results"].empty()))
+            return;
+        const json& r0 = j["results"][0];
+        if (!(r0.contains("files") && r0["files"].is_object()))
+            return;
+
+        const std::string pack = dr.job.pack;
+        for (auto it = r0["files"].begin(); it != r0["files"].end(); ++it)
+        {
+            const std::string filename = it.key();
+            const json& frec = it.value();
+            std::string tn_url;
+            try
+            {
+                if (frec.contains("file") && frec["file"].is_object() &&
+                    frec["file"].contains("tn") && frec["file"]["tn"].is_object())
+                {
+                    const json& tn = frec["file"]["tn"];
+                    const std::string uri = JsonStringOrEmpty(tn, "uri");
+                    if (!uri.empty())
+                        tn_url = JoinUrl(WebBase(), uri);
+                    else
+                    {
+                        const std::string file = JsonStringOrEmpty(tn, "file");
+                        if (!file.empty())
+                            tn_url = WebBase() + "/pack/" + UrlEncode(pack) + "/tn/" + UrlEncode(file);
+                    }
+                }
+                else if (frec.contains("tn") && frec["tn"].is_object())
+                {
+                    const json& tn = frec["tn"];
+                    const std::string uri = JsonStringOrEmpty(tn, "uri");
+                    if (!uri.empty())
+                        tn_url = JoinUrl(WebBase(), uri);
+                    else
+                    {
+                        const std::string file = JsonStringOrEmpty(tn, "file");
+                        if (!file.empty())
+                            tn_url = WebBase() + "/pack/" + UrlEncode(pack) + "/tn/" + UrlEncode(file);
+                    }
+                }
+            }
+            catch (...) {}
+
+            if (!tn_url.empty())
+                DatahoarderEnqueueUnique(DownloadJob{tn_url, "thumb", pack, filename});
+        }
+    }
 }
 
 
