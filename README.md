@@ -1,8 +1,10 @@
 # Phosphor
 
-A native UTF‑8 ANSI / text-mode art editor.
+Phospher is a modern Text Mode Art editor for modern (and old) terminals. It is built around UTF-8, Unscii 2.1 8x16 & Xterm 256(240) colours, and also supports classic DOS/Amiga/etc bitmap fonts and palettes, as well as eXtended Binary with embedded fonts. 
 
-Phosphor stores glyphs as Unicode codepoints (UTF‑8 canvas), but can render canvases using multiple classic bitmap fonts (DOS/Amiga/etc) as well as Unicode atlas rendering. It focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, import/export, and a full featured 16colo.rs browser.
+It focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, import/export, and a full featured 16colo.rs browser.
+
+I'm writing this editor for myself, but other's may find it interesting. I welcome positive feedback, constructive criticism, feature requests & bug reports.
 
 ![Phosphor Screenshot](dist/phosphor.png)
 
@@ -135,8 +137,10 @@ MIT License. See [LICENSE](LICENSE).
 - Unscii font: [http://viznut.fi/unscii/](http://viznut.fi/unscii/)
 - ANSI art resources: [https://16colo.rs/](https://16colo.rs/)
 - Ansilove (formats + fonts): [https://www.ansilove.org/](https://www.ansilove.org/)
+- [xeR0](https://x-e.ro/)'s hand-collected tutorials: [https://github.com/xero/ansi-art-tutorials](https://github.com/xero/ansi-art-tutorials)
+- [Roy\<SAC\>](https://www.roysac.com/roy.html)'s TheDraw Fonts collection: [https://www.roysac.com/thedrawfonts-tdf.html](https://www.roysac.com/thedrawfonts-tdf.html)
 
-Inspirations / related tools:
+Inspiration & related tools:
 
 - Moebius: [https://blocktronics.github.io/moebius/](https://blocktronics.github.io/moebius/)
 - PabloDraw: [https://github.com/cwensley/pablodraw/](https://github.com/cwensley/pablodraw/)

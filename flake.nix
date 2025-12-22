@@ -86,6 +86,7 @@
           gdb
           pkg-config
           gcc
+          python3
         ] ++ phosphorBuildInputs;
       in
       {

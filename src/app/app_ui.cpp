@@ -3,8 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include "imgui.h"
+#include <nlohmann/json.hpp>
 
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
@@ -34,6 +39,89 @@ static void MaybeApplyPendingMaximize(SDL_Window* window, SessionState& session_
 
     session_state.window_maximized = true;
     g_pending_maximize_after_fullscreen_exit = false;
+}
+
+struct TutorialEntry
+{
+    std::string filename;
+    std::string title;
+    std::string artist;
+    std::optional<int> released_year;
+};
+
+static bool LoadTutorialsFromJson(const std::string& path,
+                                 std::vector<TutorialEntry>& out,
+                                 std::string& err)
+{
+    using nlohmann::json;
+
+    err.clear();
+    out.clear();
+
+    std::ifstream f(path);
+    if (!f)
+    {
+        err = std::string("Failed to open ") + path;
+        return false;
+    }
+
+    json j;
+    try
+    {
+        f >> j;
+    }
+    catch (const std::exception& e)
+    {
+        err = e.what();
+        return false;
+    }
+
+    if (!j.is_array())
+    {
+        err = "Expected top-level JSON array in ansi-tutorials.json";
+        return false;
+    }
+
+    for (const auto& item : j)
+    {
+        if (!item.is_object())
+            continue;
+
+        TutorialEntry t;
+
+        if (auto it = item.find("filename"); it != item.end() && it->is_string())
+            t.filename = it->get<std::string>();
+        else
+            continue;
+
+        if (auto it = item.find("title"); it != item.end() && it->is_string())
+            t.title = it->get<std::string>();
+        else
+            continue;
+
+        if (auto it = item.find("artist"); it != item.end() && it->is_string())
+            t.artist = it->get<std::string>();
+        else
+            t.artist = "Unknown";
+
+        if (auto it = item.find("released_year"); it != item.end())
+        {
+            if (it->is_number_integer())
+                t.released_year = it->get<int>();
+            else
+                t.released_year.reset(); // null/invalid
+        }
+
+        out.push_back(std::move(t));
+    }
+
+    if (out.empty())
+    {
+        err = "No valid tutorials found in ansi-tutorials.json";
+        return false;
+    }
+
+    return true;
 }
 
 std::string ShortcutForAction(const kb::KeyBindingsEngine& keybinds,
@@ -195,6 +283,76 @@ void RenderMainMenuBar(SDL_Window* window,
             ImGui::EndMenu();
         }
 
+        // Tutorials (bundled assets/ansi-tutorials/* + assets/ansi-tutorials.json).
+        if (ImGui::BeginMenu("Tutorials"))
+        {
+            auto sanitize = [](std::string s) -> std::string
+            {
+                for (;;)
+                {
+                    const size_t pos = s.find("##");
+                    if (pos == std::string::npos)
+                        break;
+                    s.replace(pos, 2, "#");
+                }
+                return s;
+            };
+
+            static bool tutorials_loaded = false;
+            static std::vector<TutorialEntry> tutorials;
+            static std::string tutorials_error;
+
+            if (!tutorials_loaded)
+            {
+                const std::string json_path = PhosphorAssetPath("ansi-tutorials.json");
+                if (!LoadTutorialsFromJson(json_path, tutorials, tutorials_error))
+                    tutorials.clear();
+                tutorials_loaded = true;
+            }
+
+            if (!tutorials_error.empty())
+            {
+                ImGui::BeginDisabled();
+                ImGui::MenuItem("(Failed to load tutorials)");
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("%s", tutorials_error.c_str());
+            }
+            else if (tutorials.empty())
+            {
+                ImGui::BeginDisabled();
+                ImGui::MenuItem("(Empty)");
+                ImGui::EndDisabled();
+            }
+            else
+            {
+                namespace fs = std::filesystem;
+                for (size_t i = 0; i < tutorials.size(); ++i)
+                {
+                    const TutorialEntry& t = tutorials[i];
+                    const std::string path = (fs::path(PhosphorAssetPath("ansi-tutorials")) / t.filename).string();
+
+                    std::string label = t.title + " by " + t.artist + " (";
+                    if (t.released_year.has_value())
+                        label += std::to_string(*t.released_year);
+                    else
+                        label += "?";
+                    label += ")";
+                    label = sanitize(std::move(label));
+
+                    std::error_code ec;
+                    const bool exists = fs::exists(fs::path(path), ec) && !ec;
+                    if (!exists)
+                        label += " (missing)";
+
+                    if (ImGui::MenuItem(label.c_str(), nullptr, false, exists))
+                        io_manager.OpenPath(path, io_callbacks);
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+
         // Unified Export menu (all formats share one tabbed dialog).
         if (ImGui::BeginMenu("Export"))
         {
@@ -213,10 +371,6 @@ void RenderMainMenuBar(SDL_Window* window,
             ImGui::EndMenu();
         }
 
-        const std::string sc_quit = ShortcutForAction(keybinds, "app.quit", "global");
-        if (ImGui::MenuItem("Quit", sc_quit.empty() ? nullptr : sc_quit.c_str()))
-            done = true;
-
         ImGui::Separator();
         const std::string sc_settings = ShortcutForAction(keybinds, "app.settings.open", "global");
         if (ImGui::MenuItem("Settings...", sc_settings.empty() ? nullptr : sc_settings.c_str()))
@@ -224,6 +378,11 @@ void RenderMainMenuBar(SDL_Window* window,
             show_settings_window = true;
             settings_window.SetOpen(true);
         }
+
+        ImGui::Separator();
+        const std::string sc_quit = ShortcutForAction(keybinds, "app.quit", "global");
+        if (ImGui::MenuItem("Quit", sc_quit.empty() ? nullptr : sc_quit.c_str()))
+            done = true;
 
         ImGui::EndMenu();
     }
