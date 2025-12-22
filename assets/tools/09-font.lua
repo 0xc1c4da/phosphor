@@ -223,9 +223,53 @@ end
 
 local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   if not ctx or not layer or type(bmp) ~= "table" then return false end
-  local w = tonumber(bmp.w) or 0
-  local h = tonumber(bmp.h) or 0
-  if w <= 0 or h <= 0 then return false end
+  -- Source bitmap dimensions/stride (DO NOT change these when clipping, or row-major indexing breaks).
+  local src_w = tonumber(bmp.w) or 0
+  local src_h = tonumber(bmp.h) or 0
+  if src_w <= 0 or src_h <= 0 then return false end
+
+  -- IMPORTANT (selection write clipping):
+  -- The host now clips *tool-driven* writes to the current selection rect when a selection exists.
+  -- So when we stamp/preview into a new location, or when rerendering produces a different size,
+  -- we must update the selection bounds *before* writing any cells, otherwise the stamp will be
+  -- cut off to the previous selection.
+  local ox0 = math.floor(tonumber(x0) or 0)
+  local oy0 = math.floor(tonumber(y0) or 0)
+  local dx0, dy0, dw, dh = effective_rect(ctx, ox0, oy0, src_w, src_h)
+  if dw <= 0 or dh <= 0 then return false end
+
+  -- Map destination clip back into source bitmap coordinates.
+  -- If effective_rect() clamped x/y up (e.g. negative origin), we skip those columns/rows in the source.
+  local src_x0 = dx0 - ox0
+  local src_y0 = dy0 - oy0
+  if src_x0 < 0 then src_x0 = 0 end
+  if src_y0 < 0 then src_y0 = 0 end
+
+  local canvas = ctx.canvas
+  if canvas ~= nil then
+    canvas:setSelection(dx0, dy0, dx0 + dw - 1, dy0 + dh - 1)
+    -- Read back actual clamped selection (x is clamped to columns by the host).
+    local sx, sy, sw, sh = canvas:getSelection()
+    if type(sx) == "number" and type(sy) == "number" and type(sw) == "number" and type(sh) == "number" then
+      sx = math.floor(sx)
+      sy = math.floor(sy)
+      sw = math.floor(sw)
+      sh = math.floor(sh)
+
+      -- If selection was clamped further, adjust source offset accordingly.
+      if sx ~= dx0 then src_x0 = src_x0 + (sx - dx0) end
+      if sy ~= dy0 then src_y0 = src_y0 + (sy - dy0) end
+      dx0 = sx
+      dy0 = sy
+      dw = sw
+      dh = sh
+    end
+    if dw <= 0 or dh <= 0 then return false end
+    if src_x0 < 0 then src_x0 = 0 end
+    if src_y0 < 0 then src_y0 = 0 end
+    if src_x0 >= src_w then return false end
+    if src_y0 >= src_h then return false end
+  end
 
   local cp = bmp.cp or {}
   local fg = bmp.fg or {}
@@ -239,26 +283,13 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   local fallback_fg = (use_fallback_fg and type(ctx.fg) == "number") and math.floor(ctx.fg) or nil
   local fallback_bg = (use_fallback_bg and type(ctx.bg) == "number") and math.floor(ctx.bg) or nil
 
-  -- Clamp to canvas columns to avoid expensive out-of-range writes.
-  local cols = tonumber((ctx and ctx.cols) or 0) or 0
-  local x_begin = 0
-  local x_end = w - 1
-  if cols > 0 then
-    if x0 < 0 then x_begin = -x0 end
-    local max_x = cols - 1
-    if (x0 + x_end) > max_x then
-      x_end = max_x - x0
-    end
-  end
-  if x_begin < 0 then x_begin = 0 end
-  if x_end >= w then x_end = w - 1 end
-  if x_end < x_begin then
-    return false
-  end
-
-  for y = 0, h - 1 do
-    for x = x_begin, x_end do
-      local i = (y * w) + x + 1
+  -- Draw only the destination clip rect, but index into the original source stride.
+  for y = 0, dh - 1 do
+    for x = 0, dw - 1 do
+      local si = src_x0 + x
+      local sj = src_y0 + y
+      if si < src_w and sj < src_h then
+        local i = (sj * src_w) + si + 1
       local cpi = tonumber(cp[i]) or 32
       if cpi <= 0 then cpi = 32 end
 
@@ -274,25 +305,13 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
       if out_fg == nil then out_fg = fallback_fg end
       if out_bg == nil then out_bg = fallback_bg end
 
-      set_cell(layer, x0 + x, y0 + y, cpi, out_fg, out_bg)
+        set_cell(layer, dx0 + x, dy0 + y, cpi, out_fg, out_bg)
+      end
     end
   end
 
-  -- Select the stamped region so the user can move it (either via this tool or Select tool).
-  -- Note: selection clamps x to canvas columns, so we must read back the actual selection rect.
-  local sel = { x = x0, y = y0, w = w, h = h }
-  local canvas = ctx.canvas
-  if canvas ~= nil then
-    canvas:setSelection(x0, y0, x0 + w - 1, y0 + h - 1)
-    local sx, sy, sw, sh = canvas:getSelection()
-    if type(sx) == "number" and type(sy) == "number" and type(sw) == "number" and type(sh) == "number" then
-      sel.x = math.floor(sx)
-      sel.y = math.floor(sy)
-      sel.w = math.floor(sw)
-      sel.h = math.floor(sh)
-    end
-  end
-  return sel
+  -- Selection was already set above; return the effective clamped rect.
+  return { x = dx0, y = dy0, w = dw, h = dh }
 end
 
 -- Live stamp tracking: if the user changes font/options while the last stamped region is

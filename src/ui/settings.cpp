@@ -886,6 +886,32 @@ void SettingsWindow::RenderTab_KeyBindings()
                 }
                 ImGui::SameLine();
 
+                // repeat (hold to repeat)
+                {
+                    if (ImGui::Checkbox("##repeat", &b.repeat))
+                    {
+                        // Mark as explicitly set so it survives default-inheritance semantics.
+                        b.repeat_set = true;
+                        keybinds_->MarkDirty();
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    {
+                        ImGui::SetTooltip(
+                            "Repeat while held.\n"
+                            "When enabled, holding the chord will retrigger after a short delay\n"
+                            "and then repeat at a steady rate (uses ImGui key repeat timing).");
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("Rpt");
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    {
+                        ImGui::SetTooltip(
+                            "Repeat while held.\n"
+                            "Enable for navigation/backspace/delete; disable for one-shot actions.");
+                    }
+                }
+                ImGui::SameLine();
+
                 // chord
                 // Chord input was too wide; keep it compact so inline buttons are always visible.
                 ImGui::SetNextItemWidth(160.0f);
