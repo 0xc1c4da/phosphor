@@ -238,6 +238,13 @@ static deform::Sample ParseDeformSample(const std::string& s)
     return deform::Sample::Layer;
 }
 
+static deform::DeformAlgo ParseDeformAlgo(const std::string& s)
+{
+    if (s == "warp_quantize_sticky") return deform::DeformAlgo::WarpQuantizeSticky;
+    if (s == "cell_resample") return deform::DeformAlgo::CellResample;
+    return deform::DeformAlgo::WarpQuantize;
+}
+
 static int l_ansl_deform_apply_dab(lua_State* L)
 {
     // Signature:
@@ -300,6 +307,24 @@ static int l_ansl_deform_apply_dab(lua_State* L)
     lua_getfield(L, 3, "mode");
     if (lua_isstring(L, -1))
         args.mode = ParseDeformMode(LuaToString(L, -1));
+    lua_pop(L, 1);
+
+    // algo (deform algorithm)
+    lua_getfield(L, 3, "algo");
+    if (lua_isstring(L, -1))
+        args.algo = ParseDeformAlgo(LuaToString(L, -1));
+    lua_pop(L, 1);
+
+    // Back-compat: move_algo (old key). Map onto algo.
+    lua_getfield(L, 3, "move_algo");
+    if (lua_isstring(L, -1))
+    {
+        const std::string v = LuaToString(L, -1);
+        if (v == "cell_copy")
+            args.algo = deform::DeformAlgo::CellResample;
+        else
+            args.algo = deform::DeformAlgo::WarpQuantize;
+    }
     lua_pop(L, 1);
 
     // sample

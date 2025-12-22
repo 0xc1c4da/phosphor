@@ -5,6 +5,7 @@ settings = {
 
   params = {
     mode = { type = "enum", label = "Mode", items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
+    algo = { type = "enum", label = "Algorithm", items = { "warp_quantize", "warp_quantize_sticky", "cell_resample" }, default = "warp_quantize" },
     size = { type = "int", label = "Size", min = 1, max = 61, step = 1, default = 15 },
     hardness = { type = "int", label = "Hardness", min = 0, max = 100, step = 1, default = 80 },
     strength = { type = "float", label = "Strength", min = 0.0, max = 1.0, step = 0.01, default = 0.75 },
@@ -41,6 +42,7 @@ local function apply_dab(ctx, layer, x, y, px, py)
 
   local p = ctx.params or {}
   local mode = (type(p.mode) == "string") and p.mode or "move"
+  local algo = (type(p.algo) == "string") and p.algo or "warp_quantize"
   local size = tonumber(p.size) or 15
   size = clamp(math.floor(size), 1, 61)
   local hardness = tonumber(p.hardness) or 80
@@ -63,6 +65,7 @@ local function apply_dab(ctx, layer, x, y, px, py)
     strength = strength,
     amount = amount,
     mode = mode,
+    algo = algo,
     sample = sample,
     scope = scope,
     hysteresis = hysteresis,

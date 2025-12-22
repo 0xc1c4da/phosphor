@@ -23,6 +23,13 @@ enum class Sample : std::uint8_t
     Composite,
 };
 
+enum class DeformAlgo : std::uint8_t
+{
+    WarpQuantize = 0,       // rasterize -> warp -> quantize (original)
+    WarpQuantizeSticky,     // warp -> quantize, but strongly bias towards source/region glyphs
+    CellResample,           // cell-domain inverse-map + copy from source snapshot (preserve glyph identities)
+};
+
 enum class GlyphSetKind : std::uint8_t
 {
     FontAll = 0,    // use all glyphs available in the current font (bitmap fonts: 256/512)
@@ -56,6 +63,8 @@ struct ApplyDabArgs
 
     // Behavior.
     Mode mode = Mode::Move;
+    // Algorithm for all modes.
+    DeformAlgo algo = DeformAlgo::WarpQuantize;
     // Optional additional intensity knob (meaning depends on mode):
     // - Swirl: scales theta_max
     // - Grow/Shrink: scales the signed scale factor

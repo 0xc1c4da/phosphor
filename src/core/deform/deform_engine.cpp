@@ -186,6 +186,113 @@ static inline void AddBasicBlockCandidates(std::vector<char32_t>& out)
     out.push_back(U'\u258C'); // left half block
     out.push_back(U'\u2590'); // right half block
 }
+
+static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
+                                      int layer_index,
+                                      const AnsiCanvas::Rect& r,
+                                      std::vector<char32_t>& cp,
+                                      std::vector<AnsiCanvas::Color32>& fg,
+                                      std::vector<AnsiCanvas::Color32>& bg,
+                                      std::vector<AnsiCanvas::Attrs>& attrs)
+{
+    const size_t n = (size_t)std::max(0, r.w) * (size_t)std::max(0, r.h);
+    cp.resize(n, U' ');
+    fg.resize(n, 0);
+    bg.resize(n, 0);
+    attrs.resize(n, 0);
+    if (r.w <= 0 || r.h <= 0)
+        return;
+
+    for (int row = r.y; row < r.y + r.h; ++row)
+    {
+        for (int col = r.x; col < r.x + r.w; ++col)
+        {
+            const size_t i = (size_t)(row - r.y) * (size_t)r.w + (size_t)(col - r.x);
+            cp[i] = canvas.GetLayerCell(layer_index, row, col);
+            (void)canvas.GetLayerCellColors(layer_index, row, col, fg[i], bg[i]);
+            (void)canvas.GetLayerCellAttrs(layer_index, row, col, attrs[i]);
+        }
+    }
+}
+
+struct InverseMapResultCell
+{
+    float sx = 0.0f;
+    float sy = 0.0f;
+    float w = 0.0f;
+    bool inside = false;
+};
+
+static inline InverseMapResultCell InverseMapCell(const ApplyDabArgs& args,
+                                                  int size_cells,
+                                                  float px,
+                                                  float py)
+{
+    InverseMapResultCell r;
+    const float radius_cells = (float)std::max(1, size_cells) * 0.5f;
+    const float rx = std::max(1e-6f, radius_cells);
+    const float ry = std::max(1e-6f, radius_cells);
+
+    const float hardness = Clamp01(args.hardness);
+    const float strength = Clamp01(args.strength);
+    const float amount = std::max(0.0f, args.amount);
+
+    const float dx = px - args.x;
+    const float dy = py - args.y;
+    const float d01 = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+    if (d01 >= 1.0f)
+        return r;
+
+    const float w = FalloffFromDistance(d01, hardness) * strength;
+    if (w <= 0.0f)
+        return r;
+
+    float sx = px;
+    float sy = py;
+
+    constexpr float kTwoPi = 6.2831853071795864769f;
+    const float theta_max = kTwoPi * amount;
+
+    switch (args.mode)
+    {
+        case Mode::Move:
+        {
+            if (!args.prev_x.has_value() || !args.prev_y.has_value())
+                return r;
+            const float dx_move = (args.x - *args.prev_x);
+            const float dy_move = (args.y - *args.prev_y);
+            sx = px - dx_move * w;
+            sy = py - dy_move * w;
+        } break;
+        case Mode::Grow:
+        case Mode::Shrink:
+        {
+            const float sign = (args.mode == Mode::Grow) ? 1.0f : -1.0f;
+            float s = 1.0f + sign * (w * amount);
+            s = std::clamp(s, 0.25f, 4.0f);
+            sx = args.x + dx / s;
+            sy = args.y + dy / s;
+        } break;
+        case Mode::SwirlCw:
+        case Mode::SwirlCcw:
+        {
+            const float sign = (args.mode == Mode::SwirlCw) ? 1.0f : -1.0f;
+            const float theta = -sign * theta_max * w; // inverse rotation
+            const float c = std::cos(theta);
+            const float s = std::sin(theta);
+            const float rdx = c * dx - s * dy;
+            const float rdy = s * dx + c * dy;
+            sx = args.x + rdx;
+            sy = args.y + rdy;
+        } break;
+    }
+
+    r.sx = sx;
+    r.sy = sy;
+    r.w = w;
+    r.inside = true;
+    return r;
+}
 } // namespace
 
 ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
@@ -216,35 +323,105 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
         return {};
 
     // ---------------------------------------------------------------------
-    // Candidate glyph set = (explicit palette list, if provided) + (glyphs already on the canvas)
+    // Cell-resample algorithm: inverse-map per-cell and copy from a source snapshot.
+    // This avoids introducing new glyphs during deformation by design.
     // ---------------------------------------------------------------------
-    std::vector<char32_t> candidates;
-    candidates.reserve(512);
+    const bool move_mode = (args.mode == Mode::Move);
+    if (args.algo == DeformAlgo::CellResample)
+    {
+        if (move_mode && (!args.prev_x.has_value() || !args.prev_y.has_value()))
+        {
+            // Krita behavior: first move dab is a no-op (needs a previous point).
+            ApplyDabResult res;
+            res.changed = false;
+            res.affected = clipped;
+            return res;
+        }
+
+        std::vector<char32_t> src_cp;
+        std::vector<AnsiCanvas::Color32> src_fg;
+        std::vector<AnsiCanvas::Color32> src_bg;
+        std::vector<AnsiCanvas::Attrs> src_attrs;
+        SnapshotLayerRegion(canvas, layer_index, clipped, src_cp, src_fg, src_bg, src_attrs);
+
+        ApplyDabResult res;
+        res.changed = false;
+        res.affected = clipped;
+
+        for (int row = clipped.y; row < clipped.y + clipped.h; ++row)
+        {
+            for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
+            {
+                // Cell center in cell coordinates.
+                const float px = (float)col + 0.5f;
+                const float py = (float)row + 0.5f;
+                const InverseMapResultCell im = InverseMapCell(args, size_cells, px, py);
+                if (!im.inside || im.w <= 0.0f)
+                    continue;
+
+                // Inverse-map: clamp to region bounds to match raster path's clamped sampling.
+                int src_col = (int)std::floor(im.sx);
+                int src_row = (int)std::floor(im.sy);
+                src_col = std::clamp(src_col, clipped.x, clipped.x + clipped.w - 1);
+                src_row = std::clamp(src_row, clipped.y, clipped.y + clipped.h - 1);
+
+                const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
+                const char32_t new_cp = (si < src_cp.size()) ? src_cp[si] : U' ';
+                const AnsiCanvas::Color32 new_fg = (si < src_fg.size()) ? src_fg[si] : 0;
+                const AnsiCanvas::Color32 new_bg = (si < src_bg.size()) ? src_bg[si] : 0;
+                const AnsiCanvas::Attrs new_attrs = (si < src_attrs.size()) ? src_attrs[si] : 0;
+
+                // Apply if changed.
+                const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
+                AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+                AnsiCanvas::Attrs old_attrs = 0;
+                (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+                (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
+
+                if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
+                {
+                    (void)canvas.SetLayerCell(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
+                    res.changed = true;
+                }
+            }
+        }
+
+        return res;
+    }
+
+    // ---------------------------------------------------------------------
+    // Candidate glyph sets:
+    // - base_candidates: explicit list / ASCII / blocks (host-provided palette, etc)
+    // - region_candidates: glyphs already present in the affected region
+    // ---------------------------------------------------------------------
+    std::vector<char32_t> base_candidates;
+    base_candidates.reserve(512);
     switch (args.glyph_set.kind)
     {
         case GlyphSetKind::ExplicitList:
             for (char32_t cp : args.glyph_set.explicit_codepoints)
                 if (cp != 0)
-                    candidates.push_back(cp);
+                    base_candidates.push_back(cp);
             break;
         case GlyphSetKind::Ascii:
-            AddAsciiCandidates(candidates);
+            AddAsciiCandidates(base_candidates);
             break;
         case GlyphSetKind::BasicBlocks:
-            AddBasicBlockCandidates(candidates);
+            AddBasicBlockCandidates(base_candidates);
             break;
         case GlyphSetKind::FontAll:
             // Not supported in v1 (too expensive for atlas fonts). Fall back to blocks.
-            AddBasicBlockCandidates(candidates);
+            AddBasicBlockCandidates(base_candidates);
             break;
     }
 
     // Add glyphs already present on the canvas in the affected region.
+    std::vector<char32_t> region_candidates;
     {
         std::unordered_set<char32_t> seen;
         seen.reserve((size_t)clipped.w * (size_t)clipped.h);
-        // Preserve order: seed with existing candidates first.
-        for (char32_t cp : candidates)
+        // Preserve order: seed with existing base candidates first.
+        for (char32_t cp : base_candidates)
             if (cp != 0)
                 seen.insert(cp);
 
@@ -255,14 +432,38 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 char32_t cp = U' ';
                 AnsiCanvas::Color32 fg = 0, bg = 0;
                 AnsiCanvas::Attrs a = 0;
-                (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, a);
+                if (args.sample == Sample::Composite)
+                    (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, a);
+                else
+                {
+                    cp = canvas.GetLayerCell(layer_index, row, col);
+                    (void)canvas.GetLayerCellColors(layer_index, row, col, fg, bg);
+                    (void)canvas.GetLayerCellAttrs(layer_index, row, col, a);
+                }
                 if (cp == 0)
                     continue;
                 if (seen.insert(cp).second)
                 {
-                    if (candidates.size() < 512)
-                        candidates.push_back(cp);
+                    if (region_candidates.size() < 512)
+                        region_candidates.push_back(cp);
                 }
+            }
+        }
+    }
+
+    // Union candidates (bounded).
+    std::vector<char32_t> candidates = base_candidates;
+    if (candidates.size() < 512)
+    {
+        for (char32_t cp : region_candidates)
+        {
+            if (cp == 0)
+                continue;
+            if (std::find(candidates.begin(), candidates.end(), cp) == candidates.end())
+            {
+                candidates.push_back(cp);
+                if (candidates.size() >= 512)
+                    break;
             }
         }
     }
@@ -316,7 +517,6 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     const float strength = Clamp01(args.strength);
     const float amount = std::max(0.0f, args.amount);
 
-    const bool move_mode = (args.mode == Mode::Move);
     if (move_mode && (!args.prev_x.has_value() || !args.prev_y.has_value()))
     {
         // Krita behavior: first move dab is a no-op (needs a previous point).
@@ -394,6 +594,14 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     // ---------------------------------------------------------------------
     thread_local GlyphMaskCache mask_cache;
     std::string mask_err;
+
+    // For sticky warp+quantize, we want a stable "source glyph" anchor from the edited layer.
+    std::vector<char32_t> src_cp_for_anchor;
+    std::vector<AnsiCanvas::Color32> tmp_fg;
+    std::vector<AnsiCanvas::Color32> tmp_bg;
+    std::vector<AnsiCanvas::Attrs> tmp_attrs;
+    if (args.algo == DeformAlgo::WarpQuantizeSticky)
+        SnapshotLayerRegion(canvas, layer_index, clipped, src_cp_for_anchor, tmp_fg, tmp_bg, tmp_attrs);
 
     auto compute_error = [&](const std::vector<std::uint8_t>& target_mask, const GlyphMaskCache::Mask& gm) -> double {
         const size_t n = (size_t)cell_w_px * (size_t)cell_h_px;
@@ -583,15 +791,47 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             char32_t best_cp = U' ';
             double best_err = 1e30;
 
-            for (char32_t cp : candidates)
-            {
-                GlyphMaskCache::Mask gm = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cp, mask_err);
-                const double e = compute_error(target_mask, gm);
-                if (e < best_err)
+            auto find_best = [&](const std::vector<char32_t>& pool, char32_t& out_cp, double& out_err) {
+                out_cp = U' ';
+                out_err = 1e30;
+                for (char32_t cp : pool)
                 {
-                    best_err = e;
-                    best_cp = cp;
+                    GlyphMaskCache::Mask gm = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cp, mask_err);
+                    const double e = compute_error(target_mask, gm);
+                    if (e < out_err)
+                    {
+                        out_err = e;
+                        out_cp = cp;
+                    }
                 }
+            };
+
+            if (args.algo == DeformAlgo::WarpQuantizeSticky && !region_candidates.empty() && !base_candidates.empty())
+            {
+                char32_t best_region_cp = U' ';
+                double best_region_err = 1e30;
+                find_best(region_candidates, best_region_cp, best_region_err);
+
+                char32_t best_base_cp = U' ';
+                double best_base_err = 1e30;
+                find_best(base_candidates, best_base_cp, best_base_err);
+
+                // Prefer region glyphs unless the base set is meaningfully better.
+                constexpr double kImprove = 0.85; // base must be >=15% better to override region
+                if (best_base_err < best_region_err * kImprove)
+                {
+                    best_cp = best_base_cp;
+                    best_err = best_base_err;
+                }
+                else
+                {
+                    best_cp = best_region_cp;
+                    best_err = best_region_err;
+                }
+            }
+            else
+            {
+                find_best(candidates, best_cp, best_err);
             }
 
             // Hysteresis: keep current glyph if it's close enough.
@@ -603,6 +843,31 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 const double eps = (double)std::max(0.0f, args.hysteresis);
                 if (e_cur <= best_err * (1.0 + eps))
                     best_cp = cur_cp;
+            }
+
+            // Sticky anchor: prefer the inverse-mapped *source* glyph if close enough.
+            if (args.algo == DeformAlgo::WarpQuantizeSticky && args.hysteresis > 0.0f && !src_cp_for_anchor.empty())
+            {
+                const float px_cell = (float)col + 0.5f;
+                const float py_cell = (float)row + 0.5f;
+                const InverseMapResultCell im = InverseMapCell(args, size_cells, px_cell, py_cell);
+                if (im.inside && im.w > 0.0f)
+                {
+                    int src_col = (int)std::floor(im.sx);
+                    int src_row = (int)std::floor(im.sy);
+                    src_col = std::clamp(src_col, clipped.x, clipped.x + clipped.w - 1);
+                    src_row = std::clamp(src_row, clipped.y, clipped.y + clipped.h - 1);
+                    const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
+                    const char32_t anchor_cp = (si < src_cp_for_anchor.size()) ? src_cp_for_anchor[si] : U' ';
+                    if (anchor_cp != 0 && std::find(candidates.begin(), candidates.end(), anchor_cp) != candidates.end())
+                    {
+                        GlyphMaskCache::Mask gm_anchor = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, anchor_cp, mask_err);
+                        const double e_anchor = compute_error(target_mask, gm_anchor);
+                        const double eps_anchor = (double)std::clamp(args.hysteresis * 3.0f, 0.0f, 1.0f);
+                        if (e_anchor <= best_err * (1.0 + eps_anchor))
+                            best_cp = anchor_cp;
+                    }
+                }
             }
 
             // Pick colors.
