@@ -220,7 +220,7 @@
       "title": "Move Caret Left",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Left", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Left", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -228,7 +228,7 @@
       "title": "Move Caret Right",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Right", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Right", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -236,7 +236,7 @@
       "title": "Move Caret Up",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Up", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Up", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -244,7 +244,7 @@
       "title": "Move Caret Down",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Down", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Down", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -252,7 +252,7 @@
       "title": "Extend Selection Left",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Shift+Left", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Shift+Left", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -260,7 +260,7 @@
       "title": "Extend Selection Right",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Shift+Right", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Shift+Right", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -268,7 +268,7 @@
       "title": "Extend Selection Up",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Shift+Up", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Shift+Up", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -276,7 +276,7 @@
       "title": "Extend Selection Down",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Shift+Down", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Shift+Down", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -284,7 +284,7 @@
       "title": "Line Start",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Home", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Home", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -292,7 +292,7 @@
       "title": "Line End",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "End", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "End", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -300,7 +300,7 @@
       "title": "Page Up",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "PageUp", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "PageUp", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {
@@ -308,7 +308,7 @@
       "title": "Page Down",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "PageDown", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "PageDown", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
 
@@ -333,7 +333,7 @@
       "title": "Backspace",
       "category": "Editor",
       "bindings": [
-        { "enabled": true, "chord": "Backspace", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Backspace", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
 
@@ -829,7 +829,7 @@
       "category": "Editor",
       "description": "Delete character under caret. TODO(wire).",
       "bindings": [
-        { "enabled": false, "chord": "Delete", "context": "editor", "platform": "any" }
+        { "enabled": false, "chord": "Delete", "context": "editor", "platform": "any", "repeat": true }
       ]
     },
     {

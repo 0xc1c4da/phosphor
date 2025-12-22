@@ -455,14 +455,6 @@ public:
     void Render(const char* id, const std::function<void(AnsiCanvas& canvas, int phase)>& tool_runner = {});
 
     // ---------------------------------------------------------------------
-    // Debug overlay (for tool development)
-    // ---------------------------------------------------------------------
-    // Tools/native bindings can set a transient overlay rect in cell coordinates with an optional label.
-    // The overlay is cleared automatically at the start of each Render() call.
-    void SetToolDebugOverlay(const Rect& cell_rect, const char* label = nullptr);
-    void ClearToolDebugOverlay();
-
-    // ---------------------------------------------------------------------
     // Mirror mode (editor drawing assist)
     // ---------------------------------------------------------------------
     // When enabled, tool-driven mutations are mirrored across the vertical axis of the canvas
@@ -1021,25 +1013,12 @@ private:
                               float cell_w,
                               float cell_h,
                               float font_size);
-    void DrawToolDebugOverlay(ImDrawList* draw_list,
-                              const ImVec2& origin,
-                              float cell_w,
-                              float cell_h,
-                              float font_size);
 
     void DrawMirrorAxisOverlay(ImDrawList* draw_list,
                                const ImVec2& origin,
                                float cell_w,
                                float cell_h,
                                const ImVec2& canvas_size);
-
-    struct ToolDebugOverlay
-    {
-        bool active = false;
-        Rect rect;
-        char label[192] = {};
-    };
-    ToolDebugOverlay m_tool_debug_overlay;
 };
 
 

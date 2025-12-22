@@ -1026,51 +1026,51 @@ std::vector<Action> DefaultActions()
         // --- Navigation / caret ---
         {
             .id="nav.caret_left", .title="Move Caret Left", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Left", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Left", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.caret_right", .title="Move Caret Right", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Right", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Right", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.caret_up", .title="Move Caret Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Up", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Up", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.caret_down", .title="Move Caret Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Down", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Down", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.select_left", .title="Extend Selection Left", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Left", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Shift+Left", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.select_right", .title="Extend Selection Right", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Right", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Shift+Right", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.select_up", .title="Extend Selection Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Up", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Shift+Up", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.select_down", .title="Extend Selection Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Shift+Down", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Shift+Down", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.home", .title="Line Start", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Home", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Home", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.end", .title="Line End", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="End", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="End", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.page_up", .title="Page Up", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="PageUp", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="PageUp", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         {
             .id="nav.page_down", .title="Page Down", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="PageDown", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="PageDown", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         // TODO(wire): Top/bottom of document (common in Icy Draw).
         {
@@ -1101,13 +1101,13 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="editor.backspace", .title="Backspace", .category="Editor", .description="",
-            .bindings={ {.enabled=true, .chord="Backspace", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Backspace", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         // TODO(wire): Forward delete as an editor action (distinct from selection delete).
         {
             .id="editor.delete_forward", .title="Delete (Forward)", .category="Editor",
             .description="Delete character under caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Delete", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=false, .chord="Delete", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         // TODO(wire): Tab / reverse-tab movement (common in Moebius/Icy Draw).
         {

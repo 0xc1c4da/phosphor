@@ -238,19 +238,6 @@ static deform::Sample ParseDeformSample(const std::string& s)
     return deform::Sample::Layer;
 }
 
-static const char* DeformModeName(deform::Mode m)
-{
-    switch (m)
-    {
-        case deform::Mode::Move: return "move";
-        case deform::Mode::Grow: return "grow";
-        case deform::Mode::Shrink: return "shrink";
-        case deform::Mode::SwirlCw: return "swirl_cw";
-        case deform::Mode::SwirlCcw: return "swirl_ccw";
-    }
-    return "move";
-}
-
 static int l_ansl_deform_apply_dab(lua_State* L)
 {
     // Signature:
@@ -408,17 +395,6 @@ static int l_ansl_deform_apply_dab(lua_State* L)
     const deform::ApplyDabResult r = eng.ApplyDab(*cb->canvas, lb->layer_index, args, derr);
     if (!derr.empty())
         return luaL_error(L, "deform.apply_dab failed: %s", derr.c_str());
-
-    // Debug overlay: show affected rect + candidate count for tuning.
-    {
-        char buf[192];
-        std::snprintf(buf, sizeof(buf),
-                      "deform:%s  %dx%d @(%d,%d)  cand:%d",
-                      DeformModeName(args.mode),
-                      r.affected.w, r.affected.h, r.affected.x, r.affected.y,
-                      r.candidate_glyphs);
-        cb->canvas->SetToolDebugOverlay(r.affected, buf);
-    }
 
     if (!r.changed)
     {

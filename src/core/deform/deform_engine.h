@@ -81,8 +81,6 @@ struct ApplyDabResult
     bool changed = false;
     // Affected region in cell coordinates (for minimal redraw).
     AnsiCanvas::Rect affected = {};
-    // Debug/perf: number of candidate glyphs considered by the quantizer.
-    int candidate_glyphs = 0;
 };
 
 // Stateless v1 engine. Heavy work will be implemented in the .cpp (rasterize -> warp -> quantize).

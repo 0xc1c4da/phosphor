@@ -413,7 +413,6 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     ApplyDabResult res;
     res.changed = false;
     res.affected = clipped;
-    res.candidate_glyphs = (int)candidates.size();
 
     std::vector<std::uint8_t> target_mask;
     target_mask.resize((size_t)cell_w_px * (size_t)cell_h_px);
