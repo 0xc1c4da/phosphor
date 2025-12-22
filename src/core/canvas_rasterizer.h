@@ -43,6 +43,44 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                                int& out_h,
                                std::string& err,
                                const Options& opt = {});
+
+// Rasterize a rectangular region (in *cell* coordinates) of the composited canvas into an RGBA8 image.
+// The output pixels match RasterizeCompositeToRgba32() semantics exactly, but the origin is the
+// top-left of `cell_rect`.
+//
+// Notes:
+// - `cell_rect` is clamped to the canvas bounds.
+// - Returns false if the resulting rect is empty.
+bool ComputeCompositeRegionRasterSize(const AnsiCanvas& canvas,
+                                     const AnsiCanvas::Rect& cell_rect,
+                                     int& out_w,
+                                     int& out_h,
+                                     std::string& err,
+                                     const Options& opt = {});
+
+bool RasterizeCompositeRegionToRgba32(const AnsiCanvas& canvas,
+                                     const AnsiCanvas::Rect& cell_rect,
+                                     std::vector<std::uint8_t>& out_rgba,
+                                     int& out_w,
+                                     int& out_h,
+                                     std::string& err,
+                                     const Options& opt = {});
+
+// Rasterize a rectangular region (in *cell* coordinates) of a single layer into an RGBA8 image.
+// This uses the same rendering semantics as RasterizeCompositeToRgba32() but samples a specific layer
+// instead of compositing all visible layers.
+//
+// - `layer_index` is the canvas layer index.
+// - `cell_rect` is clamped to the canvas bounds.
+// - Returns false if the resulting rect is empty or layer_index invalid.
+bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
+                                 int layer_index,
+                                 const AnsiCanvas::Rect& cell_rect,
+                                 std::vector<std::uint8_t>& out_rgba,
+                                 int& out_w,
+                                 int& out_h,
+                                 std::string& err,
+                                 const Options& opt = {});
 } // namespace canvas_rasterizer
 
 

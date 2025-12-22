@@ -1,6 +1,7 @@
 #include "ansl/ansl_script_engine.h"
 
 #include "core/canvas.h"
+#include "core/deform/deform_engine.h"
 #include "core/xterm256_palette.h"
 #include "fonts/textmode_font_registry.h"
 
@@ -219,6 +220,218 @@ static CanvasBinding* CheckCanvas(lua_State* L, int idx)
 {
     void* ud = luaL_checkudata(L, idx, "AnsiCanvas");
     return static_cast<CanvasBinding*>(ud);
+}
+
+static deform::Mode ParseDeformMode(const std::string& s)
+{
+    if (s == "move") return deform::Mode::Move;
+    if (s == "grow") return deform::Mode::Grow;
+    if (s == "shrink") return deform::Mode::Shrink;
+    if (s == "swirl_cw") return deform::Mode::SwirlCw;
+    if (s == "swirl_ccw") return deform::Mode::SwirlCcw;
+    return deform::Mode::Move;
+}
+
+static deform::Sample ParseDeformSample(const std::string& s)
+{
+    if (s == "composite") return deform::Sample::Composite;
+    return deform::Sample::Layer;
+}
+
+static const char* DeformModeName(deform::Mode m)
+{
+    switch (m)
+    {
+        case deform::Mode::Move: return "move";
+        case deform::Mode::Grow: return "grow";
+        case deform::Mode::Shrink: return "shrink";
+        case deform::Mode::SwirlCw: return "swirl_cw";
+        case deform::Mode::SwirlCcw: return "swirl_ccw";
+    }
+    return "move";
+}
+
+static int l_ansl_deform_apply_dab(lua_State* L)
+{
+    // Signature:
+    //   ansl.deform.apply_dab(layer, canvas, argsTable) -> rectOrNil
+    LayerBinding* lb = CheckLayer(L, 1);
+    CanvasBinding* cb = CheckCanvas(L, 2);
+    if (!lb || !lb->canvas || !cb || !cb->canvas)
+        return luaL_error(L, "Invalid layer/canvas binding");
+    if (lb->canvas != cb->canvas)
+        return luaL_error(L, "Layer/canvas mismatch");
+
+    luaL_checktype(L, 3, LUA_TTABLE);
+
+    deform::ApplyDabArgs args;
+
+    // x, y
+    lua_getfield(L, 3, "x");
+    args.x = (float)luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+    lua_getfield(L, 3, "y");
+    args.y = (float)luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+
+    // prev_x, prev_y (optional)
+    lua_getfield(L, 3, "prev_x");
+    if (!lua_isnil(L, -1)) args.prev_x = (float)luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+    lua_getfield(L, 3, "prev_y");
+    if (!lua_isnil(L, -1)) args.prev_y = (float)luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+
+    // size
+    lua_getfield(L, 3, "size");
+    if (!lua_isnil(L, -1)) args.size = std::clamp((int)luaL_checkinteger(L, -1), 1, 61);
+    lua_pop(L, 1);
+
+    // hardness (0..1 or 0..100)
+    lua_getfield(L, 3, "hardness");
+    if (!lua_isnil(L, -1))
+    {
+        float h = (float)luaL_checknumber(L, -1);
+        if (h > 1.0f) h = h / 100.0f;
+        args.hardness = std::clamp(h, 0.0f, 1.0f);
+    }
+    lua_pop(L, 1);
+
+    // strength (0..1)
+    lua_getfield(L, 3, "strength");
+    if (!lua_isnil(L, -1))
+        args.strength = std::clamp((float)luaL_checknumber(L, -1), 0.0f, 1.0f);
+    lua_pop(L, 1);
+
+    // amount (optional)
+    lua_getfield(L, 3, "amount");
+    if (!lua_isnil(L, -1))
+        args.amount = (float)luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+
+    // mode
+    lua_getfield(L, 3, "mode");
+    if (lua_isstring(L, -1))
+        args.mode = ParseDeformMode(LuaToString(L, -1));
+    lua_pop(L, 1);
+
+    // sample
+    lua_getfield(L, 3, "sample");
+    if (lua_isstring(L, -1))
+        args.sample = ParseDeformSample(LuaToString(L, -1));
+    lua_pop(L, 1);
+
+    // scope (selection behavior)
+    lua_getfield(L, 3, "scope");
+    std::string scope = lua_isstring(L, -1) ? LuaToString(L, -1) : std::string{};
+    lua_pop(L, 1);
+    if (scope.empty())
+        scope = "selection_if_any";
+
+    if (scope == "selection_only")
+    {
+        if (!cb->canvas->HasSelection())
+        {
+            lua_pushnil(L);
+            return 1;
+        }
+        args.clip = cb->canvas->GetSelectionRect();
+    }
+    else if (scope == "selection_if_any")
+    {
+        if (cb->canvas->HasSelection())
+            args.clip = cb->canvas->GetSelectionRect();
+    }
+    else
+    {
+        // full_canvas -> leave clip empty (engine will use full bounds)
+    }
+
+    // hysteresis (0..1)
+    lua_getfield(L, 3, "hysteresis");
+    if (!lua_isnil(L, -1))
+        args.hysteresis = std::clamp((float)luaL_checknumber(L, -1), 0.0f, 1.0f);
+    lua_pop(L, 1);
+
+    // palette restriction: args.palette = { idx, ... }
+    std::vector<int> palette_xterm;
+    lua_getfield(L, 3, "palette");
+    if (lua_istable(L, -1))
+    {
+        const int n = LuaArrayLen(L, -1);
+        palette_xterm.reserve((size_t)n);
+        for (int i = 1; i <= n; ++i)
+        {
+            lua_rawgeti(L, -1, i);
+            if (lua_isnumber(L, -1))
+            {
+                const int idx = (int)lua_tointeger(L, -1);
+                if (idx >= 0 && idx <= 255)
+                    palette_xterm.push_back(idx);
+            }
+            lua_pop(L, 1);
+        }
+        if (!palette_xterm.empty())
+            args.palette_xterm = &palette_xterm;
+    }
+    lua_pop(L, 1); // palette
+
+    // glyphCandidates: args.glyphCandidates = { cp, ... } (codepoints)
+    args.glyph_set.kind = deform::GlyphSetKind::ExplicitList;
+    args.glyph_set.explicit_codepoints.clear();
+    lua_getfield(L, 3, "glyphCandidates");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        lua_getfield(L, 3, "glyph_candidates"); // alt name
+    }
+    if (lua_istable(L, -1))
+    {
+        const int n = LuaArrayLen(L, -1);
+        args.glyph_set.explicit_codepoints.reserve((size_t)n);
+        for (int i = 1; i <= n; ++i)
+        {
+            lua_rawgeti(L, -1, i);
+            if (lua_isnumber(L, -1))
+            {
+                lua_Integer v = lua_tointeger(L, -1);
+                if (v > 0 && v <= 0x10FFFF)
+                    args.glyph_set.explicit_codepoints.push_back((char32_t)v);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1); // glyphCandidates / glyph_candidates / non-table
+
+    deform::DeformEngine eng;
+    std::string derr;
+    const deform::ApplyDabResult r = eng.ApplyDab(*cb->canvas, lb->layer_index, args, derr);
+    if (!derr.empty())
+        return luaL_error(L, "deform.apply_dab failed: %s", derr.c_str());
+
+    // Debug overlay: show affected rect + candidate count for tuning.
+    {
+        char buf[192];
+        std::snprintf(buf, sizeof(buf),
+                      "deform:%s  %dx%d @(%d,%d)  cand:%d",
+                      DeformModeName(args.mode),
+                      r.affected.w, r.affected.h, r.affected.x, r.affected.y,
+                      r.candidate_glyphs);
+        cb->canvas->SetToolDebugOverlay(r.affected, buf);
+    }
+
+    if (!r.changed)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_createtable(L, 0, 4);
+    lua_pushinteger(L, r.affected.x); lua_setfield(L, -2, "x0");
+    lua_pushinteger(L, r.affected.y); lua_setfield(L, -2, "y0");
+    lua_pushinteger(L, r.affected.w); lua_setfield(L, -2, "w");
+    lua_pushinteger(L, r.affected.h); lua_setfield(L, -2, "h");
+    return 1;
 }
 
 static int l_canvas_hasSelection(lua_State* L)
@@ -975,6 +1188,23 @@ static bool EnsureAnslModule(lua_State* L, std::string& error)
         return false;
 
     // stack: ansl_module
+    // Attach Phosphor-specific tool extensions to the ansl module (keeps core logic in C++).
+    {
+        // ansl.deform = ansl.deform or {}
+        lua_getfield(L, -1, "deform");
+        if (!lua_istable(L, -1))
+        {
+            lua_pop(L, 1);
+            lua_newtable(L);
+            lua_pushvalue(L, -1);
+            lua_setfield(L, -3, "deform");
+        }
+
+        lua_pushcfunction(L, l_ansl_deform_apply_dab);
+        lua_setfield(L, -2, "apply_dab");
+        lua_pop(L, 1); // deform
+    }
+
     lua_pushvalue(L, -1);
     lua_setglobal(L, "ansl");
     lua_pop(L, 1);
@@ -1526,6 +1756,10 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
     // Active palette for tools (reused): ctx.palette = { 7, 0, ... } (xterm indices)
     lua_newtable(impl_->L);
     lua_setfield(impl_->L, -2, "palette");
+
+    // Candidate glyph set for tools (reused): ctx.glyphCandidates = { 0x2588, ... } (codepoints)
+    lua_newtable(impl_->L);
+    lua_setfield(impl_->L, -2, "glyphCandidates");
 
     // Tool glyph defaults (single-cell)
     lua_pushliteral(impl_->L, " ");
@@ -2114,6 +2348,31 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         }
     }
     lua_pop(L, 1); // palette
+
+    // Candidate glyphs: if host provided a list, expose it as ctx.glyphCandidates = { cp, ... }.
+    // We reuse the table to avoid churn: clear previous entries then write new ones.
+    lua_getfield(L, -1, "glyphCandidates");
+    if (lua_istable(L, -1))
+    {
+        const int old_n = LuaArrayLen(L, -1);
+        int out_i = 1;
+        if (frame_ctx.glyph_candidates)
+        {
+            for (std::uint32_t cp : *frame_ctx.glyph_candidates)
+            {
+                if (cp == 0)
+                    continue;
+                lua_pushinteger(L, (lua_Integer)cp);
+                lua_rawseti(L, -2, out_i++);
+            }
+        }
+        for (int i = out_i; i <= old_n; ++i)
+        {
+            lua_pushnil(L);
+            lua_rawseti(L, -2, i);
+        }
+    }
+    lua_pop(L, 1); // glyphCandidates
 
     // layer userdata
     PushLayerObject(L, &canvas, layer_index);

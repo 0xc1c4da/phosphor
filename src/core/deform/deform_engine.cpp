@@ -1,0 +1,684 @@
+#include "core/deform/deform_engine.h"
+
+#include "core/canvas_rasterizer.h"
+#include "core/deform/glyph_mask_cache.h"
+#include "core/xterm256_palette.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <unordered_set>
+
+namespace deform
+{
+namespace
+{
+static inline AnsiCanvas::Rect IntersectRects(const AnsiCanvas::Rect& a, const AnsiCanvas::Rect& b)
+{
+    const int ax0 = a.x;
+    const int ay0 = a.y;
+    const int ax1 = a.x + a.w;
+    const int ay1 = a.y + a.h;
+
+    const int bx0 = b.x;
+    const int by0 = b.y;
+    const int bx1 = b.x + b.w;
+    const int by1 = b.y + b.h;
+
+    const int x0 = std::max(ax0, bx0);
+    const int y0 = std::max(ay0, by0);
+    const int x1 = std::min(ax1, bx1);
+    const int y1 = std::min(ay1, by1);
+    const int w = x1 - x0;
+    const int h = y1 - y0;
+    if (w <= 0 || h <= 0)
+        return {};
+    return AnsiCanvas::Rect{x0, y0, w, h};
+}
+
+static inline AnsiCanvas::Rect ClampToCanvas(const AnsiCanvas& canvas, const AnsiCanvas::Rect& r)
+{
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    if (cols <= 0 || rows <= 0)
+        return {};
+    const AnsiCanvas::Rect bounds{0, 0, cols, rows};
+    return IntersectRects(r, bounds);
+}
+
+static inline AnsiCanvas::Rect DabBoundsCell(float cx, float cy, int size_cells)
+{
+    const int d = std::max(1, size_cells);
+    const float r = (float)d * 0.5f;
+    const int x0 = (int)std::floor(cx - r);
+    const int y0 = (int)std::floor(cy - r);
+    const int x1 = (int)std::ceil(cx + r);
+    const int y1 = (int)std::ceil(cy + r);
+    const int w = x1 - x0;
+    const int h = y1 - y0;
+    if (w <= 0 || h <= 0)
+        return {};
+    return AnsiCanvas::Rect{x0, y0, w, h};
+}
+
+static inline float Clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
+
+static inline float Smoothstep(float t)
+{
+    t = Clamp01(t);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static inline float FalloffFromDistance(float d01, float hardness01)
+{
+    // d01 is ellipse distance in [0..1] where 1 is boundary.
+    if (d01 >= 1.0f)
+        return 0.0f;
+    if (hardness01 >= 1.0f)
+        return 1.0f;
+
+    const float r = std::sqrt(std::max(0.0f, d01));
+    const float inner = std::clamp(hardness01, 0.0f, 1.0f);
+    if (r <= inner)
+        return 1.0f;
+    const float t = (r - inner) / std::max(1e-6f, (1.0f - inner));
+    return 1.0f - Smoothstep(t);
+}
+
+struct RgbaF
+{
+    float r = 0, g = 0, b = 0, a = 0;
+};
+
+static inline RgbaF BilinearSampleClamp(const std::vector<std::uint8_t>& src, int w, int h, float x, float y)
+{
+    if (w <= 0 || h <= 0 || src.size() < (size_t)w * (size_t)h * 4u)
+        return {};
+
+    x = std::clamp(x, 0.0f, (float)std::max(0, w - 1));
+    y = std::clamp(y, 0.0f, (float)std::max(0, h - 1));
+
+    const int x0 = (int)std::floor(x);
+    const int y0 = (int)std::floor(y);
+    const int x1 = std::min(x0 + 1, w - 1);
+    const int y1 = std::min(y0 + 1, h - 1);
+    const float fx = x - (float)x0;
+    const float fy = y - (float)y0;
+
+    auto load = [&](int ix, int iy) -> RgbaF {
+        const size_t i = ((size_t)iy * (size_t)w + (size_t)ix) * 4u;
+        return {
+            (float)src[i + 0] / 255.0f,
+            (float)src[i + 1] / 255.0f,
+            (float)src[i + 2] / 255.0f,
+            (float)src[i + 3] / 255.0f,
+        };
+    };
+
+    const RgbaF c00 = load(x0, y0);
+    const RgbaF c10 = load(x1, y0);
+    const RgbaF c01 = load(x0, y1);
+    const RgbaF c11 = load(x1, y1);
+
+    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
+    RgbaF cx0{lerp(c00.r, c10.r, fx), lerp(c00.g, c10.g, fx), lerp(c00.b, c10.b, fx), lerp(c00.a, c10.a, fx)};
+    RgbaF cx1{lerp(c01.r, c11.r, fx), lerp(c01.g, c11.g, fx), lerp(c01.b, c11.b, fx), lerp(c01.a, c11.a, fx)};
+    return {lerp(cx0.r, cx1.r, fy), lerp(cx0.g, cx1.g, fy), lerp(cx0.b, cx1.b, fy), lerp(cx0.a, cx1.a, fy)};
+}
+
+static inline void StoreRgba(const RgbaF& c, std::uint8_t* dst4)
+{
+    auto to_u8 = [](float v) -> std::uint8_t {
+        const int i = (int)std::lround((double)std::clamp(v, 0.0f, 1.0f) * 255.0);
+        return (std::uint8_t)std::clamp(i, 0, 255);
+    };
+    dst4[0] = to_u8(c.r);
+    dst4[1] = to_u8(c.g);
+    dst4[2] = to_u8(c.b);
+    dst4[3] = to_u8(c.a);
+}
+
+static inline int SnapToAllowedXtermIndex(std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::vector<int>* allowed)
+{
+    if (!allowed || allowed->empty())
+        return xterm256::NearestIndex(r, g, b);
+    int best = -1;
+    int best_d = 0;
+    for (int idx : *allowed)
+    {
+        if (idx < 0 || idx > 255)
+            continue;
+        const std::uint32_t c32 = xterm256::Color32ForIndex(idx);
+        const int rr = (int)((c32 >> 0) & 0xFF);
+        const int gg = (int)((c32 >> 8) & 0xFF);
+        const int bb = (int)((c32 >> 16) & 0xFF);
+        const int dr = rr - (int)r;
+        const int dg = gg - (int)g;
+        const int db = bb - (int)b;
+        const int d = dr * dr + dg * dg + db * db;
+        if (best < 0 || d < best_d)
+        {
+            best = idx;
+            best_d = d;
+        }
+    }
+    if (best < 0)
+        best = xterm256::NearestIndex(r, g, b);
+    return best;
+}
+
+static inline void AddAsciiCandidates(std::vector<char32_t>& out)
+{
+    for (char32_t cp = 32; cp <= 126; ++cp)
+        out.push_back(cp);
+}
+
+static inline void AddBasicBlockCandidates(std::vector<char32_t>& out)
+{
+    // Minimal set that tends to be stable for ANSI art.
+    out.push_back(U' ');
+    out.push_back(U'\u2588'); // full block
+    out.push_back(U'\u2593'); // dark shade
+    out.push_back(U'\u2592'); // medium shade
+    out.push_back(U'\u2591'); // light shade
+    out.push_back(U'\u2580'); // upper half block
+    out.push_back(U'\u2584'); // lower half block
+    out.push_back(U'\u258C'); // left half block
+    out.push_back(U'\u2590'); // right half block
+}
+} // namespace
+
+ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
+                                     int layer_index,
+                                     const ApplyDabArgs& args,
+                                     std::string& err) const
+{
+    err.clear();
+
+    if (layer_index < 0 || layer_index >= canvas.GetLayerCount())
+    {
+        err = "Invalid layer index.";
+        return {};
+    }
+
+    const int size_cells = std::max(1, args.size);
+    const AnsiCanvas::Rect dab = DabBoundsCell(args.x, args.y, size_cells);
+    if (dab.w <= 0 || dab.h <= 0)
+        return {};
+
+    // Default clip = full canvas bounds.
+    AnsiCanvas::Rect clip = args.clip;
+    if (clip.w <= 0 || clip.h <= 0)
+        clip = AnsiCanvas::Rect{0, 0, canvas.GetColumns(), canvas.GetRows()};
+
+    const AnsiCanvas::Rect clipped = IntersectRects(ClampToCanvas(canvas, dab), ClampToCanvas(canvas, clip));
+    if (clipped.w <= 0 || clipped.h <= 0)
+        return {};
+
+    // ---------------------------------------------------------------------
+    // Candidate glyph set = (explicit palette list, if provided) + (glyphs already on the canvas)
+    // ---------------------------------------------------------------------
+    std::vector<char32_t> candidates;
+    candidates.reserve(512);
+    switch (args.glyph_set.kind)
+    {
+        case GlyphSetKind::ExplicitList:
+            for (char32_t cp : args.glyph_set.explicit_codepoints)
+                if (cp != 0)
+                    candidates.push_back(cp);
+            break;
+        case GlyphSetKind::Ascii:
+            AddAsciiCandidates(candidates);
+            break;
+        case GlyphSetKind::BasicBlocks:
+            AddBasicBlockCandidates(candidates);
+            break;
+        case GlyphSetKind::FontAll:
+            // Not supported in v1 (too expensive for atlas fonts). Fall back to blocks.
+            AddBasicBlockCandidates(candidates);
+            break;
+    }
+
+    // Add glyphs already present on the canvas in the affected region.
+    {
+        std::unordered_set<char32_t> seen;
+        seen.reserve((size_t)clipped.w * (size_t)clipped.h);
+        // Preserve order: seed with existing candidates first.
+        for (char32_t cp : candidates)
+            if (cp != 0)
+                seen.insert(cp);
+
+        for (int row = clipped.y; row < clipped.y + clipped.h; ++row)
+        {
+            for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
+            {
+                char32_t cp = U' ';
+                AnsiCanvas::Color32 fg = 0, bg = 0;
+                AnsiCanvas::Attrs a = 0;
+                (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, a);
+                if (cp == 0)
+                    continue;
+                if (seen.insert(cp).second)
+                {
+                    if (candidates.size() < 512)
+                        candidates.push_back(cp);
+                }
+            }
+        }
+    }
+
+    // Always ensure space exists.
+    if (std::find(candidates.begin(), candidates.end(), U' ') == candidates.end())
+        candidates.insert(candidates.begin(), U' ');
+
+    // ---------------------------------------------------------------------
+    // Rasterize region to RGBA (with transparent unset backgrounds)
+    // ---------------------------------------------------------------------
+    canvas_rasterizer::Options ropt;
+    ropt.scale = 1;
+    ropt.transparent_unset_bg = true;
+
+    std::vector<std::uint8_t> src_rgba;
+    int src_w = 0;
+    int src_h = 0;
+    if (args.sample == Sample::Composite)
+    {
+        if (!canvas_rasterizer::RasterizeCompositeRegionToRgba32(canvas, clipped, src_rgba, src_w, src_h, err, ropt))
+            return {};
+    }
+    else
+    {
+        if (!canvas_rasterizer::RasterizeLayerRegionToRgba32(canvas, layer_index, clipped, src_rgba, src_w, src_h, err, ropt))
+            return {};
+    }
+
+    if (src_w <= 0 || src_h <= 0 || src_rgba.size() < (size_t)src_w * (size_t)src_h * 4u)
+    {
+        err = "Rasterization produced an empty buffer.";
+        return {};
+    }
+
+    const int cell_w_px = std::max(1, src_w / std::max(1, clipped.w));
+    const int cell_h_px = std::max(1, src_h / std::max(1, clipped.h));
+
+    // ---------------------------------------------------------------------
+    // Warp kernel (inverse-map + bilinear sample) in pixel space
+    // ---------------------------------------------------------------------
+    std::vector<std::uint8_t> dst_rgba = src_rgba; // start as identity copy
+
+    const float cx_px = (args.x - (float)clipped.x) * (float)cell_w_px;
+    const float cy_px = (args.y - (float)clipped.y) * (float)cell_h_px;
+    const float radius_cells = (float)size_cells * 0.5f;
+    const float rx = std::max(1.0f, radius_cells * (float)cell_w_px);
+    const float ry = std::max(1.0f, radius_cells * (float)cell_h_px);
+
+    const float hardness = Clamp01(args.hardness);
+    const float strength = Clamp01(args.strength);
+    const float amount = std::max(0.0f, args.amount);
+
+    const bool move_mode = (args.mode == Mode::Move);
+    if (move_mode && (!args.prev_x.has_value() || !args.prev_y.has_value()))
+    {
+        // Krita behavior: first move dab is a no-op (needs a previous point).
+        ApplyDabResult res;
+        res.changed = false;
+        res.affected = clipped;
+        return res;
+    }
+
+    const float dx_move_px = move_mode ? ((args.x - *args.prev_x) * (float)cell_w_px) : 0.0f;
+    const float dy_move_px = move_mode ? ((args.y - *args.prev_y) * (float)cell_h_px) : 0.0f;
+
+    constexpr float kTwoPi = 6.2831853071795864769f;
+    const float theta_max = kTwoPi * amount;
+
+    for (int y = 0; y < src_h; ++y)
+    {
+        for (int x = 0; x < src_w; ++x)
+        {
+            const float px = (float)x + 0.5f;
+            const float py = (float)y + 0.5f;
+            const float dx = px - cx_px;
+            const float dy = py - cy_px;
+            const float d01 = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+            if (d01 >= 1.0f)
+                continue;
+            const float w = FalloffFromDistance(d01, hardness) * strength;
+            if (w <= 0.0f)
+                continue;
+
+            float sx = px;
+            float sy = py;
+
+            switch (args.mode)
+            {
+                case Mode::Move:
+                {
+                    sx = px - dx_move_px * w;
+                    sy = py - dy_move_px * w;
+                } break;
+                case Mode::Grow:
+                case Mode::Shrink:
+                {
+                    const float sign = (args.mode == Mode::Grow) ? 1.0f : -1.0f;
+                    float s = 1.0f + sign * (w * amount);
+                    s = std::clamp(s, 0.25f, 4.0f);
+                    sx = cx_px + dx / s;
+                    sy = cy_px + dy / s;
+                } break;
+                case Mode::SwirlCw:
+                case Mode::SwirlCcw:
+                {
+                    const float sign = (args.mode == Mode::SwirlCw) ? 1.0f : -1.0f;
+                    const float theta = -sign * theta_max * w; // inverse rotation
+                    const float c = std::cos(theta);
+                    const float s = std::sin(theta);
+                    const float rdx = c * dx - s * dy;
+                    const float rdy = s * dx + c * dy;
+                    sx = cx_px + rdx;
+                    sy = cy_px + rdy;
+                } break;
+            }
+
+            // Convert back to pixel indices (sample expects pixel centers at +0.5).
+            const float sample_x = sx - 0.5f;
+            const float sample_y = sy - 0.5f;
+            const RgbaF samp = BilinearSampleClamp(src_rgba, src_w, src_h, sample_x, sample_y);
+            std::uint8_t* outp = &dst_rgba[((size_t)y * (size_t)src_w + (size_t)x) * 4u];
+            StoreRgba(samp, outp);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Quantize back to cells (attrs forced to 0; bg==0 supported early)
+    // ---------------------------------------------------------------------
+    thread_local GlyphMaskCache mask_cache;
+    std::string mask_err;
+
+    auto compute_error = [&](const std::vector<std::uint8_t>& target_mask, const GlyphMaskCache::Mask& gm) -> double {
+        const size_t n = (size_t)cell_w_px * (size_t)cell_h_px;
+        if (gm.a.size() < n || target_mask.size() < n)
+            return 1e30;
+        double e = 0.0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            const int t = (int)target_mask[i];
+            const int m = (int)gm.a[i];
+            const int d = t - m;
+            e += (double)d * (double)d;
+        }
+        return e;
+    };
+
+    ApplyDabResult res;
+    res.changed = false;
+    res.affected = clipped;
+    res.candidate_glyphs = (int)candidates.size();
+
+    std::vector<std::uint8_t> target_mask;
+    target_mask.resize((size_t)cell_w_px * (size_t)cell_h_px);
+
+    for (int row = clipped.y; row < clipped.y + clipped.h; ++row)
+    {
+        for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
+        {
+            const int local_col = col - clipped.x;
+            const int local_row = row - clipped.y;
+            const int bx0 = local_col * cell_w_px;
+            const int by0 = local_row * cell_h_px;
+
+            // Gather alpha stats and (optionally) colors.
+            double sum_a = 0.0;
+            int max_a = 0;
+            int min_a = 255;
+            double sum_wr = 0.0, sum_wg = 0.0, sum_wb = 0.0;
+            double sum_w = 0.0;
+
+            for (int yy = 0; yy < cell_h_px; ++yy)
+            {
+                for (int xx = 0; xx < cell_w_px; ++xx)
+                {
+                    const int px = bx0 + xx;
+                    const int py = by0 + yy;
+                    const size_t i = ((size_t)py * (size_t)src_w + (size_t)px) * 4u;
+                    const int a8 = (int)dst_rgba[i + 3];
+                    max_a = std::max(max_a, a8);
+                    min_a = std::min(min_a, a8);
+                    sum_a += (double)a8;
+
+                    const double w = (double)a8 / 255.0;
+                    if (w > 0.0)
+                    {
+                        sum_wr += (double)dst_rgba[i + 0] * w;
+                        sum_wg += (double)dst_rgba[i + 1] * w;
+                        sum_wb += (double)dst_rgba[i + 2] * w;
+                        sum_w += w;
+                    }
+                }
+            }
+
+            const double avg_a = sum_a / (double)(cell_w_px * cell_h_px);
+            if (max_a < 8)
+            {
+                // Fully transparent => unset bg + space.
+                const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
+                AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+                AnsiCanvas::Attrs old_attrs = 0;
+                (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+                (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
+
+                const char32_t new_cp = U' ';
+                const AnsiCanvas::Color32 new_fg = 0;
+                const AnsiCanvas::Color32 new_bg = 0;
+                const AnsiCanvas::Attrs new_attrs = 0;
+                if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
+                {
+                    (void)canvas.SetLayerCell(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
+                    res.changed = true;
+                }
+                continue;
+            }
+
+            // Decide "transparent bg" vs "opaque bg" mode.
+            const bool prefer_unset_bg = (avg_a < 200.0); // mostly transparent => treat as bg=0
+
+            // Build target mask.
+            if (prefer_unset_bg)
+            {
+                // Target coverage = alpha.
+                for (int yy = 0; yy < cell_h_px; ++yy)
+                {
+                    for (int xx = 0; xx < cell_w_px; ++xx)
+                    {
+                        const int px = bx0 + xx;
+                        const int py = by0 + yy;
+                        const size_t i = ((size_t)py * (size_t)src_w + (size_t)px) * 4u;
+                        target_mask[(size_t)yy * (size_t)cell_w_px + (size_t)xx] = dst_rgba[i + 3];
+                    }
+                }
+            }
+            else
+            {
+                // Opaque-ish: derive a binary mask by comparing to a bg/fg guess via 2-means.
+                // We keep it simple but bounded (no more than a few iterations).
+                // Initialize centers from two samples.
+                int c0r = 0, c0g = 0, c0b = 0;
+                int c1r = 255, c1g = 255, c1b = 255;
+
+                // Pick two seeds: min/max luminance.
+                int best_lo = 1e9, best_hi = -1e9;
+                for (int yy = 0; yy < cell_h_px; ++yy)
+                {
+                    for (int xx = 0; xx < cell_w_px; ++xx)
+                    {
+                        const size_t i = ((size_t)(by0 + yy) * (size_t)src_w + (size_t)(bx0 + xx)) * 4u;
+                        const int r8 = (int)dst_rgba[i + 0];
+                        const int g8 = (int)dst_rgba[i + 1];
+                        const int b8 = (int)dst_rgba[i + 2];
+                        const int lum = r8 * 30 + g8 * 59 + b8 * 11;
+                        if (lum < best_lo)
+                        {
+                            best_lo = lum;
+                            c0r = r8; c0g = g8; c0b = b8;
+                        }
+                        if (lum > best_hi)
+                        {
+                            best_hi = lum;
+                            c1r = r8; c1g = g8; c1b = b8;
+                        }
+                    }
+                }
+
+                for (int iter = 0; iter < 3; ++iter)
+                {
+                    double s0r = 0, s0g = 0, s0b = 0, n0 = 0;
+                    double s1r = 0, s1g = 0, s1b = 0, n1 = 0;
+                    for (int yy = 0; yy < cell_h_px; ++yy)
+                    {
+                        for (int xx = 0; xx < cell_w_px; ++xx)
+                        {
+                            const size_t i = ((size_t)(by0 + yy) * (size_t)src_w + (size_t)(bx0 + xx)) * 4u;
+                            const int r8 = (int)dst_rgba[i + 0];
+                            const int g8 = (int)dst_rgba[i + 1];
+                            const int b8 = (int)dst_rgba[i + 2];
+                            const int d0 = (r8 - c0r) * (r8 - c0r) + (g8 - c0g) * (g8 - c0g) + (b8 - c0b) * (b8 - c0b);
+                            const int d1 = (r8 - c1r) * (r8 - c1r) + (g8 - c1g) * (g8 - c1g) + (b8 - c1b) * (b8 - c1b);
+                            if (d0 <= d1) { s0r += r8; s0g += g8; s0b += b8; n0 += 1; }
+                            else { s1r += r8; s1g += g8; s1b += b8; n1 += 1; }
+                        }
+                    }
+                    if (n0 > 0) { c0r = (int)std::lround(s0r / n0); c0g = (int)std::lround(s0g / n0); c0b = (int)std::lround(s0b / n0); }
+                    if (n1 > 0) { c1r = (int)std::lround(s1r / n1); c1g = (int)std::lround(s1g / n1); c1b = (int)std::lround(s1b / n1); }
+                }
+
+                // Snap centers to palette.
+                const int idx0 = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(c0r, 0, 255),
+                                                        (std::uint8_t)std::clamp(c0g, 0, 255),
+                                                        (std::uint8_t)std::clamp(c0b, 0, 255),
+                                                        args.palette_xterm);
+                const int idx1 = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(c1r, 0, 255),
+                                                        (std::uint8_t)std::clamp(c1g, 0, 255),
+                                                        (std::uint8_t)std::clamp(c1b, 0, 255),
+                                                        args.palette_xterm);
+                const std::uint32_t bg32 = xterm256::Color32ForIndex(idx0);
+                const std::uint32_t fg32 = xterm256::Color32ForIndex(idx1);
+                const int bgr = (int)((bg32 >> 0) & 0xFF), bgg = (int)((bg32 >> 8) & 0xFF), bgb = (int)((bg32 >> 16) & 0xFF);
+                const int fgr = (int)((fg32 >> 0) & 0xFF), fgg = (int)((fg32 >> 8) & 0xFF), fgb = (int)((fg32 >> 16) & 0xFF);
+
+                for (int yy = 0; yy < cell_h_px; ++yy)
+                {
+                    for (int xx = 0; xx < cell_w_px; ++xx)
+                    {
+                        const size_t i = ((size_t)(by0 + yy) * (size_t)src_w + (size_t)(bx0 + xx)) * 4u;
+                        const int r8 = (int)dst_rgba[i + 0];
+                        const int g8 = (int)dst_rgba[i + 1];
+                        const int b8 = (int)dst_rgba[i + 2];
+                        const int db = (r8 - bgr) * (r8 - bgr) + (g8 - bgg) * (g8 - bgg) + (b8 - bgb) * (b8 - bgb);
+                        const int df = (r8 - fgr) * (r8 - fgr) + (g8 - fgg) * (g8 - fgg) + (b8 - fgb) * (b8 - fgb);
+                        target_mask[(size_t)yy * (size_t)cell_w_px + (size_t)xx] = (df < db) ? 255u : 0u;
+                    }
+                }
+            }
+
+            // Choose glyph by mask correlation.
+            char32_t best_cp = U' ';
+            double best_err = 1e30;
+
+            for (char32_t cp : candidates)
+            {
+                GlyphMaskCache::Mask gm = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cp, mask_err);
+                const double e = compute_error(target_mask, gm);
+                if (e < best_err)
+                {
+                    best_err = e;
+                    best_cp = cp;
+                }
+            }
+
+            // Hysteresis: keep current glyph if it's close enough.
+            const char32_t cur_cp = canvas.GetLayerCell(layer_index, row, col);
+            if (args.hysteresis > 0.0f && std::find(candidates.begin(), candidates.end(), cur_cp) != candidates.end())
+            {
+                GlyphMaskCache::Mask gm_cur = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cur_cp, mask_err);
+                const double e_cur = compute_error(target_mask, gm_cur);
+                const double eps = (double)std::max(0.0f, args.hysteresis);
+                if (e_cur <= best_err * (1.0 + eps))
+                    best_cp = cur_cp;
+            }
+
+            // Pick colors.
+            AnsiCanvas::Color32 out_fg = 0;
+            AnsiCanvas::Color32 out_bg = 0;
+
+            if (prefer_unset_bg)
+            {
+                // bg remains unset; fg from alpha-weighted average.
+                if (sum_w > 0.0)
+                {
+                    const int r8 = (int)std::lround(sum_wr / sum_w);
+                    const int g8 = (int)std::lround(sum_wg / sum_w);
+                    const int b8 = (int)std::lround(sum_wb / sum_w);
+                    const int idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(r8, 0, 255),
+                                                           (std::uint8_t)std::clamp(g8, 0, 255),
+                                                           (std::uint8_t)std::clamp(b8, 0, 255),
+                                                           args.palette_xterm);
+                    out_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
+                }
+                out_bg = 0;
+                if (best_cp == U' ')
+                    out_fg = 0;
+            }
+            else
+            {
+                // Opaque: estimate two colors from extremes (cheap) and snap.
+                int lo_r = 255, lo_g = 255, lo_b = 255;
+                int hi_r = 0, hi_g = 0, hi_b = 0;
+                for (int yy = 0; yy < cell_h_px; ++yy)
+                {
+                    for (int xx = 0; xx < cell_w_px; ++xx)
+                    {
+                        const size_t i = ((size_t)(by0 + yy) * (size_t)src_w + (size_t)(bx0 + xx)) * 4u;
+                        const int r8 = (int)dst_rgba[i + 0];
+                        const int g8 = (int)dst_rgba[i + 1];
+                        const int b8 = (int)dst_rgba[i + 2];
+                        lo_r = std::min(lo_r, r8); lo_g = std::min(lo_g, g8); lo_b = std::min(lo_b, b8);
+                        hi_r = std::max(hi_r, r8); hi_g = std::max(hi_g, g8); hi_b = std::max(hi_b, b8);
+                    }
+                }
+                const int bg_idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(lo_r, 0, 255),
+                                                          (std::uint8_t)std::clamp(lo_g, 0, 255),
+                                                          (std::uint8_t)std::clamp(lo_b, 0, 255),
+                                                          args.palette_xterm);
+                const int fg_idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(hi_r, 0, 255),
+                                                          (std::uint8_t)std::clamp(hi_g, 0, 255),
+                                                          (std::uint8_t)std::clamp(hi_b, 0, 255),
+                                                          args.palette_xterm);
+                out_bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(bg_idx);
+                out_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(fg_idx);
+                if (best_cp == U' ')
+                    out_fg = 0;
+            }
+
+            // Force attrs=0 (stable).
+            const AnsiCanvas::Attrs out_attrs = 0;
+
+            // Apply if changed.
+            char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
+            AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+            AnsiCanvas::Attrs old_attrs = 0;
+            (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+            (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
+
+            if (old_cp != best_cp || old_fg != out_fg || old_bg != out_bg || old_attrs != out_attrs)
+            {
+                (void)canvas.SetLayerCell(layer_index, row, col, best_cp, out_fg, out_bg, out_attrs);
+                res.changed = true;
+            }
+        }
+    }
+
+    return res;
+}
+} // namespace deform
+
+

@@ -33,6 +33,8 @@ SOURCES  = \
            src/fonts/textmode_font.cpp \
            src/fonts/textmode_font_registry.cpp \
            src/core/canvas_rasterizer.cpp \
+           src/core/deform/deform_engine.cpp \
+           src/core/deform/glyph_mask_cache.cpp \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \
            src/core/paths.cpp \

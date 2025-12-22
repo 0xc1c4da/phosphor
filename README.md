@@ -4,7 +4,7 @@ Phospher is a modern Text Mode Art editor for modern (and old) terminals. It is 
 
 It focuses on practical workflows for ANSI art: layers, palettes, scripting, SAUCE metadata, import/export, and a full featured 16colo.rs browser.
 
-I'm writing this editor for myself, but other's may find it interesting. I welcome positive feedback, constructive criticism, feature requests & bug reports.
+I'm writing this editor for myself, but others may find it interesting. I welcome positive feedback, constructive criticism, feature requests & bug reports.
 
 ![Phosphor Screenshot](dist/phosphor.png)
 

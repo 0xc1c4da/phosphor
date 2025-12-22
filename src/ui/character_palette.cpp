@@ -423,6 +423,32 @@ bool CharacterPalette::TakeUserDoubleClicked(GlyphToken& out_glyph)
     return out_glyph.IsValid();
 }
 
+void CharacterPalette::CollectCandidateCodepoints(std::vector<uint32_t>& out, const AnsiCanvas* active_canvas) const
+{
+    out.clear();
+
+    // Embedded font source: return one PUA codepoint per glyph index.
+    if (source_ == Source::EmbeddedFont)
+    {
+        if (!active_canvas || !active_canvas->HasEmbeddedFont() || !active_canvas->GetEmbeddedFont())
+            return;
+        const int n = std::clamp(active_canvas->GetEmbeddedFont()->glyph_count, 0, 2048);
+        out.reserve((size_t)n);
+        for (int i = 0; i < n; ++i)
+            out.push_back((uint32_t)AnsiCanvas::kEmbeddedGlyphBase + (uint32_t)i);
+        return;
+    }
+
+    // JSON palettes: return first codepoint for each glyph in the selected palette.
+    if (palettes_.empty())
+        return;
+    const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
+    const auto& glyphs = palettes_[pi].glyphs;
+    out.reserve(glyphs.size());
+    for (const auto& g : glyphs)
+        out.push_back(g.first_cp);
+}
+
 bool CharacterPalette::Render(const char* window_title, bool* p_open,
                               SessionState* session, bool apply_placement_this_frame,
                               AnsiCanvas* active_canvas)

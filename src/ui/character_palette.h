@@ -71,6 +71,16 @@ public:
     // Returns true if the user double-clicked a glyph in the palette grid this frame.
     bool TakeUserDoubleClicked(GlyphToken& out_glyph);
 
+    // Collect candidate glyph codepoints from the currently active palette source.
+    //
+    // This is intended for tools that want to restrict glyph search space (e.g. deform quantization).
+    // Output codepoints are:
+    // - JSON source: first codepoint of each stored glyph (may include 0 for invalid/empty)
+    // - Embedded source: PUA codepoints (U+E000 + glyph_index), one per embedded glyph index
+    //
+    // `active_canvas` is only used for EmbeddedFont source; pass the current active canvas.
+    void CollectCandidateCodepoints(std::vector<uint32_t>& out, const AnsiCanvas* active_canvas = nullptr) const;
+
 private:
     void EnsureLoaded();
     void EnsureNonEmpty();

@@ -178,6 +178,13 @@ struct AnslFrameContext
     // Host owns the vector; valid only for the duration of RunFrame().
     const std::vector<int>* palette_xterm = nullptr;
 
+    // Optional glyph candidate list provided by the host (Unicode scalar values).
+    // Intended to constrain expensive glyph searches (e.g. deform quantization) to a small set
+    // such as the Character Palette + glyphs already used on the canvas.
+    //
+    // Host owns the vector; valid only for the duration of RunFrame().
+    const std::vector<std::uint32_t>* glyph_candidates = nullptr;
+
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;
 };

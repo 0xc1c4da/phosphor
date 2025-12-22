@@ -1,0 +1,99 @@
+#pragma once
+
+#include "core/canvas.h"
+
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace deform
+{
+enum class Mode : std::uint8_t
+{
+    Move = 0,
+    Grow,
+    Shrink,
+    SwirlCw,
+    SwirlCcw,
+};
+
+enum class Sample : std::uint8_t
+{
+    Layer = 0,
+    Composite,
+};
+
+enum class GlyphSetKind : std::uint8_t
+{
+    FontAll = 0,    // use all glyphs available in the current font (bitmap fonts: 256/512)
+    Ascii,          // printable ASCII
+    BasicBlocks,    // space + common block elements
+    ExplicitList,   // use explicit_codepoints
+};
+
+struct GlyphSet
+{
+    GlyphSetKind kind = GlyphSetKind::BasicBlocks;
+    std::vector<char32_t> explicit_codepoints; // used when kind == ExplicitList
+};
+
+struct ApplyDabArgs
+{
+    // Center in canvas cell coordinates.
+    float x = 0.0f;
+    float y = 0.0f;
+
+    // Previous center (required for Move).
+    std::optional<float> prev_x;
+    std::optional<float> prev_y;
+
+    // Brush diameter in cells (>=1).
+    int size = 1;
+
+    // 0..1
+    float hardness = 0.8f;
+    float strength = 1.0f;
+
+    // Behavior.
+    Mode mode = Mode::Move;
+    // Optional additional intensity knob (meaning depends on mode):
+    // - Swirl: scales theta_max
+    // - Grow/Shrink: scales the signed scale factor
+    float amount = 1.0f;
+    Sample sample = Sample::Layer;
+
+    // Clip region in *cell* coordinates. If empty (w/h <= 0), the engine will use full canvas bounds.
+    AnsiCanvas::Rect clip = {};
+
+    // Optional palette restriction (xterm-256 indices).
+    // If provided, color snapping should choose from these.
+    const std::vector<int>* palette_xterm = nullptr;
+
+    // Candidate glyph set.
+    GlyphSet glyph_set = {};
+
+    // Stability: if > 0, prefer keeping the existing glyph when it is "close enough".
+    float hysteresis = 0.0f;
+};
+
+struct ApplyDabResult
+{
+    bool changed = false;
+    // Affected region in cell coordinates (for minimal redraw).
+    AnsiCanvas::Rect affected = {};
+    // Debug/perf: number of candidate glyphs considered by the quantizer.
+    int candidate_glyphs = 0;
+};
+
+// Stateless v1 engine. Heavy work will be implemented in the .cpp (rasterize -> warp -> quantize).
+class DeformEngine
+{
+public:
+    ApplyDabResult ApplyDab(AnsiCanvas& canvas,
+                            int layer_index,
+                            const ApplyDabArgs& args,
+                            std::string& err) const;
+};
+} // namespace deform
+
+

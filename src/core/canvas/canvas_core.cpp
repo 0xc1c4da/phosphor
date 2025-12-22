@@ -98,6 +98,24 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
     return true;
 }
 
+void AnsiCanvas::SetToolDebugOverlay(const Rect& cell_rect, const char* label)
+{
+    m_tool_debug_overlay.active = true;
+    m_tool_debug_overlay.rect = cell_rect;
+    m_tool_debug_overlay.label[0] = '\0';
+    if (label && *label)
+    {
+        std::snprintf(m_tool_debug_overlay.label, sizeof(m_tool_debug_overlay.label), "%s", label);
+    }
+}
+
+void AnsiCanvas::ClearToolDebugOverlay()
+{
+    m_tool_debug_overlay.active = false;
+    m_tool_debug_overlay.rect = Rect{};
+    m_tool_debug_overlay.label[0] = '\0';
+}
+
 // ---- end inlined from canvas_core.inc ----
 
 

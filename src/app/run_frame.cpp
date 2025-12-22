@@ -1621,6 +1621,7 @@ void RunFrame(AppState& st)
 
             AnslFrameContext ctx;
             std::vector<int> palette_xterm;
+            std::vector<std::uint32_t> glyph_candidates;
             std::vector<ToolCommand> commands;
             ToolCommandSink cmd_sink;
             cmd_sink.allow_tool_commands = true;
@@ -1638,6 +1639,7 @@ void RunFrame(AppState& st)
             ctx.glyph_cp = (int)tool_brush_cp;
             ctx.attrs = tool_attrs_mask;
             ctx.palette_xterm = nullptr;
+            ctx.glyph_candidates = nullptr;
             ctx.allow_caret_writeback = true;
             // Multi-cell brush stamp (optional; provided by the canvas).
             AnslFrameContext::BrushStamp stamp;
@@ -1693,6 +1695,14 @@ void RunFrame(AppState& st)
                 if (!palette_xterm.empty())
                     ctx.palette_xterm = &palette_xterm;
             }
+
+            // Candidate glyph set: limit expensive glyph-search tools (e.g. deform quantization)
+            // to the Character Palette + whatever glyphs already exist on the canvas.
+            // The canvas-glyph portion is collected by the native tool, but the UI palette portion
+            // must come from the host (CharacterPalette).
+            character_palette.CollectCandidateCodepoints(glyph_candidates, &c);
+            if (!glyph_candidates.empty())
+                ctx.glyph_candidates = &glyph_candidates;
 
             int cx = 0, cy = 0, half_y = 0, px = 0, py = 0, phalf_y = 0;
             bool l = false, r = false, pl = false, pr = false;

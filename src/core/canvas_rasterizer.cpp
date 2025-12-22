@@ -64,21 +64,53 @@ static inline void BlendOver(ImU32& dst, ImU32 src)
 }
 } // namespace
 
-bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
-                               int& out_w,
-                               int& out_h,
-                               std::string& err,
-                               const Options& opt)
+namespace
+{
+static inline AnsiCanvas::Rect ClampCellRectToCanvas(const AnsiCanvas& canvas, const AnsiCanvas::Rect& in)
+{
+    AnsiCanvas::Rect r = in;
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    if (cols <= 0 || rows <= 0)
+        return {};
+
+    // Normalize negative sizes to empty.
+    if (r.w <= 0 || r.h <= 0)
+        return {};
+
+    // Intersect [x, x+w) x [y, y+h) with canvas bounds.
+    const int x0 = std::clamp(r.x, 0, cols);
+    const int y0 = std::clamp(r.y, 0, rows);
+    const int x1 = std::clamp(r.x + r.w, 0, cols);
+    const int y1 = std::clamp(r.y + r.h, 0, rows);
+    const int w = x1 - x0;
+    const int h = y1 - y0;
+    if (w <= 0 || h <= 0)
+        return {};
+
+    r.x = x0;
+    r.y = y0;
+    r.w = w;
+    r.h = h;
+    return r;
+}
+
+// Shared helper for both "full" and "region" rasterization.
+static bool ComputeRasterSizeImpl(const AnsiCanvas& canvas,
+                                 const AnsiCanvas::Rect& cell_rect,
+                                 int& out_w,
+                                 int& out_h,
+                                 std::string& err,
+                                 const Options& opt)
 {
     err.clear();
     out_w = 0;
     out_h = 0;
 
-    const int cols = canvas.GetColumns();
-    const int rows = canvas.GetRows();
-    if (cols <= 0 || rows <= 0)
+    const AnsiCanvas::Rect r = ClampCellRectToCanvas(canvas, cell_rect);
+    if (r.w <= 0 || r.h <= 0)
     {
-        err = "Invalid canvas dimensions.";
+        err = "Empty raster region.";
         return false;
     }
 
@@ -121,8 +153,8 @@ bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
         cell_h = std::max(1, (int)std::lround((double)cell_h_f));
     }
 
-    out_w = cols * cell_w * scale;
-    out_h = rows * cell_h * scale;
+    out_w = r.w * cell_w * scale;
+    out_h = r.h * cell_h * scale;
     if (out_w <= 0 || out_h <= 0)
     {
         err = "Invalid output dimensions.";
@@ -131,17 +163,27 @@ bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
     return true;
 }
 
-bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
+template <typename GetCellFn>
+static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
+                               const AnsiCanvas::Rect& cell_rect,
                                std::vector<std::uint8_t>& out_rgba,
                                int& out_w,
                                int& out_h,
                                std::string& err,
-                               const Options& opt)
+                               const Options& opt,
+                               GetCellFn&& get_cell)
 {
     err.clear();
     out_rgba.clear();
     out_w = 0;
     out_h = 0;
+
+    const AnsiCanvas::Rect r = ClampCellRectToCanvas(canvas, cell_rect);
+    if (r.w <= 0 || r.h <= 0)
+    {
+        err = "Empty raster region.";
+        return false;
+    }
 
     const int cols = canvas.GetColumns();
     const int rows = canvas.GetRows();
@@ -223,8 +265,8 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
         }
     }
 
-    out_w = cols * cell_w * scale;
-    out_h = rows * cell_h * scale;
+    out_w = r.w * cell_w * scale;
+    out_h = r.h * cell_h * scale;
     if (out_w <= 0 || out_h <= 0)
     {
         err = "Invalid output dimensions.";
@@ -261,16 +303,16 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                 set_px(x, y, paper);
     }
 
-    // Rasterize per-cell.
-    for (int row = 0; row < rows; ++row)
+    // Rasterize per-cell (region).
+    for (int row = r.y; row < r.y + r.h; ++row)
     {
-        for (int col = 0; col < cols; ++col)
+        for (int col = r.x; col < r.x + r.w; ++col)
         {
             char32_t cp = U' ';
             AnsiCanvas::Color32 fg = 0;
             AnsiCanvas::Color32 bg = 0;
             AnsiCanvas::Attrs attrs = 0;
-            (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, attrs);
+            (void)get_cell(row, col, cp, fg, bg, attrs);
 
             ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
 
@@ -343,20 +385,22 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
             // Intensity (dim/bold) affects the foreground color.
             auto apply_mul = [&](ImU32 c, float mul) -> ImU32
             {
-                int r, g, b, a;
-                UnpackImGui(c, r, g, b, a);
-                r = (int)std::lround((double)r * (double)mul);
-                g = (int)std::lround((double)g * (double)mul);
-                b = (int)std::lround((double)b * (double)mul);
-                return PackImGui(r, g, b, a);
+                int rr, gg, bb, aa;
+                UnpackImGui(c, rr, gg, bb, aa);
+                rr = (int)std::lround((double)rr * (double)mul);
+                gg = (int)std::lround((double)gg * (double)mul);
+                bb = (int)std::lround((double)bb * (double)mul);
+                return PackImGui(rr, gg, bb, aa);
             };
             if ((attrs & AnsiCanvas::Attr_Dim) != 0)
                 fg_col = apply_mul(fg_col, 0.60f);
             if ((attrs & AnsiCanvas::Attr_Bold) != 0)
                 fg_col = apply_mul(fg_col, 1.25f);
 
-            const int cell_x0 = col * cell_w * scale;
-            const int cell_y0 = row * cell_h * scale;
+            const int out_col = col - r.x;
+            const int out_row = row - r.y;
+            const int cell_x0 = out_col * cell_w * scale;
+            const int cell_y0 = out_row * cell_h * scale;
 
             // Paint background for the cell (including transparent bg if requested).
             for (int yy = 0; yy < cell_h * scale; ++yy)
@@ -535,6 +579,102 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
     }
 
     return true;
+}
+} // namespace
+
+bool ComputeCompositeRasterSize(const AnsiCanvas& canvas,
+                               int& out_w,
+                               int& out_h,
+                               std::string& err,
+                               const Options& opt)
+{
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    return ComputeRasterSizeImpl(canvas, AnsiCanvas::Rect{0, 0, cols, rows}, out_w, out_h, err, opt);
+}
+
+bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
+                               std::vector<std::uint8_t>& out_rgba,
+                               int& out_w,
+                               int& out_h,
+                               std::string& err,
+                               const Options& opt)
+{
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    return RasterizeRegionImpl(canvas,
+                              AnsiCanvas::Rect{0, 0, cols, rows},
+                              out_rgba,
+                              out_w,
+                              out_h,
+                              err,
+                              opt,
+                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  return canvas.GetCompositeCellPublic(row, col, out_cp, out_fg, out_bg, out_attrs);
+                              });
+}
+
+bool ComputeCompositeRegionRasterSize(const AnsiCanvas& canvas,
+                                     const AnsiCanvas::Rect& cell_rect,
+                                     int& out_w,
+                                     int& out_h,
+                                     std::string& err,
+                                     const Options& opt)
+{
+    return ComputeRasterSizeImpl(canvas, cell_rect, out_w, out_h, err, opt);
+}
+
+bool RasterizeCompositeRegionToRgba32(const AnsiCanvas& canvas,
+                                     const AnsiCanvas::Rect& cell_rect,
+                                     std::vector<std::uint8_t>& out_rgba,
+                                     int& out_w,
+                                     int& out_h,
+                                     std::string& err,
+                                     const Options& opt)
+{
+    return RasterizeRegionImpl(canvas,
+                              cell_rect,
+                              out_rgba,
+                              out_w,
+                              out_h,
+                              err,
+                              opt,
+                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  return canvas.GetCompositeCellPublic(row, col, out_cp, out_fg, out_bg, out_attrs);
+                              });
+}
+
+bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
+                                 int layer_index,
+                                 const AnsiCanvas::Rect& cell_rect,
+                                 std::vector<std::uint8_t>& out_rgba,
+                                 int& out_w,
+                                 int& out_h,
+                                 std::string& err,
+                                 const Options& opt)
+{
+    if (layer_index < 0 || layer_index >= canvas.GetLayerCount())
+    {
+        err = "Invalid layer index.";
+        out_rgba.clear();
+        out_w = 0;
+        out_h = 0;
+        return false;
+    }
+
+    return RasterizeRegionImpl(canvas,
+                              cell_rect,
+                              out_rgba,
+                              out_w,
+                              out_h,
+                              err,
+                              opt,
+                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  out_cp = canvas.GetLayerCell(layer_index, row, col);
+                                  (void)canvas.GetLayerCellColors(layer_index, row, col, out_fg, out_bg);
+                                  (void)canvas.GetLayerCellAttrs(layer_index, row, col, out_attrs);
+                                  return true;
+                              });
 }
 } // namespace canvas_rasterizer
 

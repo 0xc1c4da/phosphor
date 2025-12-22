@@ -806,6 +806,41 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
     }
 }
 
+void AnsiCanvas::DrawToolDebugOverlay(ImDrawList* draw_list,
+                                      const ImVec2& origin,
+                                      float cell_w,
+                                      float cell_h,
+                                      float font_size)
+{
+    if (!draw_list || !m_tool_debug_overlay.active)
+        return;
+    if (m_tool_debug_overlay.rect.w <= 0 || m_tool_debug_overlay.rect.h <= 0)
+        return;
+
+    const int x0 = m_tool_debug_overlay.rect.x;
+    const int y0 = m_tool_debug_overlay.rect.y;
+    const int x1 = x0 + m_tool_debug_overlay.rect.w;
+    const int y1 = y0 + m_tool_debug_overlay.rect.h;
+
+    ImVec2 p0(origin.x + (float)x0 * cell_w, origin.y + (float)y0 * cell_h);
+    ImVec2 p1(origin.x + (float)x1 * cell_w, origin.y + (float)y1 * cell_h);
+    p0.x = std::floor(p0.x) + 0.5f;
+    p0.y = std::floor(p0.y) + 0.5f;
+    p1.x = std::floor(p1.x) - 0.5f;
+    p1.y = std::floor(p1.y) - 0.5f;
+
+    const ImU32 col = ImGui::GetColorU32(ImVec4(1.0f, 0.25f, 0.85f, 0.85f));
+    draw_list->AddRect(p0, p1, col, 0.0f, 0, 2.0f);
+
+    if (m_tool_debug_overlay.label[0] != '\0')
+    {
+        // Put label slightly inside the rect, clamped to avoid negative coords.
+        const ImVec2 tp(std::floor(p0.x + 4.0f), std::floor(p0.y + 2.0f));
+        const ImU32 text_col = ImGui::GetColorU32(ImVec4(1.0f, 0.75f, 0.95f, 0.95f));
+        draw_list->AddText(ImGui::GetFont(), font_size, tp, text_col, m_tool_debug_overlay.label, nullptr);
+    }
+}
+
 void AnsiCanvas::Render(const char* id)
 {
     Render(id, {});
@@ -821,6 +856,10 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         return;
 
     EnsureDocument();
+
+    // Tool debug overlay is transient: cleared each frame, tools may set it during their run.
+    m_tool_debug_overlay.active = false;
+    m_tool_debug_overlay.label[0] = '\0';
 
     // Zoom stabilization:
     // Track whether zoom changed recently, and keep layout decisions stable for a few frames.
@@ -1462,6 +1501,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     DrawMirrorAxisOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
     DrawActiveLayerBoundsOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h);
     DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+    DrawToolDebugOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
     // caret auto-scroll or scroll requests are reflected.
