@@ -10,11 +10,11 @@ settings = {
     transparent = { type = "bool", label = "Transparent", ui = "toggle", section = "Stamp", primary = true, order = 2, inline = true, default = true },
 
     -- Compact "Apply BG brush/current" style rows:
-    useBg = { type = "bool", label = "Apply BG", ui = "toggle", section = "Color", primary = true, order = 10, default = true },
-    bgSource = { type = "enum", label = "", ui = "segmented", section = "Color", primary = true, order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Color", primary = true, order = 10, default = true },
+    bgSource = { type = "enum", label = "Source", ui = "segmented", section = "Color", primary = true, order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
 
-    useFg = { type = "bool", label = "Apply FG", ui = "toggle", section = "Color", primary = true, order = 12, default = true },
-    fgSource = { type = "enum", label = "", ui = "segmented", section = "Color", primary = true, order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Color", primary = true, order = 12, default = true },
+    fgSource = { type = "enum", label = "Source", ui = "segmented", section = "Color", primary = true, order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
   },
 }
 

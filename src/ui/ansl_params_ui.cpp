@@ -82,7 +82,14 @@ static bool RenderEnumSegmented(const char* label,
 
 static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engine, bool compact)
 {
-    const char* label = spec.label.empty() ? spec.key.c_str() : spec.label.c_str();
+    // In compact mode, enforce consistent labels for common cross-tool toggles.
+    // Many tools use verbose labels ("Fallback: Use FG") which makes the compact row inconsistent.
+    const bool is_use_fg = (spec.key == "useFg");
+    const bool is_use_bg = (spec.key == "useBg");
+    const char* label =
+        (compact && is_use_fg) ? "FG" :
+        (compact && is_use_bg) ? "BG" :
+        (spec.label.empty() ? spec.key.c_str() : spec.label.c_str());
     const std::string ui = ToLower(spec.ui);
     bool changed = false;
 
@@ -153,13 +160,44 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
 
             const bool has_range = (spec.int_min != spec.int_max);
             const bool want_slider = (ui == "slider") || (has_range && ui != "drag");
-            if (has_range && want_slider)
+            if (compact)
             {
+                // Compact: force label on the left for consistent tool bars (avoid SliderInt label-on-right).
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(label);
+                ImGui::SameLine();
+                if (spec.width > 0.0f)
+                    ImGui::SetNextItemWidth(spec.width);
+                else
+                    ImGui::SetNextItemWidth(180.0f);
+
                 int v2 = v;
-                if (ImGui::SliderInt(label, &v2, spec.int_min, spec.int_max))
+                const char* wid = "##int";
+                bool edited = false;
+                if (has_range && want_slider)
+                    edited = ImGui::SliderInt(wid, &v2, spec.int_min, spec.int_max);
+                else
+                    edited = ImGui::DragInt(wid, &v2, (float)std::max(1, spec.int_step));
+
+                if (edited)
                 {
                     // Quantize to step.
                     const int step = std::max(1, spec.int_step);
+                    if (has_range && step > 1)
+                        v2 = spec.int_min + ((v2 - spec.int_min) / step) * step;
+                    engine.SetParamInt(spec.key, v2);
+                    changed = true;
+                }
+            }
+            else
+            {
+                if (has_range && want_slider)
+                {
+                    int v2 = v;
+                    if (ImGui::SliderInt(label, &v2, spec.int_min, spec.int_max))
+                    {
+                        // Quantize to step.
+                        const int step = std::max(1, spec.int_step);
                     if (step > 1)
                         v2 = spec.int_min + ((v2 - spec.int_min) / step) * step;
                     engine.SetParamInt(spec.key, v2);
@@ -173,6 +211,7 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 {
                     engine.SetParamInt(spec.key, v2);
                     changed = true;
+                    }
                 }
             }
             break;
@@ -185,9 +224,36 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
 
             const bool has_range = (spec.float_min != spec.float_max);
             const bool want_slider = (ui == "slider") || (has_range && ui != "drag");
-            if (has_range && want_slider)
+            if (compact)
             {
+                // Compact: force label on the left for consistent tool bars (avoid SliderFloat label-on-right).
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(label);
+                ImGui::SameLine();
+                if (spec.width > 0.0f)
+                    ImGui::SetNextItemWidth(spec.width);
+                else
+                    ImGui::SetNextItemWidth(180.0f);
+
                 float v2 = v;
+                const char* wid = "##float";
+                bool edited = false;
+                if (has_range && want_slider)
+                    edited = ImGui::SliderFloat(wid, &v2, spec.float_min, spec.float_max);
+                else
+                    edited = ImGui::DragFloat(wid, &v2, spec.float_step);
+
+                if (edited)
+                {
+                    engine.SetParamFloat(spec.key, v2);
+                    changed = true;
+                }
+            }
+            else
+            {
+                if (has_range && want_slider)
+                {
+                    float v2 = v;
                 if (ImGui::SliderFloat(label, &v2, spec.float_min, spec.float_max))
                 {
                     engine.SetParamFloat(spec.key, v2);
@@ -201,6 +267,7 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 {
                     engine.SetParamFloat(spec.key, v2);
                     changed = true;
+                    }
                 }
             }
             break;
@@ -213,8 +280,11 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
             if (spec.enum_items.empty())
                 return false;
 
+            // Fonts have huge enums; always prefer the searchable combo there.
+            const bool want_filter_combo = (ui == "combo_filter") || (spec.key == "font");
+
             const bool want_segmented =
-                (ui == "segmented") || (compact && ui != "combo" && (int)spec.enum_items.size() <= 6);
+                !want_filter_combo && ((ui == "segmented") || (compact && ui != "combo" && (int)spec.enum_items.size() <= 6));
 
             if (want_segmented)
             {
@@ -226,7 +296,7 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                     changed = true;
                 }
             }
-            else if (ui == "combo_filter")
+            else if (want_filter_combo)
             {
                 // Combo with inline filter field (useful for large enums like fonts).
                 // Keep filter state per-widget ID.
@@ -238,11 +308,16 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 const char* preview = cur.c_str();
                 if (ImGui::BeginCombo(label, preview, ImGuiComboFlags_HeightLarge))
                 {
-                    // Filter input
+                    // Filter input (make it obvious + auto-focus).
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted("Filter:");
+                    ImGui::SameLine();
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     char buf[256] = {};
                     if (!f.empty())
                         std::snprintf(buf, sizeof(buf), "%s", f.c_str());
+                    if (ImGui::IsWindowAppearing())
+                        ImGui::SetKeyboardFocusHere();
                     if (ImGui::InputTextWithHint("##filter", "type to filter…", buf, sizeof(buf)))
                         f = buf;
                     ImGui::Separator();
@@ -308,10 +383,53 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
     return changed;
 }
 
-bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
+static bool IsSkippedKey(const AnslParamSpec& s, const AnslParamsUISkipList* skip)
+{
+    if (!skip || !skip->keys || skip->count <= 0)
+        return false;
+    for (int i = 0; i < skip->count; ++i)
+    {
+        const char* k = skip->keys[i];
+        if (!k || !*k)
+            continue;
+        if (s.key == k)
+            return true;
+    }
+    return false;
+}
+
+bool RenderAnslParamByKey(const char* id, AnslScriptEngine& engine, const char* key, bool compact)
+{
+    if (!key || !*key)
+        return false;
+    if (!engine.HasParams())
+        return false;
+
+    const auto& specs = engine.GetParamSpecs();
+    const AnslParamSpec* found = nullptr;
+    for (const auto& s : specs)
+    {
+        if (s.key == key)
+        {
+            found = &s;
+            break;
+        }
+    }
+    if (!found)
+        return false;
+
+    ImGui::PushID(id ? id : "ansl_param_by_key");
+    ImGui::PushID(key);
+    const bool changed = RenderParamControl(*found, engine, compact);
+    ImGui::PopID();
+    ImGui::PopID();
+    return changed;
+}
+
+bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip)
 {
     if (!id)
-        id = "ansl_params";
+        id = "ansl_params_primary";
 
     ImGui::PushID(id);
     bool changed = false;
@@ -327,7 +445,7 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
     // Primary bar (compact): show "primary" params first.
     bool any_primary = false;
     for (const auto& s : specs)
-        any_primary = any_primary || s.primary;
+        any_primary = any_primary || (s.primary && !IsSkippedKey(s, skip));
 
     if (any_primary)
     {
@@ -335,6 +453,8 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
         for (const auto& s : specs)
         {
             if (!s.primary)
+                continue;
+            if (IsSkippedKey(s, skip))
                 continue;
 
             if (have_prev_inline && s.inline_with_prev)
@@ -346,19 +466,36 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
         }
     }
 
-    // Advanced params live under a single collapsible "More…" section to keep the window compact.
+    ImGui::PopID();
+    return changed;
+}
+
+bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip)
+{
+    if (!id)
+        id = "ansl_params_advanced";
+
+    ImGui::PushID(id);
+    bool changed = false;
+
+    if (!engine.HasParams())
+    {
+        ImGui::TextDisabled("No parameters.");
+        ImGui::PopID();
+        return false;
+    }
+
+    const auto& specs = engine.GetParamSpecs();
     bool any_advanced = false;
     for (const auto& s : specs)
-        any_advanced = any_advanced || !s.primary;
+        any_advanced = any_advanced || (!s.primary && !IsSkippedKey(s, skip));
 
-    if (any_advanced)
+    if (!any_advanced)
     {
-        if (any_primary)
-            ImGui::Separator();
+        ImGui::PopID();
+        return false;
+    }
 
-        const ImGuiTreeNodeFlags more_flags = any_primary ? ImGuiTreeNodeFlags_None : ImGuiTreeNodeFlags_DefaultOpen;
-        if (ImGui::CollapsingHeader("More…", more_flags))
-        {
             std::string cur_section;
             bool section_open = false;
             bool have_prev_inline = false;
@@ -366,6 +503,8 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
             {
                 if (s.primary)
                     continue;
+        if (IsSkippedKey(s, skip))
+            continue;
 
                 const std::string sec = s.section.empty() ? "General" : s.section;
                 if (sec != cur_section)
@@ -385,6 +524,30 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine)
                 ImGui::PopID();
                 have_prev_inline = true;
             }
+
+    ImGui::PopID();
+    return changed;
+}
+
+bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip)
+{
+    if (!id)
+        id = "ansl_params";
+
+    ImGui::PushID(id);
+    bool changed = false;
+
+    changed = RenderAnslParamsUIPrimaryBar("##primary", engine, skip) || changed;
+    if (engine.HasParams())
+    {
+        // Only add a separator if advanced exists.
+        bool any_advanced = false;
+        for (const auto& s : engine.GetParamSpecs())
+            any_advanced = any_advanced || (!s.primary && !IsSkippedKey(s, skip));
+        if (any_advanced)
+        {
+            ImGui::Separator();
+            changed = RenderAnslParamsUIAdvanced("##advanced", engine, skip) || changed;
         }
     }
 
