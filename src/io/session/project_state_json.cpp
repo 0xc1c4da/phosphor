@@ -58,6 +58,82 @@ static std::uint32_t U24FromRgb8(const phos::color::Rgb8& c)
     return ((std::uint32_t)c.r << 16) | ((std::uint32_t)c.g << 8) | (std::uint32_t)c.b;
 }
 
+static bool ParseIndexPlaneFromJson(const json& arr,
+                                   std::vector<AnsiCanvas::ColorIndex16>& out,
+                                   const phos::color::PaletteRef& palette_ref,
+                                   int project_version,
+                                   std::string& err)
+{
+    err.clear();
+    out.clear();
+    if (!arr.is_array())
+        return true;
+
+    out.reserve(arr.size());
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(palette_ref))
+        pal = *id;
+    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    const std::uint16_t max_i = (p && !p->rgb.empty())
+                                  ? (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu)
+                                  : (std::uint16_t)0;
+
+    phos::color::QuantizePolicy qp;
+    for (const auto& v : arr)
+    {
+        if (!v.is_number_unsigned() && !v.is_number_integer())
+        {
+            err = "Color plane contains a non-integer value.";
+            return false;
+        }
+
+        if (v.is_number_integer())
+        {
+            const std::int64_t si = v.get<std::int64_t>();
+            if (si == -1)
+            {
+                out.push_back(AnsiCanvas::kUnsetIndex16);
+                continue;
+            }
+            if (si < -1)
+            {
+                err = "Color plane contains a negative value.";
+                return false;
+            }
+        }
+
+        const std::uint64_t u = v.get<std::uint64_t>();
+        if (u <= 0xFFFFu)
+        {
+            const std::uint16_t idx = (std::uint16_t)u;
+            if (idx == AnsiCanvas::kUnsetIndex16)
+                out.push_back(idx);
+            else
+                out.push_back((AnsiCanvas::ColorIndex16)std::clamp<std::uint16_t>(idx, 0, max_i));
+            continue;
+        }
+
+        // Legacy packed Color32 (<= v7): 0 meant "unset".
+        const std::uint32_t c32 = (std::uint32_t)u;
+        if (project_version <= 7 && c32 == 0)
+        {
+            out.push_back(AnsiCanvas::kUnsetIndex16);
+            continue;
+        }
+
+        const phos::color::ColorIndex qi = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, c32, qp);
+        if (qi.IsUnset())
+        {
+            out.push_back(AnsiCanvas::kUnsetIndex16);
+            continue;
+        }
+        out.push_back((AnsiCanvas::ColorIndex16)std::clamp<std::uint16_t>(qi.v, 0, max_i));
+    }
+
+    return true;
+}
+
 static json SauceMetaToJson(const AnsiCanvas::ProjectState::SauceMeta& s)
 {
     json js;
@@ -137,7 +213,11 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
     return jl;
 }
 
-static bool ProjectLayerFromJson(const json& jl, AnsiCanvas::ProjectLayer& out, std::string& err)
+static bool ProjectLayerFromJson(const json& jl,
+                                 AnsiCanvas::ProjectLayer& out,
+                                 const phos::color::PaletteRef& palette_ref,
+                                 int project_version,
+                                 std::string& err)
 {
     err.clear();
     if (!jl.is_object())
@@ -193,13 +273,19 @@ static bool ProjectLayerFromJson(const json& jl, AnsiCanvas::ProjectLayer& out, 
     out.fg.clear();
     out.bg.clear();
     if (jl.contains("fg") && jl["fg"].is_array())
-        out.fg = jl["fg"].get<std::vector<AnsiCanvas::Color32>>();
+    {
+        if (!ParseIndexPlaneFromJson(jl["fg"], out.fg, palette_ref, project_version, err))
+            return false;
+    }
     if (jl.contains("bg") && jl["bg"].is_array())
-        out.bg = jl["bg"].get<std::vector<AnsiCanvas::Color32>>();
+    {
+        if (!ParseIndexPlaneFromJson(jl["bg"], out.bg, palette_ref, project_version, err))
+            return false;
+    }
     if (jl.contains("attrs") && jl["attrs"].is_array())
         out.attrs = jl["attrs"].get<std::vector<AnsiCanvas::Attrs>>();
 
-    // If missing, AnsiCanvas::SetProjectState will default these to all-zero.
+    // If missing, AnsiCanvas::SetProjectState will default these to all-unset.
     return true;
 }
 
@@ -218,7 +304,11 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
     return js;
 }
 
-static bool ProjectSnapshotFromJson(const json& js, AnsiCanvas::ProjectSnapshot& out, std::string& err)
+static bool ProjectSnapshotFromJson(const json& js,
+                                    AnsiCanvas::ProjectSnapshot& out,
+                                    const phos::color::PaletteRef& palette_ref,
+                                    int project_version,
+                                    std::string& err)
 {
     err.clear();
     if (!js.is_object())
@@ -249,7 +339,7 @@ static bool ProjectSnapshotFromJson(const json& js, AnsiCanvas::ProjectSnapshot&
     for (const auto& jl : js["layers"])
     {
         AnsiCanvas::ProjectLayer pl;
-        if (!ProjectLayerFromJson(jl, pl, err))
+        if (!ProjectLayerFromJson(jl, pl, palette_ref, project_version, err))
             return false;
         out.layers.push_back(std::move(pl));
     }
@@ -312,7 +402,11 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
     return je;
 }
 
-static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectUndoEntry& out, std::string& err)
+static bool UndoEntryFromJson(const json& je,
+                              AnsiCanvas::ProjectState::ProjectUndoEntry& out,
+                              const phos::color::PaletteRef& palette_ref,
+                              int project_version,
+                              std::string& err)
 {
     err.clear();
     out = AnsiCanvas::ProjectState::ProjectUndoEntry{};
@@ -398,9 +492,15 @@ static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectU
                     pg.cells.push_back(static_cast<char32_t>(cp));
                 }
                 if (jp.contains("fg") && jp["fg"].is_array())
-                    pg.fg = jp["fg"].get<std::vector<AnsiCanvas::Color32>>();
+                {
+                    if (!ParseIndexPlaneFromJson(jp["fg"], pg.fg, palette_ref, project_version, err))
+                        return false;
+                }
                 if (jp.contains("bg") && jp["bg"].is_array())
-                    pg.bg = jp["bg"].get<std::vector<AnsiCanvas::Color32>>();
+                {
+                    if (!ParseIndexPlaneFromJson(jp["bg"], pg.bg, palette_ref, project_version, err))
+                        return false;
+                }
                 if (jp.contains("attrs") && jp["attrs"].is_array())
                     pg.attrs = jp["attrs"].get<std::vector<AnsiCanvas::Attrs>>();
                 p.pages.push_back(std::move(pg));
@@ -415,7 +515,7 @@ static bool UndoEntryFromJson(const json& je, AnsiCanvas::ProjectState::ProjectU
         err = "Undo snapshot entry missing 'snapshot'.";
         return false;
     }
-    return ProjectSnapshotFromJson(je["snapshot"], out.snapshot, err);
+    return ProjectSnapshotFromJson(je["snapshot"], out.snapshot, palette_ref, project_version, err);
 }
 
 json ToJson(const AnsiCanvas::ProjectState& st)
@@ -577,7 +677,7 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
         err = "Project missing 'current' snapshot.";
         return false;
     }
-    if (!ProjectSnapshotFromJson(j["current"], out.current, err))
+    if (!ProjectSnapshotFromJson(j["current"], out.current, out.palette_ref, out.version, err))
         return false;
 
     out.undo.clear();
@@ -592,14 +692,14 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
-                if (!ProjectSnapshotFromJson(s, e.snapshot, err))
+                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, out.version, err))
                     return false;
                 out.undo.push_back(std::move(e));
                 continue;
             }
 
             AnsiCanvas::ProjectState::ProjectUndoEntry e;
-            if (!UndoEntryFromJson(s, e, err))
+            if (!UndoEntryFromJson(s, e, out.palette_ref, out.version, err))
                 return false;
             out.undo.push_back(std::move(e));
         }
@@ -614,14 +714,14 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
-                if (!ProjectSnapshotFromJson(s, e.snapshot, err))
+                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, out.version, err))
                     return false;
                 out.redo.push_back(std::move(e));
                 continue;
             }
 
             AnsiCanvas::ProjectState::ProjectUndoEntry e;
-            if (!UndoEntryFromJson(s, e, err))
+            if (!UndoEntryFromJson(s, e, out.palette_ref, out.version, err))
                 return false;
             out.redo.push_back(std::move(e));
         }

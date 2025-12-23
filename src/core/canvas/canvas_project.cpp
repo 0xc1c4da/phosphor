@@ -99,7 +99,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 7;
+    out.version = 8;
     out.palette_ref = m_palette_ref;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
@@ -148,9 +148,9 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         }
 
         if (out.fg.empty())
-            out.fg.assign(out.cells.size(), 0);
+            out.fg.assign(out.cells.size(), kUnsetIndex16);
         if (out.bg.empty())
-            out.bg.assign(out.cells.size(), 0);
+            out.bg.assign(out.cells.size(), kUnsetIndex16);
         if (out.attrs.empty())
             out.attrs.assign(out.cells.size(), 0);
         return true;

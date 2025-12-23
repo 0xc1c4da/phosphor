@@ -26,8 +26,8 @@ struct GlobalClipboard
     int h = 0;
     // Stored per-cell (same dimensions): glyph + fg + bg. 0 colors mean "unset".
     std::vector<char32_t> cp;
-    std::vector<AnsiCanvas::Color32> fg;
-    std::vector<AnsiCanvas::Color32> bg;
+    std::vector<AnsiCanvas::ColorIndex16> fg;
+    std::vector<AnsiCanvas::ColorIndex16> bg;
     std::vector<AnsiCanvas::Attrs> attrs;
 };
 
@@ -159,8 +159,8 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
     g_clipboard.w = w;
     g_clipboard.h = h;
     g_clipboard.cp.assign(n, U' ');
-    g_clipboard.fg.assign(n, 0);
-    g_clipboard.bg.assign(n, 0);
+    g_clipboard.fg.assign(n, kUnsetIndex16);
+    g_clipboard.bg.assign(n, kUnsetIndex16);
     g_clipboard.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
@@ -211,8 +211,8 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
     g_clipboard.w = w;
     g_clipboard.h = h;
     g_clipboard.cp.assign(n, U' ');
-    g_clipboard.fg.assign(n, 0);
-    g_clipboard.bg.assign(n, 0);
+    g_clipboard.fg.assign(n, kUnsetIndex16);
+    g_clipboard.bg.assign(n, kUnsetIndex16);
     g_clipboard.attrs.assign(n, 0);
 
     for (int j = 0; j < h; ++j)
@@ -228,8 +228,8 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
 
             const CompositeCell c = GetCompositeCell(y, x);
             g_clipboard.cp[out] = c.cp;
-            g_clipboard.fg[out] = c.fg;
-            g_clipboard.bg[out] = c.bg;
+            g_clipboard.fg[out] = QuantizeColor32ToIndex(c.fg);
+            g_clipboard.bg[out] = QuantizeColor32ToIndex(c.bg);
             g_clipboard.attrs[out] = c.attrs;
         }
     }
@@ -291,8 +291,8 @@ bool AnsiCanvas::CaptureBrushFromSelection(Brush& out, int layer_index)
     out.w = w;
     out.h = h;
     out.cp.assign(n, U' ');
-    out.fg.assign(n, 0);
-    out.bg.assign(n, 0);
+    out.fg.assign(n, kUnsetIndex16);
+    out.bg.assign(n, kUnsetIndex16);
     out.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
@@ -342,8 +342,8 @@ bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
     out.w = w;
     out.h = h;
     out.cp.assign(n, U' ');
-    out.fg.assign(n, 0);
-    out.bg.assign(n, 0);
+    out.fg.assign(n, kUnsetIndex16);
+    out.bg.assign(n, kUnsetIndex16);
     out.attrs.assign(n, 0);
 
     for (int j = 0; j < h; ++j)
@@ -358,8 +358,8 @@ bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
 
             const CompositeCell c = GetCompositeCell(y, x);
             out.cp[out_idx] = c.cp;
-            out.fg[out_idx] = c.fg;
-            out.bg[out_idx] = c.bg;
+            out.fg[out_idx] = QuantizeColor32ToIndex(c.fg);
+            out.bg[out_idx] = QuantizeColor32ToIndex(c.bg);
             out.attrs[out_idx] = c.attrs;
         }
     return ValidateBrushInternal(out);
@@ -409,13 +409,13 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
             // If row is beyond current document, the old cell is implicitly transparent.
             const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-            const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-            const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+            const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const char32_t new_cp = U' ';
-            const Color32  new_fg = 0;
-            const Color32  new_bg = 0;
+            const ColorIndex16 new_fg = kUnsetIndex16;
+            const ColorIndex16 new_bg = kUnsetIndex16;
             const Attrs    new_attrs = 0;
 
             if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -509,13 +509,13 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
 
             const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : U' ';
-            const Color32  old_fg = (in_bounds && dst < layer.fg.size())    ? layer.fg[dst]    : 0;
-            const Color32  old_bg = (in_bounds && dst < layer.bg.size())    ? layer.bg[dst]    : 0;
+            const ColorIndex16 old_fg = (in_bounds && dst < layer.fg.size()) ? layer.fg[dst] : kUnsetIndex16;
+            const ColorIndex16 old_bg = (in_bounds && dst < layer.bg.size()) ? layer.bg[dst] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && dst < layer.attrs.size()) ? layer.attrs[dst] : 0;
 
             char32_t new_cp = old_cp;
-            Color32  new_fg = old_fg;
-            Color32  new_bg = old_bg;
+            ColorIndex16 new_fg = old_fg;
+            ColorIndex16 new_bg = old_bg;
             Attrs    new_attrs = old_attrs;
             if (mode == PasteMode::Both || mode == PasteMode::CharOnly)
                 new_cp = cp;
@@ -648,12 +648,12 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
 
                 const bool in_bounds = (lr < m_rows);
                 const char32_t old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : U' ';
-                const Color32  old_fg = (in_bounds && idx < mut.fg.size())    ? mut.fg[idx]    : 0;
-                const Color32  old_bg = (in_bounds && idx < mut.bg.size())    ? mut.bg[idx]    : 0;
+                const ColorIndex16 old_fg = (in_bounds && idx < mut.fg.size()) ? mut.fg[idx] : kUnsetIndex16;
+                const ColorIndex16 old_bg = (in_bounds && idx < mut.bg.size()) ? mut.bg[idx] : kUnsetIndex16;
                 const Attrs    old_attrs = (in_bounds && idx < mut.attrs.size()) ? mut.attrs[idx] : 0;
                 const char32_t new_cp = U' ';
-                const Color32  new_fg = 0;
-                const Color32  new_bg = 0;
+                const ColorIndex16 new_fg = kUnsetIndex16;
+                const ColorIndex16 new_bg = kUnsetIndex16;
                 const Attrs    new_attrs = 0;
 
                 if (!TransparencyTransitionAllowed(mut.lock_transparency,
@@ -745,13 +745,13 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
 
             const bool in_bounds = (lr < m_rows);
             const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-            const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-            const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+            const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const char32_t new_cp = src.cp;
-            const Color32  new_fg = src.fg;
-            const Color32  new_bg = src.bg;
+            const ColorIndex16 new_fg = src.fg;
+            const ColorIndex16 new_bg = src.bg;
             const Attrs    new_attrs = src.attrs;
 
             if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -831,13 +831,13 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
 
                     const bool in_bounds = (lr < m_rows);
                     const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
-                    const Color32  old_fg = (in_bounds && idx < layer.fg.size())    ? layer.fg[idx]    : 0;
-                    const Color32  old_bg = (in_bounds && idx < layer.bg.size())    ? layer.bg[idx]    : 0;
+                    const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+                    const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
                     const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
                     const char32_t new_cp = src.cp;
-                    const Color32  new_fg = src.fg;
-                    const Color32  new_bg = src.bg;
+                    const ColorIndex16 new_fg = src.fg;
+                    const ColorIndex16 new_bg = src.bg;
                     const Attrs    new_attrs = src.attrs;
 
                     if (!TransparencyTransitionAllowed(layer.lock_transparency,

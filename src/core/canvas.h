@@ -14,6 +14,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/color_index.h"
 #include "core/fonts.h"
 #include "core/palette/palette.h"
 
@@ -31,6 +32,11 @@ public:
     // Convention in this codebase:
     //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
     using Color32 = std::uint32_t;
+
+    // Indexed-color storage (Phase B): colors are stored as palette indices in the canvas's active palette.
+    // Unset is represented by phos::color::kUnsetIndex.
+    using ColorIndex16 = std::uint16_t;
+    static constexpr ColorIndex16 kUnsetIndex16 = phos::color::kUnsetIndex;
 
     // Per-cell attribute bitmask (stored alongside glyph + fg/bg).
     // These correspond to ANSI SGR effects (m-codes).
@@ -292,8 +298,8 @@ public:
         int                   offset_x = 0;
         int                   offset_y = 0;
         std::vector<char32_t> cells; // size == rows * columns
-        std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
-        std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
+        std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
+        std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
@@ -310,7 +316,7 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 7;
+        int                     version = 8;
 
         // Core palette identity for this canvas (LUT/index-centric pipeline).
         // Default is xterm256 to preserve current behavior.
@@ -392,8 +398,8 @@ public:
                 int row_count = 0;  // number of rows captured in this page (<= page_rows)
                 // Stored per-cell, row-major, length = row_count * columns.
                 std::vector<char32_t> cells;
-                std::vector<Color32>  fg;
-                std::vector<Color32>  bg;
+                std::vector<ColorIndex16> fg;
+                std::vector<ColorIndex16> bg;
                 std::vector<Attrs>    attrs;
             };
             struct Patch
@@ -619,8 +625,8 @@ public:
         int h = 0;
         // Stored per-cell, row-major, length = w*h.
         std::vector<char32_t> cp;
-        std::vector<Color32>  fg;    // 0 = unset
-        std::vector<Color32>  bg;    // 0 = unset (transparent)
+        std::vector<ColorIndex16> fg; // kUnsetIndex16 = unset
+        std::vector<ColorIndex16> bg; // kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // 0 = none
     };
 
@@ -786,8 +792,8 @@ private:
         int                   offset_x = 0;
         int                   offset_y = 0;
         std::vector<char32_t> cells; // size == rows * columns
-        std::vector<Color32>  fg;    // per-cell foreground; 0 = unset
-        std::vector<Color32>  bg;    // per-cell background; 0 = unset (transparent)
+        std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
+        std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
@@ -835,8 +841,8 @@ private:
             int page_rows = 64;
             int row_count = 0; // <= page_rows
             std::vector<char32_t> cells;
-            std::vector<Color32>  fg;
-            std::vector<Color32>  bg;
+            std::vector<ColorIndex16> fg;
+            std::vector<ColorIndex16> bg;
             std::vector<Attrs>    attrs;
         };
         struct Patch
@@ -962,8 +968,8 @@ private:
     struct ClipCell
     {
         char32_t cp = U' ';
-        Color32  fg = 0;
-        Color32  bg = 0;
+        ColorIndex16 fg = kUnsetIndex16;
+        ColorIndex16 bg = kUnsetIndex16;
         Attrs    attrs = 0;
     };
 
@@ -1027,6 +1033,11 @@ private:
     size_t CellIndex(int row, int col) const;
     bool   CanvasToLayerLocalForWrite(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
     bool   CanvasToLayerLocalForRead(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
+
+    // Color/index helpers (Phase B).
+    phos::color::PaletteInstanceId ResolveActivePaletteId() const;
+    ColorIndex16 QuantizeColor32ToIndex(Color32 c32) const; // 0 => unset
+    Color32      IndexToColor32(ColorIndex16 idx) const;    // unset => 0
 
     struct CompositeCell
     {

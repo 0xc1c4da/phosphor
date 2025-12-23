@@ -251,8 +251,8 @@ void AnsiCanvas::CaptureUndoPageIfNeeded(int layer_index, int row)
     page_data.page_rows = page_rows;
     page_data.row_count = row_count;
     page_data.cells.assign(n, U' ');
-    page_data.fg.assign(n, 0);
-    page_data.bg.assign(n, 0);
+    page_data.fg.assign(n, kUnsetIndex16);
+    page_data.bg.assign(n, kUnsetIndex16);
     page_data.attrs.assign(n, 0);
 
     const Layer& layer = m_layers[(size_t)layer_index];
@@ -341,8 +341,8 @@ bool AnsiCanvas::Undo()
             outp.row_count = std::max(0, row_count);
             const size_t n = (size_t)outp.row_count * (size_t)std::max(0, cols);
             outp.cells.assign(n, U' ');
-            outp.fg.assign(n, 0);
-            outp.bg.assign(n, 0);
+            outp.fg.assign(n, kUnsetIndex16);
+            outp.bg.assign(n, kUnsetIndex16);
             outp.attrs.assign(n, 0);
             if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
             {
@@ -501,8 +501,8 @@ bool AnsiCanvas::Redo()
             outp.row_count = std::max(0, row_count);
             const size_t n = (size_t)outp.row_count * (size_t)std::max(0, cols);
             outp.cells.assign(n, U' ');
-            outp.fg.assign(n, 0);
-            outp.bg.assign(n, 0);
+            outp.fg.assign(n, kUnsetIndex16);
+            outp.bg.assign(n, kUnsetIndex16);
             outp.attrs.assign(n, 0);
             if (outp.layer >= 0 && outp.layer < (int)m_layers.size())
             {

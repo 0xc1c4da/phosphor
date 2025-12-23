@@ -555,8 +555,10 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
                 const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
-                ImU32 fg_col = (c.fg != 0) ? (ImU32)c.fg : default_fg;
-                ImU32 bg_col = (c.bg != 0) ? (ImU32)c.bg : paper_bg;
+                const Color32 fg32 = IndexToColor32(c.fg);
+                const Color32 bg32 = IndexToColor32(c.bg);
+                ImU32 fg_col = (fg32 != 0) ? (ImU32)fg32 : default_fg;
+                ImU32 bg_col = (bg32 != 0) ? (ImU32)bg32 : paper_bg;
 
                 const Attrs a = c.attrs;
                 const bool reverse = (a & Attr_Reverse) != 0;
@@ -588,7 +590,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                         return false;
                     };
                     int fi = 0, bi = 0;
-                    if (c.fg != 0 && c.bg != 0 && vga16_index((ImU32)c.fg, fi) && vga16_index((ImU32)c.bg, bi))
+                    if (fg32 != 0 && bg32 != 0 && vga16_index((ImU32)fg32, fi) && vga16_index((ImU32)bg32, bi))
                     {
                         const int inv_bg = fi % 8;
                         const int inv_fg = bi + (fi & 8);
@@ -624,7 +626,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 if ((a & Attr_Bold) != 0)
                     fg_col = adjust_intensity(fg_col, 1.25f);
 
-                if (c.bg != 0 || reverse)
+                if (bg32 != 0 || reverse)
                     draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
 
                 const bool blink = (a & Attr_Blink) != 0;
