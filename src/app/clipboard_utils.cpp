@@ -233,7 +233,7 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
             pal_src = *id;
         if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
             pal_dst = *id;
-        phos::color::QuantizePolicy qpol;
+        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
         const auto remap = cs.Luts().GetOrBuildRemap(cs.Palettes(), pal_src, pal_dst, qpol);
 
         auto remap_idx = [&](AnsiCanvas::ColorIndex16 src) -> AnsiCanvas::ColorIndex16 {

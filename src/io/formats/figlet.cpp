@@ -75,7 +75,7 @@ static std::vector<AnsiCanvas::ColorIndex16> QuantizeColor32VectorToIndices(cons
                                                                            phos::color::PaletteInstanceId pal)
 {
     auto& cs = phos::color::GetColorSystem();
-    phos::color::QuantizePolicy qp;
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
     std::vector<AnsiCanvas::ColorIndex16> out;
     out.resize(in.size(), AnsiCanvas::kUnsetIndex16);
     for (std::size_t i = 0; i < in.size(); ++i)

@@ -1804,7 +1804,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         st.palette_ref.builtin = builtin;
 
         const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
-        phos::color::QuantizePolicy qp;
+        const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
 
         std::vector<AnsiCanvas::ColorIndex16> fg;
         std::vector<AnsiCanvas::ColorIndex16> bg;
@@ -1935,7 +1935,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
 
     // Index-native exporter LUTs.
     auto& cs = phos::color::GetColorSystem();
-    phos::color::QuantizePolicy qpol;
+    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
     phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         src_pal = *id;
@@ -1953,16 +1953,45 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         return 16 + (int)didx; // fallback: preserve expected xterm index range
     };
 
+    auto remap_src_to_vga16_idx = [&](AnsiCanvas::ColorIndex16 idx, int fallback) -> int {
+        if (idx == AnsiCanvas::kUnsetIndex16)
+            return fallback;
+        if (remap_to_vga16 && (size_t)idx < remap_to_vga16->remap.size())
+            return (int)remap_to_vga16->remap[(size_t)idx];
+        // Budget-pressure fallback: exact scan via packed color round-trip.
+        const std::uint32_t c32 =
+            phos::color::ColorOps::IndexToColor32(cs.Palettes(), src_pal, phos::color::ColorIndex{idx});
+        const phos::color::ColorIndex di =
+            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), dst_vga16, c32, qpol);
+        return di.IsUnset() ? fallback : (int)std::clamp<int>((int)di.v, 0, 15);
+    };
+
     auto remap_src_to_xterm256_idx = [&](AnsiCanvas::ColorIndex16 idx, int fallback) -> int {
-        if (idx != AnsiCanvas::kUnsetIndex16 && remap_to_xterm256 && (size_t)idx < remap_to_xterm256->remap.size())
+        if (idx == AnsiCanvas::kUnsetIndex16)
+            return fallback;
+        if (remap_to_xterm256 && (size_t)idx < remap_to_xterm256->remap.size())
             return (int)remap_to_xterm256->remap[(size_t)idx];
-        return fallback;
+        // Budget-pressure fallback: exact scan via packed color round-trip.
+        const std::uint32_t c32 =
+            phos::color::ColorOps::IndexToColor32(cs.Palettes(), src_pal, phos::color::ColorIndex{idx});
+        const phos::color::ColorIndex di =
+            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), dst_xterm256, c32, qpol);
+        return di.IsUnset() ? fallback : (int)std::clamp<int>((int)di.v, 0, 255);
     };
 
     auto remap_src_to_xterm240_idx = [&](AnsiCanvas::ColorIndex16 idx, int fallback) -> int {
-        if (idx != AnsiCanvas::kUnsetIndex16 && remap_to_xterm240 && (size_t)idx < remap_to_xterm240->remap.size())
+        if (idx == AnsiCanvas::kUnsetIndex16)
+            return fallback;
+        if (remap_to_xterm240 && (size_t)idx < remap_to_xterm240->remap.size())
             return map_xterm240_derived_to_parent(remap_to_xterm240->remap[(size_t)idx]);
-        return fallback;
+        // Budget-pressure fallback: exact scan via packed color round-trip.
+        const std::uint32_t c32 =
+            phos::color::ColorOps::IndexToColor32(cs.Palettes(), src_pal, phos::color::ColorIndex{idx});
+        const phos::color::ColorIndex didx =
+            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), dst_xterm240, c32, qpol);
+        if (didx.IsUnset())
+            return fallback;
+        return map_xterm240_derived_to_parent((std::uint16_t)didx.v);
     };
 
     auto color32_to_xterm256 = [&](AnsiCanvas::Color32 c32, int fallback) -> int {
@@ -2055,8 +2084,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (options.pablo_t_with_ansi16_fallback)
             {
                 // ANSI16 baseline
-                const int fg16 = (fg_unset || !remap_to_vga16 || (size_t)c.fg_idx >= remap_to_vga16->remap.size()) ? 7 : (int)remap_to_vga16->remap[(size_t)c.fg_idx];
-                const int bg16 = (bg_unset || !remap_to_vga16 || (size_t)c.bg_idx >= remap_to_vga16->remap.size()) ? 0 : (int)remap_to_vga16->remap[(size_t)c.bg_idx];
+                const int fg16 = fg_unset ? 7 : remap_src_to_vga16_idx(c.fg_idx, 7);
+                const int bg16 = bg_unset ? 0 : remap_src_to_vga16_idx(c.bg_idx, 0);
 
                 bool want_bold16 = false;
                 bool want_blink16 = false;
@@ -2191,8 +2220,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
 
         if (options.color_mode == ExportOptions::ColorMode::Ansi16)
         {
-            const int fg16 = (fg_unset || !remap_to_vga16 || (size_t)c.fg_idx >= remap_to_vga16->remap.size()) ? 7 : (int)remap_to_vga16->remap[(size_t)c.fg_idx];
-            const int bg16 = (bg_unset || !remap_to_vga16 || (size_t)c.bg_idx >= remap_to_vga16->remap.size()) ? 0 : (int)remap_to_vga16->remap[(size_t)c.bg_idx];
+            const int fg16 = fg_unset ? 7 : remap_src_to_vga16_idx(c.fg_idx, 7);
+            const int bg16 = bg_unset ? 0 : remap_src_to_vga16_idx(c.bg_idx, 0);
 
             // Map into classic SGR codes.
             bool want_bold16 = false;
@@ -2401,7 +2430,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         if (options.color_mode == ExportOptions::ColorMode::Ansi16)
         {
             const int bg16 =
-                (!remap_to_vga16 || (size_t)c.bg_idx >= remap_to_vga16->remap.size()) ? 0 : (int)remap_to_vga16->remap[(size_t)c.bg_idx];
+                remap_src_to_vga16_idx(c.bg_idx, 0);
             return bg16 == 0;
         }
 

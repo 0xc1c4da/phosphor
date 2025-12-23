@@ -1281,7 +1281,7 @@ static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::str
 
     auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
-    phos::color::QuantizePolicy qpol;
+    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
     out_idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
                                                           pal,
                                                           (std::uint8_t)r,
@@ -2116,7 +2116,7 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
 
                 auto& cs = phos::color::GetColorSystem();
                 const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
-                phos::color::QuantizePolicy qpol;
+                const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
                 const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
                                                                            pal,
                                                                            (std::uint8_t)r,

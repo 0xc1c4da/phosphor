@@ -667,7 +667,6 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
     phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         pal = *id;
-    phos::color::QuantizePolicy qpol;
 
     return RasterizeRegionImpl(canvas,
                               cell_rect,

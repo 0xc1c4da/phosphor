@@ -79,7 +79,7 @@ static bool ParseIndexPlaneFromJson(const json& arr,
                                   ? (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu)
                                   : (std::uint16_t)0;
 
-    phos::color::QuantizePolicy qp;
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
     for (const auto& v : arr)
     {
         if (!v.is_number_unsigned() && !v.is_number_integer())

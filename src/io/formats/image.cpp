@@ -182,7 +182,7 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
     // cached in the core LUT cache (5 bits/channel => 32^3 entries).
     auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal240 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm240Safe);
-    phos::color::QuantizePolicy qpol;
+    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
     const std::shared_ptr<const phos::color::RgbQuantize3dLut> qlut =
         cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal240, /*bits=*/5, qpol);
 

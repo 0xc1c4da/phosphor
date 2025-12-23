@@ -12,8 +12,9 @@
 #include <nlohmann/json.hpp>
 
 #include "app/clipboard_utils.h"
+#include "core/color_ops.h"
+#include "core/color_system.h"
 #include "core/paths.h"
-#include "core/xterm256_palette.h"
 #include "io/formats/plaintext.h"
 #include "io/session/session_state.h"
 
@@ -661,17 +662,35 @@ void HandleKeybindings(SDL_Window* window,
         }
 
         // Colour hotkeys affect the shared fg/bg selection used by tools.
-        auto to_idx = [](const ImVec4& c) -> int {
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (focused_canvas)
+        {
+            if (auto id = cs.Palettes().Resolve(focused_canvas->GetPaletteRef()))
+                pal = *id;
+        }
+        const phos::color::Palette* pal_def = cs.Palettes().Get(pal);
+        const int pal_size = (pal_def && !pal_def->rgb.empty()) ? (int)pal_def->rgb.size() : 256;
+        const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+
+        auto to_idx = [&](const ImVec4& c) -> int {
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                          (std::uint8_t)std::clamp(g, 0, 255),
-                                          (std::uint8_t)std::clamp(b, 0, 255));
+            const std::uint8_t idx = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                                            pal,
+                                                                            (std::uint8_t)std::clamp(r, 0, 255),
+                                                                            (std::uint8_t)std::clamp(g, 0, 255),
+                                                                            (std::uint8_t)std::clamp(b, 0, 255),
+                                                                            qp);
+            return (int)std::clamp<int>((int)idx, 0, std::max(0, pal_size - 1));
         };
-        auto apply_idx_to_color = [](int idx, ImVec4& dst) {
-            idx = std::clamp(idx, 0, 255);
-            const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
+
+        auto apply_idx_to_color = [&](int idx, ImVec4& dst) {
+            if (!pal_def || pal_def->rgb.empty())
+                return;
+            idx = std::clamp(idx, 0, std::max(0, pal_size - 1));
+            const phos::color::Rgb8 rgb = pal_def->rgb[(size_t)idx];
             dst.x = (float)rgb.r / 255.0f;
             dst.y = (float)rgb.g / 255.0f;
             dst.z = (float)rgb.b / 255.0f;
@@ -681,30 +700,34 @@ void HandleKeybindings(SDL_Window* window,
         if (keybinds.ActionPressed("color.prev_fg", kctx))
         {
             int idx = to_idx(fg_color);
-            idx = (idx + 255) % 256;
+            if (pal_size > 0)
+                idx = (idx + pal_size - 1) % pal_size;
             apply_idx_to_color(idx, fg_color);
         }
         if (keybinds.ActionPressed("color.next_fg", kctx))
         {
             int idx = to_idx(fg_color);
-            idx = (idx + 1) % 256;
+            if (pal_size > 0)
+                idx = (idx + 1) % pal_size;
             apply_idx_to_color(idx, fg_color);
         }
         if (keybinds.ActionPressed("color.prev_bg", kctx))
         {
             int idx = to_idx(bg_color);
-            idx = (idx + 255) % 256;
+            if (pal_size > 0)
+                idx = (idx + pal_size - 1) % pal_size;
             apply_idx_to_color(idx, bg_color);
         }
         if (keybinds.ActionPressed("color.next_bg", kctx))
         {
             int idx = to_idx(bg_color);
-            idx = (idx + 1) % 256;
+            if (pal_size > 0)
+                idx = (idx + 1) % pal_size;
             apply_idx_to_color(idx, bg_color);
         }
         if (keybinds.ActionPressed("color.default", kctx))
         {
-            apply_idx_to_color(7, fg_color);
+            apply_idx_to_color(std::min(7, std::max(0, pal_size - 1)), fg_color);
             apply_idx_to_color(0, bg_color);
         }
         if (keybinds.ActionPressed("color.pick_attribute", kctx))
@@ -712,12 +735,12 @@ void HandleKeybindings(SDL_Window* window,
             int cx = 0, cy = 0;
             focused_canvas->GetCaretCell(cx, cy);
             char32_t cp = U' ';
-            AnsiCanvas::Color32 fg = 0;
-            AnsiCanvas::Color32 bg = 0;
-            if (focused_canvas->GetCompositeCellPublic(cy, cx, cp, fg, bg))
+            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+            if (focused_canvas->GetCompositeCellPublicIndices(cy, cx, cp, fg, bg))
             {
-                if (fg != 0) apply_idx_to_color((int)fg, fg_color);
-                if (bg != 0) apply_idx_to_color((int)bg, bg_color);
+                if (fg != AnsiCanvas::kUnsetIndex16) apply_idx_to_color((int)fg, fg_color);
+                if (bg != AnsiCanvas::kUnsetIndex16) apply_idx_to_color((int)bg, bg_color);
             }
         }
 

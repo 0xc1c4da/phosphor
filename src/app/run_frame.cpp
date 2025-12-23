@@ -936,7 +936,7 @@ void RunFrame(AppState& st)
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            phos::color::QuantizePolicy qp;
+            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
             return (int)phos::color::ColorOps::NearestIndexRgb(phos::color::GetColorSystem().Palettes(),
                                                                pal,
                                                                (std::uint8_t)std::clamp(r, 0, 255),
@@ -1061,6 +1061,8 @@ void RunFrame(AppState& st)
 
         static int                 last_palette_index = -1;
         static std::vector<ImVec4> saved_palette;
+        static std::vector<ImVec4> saved_palette_snapped;
+        static phos::color::PaletteInstanceId last_snap_palette;
 
         if (!palettes_error.empty())
         {
@@ -1121,14 +1123,23 @@ void RunFrame(AppState& st)
         float   picker_col[4] = { preview_col.x, preview_col.y, preview_col.z, preview_col.w };
         bool    value_changed = false;
         bool    used_right = false;
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId snap_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (active_canvas)
+        {
+            if (auto id = cs.Palettes().Resolve(active_canvas->GetPaletteRef()))
+                snap_pal = *id;
+        }
         if (xterm_picker_mode == 0)
             value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false,
                                                                &used_right, &xterm_picker_last_hue,
-                                                               saved_palette.data(), (int)saved_palette.size());
+                                                               saved_palette_snapped.data(), (int)saved_palette_snapped.size(),
+                                                               snap_pal);
         else
             value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false,
                                                                  &used_right, &xterm_picker_last_hue,
-                                                                 saved_palette.data(), (int)saved_palette.size());
+                                                                 saved_palette_snapped.data(), (int)saved_palette_snapped.size(),
+                                                                 snap_pal);
 
         if (value_changed)
         {
@@ -1159,19 +1170,55 @@ void RunFrame(AppState& st)
         }
 
         // Rebuild working palette when selection changes.
-        if (xterm_selected_palette != last_palette_index && !palettes.empty())
+        const bool need_rebuild_palette =
+            (xterm_selected_palette != last_palette_index) ||
+            (snap_pal != last_snap_palette);
+        if (need_rebuild_palette && !palettes.empty())
         {
             saved_palette = palettes[xterm_selected_palette].colors;
             last_palette_index = xterm_selected_palette;
             if (active_canvas && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
                 active_canvas->SetColourPaletteTitle(palettes[xterm_selected_palette].title);
+
+            // Snap the UI palette colors into the active canvas palette so:
+            // - picker visuals are palette-correct
+            // - clicks on swatches map to exact palette entries (stable)
+            saved_palette_snapped.clear();
+            saved_palette_snapped.reserve(saved_palette.size());
+            const phos::color::Palette* sp = cs.Palettes().Get(snap_pal);
+            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+            for (const ImVec4& c : saved_palette)
+            {
+                if (!sp || sp->rgb.empty())
+                {
+                    saved_palette_snapped.push_back(c);
+                    continue;
+                }
+                const int r = (int)std::lround(c.x * 255.0f);
+                const int g = (int)std::lround(c.y * 255.0f);
+                const int b = (int)std::lround(c.z * 255.0f);
+                const std::uint8_t idx = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                                                snap_pal,
+                                                                                (std::uint8_t)std::clamp(r, 0, 255),
+                                                                                (std::uint8_t)std::clamp(g, 0, 255),
+                                                                                (std::uint8_t)std::clamp(b, 0, 255),
+                                                                                qp);
+                if ((std::size_t)idx >= sp->rgb.size())
+                {
+                    saved_palette_snapped.push_back(c);
+                    continue;
+                }
+                const phos::color::Rgb8 prgb = sp->rgb[(size_t)idx];
+                saved_palette_snapped.push_back(ImVec4(prgb.r / 255.0f, prgb.g / 255.0f, prgb.b / 255.0f, c.w));
+            }
+            last_snap_palette = snap_pal;
         }
 
         ImGui::BeginGroup();
 
         const ImGuiStyle& style = ImGui::GetStyle();
         ImVec2 avail = ImGui::GetContentRegionAvail();
-        const int count = (int)saved_palette.size();
+        const int count = (int)saved_palette_snapped.size();
 
         int   best_cols = 1;
         float best_size = 0.0f;
@@ -1231,21 +1278,21 @@ void RunFrame(AppState& st)
             if (n % cols != 0)
                 ImGui::SameLine(0.0f, style.ItemSpacing.x);
 
-            const bool mark_fg = same_rgb(saved_palette[n], fg_color);
-            const bool mark_bg = same_rgb(saved_palette[n], bg_color);
+            const bool mark_fg = same_rgb(saved_palette_snapped[n], fg_color);
+            const bool mark_bg = same_rgb(saved_palette_snapped[n], bg_color);
             const ColourPaletteSwatchAction a =
-                RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg);
+                RenderColourPaletteSwatchButton("##palette", saved_palette_snapped[n], button_size, mark_fg, mark_bg);
             if (a.set_primary)
             {
-                pal_primary.x = saved_palette[n].x;
-                pal_primary.y = saved_palette[n].y;
-                pal_primary.z = saved_palette[n].z;
+                pal_primary.x = saved_palette_snapped[n].x;
+                pal_primary.y = saved_palette_snapped[n].y;
+                pal_primary.z = saved_palette_snapped[n].z;
             }
             if (a.set_secondary)
             {
-                pal_secondary.x = saved_palette[n].x;
-                pal_secondary.y = saved_palette[n].y;
-                pal_secondary.z = saved_palette[n].z;
+                pal_secondary.x = saved_palette_snapped[n].x;
+                pal_secondary.y = saved_palette_snapped[n].y;
+                pal_secondary.z = saved_palette_snapped[n].z;
             }
 
             ImGui::PopID();
@@ -1569,7 +1616,7 @@ void RunFrame(AppState& st)
                     const int r = (int)std::lround(col.x * 255.0f);
                     const int g = (int)std::lround(col.y * 255.0f);
                     const int b = (int)std::lround(col.z * 255.0f);
-                    phos::color::QuantizePolicy qp;
+                    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
                     return (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
                                                                        (std::uint8_t)std::clamp(r, 0, 255),
                                                                        (std::uint8_t)std::clamp(g, 0, 255),
@@ -1637,7 +1684,7 @@ void RunFrame(AppState& st)
                     const int r = (int)std::lround(ccol.x * 255.0f);
                     const int g = (int)std::lround(ccol.y * 255.0f);
                     const int b = (int)std::lround(ccol.z * 255.0f);
-                phos::color::QuantizePolicy qp;
+                const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
                 const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
                                                                             (std::uint8_t)std::clamp(r, 0, 255),
                                                                             (std::uint8_t)std::clamp(g, 0, 255),
@@ -2380,8 +2427,9 @@ void RunFrame(AppState& st)
         });
         settings_window.SetLutCacheBudgetApplier([&](size_t bytes) {
             // LUT cache is not yet implemented as a core service; persist the preference now.
-            // When LutCache exists, apply it here (e.g. st.services.lut_cache->SetBudgetBytes(bytes)).
+            // Apply immediately (LutCache is global in ColorSystem for now).
             session_state.lut_cache_budget_bytes = bytes;
+            phos::color::GetColorSystem().Luts().SetBudgetBytes(bytes);
         });
         settings_window.Render(name, &session_state, should_apply_placement(name));
         show_settings_window = settings_window.IsOpen();

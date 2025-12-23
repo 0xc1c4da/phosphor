@@ -147,7 +147,7 @@ static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
                                             std::uint8_t b,
                                             const std::vector<int>* allowed)
 {
-    phos::color::QuantizePolicy qpol;
+    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
     if (!allowed || allowed->empty())
         return (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
 

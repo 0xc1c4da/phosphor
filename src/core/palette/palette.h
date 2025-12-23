@@ -87,6 +87,12 @@ struct QuantizePolicy
     bool tie_break_lowest_index = true;
 };
 
+// Phase C: authoritative default quantization policy used across the codebase.
+// Locked defaults (see references/phase-c-refactor.md):
+// - Distance metric: Rgb8_SquaredEuclidean
+// - Tie-break: lowest index
+QuantizePolicy DefaultQuantizePolicy();
+
 PaletteUid ComputePaletteUid(std::span<const Rgb8> rgb);
 
 class PaletteRegistry

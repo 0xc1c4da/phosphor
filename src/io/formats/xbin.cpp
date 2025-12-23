@@ -752,7 +752,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     }
 
     auto& cs = phos::color::GetColorSystem();
-    phos::color::QuantizePolicy qpol;
+    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
 
     // Export is index-native: remap from the canvas palette to the chosen XBin 16-color palette.
     phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
@@ -793,6 +793,20 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     }
 
     const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_pal, qpol);
+
+    auto remap_index_to_16 = [&](AnsiCanvas::ColorIndex16 idx, int fallback) -> int {
+        if (idx == AnsiCanvas::kUnsetIndex16)
+            return fallback;
+        if (remap_to_16 && (size_t)idx < remap_to_16->remap.size())
+            return (int)remap_to_16->remap[(size_t)idx];
+
+        // Budget-pressure fallback: exact scan via packed color round-trip.
+        const std::uint32_t c32 =
+            phos::color::ColorOps::IndexToColor32(cs.Palettes(), src_pal, phos::color::ColorIndex{idx});
+        const phos::color::ColorIndex di =
+            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), dst_pal, c32, qpol);
+        return di.IsUnset() ? fallback : (int)std::clamp<int>((int)di.v, 0, 15);
+    };
 
     const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
     const bool embedded_font =
@@ -863,12 +877,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             }
 
             // Unset -> default indices (classic XBin expectation).
-            int fg_i = 7;
-            int bg_i = 0;
-            if (fg != AnsiCanvas::kUnsetIndex16 && remap_to_16 && (size_t)fg < remap_to_16->remap.size())
-                fg_i = (int)remap_to_16->remap[(size_t)fg];
-            if (bg != AnsiCanvas::kUnsetIndex16 && remap_to_16 && (size_t)bg < remap_to_16->remap.size())
-                bg_i = (int)remap_to_16->remap[(size_t)bg];
+            int fg_i = remap_index_to_16(fg, 7);
+            int bg_i = remap_index_to_16(bg, 0);
 
             fg_i = std::clamp(fg_i, 0, 15);
             bg_i = std::clamp(bg_i, 0, 15);

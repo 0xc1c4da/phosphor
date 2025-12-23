@@ -37,7 +37,7 @@ AnsiCanvas::ColorIndex16 AnsiCanvas::QuantizeColor32ToIndex(Color32 c32) const
     if (!p || p->rgb.empty())
         return kUnsetIndex16;
 
-    phos::color::QuantizePolicy qp;
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
     const phos::color::ColorIndex idx =
         phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)c32, qp);
     if (idx.IsUnset())

@@ -9,6 +9,14 @@
 
 namespace phos::color
 {
+QuantizePolicy DefaultQuantizePolicy()
+{
+    QuantizePolicy p;
+    p.distance = QuantizePolicy::DistanceMetric::Rgb8_SquaredEuclidean;
+    p.tie_break_lowest_index = true;
+    return p;
+}
+
 static PaletteUid HashUid_Blake3_128(std::span<const std::uint8_t> bytes)
 {
     blake3_hasher hasher;
@@ -97,9 +105,45 @@ static std::vector<Rgb8> MakeXtermRgb(int lo, int hi)
     return out;
 }
 
+static bool ValidateDerivedMapping(const Palette& derived, const Palette& parent)
+{
+    if (!derived.derived)
+        return true;
+    const auto& m = *derived.derived;
+    if (derived.rgb.size() != m.derived_to_parent.size())
+        return false;
+    if (derived.rgb.empty())
+        return false;
+    if (parent.rgb.empty())
+        return false;
+    if (parent.rgb.size() > kMaxPaletteSize || derived.rgb.size() > kMaxPaletteSize)
+        return false;
+
+    for (std::size_t i = 0; i < derived.rgb.size(); ++i)
+    {
+        const std::uint16_t pi = m.derived_to_parent[i];
+        if (pi >= parent.rgb.size())
+            return false;
+        const Rgb8 a = derived.rgb[i];
+        const Rgb8 b = parent.rgb[(size_t)pi];
+        if (a.r != b.r || a.g != b.g || a.b != b.b)
+            return false;
+    }
+    return true;
+}
+
 PaletteRegistry::PaletteRegistry()
 {
     // Register built-ins up-front (stable palette identity).
+    {
+        Palette p;
+        p.ref.is_builtin = true;
+        p.ref.builtin = BuiltinPalette::Vga16;
+        p.title = "VGA 16";
+        p.rgb = MakeVga16Rgb();
+        const auto id = RegisterInternal(std::move(p));
+        m_builtin_to_instance[(std::uint32_t)BuiltinPalette::Vga16] = id.v;
+    }
     {
         Palette p;
         p.ref.is_builtin = true;
@@ -116,15 +160,6 @@ PaletteRegistry::PaletteRegistry()
         p.derived = std::move(m);
         const auto id = RegisterInternal(std::move(p));
         m_builtin_to_instance[(std::uint32_t)BuiltinPalette::Vga8] = id.v;
-    }
-    {
-        Palette p;
-        p.ref.is_builtin = true;
-        p.ref.builtin = BuiltinPalette::Vga16;
-        p.title = "VGA 16";
-        p.rgb = MakeVga16Rgb();
-        const auto id = RegisterInternal(std::move(p));
-        m_builtin_to_instance[(std::uint32_t)BuiltinPalette::Vga16] = id.v;
     }
     {
         Palette p;
@@ -173,6 +208,25 @@ PaletteRegistry::PaletteRegistry()
 
 PaletteInstanceId PaletteRegistry::RegisterInternal(Palette p)
 {
+    // Validate derived palette mapping at registration time (Phase C requirement).
+    if (p.derived)
+    {
+        const auto parent_id = Resolve(p.derived->parent);
+        const Palette* parent = nullptr;
+        if (parent_id.has_value())
+        {
+            auto it = m_by_instance.find(parent_id->v);
+            if (it != m_by_instance.end())
+                parent = &it->second;
+        }
+        if (!parent || !ValidateDerivedMapping(p, *parent))
+        {
+            // If invalid (or parent not registered), treat it as a non-derived palette.
+            // This keeps the palette usable while preventing unsafe fast paths.
+            p.derived.reset();
+        }
+    }
+
     PaletteInstanceId id;
     id.v = m_next_instance++;
     p.instance = id;

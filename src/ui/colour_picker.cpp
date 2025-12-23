@@ -1,30 +1,49 @@
-// Colour Picker (Xterm-256) discrete pickers (HueBar and HueWheel variants) built on top of Dear ImGui.
-// The interaction is continuous in HSV/RGB space, but all rendered colors are snapped
-// to the nearest xterm-256 entry so the visuals are strictly palette-based.
+// Colour Picker discrete pickers (HueBar and HueWheel variants) built on top of Dear ImGui.
+// The interaction is continuous in HSV/RGB space, but rendered colors are snapped
+// to a discrete palette (either an explicit UI palette list, or a PaletteInstanceId).
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "ui/colour_picker.h"
-#include "core/xterm256_palette.h"
+#include "core/color_ops.h"
+#include "core/color_system.h"
 
 #include <cmath>
 #include <cfloat>
 
-static inline ImVec4 SnapRgbToXterm256(const ImVec4& c_in)
+static inline ImVec4 Rgb8ToImVec4(const phos::color::Rgb8& c, float a)
 {
+    return ImVec4((float)c.r / 255.0f,
+                  (float)c.g / 255.0f,
+                  (float)c.b / 255.0f,
+                  a);
+}
+
+static inline ImVec4 SnapRgbToPaletteInstance(const ImVec4& c_in, phos::color::PaletteInstanceId pal)
+{
+    if (pal.v == 0)
+        return c_in;
+
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    if (!p || p->rgb.empty())
+        return c_in;
+
     const int r = (int)std::lround(c_in.x * 255.0f);
     const int g = (int)std::lround(c_in.y * 255.0f);
     const int b = (int)std::lround(c_in.z * 255.0f);
-    const int idx = xterm256::NearestIndex((std::uint8_t)ImClamp(r, 0, 255),
-                                          (std::uint8_t)ImClamp(g, 0, 255),
-                                          (std::uint8_t)ImClamp(b, 0, 255));
-    const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
-    ImVec4 out = c_in;
-    out.x = rgb.r / 255.0f;
-    out.y = rgb.g / 255.0f;
-    out.z = rgb.b / 255.0f;
-    return out;
+
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const std::uint8_t idx = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                                    pal,
+                                                                    (std::uint8_t)ImClamp(r, 0, 255),
+                                                                    (std::uint8_t)ImClamp(g, 0, 255),
+                                                                    (std::uint8_t)ImClamp(b, 0, 255),
+                                                                    qp);
+    if ((std::size_t)idx >= p->rgb.size())
+        return c_in;
+    return Rgb8ToImVec4(p->rgb[(size_t)idx], c_in.w);
 }
 
 static inline ImVec4 SnapRgbToPalette(const ImVec4& c_in, const ImVec4* palette, int palette_count)
@@ -53,19 +72,25 @@ static inline ImVec4 SnapRgbToPalette(const ImVec4& c_in, const ImVec4* palette,
     return out;
 }
 
-static inline ImVec4 SnapRgbDiscrete(const ImVec4& c_in, const ImVec4* palette, int palette_count)
+static inline ImVec4 SnapRgbDiscrete(const ImVec4& c_in,
+                                     const ImVec4* palette,
+                                     int palette_count,
+                                     phos::color::PaletteInstanceId snap_palette)
 {
     if (palette && palette_count > 0)
         return SnapRgbToPalette(c_in, palette, palette_count);
-    return SnapRgbToXterm256(c_in);
+    if (snap_palette.v == 0)
+        snap_palette = phos::color::GetColorSystem().Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    return SnapRgbToPaletteInstance(c_in, snap_palette);
 }
 
 static inline ImU32 ToCol32DiscreteRgb(const ImVec4& c_in, float alpha_mul,
-                                       const ImVec4* palette, int palette_count)
+                                       const ImVec4* palette, int palette_count,
+                                       phos::color::PaletteInstanceId snap_palette)
 {
     // Editor colors are RGB-only. We still allow ImGui style alpha to fade UI.
     const float a = ImGui::GetStyle().Alpha * alpha_mul;
-    const ImVec4 snapped = SnapRgbDiscrete(c_in, palette, palette_count);
+    const ImVec4 snapped = SnapRgbDiscrete(c_in, palette, palette_count, snap_palette);
     const int r = (int)std::lround(snapped.x * 255.0f);
     const int g = (int)std::lround(snapped.y * 255.0f);
     const int b = (int)std::lround(snapped.z * 255.0f);
@@ -131,7 +156,8 @@ static void RenderArrowsForVerticalBar(ImDrawList* draw_list, ImVec2 pos, ImVec2
 // Hue-bar variant: SV square + vertical hue bar + optional alpha bar.
 // Returns true when col[] changed by user interaction.
 bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alpha, bool* out_used_right_click,
-                                  float* inout_last_hue, const ImVec4* palette, int palette_count)
+                                  float* inout_last_hue, const ImVec4* palette, int palette_count,
+                                  phos::color::PaletteInstanceId snap_palette)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -272,7 +298,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
     const float prev_b = col[2];
     ImVec4 rgb(col[0], col[1], col[2], col[3]);
     ColorConvertHSVtoRGB(H, S, V, rgb.x, rgb.y, rgb.z);
-    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count);
+    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count, snap_palette);
     col[0] = snapped.x;
     col[1] = snapped.y;
     col[2] = snapped.z;
@@ -318,7 +344,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count, snap_palette);
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
     }
@@ -342,7 +368,7 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
         ImVec4 c;
         ColorConvertHSVtoRGB(h0, 1.0f, 1.0f, c.x, c.y, c.z);
-        ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
+        ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count, snap_palette);
         draw_list->AddRectFilled(ImVec2(bar0_pos_x, y0), ImVec2(bar0_pos_x + bars_width, y1), col32);
     }
     float hue_line_y = picker_pos.y + Clamp01(H) * sv_picker_size;
@@ -371,7 +397,8 @@ bool ColorPicker4_Xterm256_HueBar(const char* label, float col[4], bool show_alp
 
 // Hue-wheel variant: hue ring + SV triangle + optional alpha bar.
 bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_alpha, bool* out_used_right_click,
-                                    float* inout_last_hue, const ImVec4* palette, int palette_count)
+                                    float* inout_last_hue, const ImVec4* palette, int palette_count,
+                                    phos::color::PaletteInstanceId snap_palette)
 {
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
@@ -537,7 +564,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
     const float prev_b = col[2];
     ImVec4 rgb(col[0], col[1], col[2], col[3]);
     ColorConvertHSVtoRGB(H, S, V, rgb.x, rgb.y, rgb.z);
-    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count);
+    const ImVec4 snapped = SnapRgbDiscrete(rgb, palette, palette_count, snap_palette);
     col[0] = snapped.x;
     col[1] = snapped.y;
     col[2] = snapped.z;
@@ -588,7 +615,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
             ImVec4 c;
             float h_sample = am / (2.0f * IM_PI);
             ColorConvertHSVtoRGB(h_sample, 1.0f, 1.0f, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count, snap_palette);
 
             draw_list->AddQuadFilled(ImVec2(x00, y00), ImVec2(x01, y01),
                                      ImVec2(x11, y11), ImVec2(x10, y10), col32);
@@ -632,7 +659,7 @@ bool ColorPicker4_Xterm256_HueWheel(const char* label, float col[4], bool show_a
 
             ImVec4 c;
             ColorConvertHSVtoRGB(H, S_sample, V_sample, c.x, c.y, c.z);
-            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count);
+            ImU32 col32 = ToCol32DiscreteRgb(c, 1.0f, palette, palette_count, snap_palette);
 
             draw_list->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col32);
         }
@@ -705,14 +732,14 @@ bool XtermForegroundBackgroundWidget(const char* label,
     ImVec2 bg_max = ImVec2(bg_min.x + sz, bg_min.y + sz);
 
     // Background square (bottom layer)
-    ImU32 bg_col = ToCol32DiscreteRgb(background, 1.0f, nullptr, 0);
+    ImU32 bg_col = ToCol32DiscreteRgb(background, 1.0f, nullptr, 0, phos::color::PaletteInstanceId{});
     draw_list->AddRectFilled(bg_min, bg_max, bg_col, style.FrameRounding);
     draw_list->AddRect(bg_min, bg_max,
                        GetColorU32(ImVec4(1,1,1,1)),
                        style.FrameRounding, 0, 1.5f);
 
     // Foreground square (same size, overlapping top-right)
-    ImU32 fg_col = ToCol32DiscreteRgb(foreground, 1.0f, nullptr, 0);
+    ImU32 fg_col = ToCol32DiscreteRgb(foreground, 1.0f, nullptr, 0, phos::color::PaletteInstanceId{});
     draw_list->AddRectFilled(fg_min, fg_max, fg_col, style.FrameRounding);
     draw_list->AddRect(fg_min, fg_max,
                        GetColorU32(ImVec4(0,0,0,1)),

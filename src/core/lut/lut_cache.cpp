@@ -59,26 +59,13 @@ static std::uint8_t NearestIndexRgb_Scan(const Palette& pal,
     return (std::uint8_t)std::clamp(best, 0, 255);
 }
 
-static std::uint64_t HashAllowedIndices(std::span<const int> indices)
+static std::uint64_t HashAllowedIndicesU8(std::span<const std::uint8_t> indices_sorted_unique)
 {
-    // Deterministic hash: sort+unique and FNV-1a over u16.
-    std::vector<std::uint16_t> v;
-    v.reserve(indices.size());
-    for (int x : indices)
-    {
-        if (x < 0 || x > 255)
-            continue;
-        v.push_back((std::uint16_t)x);
-    }
-    std::sort(v.begin(), v.end());
-    v.erase(std::unique(v.begin(), v.end()), v.end());
-
+    // Deterministic hash: caller provides canonicalized (sorted+unique) in-range indices.
     std::uint64_t h = 1469598103934665603ull;
-    for (std::uint16_t x : v)
+    for (std::uint8_t x : indices_sorted_unique)
     {
-        h ^= (std::uint64_t)(x & 0xFFu);
-        h *= 1099511628211ull;
-        h ^= (std::uint64_t)((x >> 8) & 0xFFu);
+        h ^= (std::uint64_t)x;
         h *= 1099511628211ull;
     }
     return Mix64(h);
@@ -102,6 +89,9 @@ void LutCache::Touch(typename std::unordered_map<LutKey, Entry, LutKeyHash>::ite
 
 void LutCache::EvictAsNeeded(std::size_t incoming_bytes)
 {
+    // A budget of 0 means "unlimited".
+    if (m_budget_bytes == 0)
+        return;
     if (incoming_bytes > m_budget_bytes)
         return; // can't fit even in an empty cache; caller must handle fallback
 
@@ -149,7 +139,7 @@ std::shared_ptr<const RgbQuantize3dLut> LutCache::GetOrBuildQuant3d(PaletteRegis
     const std::size_t bytes = entries * sizeof(std::uint8_t);
 
     EvictAsNeeded(bytes);
-    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+    if (m_budget_bytes != 0 && (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
         return nullptr;
 
     auto lut = std::make_shared<RgbQuantize3dLut>();
@@ -206,22 +196,6 @@ std::shared_ptr<const RemapLut> LutCache::GetOrBuildRemap(PaletteRegistry& palet
     if (ps->rgb.size() > kMaxPaletteSize || pd->rgb.size() > kMaxPaletteSize)
         return nullptr;
 
-    // Fast-path: derived palette that losslessly maps to its parent (no quantization).
-    // This is safe only when src is derived-from dst with a validated mapping.
-    if (ps->derived && ps->derived->parent.is_builtin && pd->ref.is_builtin &&
-        ps->derived->parent.builtin == pd->ref.builtin &&
-        ps->derived->derived_to_parent.size() == ps->rgb.size())
-    {
-        auto lut = std::make_shared<RemapLut>();
-        lut->remap.resize(ps->rgb.size());
-        for (std::size_t i = 0; i < ps->rgb.size(); ++i)
-        {
-            const std::uint16_t pi = ps->derived->derived_to_parent[i];
-            lut->remap[i] = (std::uint8_t)std::clamp<int>((int)pi, 0, 255);
-        }
-        return lut;
-    }
-
     LutKey key;
     key.type = LutType::Remap;
     key.a = src;
@@ -237,9 +211,51 @@ std::shared_ptr<const RemapLut> LutCache::GetOrBuildRemap(PaletteRegistry& palet
         return std::static_pointer_cast<const RemapLut>(it->second.payload);
     }
 
+    // Fast-path: derived palette that losslessly maps to its parent (no quantization).
+    // Phase C requirement: parent may be builtin or dynamic; match by resolved instance id.
+    if (ps->derived && ps->derived->derived_to_parent.size() == ps->rgb.size())
+    {
+        const auto parent_id = palettes.Resolve(ps->derived->parent);
+        if (parent_id.has_value() && *parent_id == dst)
+        {
+            bool ok = true;
+            for (std::size_t i = 0; i < ps->rgb.size(); ++i)
+            {
+                const std::uint16_t pi = ps->derived->derived_to_parent[i];
+                if (pi >= pd->rgb.size() || pi > 255u)
+                {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok)
+            {
+                const std::size_t bytes = ps->rgb.size() * sizeof(std::uint8_t);
+                EvictAsNeeded(bytes);
+                if (m_budget_bytes == 0 || !(bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
+                {
+                    auto lut = std::make_shared<RemapLut>();
+                    lut->remap.resize(ps->rgb.size());
+                    for (std::size_t i = 0; i < ps->rgb.size(); ++i)
+                        lut->remap[i] = (std::uint8_t)ps->derived->derived_to_parent[i];
+
+                    m_lru.push_front(key);
+                    Entry e;
+                    e.payload = lut;
+                    e.bytes = bytes;
+                    e.lru_it = m_lru.begin();
+                    m_used_bytes += bytes;
+                    m_map.emplace(key, std::move(e));
+                    return lut;
+                }
+                // else: budget pressure; fall through to allow caller fallback (nullptr) via normal path below.
+            }
+        }
+    }
+
     const std::size_t bytes = ps->rgb.size() * sizeof(std::uint8_t);
     EvictAsNeeded(bytes);
-    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+    if (m_budget_bytes != 0 && (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
         return nullptr;
 
     auto lut = std::make_shared<RemapLut>();
@@ -293,7 +309,7 @@ std::shared_ptr<const AllowedRgbQuantize3dLut> LutCache::GetOrBuildAllowedQuant3
     key.a = pal;
     key.b = PaletteInstanceId{0};
     key.quant_bits = bits;
-    key.allowed_hash = HashAllowedIndices(allowed_indices);
+    key.allowed_hash = HashAllowedIndicesU8(allowed);
     key.quantize = policy;
 
     auto it = m_map.find(key);
@@ -308,7 +324,7 @@ std::shared_ptr<const AllowedRgbQuantize3dLut> LutCache::GetOrBuildAllowedQuant3
     const std::size_t bytes = entries * sizeof(std::uint8_t);
 
     EvictAsNeeded(bytes);
-    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+    if (m_budget_bytes != 0 && (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
         return nullptr;
 
     auto lut = std::make_shared<AllowedRgbQuantize3dLut>();
@@ -390,7 +406,7 @@ std::shared_ptr<const AllowedSnapLut> LutCache::GetOrBuildAllowedSnap(PaletteReg
     key.a = pal;
     key.b = PaletteInstanceId{0};
     key.quant_bits = 0;
-    key.allowed_hash = HashAllowedIndices(allowed_indices);
+    key.allowed_hash = HashAllowedIndicesU8(allowed);
     key.quantize = policy;
 
     auto it = m_map.find(key);
@@ -402,7 +418,7 @@ std::shared_ptr<const AllowedSnapLut> LutCache::GetOrBuildAllowedSnap(PaletteReg
 
     const std::size_t bytes = p->rgb.size() * sizeof(std::uint8_t);
     EvictAsNeeded(bytes);
-    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+    if (m_budget_bytes != 0 && (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
         return nullptr;
 
     auto lut = std::make_shared<AllowedSnapLut>();
