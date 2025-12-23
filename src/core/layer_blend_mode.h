@@ -7,7 +7,8 @@
 
 namespace phos
 {
-// v1: background-only blending. Foreground/glyph/attrs are unchanged.
+// v1 compositor: background blends across layers; glyph selection is unchanged (topmost non-space wins);
+// foreground color is blended only for the chosen glyph layer (when fg is set).
 enum class LayerBlendMode : std::uint8_t
 {
     Normal = 0,

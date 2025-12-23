@@ -19,6 +19,125 @@
 #include <utility>
 #include <vector>
 
+namespace
+{
+// Shared blend helpers (deterministic integer math; matches references/luts-refactor.md Phase D v1 formulas).
+static inline std::uint8_t LerpU8(std::uint8_t a, std::uint8_t b, std::uint8_t t)
+{
+    // Round-to-nearest lerp in 8-bit space: (a*(255-t) + b*t)/255.
+    const std::uint32_t v = (std::uint32_t)a * (255u - (std::uint32_t)t) + (std::uint32_t)b * (std::uint32_t)t;
+    return (std::uint8_t)((v + 127u) / 255u);
+}
+
+static inline std::uint8_t Mul255(std::uint32_t x, std::uint32_t y)
+{
+    return (std::uint8_t)((x * y + 127u) / 255u);
+}
+
+static inline std::uint32_t DivRound(std::uint32_t num, std::uint32_t den)
+{
+    if (den == 0)
+        return 0;
+    return (num + (den / 2u)) / den;
+}
+
+static inline std::uint8_t BlendChannel(std::uint8_t b, std::uint8_t s, phos::LayerBlendMode mode)
+{
+    switch (mode)
+    {
+        case phos::LayerBlendMode::Normal:
+            return s;
+        case phos::LayerBlendMode::Multiply:
+            return Mul255(b, s);
+        case phos::LayerBlendMode::Screen:
+            return (std::uint8_t)(255u - (std::uint32_t)Mul255(255u - b, 255u - s));
+        case phos::LayerBlendMode::Overlay:
+            if (b <= 127u)
+                return (std::uint8_t)((2u * (std::uint32_t)b * (std::uint32_t)s + 127u) / 255u);
+            return (std::uint8_t)(255u - (std::uint32_t)((2u * (255u - (std::uint32_t)b) * (255u - (std::uint32_t)s) + 127u) / 255u));
+        case phos::LayerBlendMode::Darken:
+            return (b < s) ? b : s;
+        case phos::LayerBlendMode::Lighten:
+            return (b > s) ? b : s;
+        case phos::LayerBlendMode::ColorDodge:
+            if (s == 255u)
+                return 255u;
+            return (std::uint8_t)std::min<std::uint32_t>(255u, DivRound((std::uint32_t)b * 255u, 255u - (std::uint32_t)s));
+        case phos::LayerBlendMode::ColorBurn:
+            if (s == 0u)
+                return 0u;
+            return (std::uint8_t)(255u - std::min<std::uint32_t>(255u, DivRound((255u - (std::uint32_t)b) * 255u, (std::uint32_t)s)));
+    }
+    return s;
+}
+
+static inline phos::color::Rgb8 BlendRgb(const phos::color::Rgb8& base,
+                                        const phos::color::Rgb8& src,
+                                        phos::LayerBlendMode mode)
+{
+    phos::color::Rgb8 out;
+    out.r = BlendChannel(base.r, src.r, mode);
+    out.g = BlendChannel(base.g, src.g, mode);
+    out.b = BlendChannel(base.b, src.b, mode);
+    return out;
+}
+
+static inline phos::color::Rgb8 ApplyOpacityRgb(const phos::color::Rgb8& base,
+                                               const phos::color::Rgb8& blended,
+                                               std::uint8_t alpha)
+{
+    if (alpha == 255)
+        return blended;
+    if (alpha == 0)
+        return base;
+    return phos::color::Rgb8{
+        LerpU8(base.r, blended.r, alpha),
+        LerpU8(base.g, blended.g, alpha),
+        LerpU8(base.b, blended.b, alpha),
+    };
+}
+
+static inline phos::color::Rgb8 BlendOverRgb(const phos::color::Rgb8& base,
+                                            const phos::color::Rgb8& src,
+                                            phos::LayerBlendMode mode,
+                                            std::uint8_t alpha)
+{
+    return ApplyOpacityRgb(base, BlendRgb(base, src, mode), alpha);
+}
+
+static inline phos::color::Rgb8 PaperRgb(bool white)
+{
+    const std::uint8_t v = white ? 255u : 0u;
+    return phos::color::Rgb8{v, v, v};
+}
+
+static inline phos::color::Rgb8 DefaultFgRgb(bool paper_is_white)
+{
+    // Core fallback for "theme default fg":
+    // - on white paper, default fg is black
+    // - on black paper, default fg is white
+    // (matches the minimap preview defaults)
+    const std::uint8_t v = paper_is_white ? 0u : 255u;
+    return phos::color::Rgb8{v, v, v};
+}
+
+static inline std::uint8_t ClampPaletteIndexU8(const phos::color::Palette* p, AnsiCanvas::ColorIndex16 idx)
+{
+    if (!p || p->rgb.empty())
+        return 0;
+    const std::uint16_t max_i = (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu);
+    return (std::uint8_t)std::clamp<std::uint16_t>((std::uint16_t)idx, 0, max_i);
+}
+
+static inline phos::color::Rgb8 PaletteRgbClamped(const phos::color::Palette* p, AnsiCanvas::ColorIndex16 idx)
+{
+    const std::uint8_t i = ClampPaletteIndexU8(p, idx);
+    if (!p || p->rgb.empty())
+        return phos::color::Rgb8{};
+    return p->rgb[(size_t)i];
+}
+} // namespace
+
 phos::color::PaletteInstanceId AnsiCanvas::ResolveActivePaletteId() const
 {
     auto& cs = phos::color::GetColorSystem();
@@ -718,108 +837,48 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
     //     - bg == Unset means "transparent/no-fill" and contributes nothing.
     //     - first concrete bg becomes the base; each subsequent concrete bg blends over it
     //       using the CURRENT (upper) layer's blend mode.
-    // - Foreground: if a glyph is present and fg is not Unset, blend that fg against the
-    //   composited background using the SAME layer blend mode (treat glyph as full coverage).
+    // - Foreground: if a glyph is present, blend the chosen glyph layer's fg against:
+    //     - the visible fg underneath (next glyph below), if present
+    //     - otherwise the composited background (or paper if no bg)
+    //   using the SAME layer blend mode.
     //
     // Note: bg needs back->front order; glyph selection remains top->bottom.
 
     // ---- Background plane (background-only blend, v1) ----
+    std::optional<phos::color::Rgb8> out_bg_rgb;
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = ResolveActivePaletteId();
         const phos::color::Palette* p = cs.Palettes().Get(pal);
         const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-
-        auto clamp_idx = [&](ColorIndex16 idx) -> std::uint8_t {
-            if (!p || p->rgb.empty())
-                return 0;
-            const std::uint16_t max_i = (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu);
-            if (idx == kUnsetIndex16)
-                return 0;
-            return (std::uint8_t)std::clamp<std::uint16_t>((std::uint16_t)idx, 0, max_i);
-        };
-
-        auto blend_channel = [](std::uint8_t b, std::uint8_t s, phos::LayerBlendMode mode) -> std::uint8_t
-        {
-            const auto mul255 = [](std::uint32_t x, std::uint32_t y) -> std::uint8_t {
-                return (std::uint8_t)((x * y + 127u) / 255u);
-            };
-            const auto div_round = [](std::uint32_t num, std::uint32_t den) -> std::uint32_t {
-                if (den == 0)
-                    return 0;
-                return (num + (den / 2u)) / den;
-            };
-
-            switch (mode)
-            {
-                case phos::LayerBlendMode::Normal:
-                    return s;
-                case phos::LayerBlendMode::Multiply:
-                    return mul255(b, s);
-                case phos::LayerBlendMode::Screen:
-                    return (std::uint8_t)(255u - (std::uint32_t)mul255(255u - b, 255u - s));
-                case phos::LayerBlendMode::Overlay:
-                    if (b <= 127u)
-                        return (std::uint8_t)((2u * (std::uint32_t)b * (std::uint32_t)s + 127u) / 255u);
-                    return (std::uint8_t)(255u - (std::uint32_t)((2u * (255u - (std::uint32_t)b) * (255u - (std::uint32_t)s) + 127u) / 255u));
-                case phos::LayerBlendMode::Darken:
-                    return (b < s) ? b : s;
-                case phos::LayerBlendMode::Lighten:
-                    return (b > s) ? b : s;
-                case phos::LayerBlendMode::ColorDodge:
-                    if (s == 255u)
-                        return 255u;
-                    {
-                        const std::uint32_t den = 255u - (std::uint32_t)s;
-                        const std::uint32_t v = div_round((std::uint32_t)b * 255u, den);
-                        return (std::uint8_t)std::min<std::uint32_t>(255u, v);
-                    }
-                case phos::LayerBlendMode::ColorBurn:
-                    if (s == 0u)
-                        return 0u;
-                    {
-                        const std::uint32_t v = div_round((255u - (std::uint32_t)b) * 255u, (std::uint32_t)s);
-                        const std::uint32_t vv = std::min<std::uint32_t>(255u, v);
-                        return (std::uint8_t)(255u - vv);
-                    }
-            }
-            return s;
-        };
-
-        auto lerp_u8 = [](std::uint8_t a, std::uint8_t b, std::uint8_t t) -> std::uint8_t
-        {
-            // Round-to-nearest lerp in 8-bit space: (a*(255-t) + b*t)/255.
-            const std::uint32_t v = (std::uint32_t)a * (255u - (std::uint32_t)t) + (std::uint32_t)b * (std::uint32_t)t;
-            return (std::uint8_t)((v + 127u) / 255u);
-        };
-
-        auto blend_indices = [&](ColorIndex16 base, ColorIndex16 src, phos::LayerBlendMode mode, std::uint8_t alpha) -> ColorIndex16
-        {
-            if (src == kUnsetIndex16)
-                return base;
-            if (base == kUnsetIndex16)
-                return src;
-            if (alpha == 0)
-                return base;
-            if (!p || p->rgb.empty())
-                return src;
-
-            const std::uint8_t bi = clamp_idx(base);
-            const std::uint8_t si = clamp_idx(src);
-            const auto& B = p->rgb[(size_t)bi];
-            const auto& S = p->rgb[(size_t)si];
-            const std::uint8_t mr = blend_channel(B.r, S.r, mode);
-            const std::uint8_t mg = blend_channel(B.g, S.g, mode);
-            const std::uint8_t mb = blend_channel(B.b, S.b, mode);
-            const std::uint8_t r = (alpha == 255) ? mr : lerp_u8(B.r, mr, alpha);
-            const std::uint8_t g = (alpha == 255) ? mg : lerp_u8(B.g, mg, alpha);
-            const std::uint8_t b = (alpha == 255) ? mb : lerp_u8(B.b, mb, alpha);
-            const std::uint8_t oi = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qp);
-            return (ColorIndex16)oi;
-        };
-
         ColorIndex16 out_bg = kUnsetIndex16;
         bool have_bg = false;
+        const phos::color::Rgb8 paper = PaperRgb(IsCanvasBackgroundWhite());
+
+        // Fallback path: if palette isn't available, preserve legacy "topmost bg wins".
+        if (!p || p->rgb.empty())
+        {
+            for (int i = (int)m_layers.size() - 1; i >= 0; --i)
+            {
+                const Layer& layer = m_layers[(size_t)i];
+                if (!layer.visible)
+                    continue;
+                int lr = 0, lc = 0;
+                if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
+                    continue;
+                const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+                if (idx >= layer.bg.size())
+                    continue;
+                const ColorIndex16 bg = layer.bg[idx];
+                if (bg == kUnsetIndex16)
+                    continue;
+                out.bg = bg;
+                break;
+            }
+            // Even without a palette, keep out_bg_rgb unset so fg blending later can safely fall back to paper.
+            goto bg_done;
+        }
+
         for (int i = 0; i < (int)m_layers.size(); ++i)
         {
             const Layer& layer = m_layers[(size_t)i];
@@ -834,24 +893,31 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
             const ColorIndex16 src_bg = layer.bg[idx];
             if (src_bg == kUnsetIndex16)
                 continue;
-            if (!have_bg)
-            {
-                if (layer.blend_alpha == 0)
-                    continue; // fully transparent contribution
-                out_bg = src_bg;
-                have_bg = true;
-            }
-            else
-            {
-                out_bg = blend_indices(out_bg, src_bg, layer.blend_mode, layer.blend_alpha);
-            }
+            if (layer.blend_alpha == 0)
+                continue; // fully transparent contribution
+
+            const phos::color::Rgb8 src_rgb = PaletteRgbClamped(p, src_bg);
+            const phos::color::Rgb8 base_rgb = out_bg_rgb.has_value() ? *out_bg_rgb : paper;
+            const phos::color::Rgb8 res_rgb = BlendOverRgb(base_rgb, src_rgb, layer.blend_mode, layer.blend_alpha);
+            out_bg_rgb = res_rgb;
+            have_bg = true;
+        }
+        if (have_bg && out_bg_rgb.has_value())
+        {
+            const std::uint8_t oi =
+                phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, out_bg_rgb->r, out_bg_rgb->g, out_bg_rgb->b, qp);
+            out_bg = (ColorIndex16)oi;
         }
         out.bg = out_bg;
     }
+bg_done:
 
     // ---- Glyph / attrs (topmost non-space glyph wins, preserved) ----
     phos::LayerBlendMode glyph_blend_mode = phos::LayerBlendMode::Normal;
     std::uint8_t glyph_blend_alpha = 255;
+    ColorIndex16 under_fg = kUnsetIndex16;
+    bool have_under_glyph = false;
+    bool top_fg_was_unset = false;
     for (int i = (int)m_layers.size() - 1; i >= 0; --i)
     {
         const Layer& layer = m_layers[(size_t)i];
@@ -866,96 +932,85 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
         const char32_t cp = layer.cells[idx];
         if (cp == U' ')
             continue;
-        out.cp = cp;
-        out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
-        out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
-        glyph_blend_mode = layer.blend_mode;
-        glyph_blend_alpha = layer.blend_alpha;
-        break;
+
+        if (out.cp == U' ')
+        {
+            // First (topmost) glyph: choose glyph/attrs from here.
+            out.cp = cp;
+            out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+            glyph_blend_mode = layer.blend_mode;
+            glyph_blend_alpha = layer.blend_alpha;
+            top_fg_was_unset = (out.fg == kUnsetIndex16);
+        }
+        else
+        {
+            // Next glyph below: its fg participates as the base for fg blending.
+            under_fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            have_under_glyph = true;
+            break;
+        }
     }
 
-    // ---- Foreground blend (v1): blend glyph fg against the *effective* background ----
-    // If fg is Unset (theme default), do not blend.
-    if (out.cp != U' ' && out.fg != kUnsetIndex16)
+    // ---- Foreground blend: blend chosen glyph fg against underlying fg (if present) else bg ----
+    if (out.cp != U' ')
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = ResolveActivePaletteId();
         const phos::color::Palette* p = cs.Palettes().Get(pal);
         const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+        if (p && !p->rgb.empty())
+        {
+            const bool paper_white = IsCanvasBackgroundWhite();
+            const phos::color::Rgb8 paper = PaperRgb(paper_white);
 
-        auto clamp_idx = [&](ColorIndex16 idx) -> std::uint8_t {
-            if (!p || p->rgb.empty())
-                return 0;
-            const std::uint16_t max_i = (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu);
-            return (std::uint8_t)std::clamp<std::uint16_t>((std::uint16_t)idx, 0, max_i);
-        };
-        auto lerp_u8 = [](std::uint8_t a, std::uint8_t b, std::uint8_t t) -> std::uint8_t
-        {
-            const std::uint32_t v = (std::uint32_t)a * (255u - (std::uint32_t)t) + (std::uint32_t)b * (std::uint32_t)t;
-            return (std::uint8_t)((v + 127u) / 255u);
-        };
-        auto blend_channel = [](std::uint8_t b, std::uint8_t s, phos::LayerBlendMode mode) -> std::uint8_t
-        {
-            const auto mul255 = [](std::uint32_t x, std::uint32_t y) -> std::uint8_t {
-                return (std::uint8_t)((x * y + 127u) / 255u);
-            };
-            const auto div_round = [](std::uint32_t num, std::uint32_t den) -> std::uint32_t {
-                if (den == 0)
-                    return 0;
-                return (num + (den / 2u)) / den;
-            };
-            switch (mode)
+            // Source fg (top glyph layer):
+            // - If unset: treat as theme default fg for blend math.
+            // - Otherwise: palette color.
+            const phos::color::Rgb8 src_rgb =
+                (out.fg == kUnsetIndex16) ? DefaultFgRgb(paper_white) : PaletteRgbClamped(p, out.fg);
+
+            // Base for fg blending:
+            // - If there is a glyph below, use its fg (or default fg if unset).
+            // - Otherwise, use composited background (or paper).
+            phos::color::Rgb8 base_rgb;
+            if (have_under_glyph)
             {
-                case phos::LayerBlendMode::Normal:     return s;
-                case phos::LayerBlendMode::Multiply:   return mul255(b, s);
-                case phos::LayerBlendMode::Screen:     return (std::uint8_t)(255u - (std::uint32_t)mul255(255u - b, 255u - s));
-                case phos::LayerBlendMode::Overlay:
-                    if (b <= 127u)
-                        return (std::uint8_t)((2u * (std::uint32_t)b * (std::uint32_t)s + 127u) / 255u);
-                    return (std::uint8_t)(255u - (std::uint32_t)((2u * (255u - (std::uint32_t)b) * (255u - (std::uint32_t)s) + 127u) / 255u));
-                case phos::LayerBlendMode::Darken:     return (b < s) ? b : s;
-                case phos::LayerBlendMode::Lighten:    return (b > s) ? b : s;
-                case phos::LayerBlendMode::ColorDodge:
-                    if (s == 255u) return 255u;
-                    return (std::uint8_t)std::min<std::uint32_t>(255u, div_round((std::uint32_t)b * 255u, 255u - (std::uint32_t)s));
-                case phos::LayerBlendMode::ColorBurn:
-                    if (s == 0u) return 0u;
-                    return (std::uint8_t)(255u - std::min<std::uint32_t>(255u, div_round((255u - (std::uint32_t)b) * 255u, (std::uint32_t)s)));
+                base_rgb = (under_fg == kUnsetIndex16) ? DefaultFgRgb(paper_white) : PaletteRgbClamped(p, under_fg);
             }
-            return s;
-        };
+            else
+            {
+                base_rgb = out_bg_rgb.has_value() ? *out_bg_rgb : paper;
+            }
 
-        const std::uint8_t alpha = glyph_blend_alpha;
+            // Foreground blending opacity is the layer opacity only.
+            // (Glyph coverage is handled by the renderer when drawing the glyph.)
+            const std::uint8_t alpha = glyph_blend_alpha;
 
-        // Base bg for fg blending:
-        // - If composited bg is set, use it.
-        // - Otherwise, use the canvas background fill (black/white) as the effective base.
-        ColorIndex16 base_bg_idx = out.bg;
-        if (base_bg_idx == kUnsetIndex16)
-        {
-            const std::uint8_t v = IsCanvasBackgroundWhite() ? 255u : 0u;
-            base_bg_idx = (ColorIndex16)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, v, v, v, qp);
-        }
-
-        if (alpha != 0 && p && !p->rgb.empty())
-        {
-            const std::uint8_t bi = clamp_idx(base_bg_idx);
-            const std::uint8_t si = clamp_idx(out.fg);
-            const auto& B = p->rgb[(size_t)bi];
-            const auto& S = p->rgb[(size_t)si];
-            const std::uint8_t mr = blend_channel(B.r, S.r, glyph_blend_mode);
-            const std::uint8_t mg = blend_channel(B.g, S.g, glyph_blend_mode);
-            const std::uint8_t mb = blend_channel(B.b, S.b, glyph_blend_mode);
-            const std::uint8_t r = (alpha == 255) ? mr : lerp_u8(B.r, mr, alpha);
-            const std::uint8_t g = (alpha == 255) ? mg : lerp_u8(B.g, mg, alpha);
-            const std::uint8_t b = (alpha == 255) ? mb : lerp_u8(B.b, mb, alpha);
-            const std::uint8_t oi = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qp);
-            out.fg = (ColorIndex16)oi;
-        }
-        else if (alpha == 0)
-        {
-            // Fully transparent layer effect: make ink match background (glyph becomes visually invisible).
-            out.fg = base_bg_idx;
+            if (alpha == 0)
+            {
+                // Fully transparent effect: make ink match background (glyph becomes visually invisible).
+                const std::uint8_t bi =
+                    phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, base_rgb.r, base_rgb.g, base_rgb.b, qp);
+                out.fg = (ColorIndex16)bi;
+            }
+            else
+            {
+                // Preserve "theme default fg" semantics when the blend would be an identity.
+                // (Normal @ 100% does not depend on base and should remain unset if it started unset.)
+                const bool identity = (glyph_blend_mode == phos::LayerBlendMode::Normal && alpha == 255 && !have_under_glyph);
+                if (top_fg_was_unset && identity)
+                {
+                    out.fg = kUnsetIndex16;
+                }
+                else
+                {
+                    const phos::color::Rgb8 res_rgb = BlendOverRgb(base_rgb, src_rgb, glyph_blend_mode, alpha);
+                    const std::uint8_t oi =
+                        phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, res_rgb.r, res_rgb.g, res_rgb.b, qp);
+                    out.fg = (ColorIndex16)oi;
+                }
+            }
         }
     }
 

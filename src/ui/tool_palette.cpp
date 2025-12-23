@@ -1,6 +1,7 @@
 #include "ui/tool_palette.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 
@@ -13,7 +14,9 @@ extern "C"
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cctype>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +26,89 @@ extern "C"
 #include <vector>
 
 namespace fs = std::filesystem;
+
+// Compute tight glyph bounds for a UTF-8 string rendered with `font` at `font_size`.
+// This is used for "optical centering" of icon glyphs (especially emoji), where
+// line-height-based centering can look visibly off.
+static bool CalcTightTextBounds(ImFont* font, float font_size, const char* text_begin, const char* text_end,
+                                ImVec2& out_min, ImVec2& out_max)
+{
+    out_min = ImVec2(FLT_MAX, FLT_MAX);
+    out_max = ImVec2(-FLT_MAX, -FLT_MAX);
+    if (!font || font_size <= 0.0f || !text_begin || text_begin == text_end)
+        return false;
+
+    if (!text_end)
+        text_end = text_begin + strlen(text_begin);
+
+    // ImGui 1.92+ moved glyph lookup/metrics to ImFontBaked (per-size baked data).
+    // Older ImGui versions expose glyphs directly on ImFont with a fixed FontSize.
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19200
+    ImFontBaked* baked = font->GetFontBaked(font_size);
+    if (!baked)
+        return false;
+#else
+    // Scale from font->FontSize (built size) to requested pixel size.
+    const float scale = font_size / font->FontSize;
+#endif
+
+    float x = 0.0f;
+    float y = 0.0f;
+    bool any = false;
+    const char* s = text_begin;
+    while (s < text_end && *s)
+    {
+        unsigned int c = 0;
+        const int bytes = ImTextCharFromUtf8(&c, s, text_end);
+        if (bytes <= 0)
+            break;
+        s += bytes;
+
+        // Newlines are not expected for icons, but handle gracefully.
+        if (c == '\n')
+        {
+            x = 0.0f;
+            y += font_size;
+            continue;
+        }
+
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19200
+        const ImFontGlyph* glyph = baked->FindGlyphNoFallback((ImWchar)c);
+        if (!glyph)
+            continue;
+
+        // In 1.92+, glyph metrics are already in pixels for the baked size.
+        out_min.x = ImMin(out_min.x, x + glyph->X0);
+        out_min.y = ImMin(out_min.y, y + glyph->Y0);
+        out_max.x = ImMax(out_max.x, x + glyph->X1);
+        out_max.y = ImMax(out_max.y, y + glyph->Y1);
+
+        x += glyph->AdvanceX;
+#else
+        const ImFontGlyph* glyph = font->FindGlyph((ImWchar)c);
+        if (!glyph)
+            continue;
+
+        // glyph->X0..Y1 are in font units (at FontSize); scale into pixels.
+        out_min.x = ImMin(out_min.x, x + glyph->X0 * scale);
+        out_min.y = ImMin(out_min.y, y + glyph->Y0 * scale);
+        out_max.x = ImMax(out_max.x, x + glyph->X1 * scale);
+        out_max.y = ImMax(out_max.y, y + glyph->Y1 * scale);
+
+        x += glyph->AdvanceX * scale;
+#endif
+        any = true;
+    }
+
+    if (!any)
+        return false;
+
+    // In case all glyphs were empty/zero-area, still consider it "no bounds".
+    if (out_min.x > out_max.x || out_min.y > out_max.y)
+        return false;
+
+    return true;
+}
 
 static int LuaArrayLen(lua_State* L, int idx)
 {
@@ -588,18 +674,42 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
         const float max_h = std::max(1.0f, sz.y - s.FramePadding.y * 2.0f);
 
         ImFont* font = ImGui::GetFont();
-        // Start large and shrink-to-fit.
-        float font_size = std::max(1.0f, std::min(max_w, max_h) * 0.70f);
-        ImVec2 ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
-        if (ts.x > max_w || ts.y > max_h)
+        // Start large and shrink-to-fit, but center using tight glyph bounds for better optical centering.
+        float font_size = std::max(1.0f, std::min(max_w, max_h) * 0.74f);
+
+        ImVec2 bmin, bmax;
+        bool have_bounds = CalcTightTextBounds(font, font_size, text.c_str(), nullptr, bmin, bmax);
+        if (!have_bounds)
         {
-            const float sx = max_w / std::max(1.0f, ts.x);
-            const float sy = max_h / std::max(1.0f, ts.y);
-            font_size *= std::min(sx, sy);
-            ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+            // Fallback: use line-height text size (better than nothing).
+            const ImVec2 ts = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text.c_str());
+            ImVec2 pos(item_min.x + (sz.x - ts.x) * 0.5f, item_min.y + (sz.y - ts.y) * 0.5f);
+            pos.x = IM_FLOOR(pos.x + 0.5f);
+            pos.y = IM_FLOOR(pos.y + 0.5f);
+            ImGui::GetWindowDrawList()->AddText(font, font_size, pos,
+                                               ImGui::GetColorU32(ImGuiCol_Text),
+                                               text.c_str());
+            return;
         }
 
-        const ImVec2 pos(item_min.x + (sz.x - ts.x) * 0.5f, item_min.y + (sz.y - ts.y) * 0.5f);
+        ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
+        if (bsz.x > max_w || bsz.y > max_h)
+        {
+            const float sx = max_w / std::max(1.0f, bsz.x);
+            const float sy = max_h / std::max(1.0f, bsz.y);
+            font_size *= std::min(sx, sy);
+            have_bounds = CalcTightTextBounds(font, font_size, text.c_str(), nullptr, bmin, bmax);
+            if (!have_bounds)
+                return;
+            bsz = ImVec2(bmax.x - bmin.x, bmax.y - bmin.y);
+        }
+
+        // Center *bounds* within the full button rect. bmin can be negative for some glyphs,
+        // so shift by -bmin to align the tight bbox to (0,0) before centering.
+        ImVec2 pos(item_min.x + (sz.x - bsz.x) * 0.5f - bmin.x,
+                   item_min.y + (sz.y - bsz.y) * 0.5f - bmin.y);
+        pos.x = IM_FLOOR(pos.x + 0.5f);
+        pos.y = IM_FLOOR(pos.y + 0.5f);
         ImGui::GetWindowDrawList()->AddText(font, font_size, pos,
                                            ImGui::GetColorU32(ImGuiCol_Text),
                                            text.c_str());
