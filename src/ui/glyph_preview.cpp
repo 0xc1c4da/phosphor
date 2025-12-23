@@ -6,6 +6,7 @@
 #include "core/fonts.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace
@@ -47,6 +48,56 @@ static std::string EncodeCodePointUtf8(char32_t cp)
     }
     return std::string(out, out + n);
 }
+
+static bool CalcTightGlyphBounds(ImFont* font, float font_px, unsigned int codepoint,
+                                 ImVec2& out_min, ImVec2& out_max, float& out_advance_x)
+{
+    out_min = ImVec2(FLT_MAX, FLT_MAX);
+    out_max = ImVec2(-FLT_MAX, -FLT_MAX);
+    out_advance_x = 0.0f;
+    if (!font || font_px <= 0.0f)
+        return false;
+
+    // ImGui 1.92+: metrics live on ImFontBaked (per requested size).
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19200
+    ImFontBaked* baked = font->GetFontBaked(font_px);
+    if (!baked)
+        return false;
+
+    unsigned int cp = codepoint;
+    if (cp > (unsigned int)IM_UNICODE_CODEPOINT_MAX)
+        cp = (unsigned int)font->FallbackChar;
+
+    // Use FindGlyph() (with fallback) so bbox remains stable even when glyph isn't present.
+    const ImFontGlyph* g = baked->FindGlyph((ImWchar)cp);
+    if (!g)
+        return false;
+
+    out_min = ImVec2(g->X0, g->Y0);
+    out_max = ImVec2(g->X1, g->Y1);
+    out_advance_x = g->AdvanceX;
+    return true;
+#else
+    // Older ImGui: metrics live on ImFont with a fixed FontSize and FindGlyph().
+    const float scale = font_px / font->FontSize;
+    unsigned int cp = codepoint;
+    if (cp > (unsigned int)IM_UNICODE_CODEPOINT_MAX)
+        cp = (unsigned int)font->FallbackChar;
+    const ImFontGlyph* g = font->FindGlyph((ImWchar)cp);
+    if (!g)
+        return false;
+    out_min = ImVec2(g->X0 * scale, g->Y0 * scale);
+    out_max = ImVec2(g->X1 * scale, g->Y1 * scale);
+    out_advance_x = g->AdvanceX * scale;
+    return true;
+#endif
+}
+
+static inline float SnapPx(float v)
+{
+    // Round-to-nearest pixel to avoid fuzzy text at fractional coords.
+    return std::floor(v + 0.5f);
+}
 } // namespace
 
 void DrawGlyphPreview(ImDrawList* dl,
@@ -71,14 +122,45 @@ void DrawGlyphPreview(ImDrawList* dl,
             ImFont* font = ImGui::GetFont();
             const float cell = std::min(cell_w, cell_h);
             float font_px = std::max(6.0f, cell * 0.85f);
-            ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
+
+            // Prefer tight glyph bounds for optical centering (esp. emoji + symbols).
+            ImVec2 bmin, bmax;
+            float adv = 0.0f;
+            bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
             const float max_dim = cell * 0.92f;
-            if (ts.x > max_dim && ts.x > 0.0f) font_px *= (max_dim / ts.x);
-            if (ts.y > max_dim && ts.y > 0.0f) font_px *= (max_dim / ts.y);
-            ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
-            const ImVec2 tp(p0.x + (cell_w - ts.x) * 0.5f,
-                            p0.y + (cell_h - ts.y) * 0.5f);
-            dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+            if (have_bounds)
+            {
+                const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
+                if (bsz.x > 1.0f && bsz.x > max_dim) font_px *= (max_dim / bsz.x);
+                if (bsz.y > 1.0f && bsz.y > max_dim) font_px *= (max_dim / bsz.y);
+            }
+            else
+            {
+                // Fallback shrink based on CalcTextSizeA if bounds aren't available.
+                ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
+                if (ts.x > 1.0f && ts.x > max_dim) font_px *= (max_dim / ts.x);
+                if (ts.y > 1.0f && ts.y > max_dim) font_px *= (max_dim / ts.y);
+            }
+
+            have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+            if (have_bounds)
+            {
+                const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
+                ImVec2 tp(p0.x + (cell_w - bsz.x) * 0.5f - bmin.x,
+                          p0.y + (cell_h - bsz.y) * 0.5f - bmin.y);
+                tp.x = SnapPx(tp.x);
+                tp.y = SnapPx(tp.y);
+                dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+            }
+            else
+            {
+                // Last resort: line-height centering.
+                ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
+                ImVec2 tp(p0.x + (cell_w - ts.x) * 0.5f, p0.y + (cell_h - ts.y) * 0.5f);
+                tp.x = SnapPx(tp.x);
+                tp.y = SnapPx(tp.y);
+                dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+            }
         }
         return;
     }
@@ -101,14 +183,42 @@ void DrawGlyphPreview(ImDrawList* dl,
         ImFont* font = ImGui::GetFont();
         const float cell = std::min(cell_w, cell_h);
         float font_px = std::max(6.0f, cell * 0.85f);
-        ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
         const float max_dim = cell * 0.92f;
-        if (ts.x > max_dim && ts.x > 0.0f) font_px *= (max_dim / ts.x);
-        if (ts.y > max_dim && ts.y > 0.0f) font_px *= (max_dim / ts.y);
-        ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
-        const ImVec2 tp(p0.x + (cell_w - ts.x) * 0.5f,
-                        p0.y + (cell_h - ts.y) * 0.5f);
-        dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+
+        ImVec2 bmin, bmax;
+        float adv = 0.0f;
+        bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+        if (have_bounds)
+        {
+            const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
+            if (bsz.x > 1.0f && bsz.x > max_dim) font_px *= (max_dim / bsz.x);
+            if (bsz.y > 1.0f && bsz.y > max_dim) font_px *= (max_dim / bsz.y);
+        }
+        else
+        {
+            ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
+            if (ts.x > 1.0f && ts.x > max_dim) font_px *= (max_dim / ts.x);
+            if (ts.y > 1.0f && ts.y > max_dim) font_px *= (max_dim / ts.y);
+        }
+
+        have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+        if (have_bounds)
+        {
+            const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
+            ImVec2 tp(p0.x + (cell_w - bsz.x) * 0.5f - bmin.x,
+                      p0.y + (cell_h - bsz.y) * 0.5f - bmin.y);
+            tp.x = SnapPx(tp.x);
+            tp.y = SnapPx(tp.y);
+            dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+        }
+        else
+        {
+            ImVec2 ts = font->CalcTextSizeA(font_px, FLT_MAX, 0.0f, s.c_str(), nullptr);
+            ImVec2 tp(p0.x + (cell_w - ts.x) * 0.5f, p0.y + (cell_h - ts.y) * 0.5f);
+            tp.x = SnapPx(tp.x);
+            tp.y = SnapPx(tp.y);
+            dl->AddText(font, font_px, tp, (ImU32)fg_col, s.c_str(), nullptr);
+        }
         return;
     }
 
