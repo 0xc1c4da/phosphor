@@ -2230,23 +2230,15 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
 
                     const std::string ch = EncodeCodepointUtf8(frame_ctx.brush->cp[i]);
                     lua_pushlstring(L, ch.data(), ch.size());
-                    lua_setfield(L, -2, "ch");                    // Brush stamp fg/bg are stored as packed Color32 today; expose as palette indices in the
-                    // active canvas palette index space (nil = unset), matching layer:get().
-                    const std::uint32_t fg32 = frame_ctx.brush->fg[i];
-                    const std::uint32_t bg32 = frame_ctx.brush->bg[i];
+                    lua_setfield(L, -2, "ch");
+                    // Index-native: expose palette indices in the active canvas palette index space (nil = unset),
+                    // matching layer:get().
+                    const AnsiCanvas::ColorIndex16 fg_idx = frame_ctx.brush->fg[i];
+                    const AnsiCanvas::ColorIndex16 bg_idx = frame_ctx.brush->bg[i];
                     const std::uint16_t attrs = frame_ctx.brush->attrs[i];
-
-                    auto& cs = phos::color::GetColorSystem();
-                    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
-                    phos::color::QuantizePolicy qpol;
-                    const phos::color::ColorIndex fg_idx =
-                        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, fg32, qpol);
-                    const phos::color::ColorIndex bg_idx =
-                        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, bg32, qpol);
-
-                    if (!fg_idx.IsUnset()) { lua_pushinteger(L, (lua_Integer)fg_idx.v); lua_setfield(L, -2, "fg"); }
+                    if (fg_idx != AnsiCanvas::kUnsetIndex16) { lua_pushinteger(L, (lua_Integer)fg_idx); lua_setfield(L, -2, "fg"); }
                     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
-                    if (!bg_idx.IsUnset()) { lua_pushinteger(L, (lua_Integer)bg_idx.v); lua_setfield(L, -2, "bg"); }
+                    if (bg_idx != AnsiCanvas::kUnsetIndex16) { lua_pushinteger(L, (lua_Integer)bg_idx); lua_setfield(L, -2, "bg"); }
                     else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
                     lua_pushinteger(L, (lua_Integer)attrs);
                     lua_setfield(L, -2, "attrs");

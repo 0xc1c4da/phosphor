@@ -67,6 +67,25 @@ struct ExportOptions
     // Palette entries are stored as 6-bit (0..63) VGA-style components.
     bool include_palette = true;
 
+    // Target 16-color palette used to encode fg/bg indices.
+    // Note: if include_palette=false, consumers will assume the default (xterm16) palette,
+    // so export will force Xterm16 for encoding regardless of this setting.
+    enum class TargetPalette : std::uint8_t
+    {
+        Xterm16 = 0,
+        // Use the canvas palette if (and only if) it is 16-color; otherwise fall back to Xterm16.
+        CanvasIf16,
+        // Use an explicit 16-color palette (builtin or dynamic uid).
+        Explicit,
+    };
+    TargetPalette target_palette = TargetPalette::Xterm16;
+    phos::color::PaletteRef explicit_palette_ref = []{
+        phos::color::PaletteRef r;
+        r.is_builtin = true;
+        r.builtin = phos::color::BuiltinPalette::None;
+        return r;
+    }();
+
     // If true, embed the canvas' current embedded bitmap font (if any) into the XBin.
     // Export will fail if the canvas does not have an embedded font.
     bool include_font = false;

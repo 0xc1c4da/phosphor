@@ -344,11 +344,9 @@ static std::uint8_t ToVga6(std::uint8_t v8)
     return (std::uint8_t)((v8 * 63u + 127u) / 255u);
 }
 
-static void WriteDefaultPalette(std::vector<std::uint8_t>& out)
+static void WritePaletteChunk(std::vector<std::uint8_t>& out, phos::color::PaletteInstanceId pal16)
 {
-    // Use xterm low-16 RGB as the palette entries for deterministic roundtrips.
     auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
     const phos::color::Palette* p = cs.Palettes().Get(pal16);
     if (!p || p->rgb.size() < 16)
         return;
@@ -753,17 +751,48 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         return false;
     }
 
-    std::array<AnsiCanvas::Color32, 16> pal32{};
-    BuildDefaultPalette32(pal32);
     auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
     phos::color::QuantizePolicy qpol;
 
-    // Export is index-native: remap from the canvas palette to the XBin 16-color palette.
+    // Export is index-native: remap from the canvas palette to the chosen XBin 16-color palette.
     phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         src_pal = *id;
-    const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, pal16, qpol);
+
+    phos::color::PaletteInstanceId dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    if (options.include_palette)
+    {
+        if (options.target_palette == ExportOptions::TargetPalette::CanvasIf16)
+        {
+            const phos::color::Palette* p = cs.Palettes().Get(src_pal);
+            if (p && p->rgb.size() == 16)
+                dst_pal = src_pal;
+        }
+        else if (options.target_palette == ExportOptions::TargetPalette::Explicit)
+        {
+            auto id = cs.Palettes().Resolve(options.explicit_palette_ref);
+            if (!id)
+            {
+                err = "XBin export: explicit_palette_ref does not resolve.";
+                return false;
+            }
+            const phos::color::Palette* p = cs.Palettes().Get(*id);
+            if (!p || p->rgb.size() != 16)
+            {
+                err = "XBin export: explicit palette must be exactly 16 colors.";
+                return false;
+            }
+            dst_pal = *id;
+        }
+        // else: Xterm16 (default)
+    }
+    else
+    {
+        // No palette chunk => readers assume default palette; encode with xterm16.
+        dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    }
+
+    const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_pal, qpol);
 
     const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
     const bool embedded_font =
@@ -805,7 +834,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     out_bytes.push_back(flags);
 
     if (options.include_palette)
-        WriteDefaultPalette(out_bytes);
+        WritePaletteChunk(out_bytes, dst_pal);
 
     if (options.include_font)
         out_bytes.insert(out_bytes.end(), ef->bitmap.begin(), ef->bitmap.end());
@@ -833,7 +862,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 (void)canvas.GetLayerCellIndices(li, y, x, fg, bg);
             }
 
-            // Unset -> default indices (consistent with previous pal32[7]/pal32[0] behavior).
+            // Unset -> default indices (classic XBin expectation).
             int fg_i = 7;
             int bg_i = 0;
             if (fg != AnsiCanvas::kUnsetIndex16 && remap_to_16 && (size_t)fg < remap_to_16->remap.size())

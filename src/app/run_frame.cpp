@@ -1589,37 +1589,15 @@ void RunFrame(AppState& st)
             ctx.allow_caret_writeback = true;
             // Multi-cell brush stamp (optional; provided by the canvas).
             AnslFrameContext::BrushStamp stamp;
-            std::vector<std::uint32_t> stamp_fg32;
-            std::vector<std::uint32_t> stamp_bg32;
             ctx.brush = nullptr;
             if (const AnsiCanvas::Brush* b = c.GetCurrentBrush())
             {
                 stamp.w = b->w;
                 stamp.h = b->h;
                 stamp.cp = b->cp.data();
-                // Lua tools currently expect packed Color32; convert from indexed brush storage.
-                stamp_fg32.resize(b->fg.size(), 0u);
-                stamp_bg32.resize(b->bg.size(), 0u);
-                for (std::size_t bi = 0; bi < b->fg.size(); ++bi)
-                {
-                    const AnsiCanvas::ColorIndex16 idx = b->fg[bi];
-                    stamp_fg32[bi] = (idx == AnsiCanvas::kUnsetIndex16)
-                                         ? 0u
-                                         : phos::color::ColorOps::IndexToColor32(cs.Palettes(),
-                                                                                pal,
-                                                                                phos::color::ColorIndex{idx});
-                }
-                for (std::size_t bi = 0; bi < b->bg.size(); ++bi)
-                {
-                    const AnsiCanvas::ColorIndex16 idx = b->bg[bi];
-                    stamp_bg32[bi] = (idx == AnsiCanvas::kUnsetIndex16)
-                                         ? 0u
-                                         : phos::color::ColorOps::IndexToColor32(cs.Palettes(),
-                                                                                pal,
-                                                                                phos::color::ColorIndex{idx});
-                }
-                stamp.fg = stamp_fg32.data();
-                stamp.bg = stamp_bg32.data();
+                // Index-native (Phase B): expose indices directly in the canvas palette space.
+                stamp.fg = b->fg.data();
+                stamp.bg = b->bg.data();
                 stamp.attrs = b->attrs.data();
                 ctx.brush = &stamp;
             }

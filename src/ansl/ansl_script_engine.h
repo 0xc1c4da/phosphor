@@ -197,11 +197,11 @@ struct AnslFrameContext
         int h = 0;
         // Arrays are row-major, length = w*h.
         // - cp: Unicode codepoints (space means transparent by convention)
-        // - fg/bg: packed RGBA, 0 = unset
+        // - fg/bg: palette indices in ctx.palette (kUnsetIndex16 = unset)
         // - attrs: attribute bitmask, 0 = none
         const char32_t*      cp = nullptr;
-        const std::uint32_t* fg = nullptr;
-        const std::uint32_t* bg = nullptr;
+        const std::uint16_t* fg = nullptr;
+        const std::uint16_t* bg = nullptr;
         const std::uint16_t* attrs = nullptr;
     };
     // If null, ctx.brush is considered empty/unset.
