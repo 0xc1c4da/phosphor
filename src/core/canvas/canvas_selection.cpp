@@ -228,8 +228,8 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
 
             const CompositeCell c = GetCompositeCell(y, x);
             g_clipboard.cp[out] = c.cp;
-            g_clipboard.fg[out] = QuantizeColor32ToIndex(c.fg);
-            g_clipboard.bg[out] = QuantizeColor32ToIndex(c.bg);
+            g_clipboard.fg[out] = c.fg;
+            g_clipboard.bg[out] = c.bg;
             g_clipboard.attrs[out] = c.attrs;
         }
     }
@@ -358,8 +358,8 @@ bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
 
             const CompositeCell c = GetCompositeCell(y, x);
             out.cp[out_idx] = c.cp;
-            out.fg[out_idx] = QuantizeColor32ToIndex(c.fg);
-            out.bg[out_idx] = QuantizeColor32ToIndex(c.bg);
+            out.fg[out_idx] = c.fg;
+            out.bg[out_idx] = c.bg;
             out.attrs[out_idx] = c.attrs;
         }
     return ValidateBrushInternal(out);

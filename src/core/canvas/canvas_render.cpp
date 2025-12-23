@@ -251,38 +251,9 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
         v.z = std::clamp(v.z * mul, 0.0f, 1.0f);
         return ImGui::ColorConvertFloat4ToU32(v);
     };
-
-    static const ImU32 kVga16[16] = {
-        IM_COL32(0x00, 0x00, 0x00, 0xFF), // 0
-        IM_COL32(0xAA, 0x00, 0x00, 0xFF), // 1
-        IM_COL32(0x00, 0xAA, 0x00, 0xFF), // 2
-        IM_COL32(0xAA, 0x55, 0x00, 0xFF), // 3
-        IM_COL32(0x00, 0x00, 0xAA, 0xFF), // 4
-        IM_COL32(0xAA, 0x00, 0xAA, 0xFF), // 5
-        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), // 6
-        IM_COL32(0xAA, 0xAA, 0xAA, 0xFF), // 7
-        IM_COL32(0x55, 0x55, 0x55, 0xFF), // 8
-        IM_COL32(0xFF, 0x55, 0x55, 0xFF), // 9
-        IM_COL32(0x55, 0xFF, 0x55, 0xFF), // 10
-        IM_COL32(0xFF, 0xFF, 0x55, 0xFF), // 11
-        IM_COL32(0x55, 0x55, 0xFF, 0xFF), // 12
-        IM_COL32(0xFF, 0x55, 0xFF, 0xFF), // 13
-        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), // 14
-        IM_COL32(0xFF, 0xFF, 0xFF, 0xFF), // 15
-    };
-    auto vga16_index = [&](ImU32 c, int& out_idx) -> bool
-    {
-        for (int i = 0; i < 16; ++i)
-        {
-            if (kVga16[i] == c)
-            {
-                out_idx = i;
-                return true;
-            }
-        }
-        out_idx = 0;
-        return false;
-    };
+    // Reverse-video bright-bit preservation is only well-defined for the canonical VGA16 palette.
+    const bool active_palette_is_vga16 =
+        (m_palette_ref.is_builtin && m_palette_ref.builtin == phos::color::BuiltinPalette::Vga16);
 
     float y = origin.y + (float)start_row * cell_h;
     for (int row = start_row; row < end_row; ++row, y += cell_h)
@@ -295,9 +266,9 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
 
             CompositeCell cell = GetCompositeCell(row, col);
 
-            // Resolve base fg/bg (note: bg==0 means "unset/transparent" in the editor).
-            ImU32 fg_col = (cell.fg != 0) ? (ImU32)cell.fg : default_fg;
-            ImU32 bg_col = (cell.bg != 0) ? (ImU32)cell.bg : paper_bg;
+            // Resolve base fg/bg (note: bg==Unset means "transparent/no-fill" in the editor).
+            ImU32 fg_col = (cell.fg != kUnsetIndex16) ? (ImU32)IndexToColor32(cell.fg) : default_fg;
+            ImU32 bg_col = (cell.bg != kUnsetIndex16) ? (ImU32)IndexToColor32(cell.bg) : paper_bg;
 
             const Attrs a = cell.attrs;
             const bool reverse = (a & Attr_Reverse) != 0;
@@ -305,15 +276,17 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             {
                 // If both colors are exact VGA16 palette entries, emulate libansilove's
                 // special reverse rule that preserves the bright-foreground bit.
-                int fi = 0, bi = 0;
-                // IMPORTANT: only apply the VGA16 special case when both fg/bg are explicitly set.
-                // Unset channels are represented as 0, which would otherwise spuriously match VGA16 black.
-                if (cell.fg != 0 && cell.bg != 0 && vga16_index((ImU32)cell.fg, fi) && vga16_index((ImU32)cell.bg, bi))
+                // IMPORTANT: only apply the VGA16 special case when:
+                // - the active palette is VGA16, and
+                // - both fg/bg are explicitly set.
+                if (active_palette_is_vga16 && cell.fg != kUnsetIndex16 && cell.bg != kUnsetIndex16)
                 {
+                    const int fi = (int)std::clamp<int>((int)cell.fg, 0, 15);
+                    const int bi = (int)std::clamp<int>((int)cell.bg, 0, 15);
                     const int inv_bg = fi % 8;
                     const int inv_fg = bi + (fi & 8);
-                    bg_col = kVga16[std::clamp(inv_bg, 0, 15)];
-                    fg_col = kVga16[std::clamp(inv_fg, 0, 15)];
+                    bg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_bg, 0, 15));
+                    fg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_fg, 0, 15));
                 }
                 else
                 {
@@ -328,7 +301,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             // Background fill:
             // - normally, only fill when bg is explicitly set
             // - in reverse mode, fill using the effective swapped bg
-            if (cell.bg != 0 || reverse)
+            if (cell.bg != kUnsetIndex16 || reverse)
                 draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
 
             // Caret highlight.
@@ -533,6 +506,10 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
     const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
+    // Reverse-video bright-bit preservation is only well-defined for the canonical VGA16 palette.
+    const bool active_palette_is_vga16 =
+        (m_palette_ref.is_builtin && m_palette_ref.builtin == phos::color::BuiltinPalette::Vga16);
+
     // Floating selection preview (drawn above the document).
     if (m_move.active && m_move.w > 0 && m_move.h > 0 && (int)m_move.cells.size() == m_move.w * m_move.h)
     {
@@ -555,57 +532,23 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
                 const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
-                const Color32 fg32 = IndexToColor32(c.fg);
-                const Color32 bg32 = IndexToColor32(c.bg);
-                ImU32 fg_col = (fg32 != 0) ? (ImU32)fg32 : default_fg;
-                ImU32 bg_col = (bg32 != 0) ? (ImU32)bg32 : paper_bg;
+                ImU32 fg_col = (c.fg != kUnsetIndex16) ? (ImU32)IndexToColor32(c.fg) : default_fg;
+                ImU32 bg_col = (c.bg != kUnsetIndex16) ? (ImU32)IndexToColor32(c.bg) : paper_bg;
 
                 const Attrs a = c.attrs;
                 const bool reverse = (a & Attr_Reverse) != 0;
                 if (reverse)
                 {
-                    // Apply libansilove-compatible VGA16 reverse rule when both channels are explicitly set
-                    // and exactly match VGA16 palette entries. Otherwise do a normal swap on the effective colors.
-                    auto vga16_index = [&](ImU32 col, int& out_idx) -> bool
+                    // Apply libansilove-compatible VGA16 reverse rule only when the active palette is VGA16
+                    // and both channels are explicitly set. Otherwise do a normal swap on the effective colors.
+                    if (active_palette_is_vga16 && c.fg != kUnsetIndex16 && c.bg != kUnsetIndex16)
                     {
-                        static const ImU32 vga16[16] = {
-                            IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
-                            IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
-                            IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
-                            IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
-                            IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
-                            IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
-                            IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
-                            IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
-                        };
-                        for (int i = 0; i < 16; ++i)
-                        {
-                            if (vga16[i] == col)
-                            {
-                                out_idx = i;
-                                return true;
-                            }
-                        }
-                        out_idx = 0;
-                        return false;
-                    };
-                    int fi = 0, bi = 0;
-                    if (fg32 != 0 && bg32 != 0 && vga16_index((ImU32)fg32, fi) && vga16_index((ImU32)bg32, bi))
-                    {
+                        const int fi = (int)std::clamp<int>((int)c.fg, 0, 15);
+                        const int bi = (int)std::clamp<int>((int)c.bg, 0, 15);
                         const int inv_bg = fi % 8;
                         const int inv_fg = bi + (fi & 8);
-                        static const ImU32 vga16[16] = {
-                            IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
-                            IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
-                            IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
-                            IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
-                            IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
-                            IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
-                            IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
-                            IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
-                        };
-                        bg_col = vga16[std::clamp(inv_bg, 0, 15)];
-                        fg_col = vga16[std::clamp(inv_fg, 0, 15)];
+                        bg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_bg, 0, 15));
+                        fg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_fg, 0, 15));
                     }
                     else
                     {
@@ -626,7 +569,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 if ((a & Attr_Bold) != 0)
                     fg_col = adjust_intensity(fg_col, 1.25f);
 
-                if (bg32 != 0 || reverse)
+                if (c.bg != kUnsetIndex16 || reverse)
                     draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
 
                 const bool blink = (a & Attr_Blink) != 0;
@@ -1587,18 +1530,16 @@ void AnsiCanvas::DrawToolBrushPreviewOverlay(ImDrawList* draw_list,
         sy = std::clamp(sy, 0, std::max(0, m_rows - 1));
 
         char32_t cp = U' ';
-        Color32 fg = 0;
-        Color32 bg = 0;
-        Attrs attrs = 0;
-        (void)GetCompositeCellPublic(sy, sx, cp, fg, bg, attrs);
+        CompositeCell c = GetCompositeCell(sy, sx);
+        cp = c.cp;
 
-        ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
-        ImU32 bg_col = (bg != 0) ? (ImU32)bg : paper_bg;
-        if ((attrs & Attr_Reverse) != 0)
+        ImU32 fg_col = (c.fg != kUnsetIndex16) ? (ImU32)IndexToColor32(c.fg) : default_fg;
+        ImU32 bg_col = (c.bg != kUnsetIndex16) ? (ImU32)IndexToColor32(c.bg) : paper_bg;
+        if ((c.attrs & Attr_Reverse) != 0)
             std::swap(fg_col, bg_col);
 
         ImU32 effective = paper_bg;
-        if (bg != 0 || (attrs & Attr_Reverse) != 0)
+        if (c.bg != kUnsetIndex16 || (c.attrs & Attr_Reverse) != 0)
             effective = bg_col;
         else if (cp != U' ')
             effective = fg_col;

@@ -2,6 +2,7 @@
 
 #include "app/canvas_preview_texture.h"
 #include "core/canvas.h"
+#include "core/color_system.h"
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
@@ -162,15 +163,26 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                 const int src_col = std::clamp((int)std::floor(((gx + 0.5f) * (float)vs.columns) / (float)grid_w), 0, vs.columns - 1);
 
                 char32_t cp = U' ';
-                AnsiCanvas::Color32 fg = 0;
-                AnsiCanvas::Color32 bg = 0;
-                canvas->GetCompositeCellPublic(src_row, src_col, cp, fg, bg);
+                AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                canvas->GetCompositeCellPublicIndices(src_row, src_col, cp, fg, bg);
+
+                // Convert indices to packed ImGui colors via the active palette.
+                auto& cs = phos::color::GetColorSystem();
+                phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+                if (auto id = cs.Palettes().Resolve(canvas->GetPaletteRef()))
+                    pal = *id;
+                auto idx_to_u32 = [&](AnsiCanvas::ColorIndex16 idx) -> ImU32 {
+                    if (idx == AnsiCanvas::kUnsetIndex16)
+                        return 0;
+                    return (ImU32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{idx});
+                };
 
                 ImU32 col = paper;
-                if (bg != 0)
-                    col = (ImU32)bg;
+                if (bg != AnsiCanvas::kUnsetIndex16)
+                    col = idx_to_u32(bg);
                 else if (cp != U' ')
-                    col = (fg != 0) ? (ImU32)fg : default_fg;
+                    col = (fg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(fg) : default_fg;
 
                 dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);
             }

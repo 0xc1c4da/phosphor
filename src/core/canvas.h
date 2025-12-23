@@ -205,6 +205,10 @@ public:
     bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const;
     // Extended composite sampling including attributes.
     bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg, Attrs& out_attrs) const;
+    // Index-native composite sampling (Phase B): returns palette indices in the canvas's active palette.
+    // Unset is returned as kUnsetIndex16 (preserves fg/bg unset semantics).
+    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
+    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const;
 
     // ---------------------------------------------------------------------
     // Content revision (for minimaps/caches)
@@ -1042,8 +1046,8 @@ private:
     struct CompositeCell
     {
         char32_t cp = U' ';
-        Color32  fg = 0;
-        Color32  bg = 0;
+        ColorIndex16 fg = kUnsetIndex16; // index in active palette, or unset
+        ColorIndex16 bg = kUnsetIndex16; // index in active palette, or unset
         Attrs    attrs = 0;
     };
 

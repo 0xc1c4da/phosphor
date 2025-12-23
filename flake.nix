@@ -38,6 +38,7 @@
           libnoise
           md4c
           libblake3
+          libsixel
         ];
 
         phosphor = pkgs.stdenv.mkDerivation {

@@ -81,8 +81,8 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
         return false;
     CompositeCell c = GetCompositeCell(row, col);
     out_cp = c.cp;
-    out_fg = c.fg;
-    out_bg = c.bg;
+    out_fg = IndexToColor32(c.fg);
+    out_bg = IndexToColor32(c.bg);
     return true;
 }
 
@@ -91,6 +91,36 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
     out_cp = U' ';
     out_fg = 0;
     out_bg = 0;
+    out_attrs = 0;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_cp = c.cp;
+    out_fg = IndexToColor32(c.fg);
+    out_bg = IndexToColor32(c.bg);
+    out_attrs = c.attrs;
+    return true;
+}
+
+bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg) const
+{
+    out_cp = U' ';
+    out_fg = kUnsetIndex16;
+    out_bg = kUnsetIndex16;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_cp = c.cp;
+    out_fg = c.fg;
+    out_bg = c.bg;
+    return true;
+}
+
+bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const
+{
+    out_cp = U' ';
+    out_fg = kUnsetIndex16;
+    out_bg = kUnsetIndex16;
     out_attrs = 0;
     if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
         return false;

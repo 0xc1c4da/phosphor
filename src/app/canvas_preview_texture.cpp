@@ -1,6 +1,7 @@
 #include "app/canvas_preview_texture.h"
 
 #include "core/canvas.h"
+#include "core/color_system.h"
 #include "core/fonts.h"
 
 // ImGui Vulkan backend texture registration.
@@ -703,12 +704,22 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
     auto sample_cell_color = [&](int row, int col, float lx, float ly) -> ImU32
     {
         char32_t cp = U' ';
-        AnsiCanvas::Color32 fg = 0;
-        AnsiCanvas::Color32 bg = 0;
-        (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg);
+        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        (void)canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg);
 
-        const ImU32 bg_col = (bg != 0) ? (ImU32)bg : paper;
-        const ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+            pal = *id;
+        auto idx_to_u32 = [&](AnsiCanvas::ColorIndex16 idx) -> ImU32 {
+            if (idx == AnsiCanvas::kUnsetIndex16)
+                return 0;
+            return (ImU32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{idx});
+        };
+
+        const ImU32 bg_col = (bg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(bg) : paper;
+        const ImU32 fg_col = (fg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(fg) : default_fg;
         const Ink2x2 ink = glyph_ink2x2(cp);
         const bool right = (lx >= 0.5f);
         const bool bot   = (ly >= 0.5f);

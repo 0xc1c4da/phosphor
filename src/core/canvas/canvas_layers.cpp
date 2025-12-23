@@ -697,7 +697,7 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
                 const ColorIndex16 bg = layer.bg[idx];
                 if (bg != kUnsetIndex16)
                 {
-                    out.bg = IndexToColor32(bg);
+                    out.bg = bg;
                     have_bg = true;
                 }
             }
@@ -712,7 +712,7 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
             if (cp != U' ')
             {
                 out.cp = cp;
-                out.fg = (idx < layer.fg.size()) ? IndexToColor32(layer.fg[idx]) : 0;
+                out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
                 out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
                 have_fg = true;
             }

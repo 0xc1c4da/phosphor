@@ -601,7 +601,7 @@ static inline int ClampColumns(int columns)
     return columns;
 }
 
-static bool ContainsEsc(const std::vector<std::uint8_t>& bytes)
+[[maybe_unused]] static bool ContainsEsc(const std::vector<std::uint8_t>& bytes)
 {
     for (std::uint8_t b : bytes)
         if (b == ESC)
