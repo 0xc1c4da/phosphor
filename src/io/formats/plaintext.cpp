@@ -165,9 +165,9 @@ static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int r
     if (opt.source == ExportOptions::Source::Composite)
     {
         char32_t cp = U' ';
-        AnsiCanvas::Color32 fg = 0;
-        AnsiCanvas::Color32 bg = 0;
-        if (!canvas.GetCompositeCellPublic(row, col, cp, fg, bg))
+        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        if (!canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg))
             return false;
         out_cp = cp;
         return true;

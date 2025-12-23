@@ -13,7 +13,7 @@ local function clampi(i, lo, hi)
   return i
 end
 
--- CGA palette (canonical). Converted to xterm-256 via nearest match.
+-- CGA palette (canonical). Converted to the active canvas palette via nearest match.
 local CGA = {
   ansl.color.hex("000000"), -- black
   ansl.color.hex("0000aa"), -- blue

@@ -71,7 +71,7 @@ local function apply_dab(ctx, layer, x, y, px, py)
     sample = sample,
     scope = scope,
     hysteresis = hysteresis,
-    palette = ctx.palette, -- xterm indices (optional)
+    palette = ctx.palette, -- allowed indices list (optional; indices are in the active canvas palette)
     glyphCandidates = ctx.glyphCandidates, -- codepoints (optional)
   }
 

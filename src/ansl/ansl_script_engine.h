@@ -170,7 +170,7 @@ struct AnslFrameContext
     // The host owns the vector; valid only for the duration of RunFrame().
     const std::vector<std::string>* actions_pressed = nullptr;
 
-    // Script defaults (xterm-256 indices). -1 means "unset".
+    // Script defaults (palette indices in the active canvas palette). -1 means "unset".
     // These are not yet used by the host shim, but are exposed so scripts can
     // pick up the editor's current FG/BG selection without guessing.
     int fg = -1;
@@ -307,8 +307,8 @@ struct ToolCommandSink
 // Lua-side convention (preferred):
 //   settings = { fps = 60, once = false, fg = "#ffffff", bg = "#000000" }
 // Colors can be:
-// - xterm-256 index (0..255), or
-// - "#RRGGBB"/"RRGGBB" string (mapped to nearest xterm-256).
+// - a palette index (0..paletteSize-1 in the active canvas palette), or
+// - "#RRGGBB"/"RRGGBB" string (mapped to nearest index in the active canvas palette).
 struct AnslScriptSettings
 {
     bool has_fps = false;
@@ -318,7 +318,7 @@ struct AnslScriptSettings
     bool once = false;
 
     // Optional layer foreground/background fill to apply by the host.
-    // Stored as xterm-256 indices (0..255).
+    // Stored as indices in the active canvas palette index space.
     bool has_foreground = false;
     int  foreground_xterm = 0;
     bool has_background = false;
@@ -334,7 +334,7 @@ struct AnslScriptSettings
 //     - layer:set(x, y, cpOrString)
 //     - layer:get(x, y) -> ch, fg, bg
 //         - ch: string (single glyph)
-//         - fg/bg: xterm-256 indices (0..255) or nil when "unset"
+//         - fg/bg: indices in the active canvas palette (or nil when "unset")
 //     - layer:clear(cpOrString?)
 //     - layer:setRow(y, utf8String)
 //
@@ -345,7 +345,7 @@ struct AnslScriptSettings
 //   - runs `main()` per cell
 //   - supports `main()` returning either:
 //       - a scalar (string/number) -> glyph
-//       - a table with `char` (+ optional `fg`/`bg` xterm-256 indices) -> per-cell colors via layer:set()
+//       - a table with `char` (+ optional `fg`/`bg` palette indices) -> per-cell colors via layer:set()
 //   - calls optional `post(context, cursor, buffer)` once per frame
 class AnslScriptEngine
 {

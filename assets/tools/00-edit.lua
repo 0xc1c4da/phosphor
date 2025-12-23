@@ -43,7 +43,7 @@ function render(ctx, layer)
   local caret = ctx.caret
   if type(caret) ~= "table" then return end
 
-  -- Current editor-selected colors (xterm-256 indices). nil means "unset".
+  -- Current editor-selected colors (indices in the active canvas palette). nil means "unset".
   local fg = ctx.fg
   if type(fg) ~= "number" then fg = nil end
   local bg = ctx.bg

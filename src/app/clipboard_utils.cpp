@@ -53,9 +53,10 @@ static std::string SelectionToUtf8Text(const AnsiCanvas& canvas)
             const int x = r.x + i;
             const int y = r.y + j;
             char32_t cp = U' ';
-            AnsiCanvas::Color32 fg = 0, bg = 0;
+            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs attrs = 0;
-            (void)canvas.GetCompositeCellPublic(y, x, cp, fg, bg, attrs);
+            (void)canvas.GetCompositeCellPublicIndices(y, x, cp, fg, bg, attrs);
             line[(size_t)i] = cp;
         }
 

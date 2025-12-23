@@ -14,9 +14,11 @@ extern "C"
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <new>
 
-#include "core/xterm256_palette.h"
+#include "core/color_ops.h"
+#include "core/color_system.h"
 #include "fonts/textmode_font_registry.h"
 
 namespace
@@ -793,19 +795,61 @@ static int l_sdf_fOpEngrave(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOp
 static int l_sdf_fOpGroove(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpGroove(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
 static int l_sdf_fOpTongue(lua_State* L) { lua_pushnumber(L, ansl::sdf::hg::fOpTongue(luaL_checknumber(L, 1), luaL_checknumber(L, 2), luaL_checknumber(L, 3), luaL_checknumber(L, 4))); return 1; }
 
-// -------- color (xterm-256 index API) --------
+// -------- color (active palette index API) --------
 // Lua-idiomatic contract for the editor:
-// - colors are xterm-256 indices (0..255)
+// - colors are palette indices in the active canvas palette (0..paletteSize-1)
 // - nil means "unset"
 // - no alpha channel; all palette colors are opaque
+namespace
+{
+static phos::color::PaletteInstanceId LuaGetActivePaletteId(lua_State* L)
+{
+    lua_getfield(L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
+    phos::color::PaletteInstanceId pal = {};
+    if (lua_isnumber(L, -1))
+        pal.v = (std::uint64_t)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    auto& cs = phos::color::GetColorSystem();
+    if (pal.v == 0)
+        pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    return pal;
+}
+
+static const phos::color::Palette* LuaGetActivePalette(lua_State* L, phos::color::PaletteInstanceId& out_pal)
+{
+    auto& cs = phos::color::GetColorSystem();
+    out_pal = LuaGetActivePaletteId(L);
+    if (const phos::color::Palette* p = cs.Palettes().Get(out_pal))
+        return p;
+    out_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    return cs.Palettes().Get(out_pal);
+}
+
+static int LuaActivePaletteSizeOrZero(lua_State* L)
+{
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p)
+        return 0;
+    return (int)p->rgb.size();
+}
+} // namespace
+
 static int l_color_rgb(lua_State* L)
 {
     const int r = (int)std::llround(luaL_checknumber(L, 1));
     const int g = (int)std::llround(luaL_checknumber(L, 2));
     const int b = (int)std::llround(luaL_checknumber(L, 3));
-    const int idx = xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                          (std::uint8_t)std::clamp(g, 0, 255),
-                                          (std::uint8_t)std::clamp(b, 0, 255));
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                               pal,
+                                                               (std::uint8_t)std::clamp(r, 0, 255),
+                                                               (std::uint8_t)std::clamp(g, 0, 255),
+                                                               (std::uint8_t)std::clamp(b, 0, 255),
+                                                               qp);
     lua_pushinteger(L, idx);
     return 1;
 }
@@ -823,7 +867,11 @@ static int l_color_rgb2hex(lua_State* L)
 {
     // rgb2hex(idx) -> "#RRGGBB"
     const int idx = (int)luaL_checkinteger(L, 1);
-    const xterm256::Rgb c = xterm256::RgbForIndex(idx);
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p || idx < 0 || idx >= (int)p->rgb.size())
+        return luaL_error(L, "rgb2hex() expects an index in the active palette (0..paletteSize-1)");
+    const phos::color::Rgb8 c = p->rgb[(size_t)idx];
     std::string out = "#";
     out += HexByte(c.r);
     out += HexByte(c.g);
@@ -834,7 +882,7 @@ static int l_color_rgb2hex(lua_State* L)
 
 static int l_color_hex(lua_State* L)
 {
-    // hex("#RRGGBB") -> nearest xterm-256 index
+    // hex("#RRGGBB") -> nearest index in the active palette
     size_t len = 0;
     const char* s = luaL_checklstring(L, 1, &len);
     if (!s || len < 6)
@@ -852,7 +900,15 @@ static int l_color_hex(lua_State* L)
     const int r = std::clamp(byte(0), 0, 255);
     const int g = std::clamp(byte(2), 0, 255);
     const int b = std::clamp(byte(4), 0, 255);
-    const int idx = xterm256::NearestIndex((std::uint8_t)r, (std::uint8_t)g, (std::uint8_t)b);
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                               pal,
+                                                               (std::uint8_t)r,
+                                                               (std::uint8_t)g,
+                                                               (std::uint8_t)b,
+                                                               qp);
     lua_pushinteger(L, idx);
     return 1;
 }
@@ -861,7 +917,11 @@ static int l_color_rgb2gray(lua_State* L)
 {
     // rgb2gray(idx) -> 0..1
     const int idx = (int)luaL_checkinteger(L, 1);
-    const xterm256::Rgb c = xterm256::RgbForIndex(idx);
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p || idx < 0 || idx >= (int)p->rgb.size())
+        return luaL_error(L, "rgb2gray() expects an index in the active palette (0..paletteSize-1)");
+    const phos::color::Rgb8 c = p->rgb[(size_t)idx];
     const double gray = std::llround((double)c.r * 0.2126 + (double)c.g * 0.7152 + (double)c.b * 0.0722) / 255.0;
     lua_pushnumber(L, gray);
     return 1;
@@ -871,7 +931,11 @@ static int l_color_css(lua_State* L)
 {
     // css(idx) -> "rgb(r,g,b)"
     const int idx = (int)luaL_checkinteger(L, 1);
-    const xterm256::Rgb c = xterm256::RgbForIndex(idx);
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p || idx < 0 || idx >= (int)p->rgb.size())
+        return luaL_error(L, "css() expects an index in the active palette (0..paletteSize-1)");
+    const phos::color::Rgb8 c = p->rgb[(size_t)idx];
     const std::string out =
         "rgb(" + std::to_string((int)c.r) + "," + std::to_string((int)c.g) + "," + std::to_string((int)c.b) + ")";
     lua_pushlstring(L, out.c_str(), out.size());
@@ -888,7 +952,11 @@ static int l_color_int2rgb(lua_State* L)
 {
     // int2rgb(idx) -> {r,g,b}
     const int idx = (int)luaL_checkinteger(L, 1);
-    const xterm256::Rgb c = xterm256::RgbForIndex(idx);
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p || idx < 0 || idx >= (int)p->rgb.size())
+        return luaL_error(L, "int2rgb() expects an index in the active palette (0..paletteSize-1)");
+    const phos::color::Rgb8 c = p->rgb[(size_t)idx];
     lua_createtable(L, 0, 3);
     lua_pushinteger(L, c.r); lua_setfield(L, -2, "r");
     lua_pushinteger(L, c.g); lua_setfield(L, -2, "g");
@@ -904,7 +972,8 @@ static int l_color_is(lua_State* L)
         return 1;
     }
     const int idx = (int)lua_tointeger(L, 1);
-    lua_pushboolean(L, (idx >= 0 && idx <= 255) ? 1 : 0);
+    const int n = LuaActivePaletteSizeOrZero(L);
+    lua_pushboolean(L, (idx >= 0 && idx < n) ? 1 : 0);
     return 1;
 }
 
@@ -912,7 +981,11 @@ static int l_color_rgb_of(lua_State* L)
 {
     // rgb_of(idx) -> r,g,b
     const int idx = (int)luaL_checkinteger(L, 1);
-    const xterm256::Rgb c = xterm256::RgbForIndex(idx);
+    phos::color::PaletteInstanceId pal = {};
+    const phos::color::Palette* p = LuaGetActivePalette(L, pal);
+    if (!p || idx < 0 || idx >= (int)p->rgb.size())
+        return luaL_error(L, "rgb_of() expects an index in the active palette (0..paletteSize-1)");
+    const phos::color::Rgb8 c = p->rgb[(size_t)idx];
     lua_pushinteger(L, c.r);
     lua_pushinteger(L, c.g);
     lua_pushinteger(L, c.b);
@@ -922,6 +995,52 @@ static int l_color_rgb_of(lua_State* L)
 static void SetFuncs(lua_State* L, const luaL_Reg* regs)
 {
     luaL_setfuncs(L, regs, 0);
+}
+
+static int l_color_ansi16_index(lua_State* L)
+{
+    // __index metamethod for ansl.color.ansi16.*
+    // Returns the nearest index in the active palette for the requested VGA16/ANSI16 named color.
+    const char* key = luaL_checkstring(L, 2);
+    int vga = -1;
+    if (std::strcmp(key, "black") == 0) vga = 0;
+    else if (std::strcmp(key, "red") == 0) vga = 1;
+    else if (std::strcmp(key, "green") == 0) vga = 2;
+    else if (std::strcmp(key, "yellow") == 0) vga = 3;
+    else if (std::strcmp(key, "blue") == 0) vga = 4;
+    else if (std::strcmp(key, "magenta") == 0) vga = 5;
+    else if (std::strcmp(key, "cyan") == 0) vga = 6;
+    else if (std::strcmp(key, "white") == 0) vga = 7;
+    else if (std::strcmp(key, "bright_black") == 0) vga = 8;
+    else if (std::strcmp(key, "bright_red") == 0) vga = 9;
+    else if (std::strcmp(key, "bright_green") == 0) vga = 10;
+    else if (std::strcmp(key, "bright_yellow") == 0) vga = 11;
+    else if (std::strcmp(key, "bright_blue") == 0) vga = 12;
+    else if (std::strcmp(key, "bright_magenta") == 0) vga = 13;
+    else if (std::strcmp(key, "bright_cyan") == 0) vga = 14;
+    else if (std::strcmp(key, "bright_white") == 0) vga = 15;
+
+    if (vga < 0)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId vga_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+    const phos::color::Palette* vga_p = cs.Palettes().Get(vga_pal);
+    if (!vga_p || vga_p->rgb.size() < 16)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    const phos::color::Rgb8 c = vga_p->rgb[(size_t)vga];
+    const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, c.r, c.g, c.b, qp);
+    lua_pushinteger(L, idx);
+    return 1;
 }
 
 // -------- noise (libnoise) --------
@@ -1336,14 +1455,17 @@ static textmode_font::Registry* LuaGetFontRegistry(lua_State* L)
     return reg;
 }
 
-static int Color32ToXtermIndexOrMinus1(std::uint32_t c32)
+static int Color32ToActivePaletteIndexOrMinus1(lua_State* L, std::uint32_t c32)
 {
     if (c32 == 0)
         return -1;
-    const std::uint8_t r = (std::uint8_t)((c32 >> 0) & 0xFF);
-    const std::uint8_t g = (std::uint8_t)((c32 >> 8) & 0xFF);
-    const std::uint8_t b = (std::uint8_t)((c32 >> 16) & 0xFF);
-    return xterm256::NearestIndex(r, g, b);
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const phos::color::ColorIndex idx = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, c32, qp);
+    if (idx.IsUnset())
+        return -1;
+    return (int)idx.v;
 }
 
 static int l_font_list(lua_State* L)
@@ -1468,10 +1590,10 @@ static int l_font_render(lua_State* L)
         lua_pushinteger(L, (lua_Integer)cp);
         lua_rawseti(L, -4, (lua_Integer)i + 1);
 
-        lua_pushinteger(L, (lua_Integer)Color32ToXtermIndexOrMinus1(fg32));
+        lua_pushinteger(L, (lua_Integer)Color32ToActivePaletteIndexOrMinus1(L, fg32));
         lua_rawseti(L, -3, (lua_Integer)i + 1);
 
-        lua_pushinteger(L, (lua_Integer)Color32ToXtermIndexOrMinus1(bg32));
+        lua_pushinteger(L, (lua_Integer)Color32ToActivePaletteIndexOrMinus1(L, bg32));
         lua_rawseti(L, -2, (lua_Integer)i + 1);
     }
     // Stack: result, cp, fg, bg
@@ -1992,7 +2114,7 @@ extern "C" int luaopen_ansl(lua_State* L)
     SetFuncs(L, sdf_fns);
     lua_setfield(L, -2, "sdf");
 
-    // color (xterm-256 indices)
+    // color (active palette indices)
     lua_createtable(L, 0, 0);
     static const luaL_Reg color_fns[] = {
         {"rgb", l_color_rgb},         // (r,g,b) -> idx
@@ -2008,33 +2130,12 @@ extern "C" int luaopen_ansl(lua_State* L)
     };
     SetFuncs(L, color_fns);
 
-    // Export ansl.color.xterm = { [0]=0, [1]=1, ... } (0-based keys for convenience)
-    // and a minimal ANSI-16 name map.
-    lua_createtable(L, 0, 256);
-    for (int i = 0; i < 256; ++i)
-    {
-        lua_pushinteger(L, i);
-        lua_rawseti(L, -2, i); // key=i (LuaJIT allows 0 integer keys); value=i
-    }
-    lua_setfield(L, -2, "xterm");
-
-    lua_createtable(L, 0, 16);
-    lua_pushinteger(L, 0); lua_setfield(L, -2, "black");
-    lua_pushinteger(L, 1); lua_setfield(L, -2, "red");
-    lua_pushinteger(L, 2); lua_setfield(L, -2, "green");
-    lua_pushinteger(L, 3); lua_setfield(L, -2, "yellow");
-    lua_pushinteger(L, 4); lua_setfield(L, -2, "blue");
-    lua_pushinteger(L, 5); lua_setfield(L, -2, "magenta");
-    lua_pushinteger(L, 6); lua_setfield(L, -2, "cyan");
-    lua_pushinteger(L, 7); lua_setfield(L, -2, "white");
-    lua_pushinteger(L, 8); lua_setfield(L, -2, "bright_black");
-    lua_pushinteger(L, 9); lua_setfield(L, -2, "bright_red");
-    lua_pushinteger(L, 10); lua_setfield(L, -2, "bright_green");
-    lua_pushinteger(L, 11); lua_setfield(L, -2, "bright_yellow");
-    lua_pushinteger(L, 12); lua_setfield(L, -2, "bright_blue");
-    lua_pushinteger(L, 13); lua_setfield(L, -2, "bright_magenta");
-    lua_pushinteger(L, 14); lua_setfield(L, -2, "bright_cyan");
-    lua_pushinteger(L, 15); lua_setfield(L, -2, "bright_white");
+    // ANSI16/VGA16 named colors. These are mapped into the active palette on access (palette-aware).
+    lua_newtable(L); // ansi16
+    lua_newtable(L); // mt
+    lua_pushcfunction(L, l_color_ansi16_index);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2); // setmetatable(ansi16, mt)
     lua_setfield(L, -2, "ansi16");
 
     lua_setfield(L, -2, "color");

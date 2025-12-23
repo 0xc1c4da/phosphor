@@ -9,7 +9,7 @@ function main(coord, ctx, cursor)
   local caret = ctx and ctx.caret
   local cx = math.floor((caret and caret.x) or -999999)
   local cy = math.floor((caret and caret.y) or -999999)
-  local caret_fg = 8 -- ansi16.bright_black (a readable gray in most palettes)
+  local caret_fg = ansl.color.ansi16.bright_black
   if coord.x == cx and coord.y == cy then return { char = "┼", fg = caret_fg } end
   if coord.x == cx then return { char = "│", fg = caret_fg } end
   if coord.y == cy then return { char = "─", fg = caret_fg } end

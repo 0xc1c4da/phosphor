@@ -3,7 +3,7 @@
 
 local density = "#Wabc:+-. "
 
--- Our classic ANSL host expects numeric xterm-256 indices for styling (fg/bg).
+-- Colors are indices in the active canvas palette (fg/bg).
 local colors = {
   ansl.color.hex("#ff1493"), -- deeppink
   ansl.color.ansi16.black,

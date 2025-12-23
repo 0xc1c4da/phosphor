@@ -153,7 +153,8 @@ local function stamp(ctx, layer, cx, cy)
           if px >= 0 and px < cols and py >= 0 then
             local ch = (type(cell) == "table") and cell.ch or nil
             if type(ch) ~= "string" or #ch == 0 then ch = " " end
-            -- Colors are xterm-256 indices (or nil). nil means "preserve" (host-side).
+            -- Colors are indices in the active canvas palette (or nil).
+            -- nil means "preserve" (host-side).
             local fg = pick_color(ctx, cell, "fg", fgSource, useFg)
             local bg = pick_color(ctx, cell, "bg", bgSource, useBg)
             local attrs = (type(cell) == "table" and type(cell.attrs) == "number") and math.floor(cell.attrs) or nil

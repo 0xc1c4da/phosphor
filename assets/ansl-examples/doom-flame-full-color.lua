@@ -22,7 +22,7 @@ local function clampi(i, lo, hi)
   return i
 end
 
--- Palette: JS named colors → canonical hex → nearest xterm-256 index.
+-- Palette: JS named colors → canonical hex → nearest index in the active canvas palette.
 local pal = {
   color.hex("000000"), -- black
   color.hex("800080"), -- purple

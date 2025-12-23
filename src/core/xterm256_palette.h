@@ -1,8 +1,8 @@
 // Shared xterm-256 palette utilities (single source of truth).
-// We use xterm-256 indices (0..255) as the canonical color representation across:
-//   - UI color picker / palettes
-//   - Lua scripts (ansl.color)
-//   - Canvas cell foreground/background storage
+// This is a built-in palette used as:
+//   - a default palette identity for new canvases
+//   - a common export target (ANSI/xterm modes, indexed image export)
+//   - a fallback palette for legacy/boundary codepaths
 //
 // Alpha is intentionally not part of the model for the editor: colors are RGB only.
 // The returned packed color is always opaque (A=255). A value of 0 is reserved by the

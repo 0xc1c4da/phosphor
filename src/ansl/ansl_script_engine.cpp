@@ -2155,6 +2155,14 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_State* L = impl_->L;
     lua_settop(L, 0);
 
+    // Expose the active canvas palette to LuaJIT bindings (ansl.color.*).
+    // Contract: all color indices in scripts are indices in the active canvas palette.
+    {
+        const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
+        lua_pushinteger(L, (lua_Integer)pal.v);
+        lua_setfield(L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
+    }
+
     // Push render(ctx, layer)
     lua_rawgeti(L, LUA_REGISTRYINDEX, impl_->render_ref);
 
