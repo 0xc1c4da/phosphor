@@ -372,12 +372,12 @@ static int l_ansl_deform_apply_dab(lua_State* L)
     lua_pop(L, 1);
 
     // palette restriction: args.palette = { idx, ... }
-    std::vector<int> palette_xterm;
+    std::vector<int> allowed_indices;
     lua_getfield(L, 3, "palette");
     if (lua_istable(L, -1))
     {
         const int n = LuaArrayLen(L, -1);
-        palette_xterm.reserve((size_t)n);
+        allowed_indices.reserve((size_t)n);
         for (int i = 1; i <= n; ++i)
         {
             lua_rawgeti(L, -1, i);
@@ -385,12 +385,12 @@ static int l_ansl_deform_apply_dab(lua_State* L)
             {
                 const int idx = (int)lua_tointeger(L, -1);
                 if (idx >= 0 && idx <= 255)
-                    palette_xterm.push_back(idx);
+                    allowed_indices.push_back(idx);
             }
             lua_pop(L, 1);
         }
-        if (!palette_xterm.empty())
-            args.palette_xterm = &palette_xterm;
+        if (!allowed_indices.empty())
+            args.allowed_indices = &allowed_indices;
     }
     lua_pop(L, 1); // palette
 
@@ -2357,9 +2357,9 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     {
         const int old_n = LuaArrayLen(L, -1);
         int out_i = 1;
-        if (frame_ctx.palette_xterm)
+        if (frame_ctx.allowed_indices)
         {
-            for (int idx : *frame_ctx.palette_xterm)
+            for (int idx : *frame_ctx.allowed_indices)
             {
                 if (idx < 0 || idx > 255)
                     continue;

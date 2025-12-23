@@ -791,12 +791,12 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                           (std::uint8_t)std::clamp(c0r, 0, 255),
                                                           (std::uint8_t)std::clamp(c0g, 0, 255),
                                                           (std::uint8_t)std::clamp(c0b, 0, 255),
-                                                          args.palette_xterm);
+                                                          args.allowed_indices);
                 const int idx1 = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
                                                           (std::uint8_t)std::clamp(c1r, 0, 255),
                                                           (std::uint8_t)std::clamp(c1g, 0, 255),
                                                           (std::uint8_t)std::clamp(c1b, 0, 255),
-                                                          args.palette_xterm);
+                                                          args.allowed_indices);
                 const std::uint32_t bg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx0});
                 const std::uint32_t fg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx1});
                 std::uint8_t bgr8 = 0, bgg8 = 0, bgb8 = 0;
@@ -920,7 +920,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                              (std::uint8_t)std::clamp(r8, 0, 255),
                                                              (std::uint8_t)std::clamp(g8, 0, 255),
                                                              (std::uint8_t)std::clamp(b8, 0, 255),
-                                                             args.palette_xterm);
+                                                             args.allowed_indices);
                     out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx});
                 }
                 out_bg = 0;
@@ -948,12 +948,12 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                             (std::uint8_t)std::clamp(lo_r, 0, 255),
                                                             (std::uint8_t)std::clamp(lo_g, 0, 255),
                                                             (std::uint8_t)std::clamp(lo_b, 0, 255),
-                                                            args.palette_xterm);
+                                                            args.allowed_indices);
                 const int fg_idx = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
                                                             (std::uint8_t)std::clamp(hi_r, 0, 255),
                                                             (std::uint8_t)std::clamp(hi_g, 0, 255),
                                                             (std::uint8_t)std::clamp(hi_b, 0, 255),
-                                                            args.palette_xterm);
+                                                            args.allowed_indices);
                 out_bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)bg_idx});
                 out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)fg_idx});
                 if (best_cp == U' ')

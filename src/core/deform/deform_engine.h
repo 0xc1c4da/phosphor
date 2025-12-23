@@ -83,9 +83,9 @@ struct ApplyDabArgs
         return r;
     }();
 
-    // Optional palette restriction (indices in the active palette index space).
+    // Optional restriction: allowed indices (in the active palette index space).
     // If provided, color snapping should choose from these.
-    const std::vector<int>* palette_xterm = nullptr;
+    const std::vector<int>* allowed_indices = nullptr;
 
     // Candidate glyph set.
     GlyphSet glyph_set = {};

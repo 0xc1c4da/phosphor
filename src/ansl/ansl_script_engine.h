@@ -207,10 +207,10 @@ struct AnslFrameContext
     // If null, ctx.brush is considered empty/unset.
     const BrushStamp* brush = nullptr;
 
-    // Active UI colour palette (optional): list of indices allowed for tools (in the active palette index space).
+    // Optional restriction: list of allowed indices (in the active palette index space).
     // If provided, tools should quantize/snap any computed colors to this list.
     // Host owns the vector; valid only for the duration of RunFrame().
-    const std::vector<int>* palette_xterm = nullptr;
+    const std::vector<int>* allowed_indices = nullptr;
 
     // Optional glyph candidate list provided by the host (Unicode scalar values).
     // Intended to constrain expensive glyph searches (e.g. deform quantization) to a small set
@@ -254,9 +254,9 @@ struct ToolCommand
 
     // PaletteSet
     bool has_fg = false;
-    int  fg = -1; // xterm-256 index (0..255)
+    int  fg = -1; // palette index (in the canvas's active palette index space)
     bool has_bg = false;
-    int  bg = -1; // xterm-256 index (0..255)
+    int  bg = -1; // palette index (in the canvas's active palette index space)
 
     // BrushSet
     uint32_t brush_cp = 0; // Unicode scalar value (>=0). Note: this sets ctx.glyph (single-cell), not ctx.brush.

@@ -1551,7 +1551,7 @@ void RunFrame(AppState& st)
                 pal = *id;
 
             AnslFrameContext ctx;
-            std::vector<int> palette_xterm;
+            std::vector<int> allowed_indices;
             std::vector<std::uint32_t> glyph_candidates;
             std::vector<ToolCommand> commands;
             ToolCommandSink cmd_sink;
@@ -1584,7 +1584,7 @@ void RunFrame(AppState& st)
             ctx.glyph_utf8 = tool_brush_utf8;
             ctx.glyph_cp = (int)tool_brush_cp;
             ctx.attrs = tool_attrs_mask;
-            ctx.palette_xterm = nullptr;
+            ctx.allowed_indices = nullptr;
             ctx.glyph_candidates = nullptr;
             ctx.allow_caret_writeback = true;
             // Multi-cell brush stamp (optional; provided by the canvas).
@@ -1666,10 +1666,10 @@ void RunFrame(AppState& st)
                                                                             (std::uint8_t)std::clamp(b, 0, 255),
                                                                             qp);
                     if (seen.insert(idx).second)
-                        palette_xterm.push_back(idx);
+                        allowed_indices.push_back(idx);
                 }
-                if (!palette_xterm.empty())
-                    ctx.palette_xterm = &palette_xterm;
+                if (!allowed_indices.empty())
+                    ctx.allowed_indices = &allowed_indices;
             }
 
             // Candidate glyph set: limit expensive glyph-search tools (e.g. deform quantization)
