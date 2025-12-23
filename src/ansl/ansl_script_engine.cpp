@@ -25,6 +25,29 @@ namespace
 {
 // Forward declaration (used by layer bindings before the definition below).
 static bool ParseHexColorToXtermIndex(const std::string& s, int& out_idx);
+static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx);
+
+static phos::color::PaletteInstanceId ResolveCanvasPaletteOrXterm256(const AnsiCanvas* canvas)
+{
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (canvas)
+    {
+        if (auto id = cs.Palettes().Resolve(canvas->GetPaletteRef()))
+            pal = *id;
+    }
+    return pal;
+}
+
+static int CanvasPaletteMaxIndex(const AnsiCanvas* canvas)
+{
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    const int n = (p && !p->rgb.empty()) ? (int)p->rgb.size() : 256;
+    return std::max(0, n - 1);
+}
+
 
 static char32_t DecodeFirstUtf8Codepoint(const char* s, size_t len)
 {
@@ -174,23 +197,6 @@ static char32_t LuaCharArg(lua_State* L, int idx)
     if (!s)
         return U' ';
     return DecodeFirstUtf8Codepoint(s, len);
-}
-
-static int Color32ToXtermIndex(AnsiCanvas::Color32 c32)
-{
-    if (c32 == 0)
-        return -1;
-
-    // Bridge into the palette system: tools/scripts still operate in xterm256 index space today,
-    // but this routes through the new core quantizer so we can generalize later.
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
-    phos::color::QuantizePolicy qpol;
-    const phos::color::ColorIndex idx =
-        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)c32, qpol);
-    if (idx.IsUnset())
-        return -1;
-    return (int)std::clamp<int>((int)idx.v, 0, 255);
 }
 
 static int LuaArrayLen(lua_State* L, int idx)
@@ -491,25 +497,25 @@ static int l_canvas_getCell(lua_State* L)
 
     const bool want_layer = (mode == "layer" || mode == "Layer");
     char32_t cp = U' ';
-    AnsiCanvas::Color32 fg32 = 0;
-    AnsiCanvas::Color32 bg32 = 0;
+    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::Attrs attrs = 0;
 
     if (want_layer || layer != -9999)
     {
         const int li = (layer == -9999) ? b->canvas->GetActiveLayerIndex() : layer;
         cp = b->canvas->GetLayerCell(li, y, x);
-        (void)b->canvas->GetLayerCellColors(li, y, x, fg32, bg32);
+        (void)b->canvas->GetLayerCellIndices(li, y, x, fg, bg);
         (void)b->canvas->GetLayerCellAttrs(li, y, x, attrs);
     }
     else
     {
         // Composite is bounded and returns false if out-of-range.
-        if (!b->canvas->GetCompositeCellPublic(y, x, cp, fg32, bg32, attrs))
+        if (!b->canvas->GetCompositeCellPublicIndices(y, x, cp, fg, bg, attrs))
         {
             cp = U' ';
-            fg32 = 0;
-            bg32 = 0;
+            fg = AnsiCanvas::kUnsetIndex16;
+            bg = AnsiCanvas::kUnsetIndex16;
             attrs = 0;
         }
     }
@@ -517,11 +523,9 @@ static int l_canvas_getCell(lua_State* L)
     const std::string s = EncodeCodepointUtf8(cp);
     lua_pushlstring(L, s.data(), s.size());
 
-    const int fg_idx = Color32ToXtermIndex(fg32);
-    const int bg_idx = Color32ToXtermIndex(bg32);
-    if (fg_idx >= 0) lua_pushinteger(L, fg_idx);
+    if (fg != AnsiCanvas::kUnsetIndex16) lua_pushinteger(L, (lua_Integer)fg);
     else lua_pushnil(L);
-    if (bg_idx >= 0) lua_pushinteger(L, bg_idx);
+    if (bg != AnsiCanvas::kUnsetIndex16) lua_pushinteger(L, (lua_Integer)bg);
     else lua_pushnil(L);
 
     // Also return cp as an integer (handy for tools; safe additive API).
@@ -790,47 +794,56 @@ static int l_layer_set(lua_State* L)
     const int y = (int)luaL_checkinteger(L, 3);
     const char32_t cp = LuaCharArg(L, 4);
 
-    // Optional fg/bg: xterm-256 indices (0..255).
+    // Optional fg/bg: palette indices in the canvas's active palette index space.
     //
     // Semantics:
     // - omit arg or pass nil  => preserve existing channel
     // - pass -1 (or any <0)   => unset channel
-    // - pass 0..255           => set channel (xterm-256 index)
+    // - pass 0..N-1           => set channel (palette index)
+    // - pass "#RRGGBB"        => quantize to active palette
     //
     // This is intentionally "preserve-friendly" so tools can override FG/BG independently.
-    AnsiCanvas::Color32 fg = 0;
-    AnsiCanvas::Color32 bg = 0;
+    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::Attrs attrs = 0;
     bool has_attrs = false;
     const int nargs = lua_gettop(L);
 
-    // Default to preserving existing colors when any color args are present.
-    bool fg_arg_present = (nargs >= 5);
-    bool bg_arg_present = (nargs >= 6);
-    if (fg_arg_present || bg_arg_present)
-    {
-        AnsiCanvas::Color32 cur_fg = 0, cur_bg = 0;
-        (void)b->canvas->GetLayerCellColors(b->layer_index, y, x, cur_fg, cur_bg);
-        fg = cur_fg;
-        bg = cur_bg;
-    }
+    // Read existing style so we can preserve it.
+    (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
 
-    auto parse_color_arg = [&](int idx, AnsiCanvas::Color32& out) {
+    const bool fg_arg_present = (nargs >= 5);
+    const bool bg_arg_present = (nargs >= 6);
+    const int max_idx = CanvasPaletteMaxIndex(b->canvas);
+
+    auto parse_color_arg = [&](int idx, AnsiCanvas::ColorIndex16& out) {
         if (nargs < idx)
             return;
         if (lua_isnil(L, idx))
             return; // preserve
-        lua_Integer v = luaL_checkinteger(L, idx);
-        if (v < 0)
+        if (lua_isnumber(L, idx))
         {
-            out = 0; // unset
+            lua_Integer v = luaL_checkinteger(L, idx);
+            if (v < 0)
+            {
+                out = AnsiCanvas::kUnsetIndex16;
+                return;
+            }
+            out = (AnsiCanvas::ColorIndex16)std::clamp<int>((int)v, 0, max_idx);
             return;
         }
-        const int xidx = (int)std::clamp((int)v, 0, 255);
-        out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+        if (lua_isstring(L, idx))
+        {
+            size_t len = 0;
+            const char* s = lua_tolstring(L, idx, &len);
+            int parsed = 0;
+            if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+                out = (AnsiCanvas::ColorIndex16)std::clamp<int>(parsed, 0, max_idx);
+        }
     };
     parse_color_arg(5, fg);
     parse_color_arg(6, bg);
+
     if (nargs >= 7 && !lua_isnil(L, 7))
     {
         lua_Integer v = luaL_checkinteger(L, 7);
@@ -841,20 +854,9 @@ static int l_layer_set(lua_State* L)
     }
 
     if (has_attrs)
-    {
-        // Explicit attrs provided: write glyph + colors + attrs.
-        b->canvas->SetLayerCell(b->layer_index, y, x, cp, fg, bg, attrs);
-    }
-    else if (fg_arg_present || bg_arg_present)
-    {
-        // Colors provided but attrs not specified: preserve existing attrs.
-        b->canvas->SetLayerCell(b->layer_index, y, x, cp, fg, bg);
-    }
+        (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg, attrs);
     else
-    {
-        // Glyph only: preserve existing style (colors+attrs) unless caller clears it explicitly.
-        b->canvas->SetLayerCell(b->layer_index, y, x, cp);
-    }
+        (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg);
     return 0;
 }
 
@@ -870,23 +872,17 @@ static int l_layer_get(lua_State* L)
     const std::string s = EncodeCodepointUtf8(cp);
     lua_pushlstring(L, s.data(), s.size());
 
-    // Also return optional fg/bg as xterm-256 indices (nil means "unset").
+    // Also return optional fg/bg as palette indices (nil means "unset").
     // We intentionally return multiple values for backward compatibility:
     //   local ch = layer:get(x,y)        -- old scripts still work (Lua keeps first)
     //   local ch, fg, bg = layer:get(x,y)
-    AnsiCanvas::Color32 fg32 = 0;
-    AnsiCanvas::Color32 bg32 = 0;
-    int fg_idx = -1;
-    int bg_idx = -1;
-    if (b->canvas->GetLayerCellColors(b->layer_index, y, x, fg32, bg32))
-    {
-        fg_idx = Color32ToXtermIndex(fg32);
-        bg_idx = Color32ToXtermIndex(bg32);
-    }
+    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+    (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
 
-    if (fg_idx >= 0) lua_pushinteger(L, fg_idx);
+    if (fg != AnsiCanvas::kUnsetIndex16) lua_pushinteger(L, (lua_Integer)fg);
     else lua_pushnil(L);
-    if (bg_idx >= 0) lua_pushinteger(L, bg_idx);
+    if (bg != AnsiCanvas::kUnsetIndex16) lua_pushinteger(L, (lua_Integer)bg);
     else lua_pushnil(L);
     // Also return cp as an integer (safe additive API).
     lua_pushinteger(L, (lua_Integer)cp);
@@ -911,29 +907,31 @@ static int l_layer_clear(lua_State* L)
 
     // Optional fg/bg can be passed explicitly:
     //   layer:clear(cpOrString?, fg?, bg?)
-    // Where fg/bg are xterm-256 indices or "#RRGGBB".
+    // Where fg/bg are palette indices or "#RRGGBB" (quantized to active palette).
     // If fg/bg are omitted, we fall back to global `settings.fg`/`settings.bg` if present.
-    std::optional<AnsiCanvas::Color32> fg;
-    std::optional<AnsiCanvas::Color32> bg;
+    std::optional<AnsiCanvas::ColorIndex16> fg;
+    std::optional<AnsiCanvas::ColorIndex16> bg;
+    const int max_idx = CanvasPaletteMaxIndex(b->canvas);
 
-    auto parseColorValueAt = [&](int idx, std::optional<AnsiCanvas::Color32>& out) -> void {
+    auto parseColorValueAt = [&](int idx, std::optional<AnsiCanvas::ColorIndex16>& out) -> void {
         if (lua_gettop(L) < idx || lua_isnil(L, idx))
             return;
-        int xidx = -1;
+        int pidx = -1;
         if (lua_isnumber(L, idx))
         {
-            xidx = std::clamp((int)lua_tointeger(L, idx), 0, 255);
+            pidx = (int)lua_tointeger(L, idx);
         }
         else if (lua_isstring(L, idx))
         {
             size_t len = 0;
             const char* s = lua_tolstring(L, idx, &len);
             int parsed = 0;
-            if (s && ParseHexColorToXtermIndex(std::string(s, s + len), parsed))
-                xidx = std::clamp(parsed, 0, 255);
+            if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+                pidx = parsed;
         }
-        if (xidx >= 0)
-            out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+        if (pidx < 0)
+            return;
+        out = (AnsiCanvas::ColorIndex16)std::clamp<int>(pidx, 0, max_idx);
     };
 
     parseColorValueAt(3, fg);
@@ -945,7 +943,7 @@ static int l_layer_clear(lua_State* L)
         lua_getglobal(L, "settings");
         if (lua_istable(L, -1))
         {
-            auto parseSettingField = [&](const char* const* keys, std::optional<AnsiCanvas::Color32>& out) -> void {
+            auto parseSettingField = [&](const char* const* keys, std::optional<AnsiCanvas::ColorIndex16>& out) -> void {
                 for (int i = 0; keys[i] != nullptr; ++i)
                 {
                     lua_getfield(L, -1, keys[i]);
@@ -954,23 +952,23 @@ static int l_layer_clear(lua_State* L)
                         lua_pop(L, 1);
                         continue;
                     }
-                    int xidx = -1;
+                    int pidx = -1;
                     if (lua_isnumber(L, -1))
                     {
-                        xidx = std::clamp((int)lua_tointeger(L, -1), 0, 255);
+                        pidx = (int)lua_tointeger(L, -1);
                     }
                     else if (lua_isstring(L, -1))
                     {
                         size_t len = 0;
                         const char* s = lua_tolstring(L, -1, &len);
                         int parsed = 0;
-                        if (s && ParseHexColorToXtermIndex(std::string(s, s + len), parsed))
-                            xidx = std::clamp(parsed, 0, 255);
+                        if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+                            pidx = parsed;
                     }
                     lua_pop(L, 1);
-                    if (xidx >= 0)
+                    if (pidx >= 0)
                     {
-                        out = (AnsiCanvas::Color32)xterm256::Color32ForIndex(xidx);
+                        out = (AnsiCanvas::ColorIndex16)std::clamp<int>(pidx, 0, max_idx);
                         return;
                     }
                 }
@@ -985,7 +983,22 @@ static int l_layer_clear(lua_State* L)
     }
 
     if (fg.has_value() || bg.has_value())
-        b->canvas->FillLayer(b->layer_index, std::nullopt, fg, bg);
+    {
+        const int cols = b->canvas->GetColumns();
+        const int rows = b->canvas->GetRows();
+        for (int yy = 0; yy < rows; ++yy)
+        {
+            for (int xx = 0; xx < cols; ++xx)
+            {
+                AnsiCanvas::ColorIndex16 cur_fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 cur_bg = AnsiCanvas::kUnsetIndex16;
+                (void)b->canvas->GetLayerCellIndices(b->layer_index, yy, xx, cur_fg, cur_bg);
+                if (fg.has_value()) cur_fg = *fg;
+                if (bg.has_value()) cur_bg = *bg;
+                (void)b->canvas->SetLayerCellIndices(b->layer_index, yy, xx, fill, cur_fg, cur_bg);
+            }
+        }
+    }
     return 0;
 }
 
@@ -1008,7 +1021,10 @@ static int l_layer_setRow(lua_State* L)
     for (int x = 0; x < cols; ++x)
     {
         const char32_t cp = (x < (int)cps.size()) ? cps[(size_t)x] : U' ';
-        b->canvas->SetLayerCell(b->layer_index, y, x, cp);
+        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
+        (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg);
     }
     return 0;
 }
@@ -1242,6 +1258,40 @@ static bool ParseHexColorToXtermIndex(const std::string& s, int& out_idx)
     out_idx = xterm256::NearestIndex((std::uint8_t)r, (std::uint8_t)g, (std::uint8_t)b);
     return true;
 }
+
+static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx)
+{
+    // Accept "#RRGGBB" or "RRGGBB". Quantize to the canvas's active palette.
+    std::string str = s;
+    if (!str.empty() && str[0] == '#')
+        str.erase(0, 1);
+    if (str.size() != 6)
+        return false;
+    for (char ch : str)
+    {
+        if (!std::isxdigit((unsigned char)ch))
+            return false;
+    }
+
+    auto byte = [&](int off) -> int {
+        return (int)std::strtoul(str.substr((size_t)off, 2).c_str(), nullptr, 16);
+    };
+    const int r = std::clamp(byte(0), 0, 255);
+    const int g = std::clamp(byte(2), 0, 255);
+    const int b = std::clamp(byte(4), 0, 255);
+
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+    phos::color::QuantizePolicy qpol;
+    out_idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                          pal,
+                                                          (std::uint8_t)r,
+                                                          (std::uint8_t)g,
+                                                          (std::uint8_t)b,
+                                                          qpol);
+    return true;
+}
+
 
 static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
 {
@@ -2131,21 +2181,23 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
 
                     const std::string ch = EncodeCodepointUtf8(frame_ctx.brush->cp[i]);
                     lua_pushlstring(L, ch.data(), ch.size());
-                    lua_setfield(L, -2, "ch");
-
-                    // fg/bg are stored as packed RGBA Color32 in the canvas.
-                    // Tools use xterm-256 indices, so convert here (nil = unset),
-                    // matching layer:get() semantics.
+                    lua_setfield(L, -2, "ch");                    // Brush stamp fg/bg are stored as packed Color32 today; expose as palette indices in the
+                    // active canvas palette index space (nil = unset), matching layer:get().
                     const std::uint32_t fg32 = frame_ctx.brush->fg[i];
                     const std::uint32_t bg32 = frame_ctx.brush->bg[i];
                     const std::uint16_t attrs = frame_ctx.brush->attrs[i];
 
-                    const int fg_idx = Color32ToXtermIndex((AnsiCanvas::Color32)fg32);
-                    const int bg_idx = Color32ToXtermIndex((AnsiCanvas::Color32)bg32);
+                    auto& cs = phos::color::GetColorSystem();
+                    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
+                    phos::color::QuantizePolicy qpol;
+                    const phos::color::ColorIndex fg_idx =
+                        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, fg32, qpol);
+                    const phos::color::ColorIndex bg_idx =
+                        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, bg32, qpol);
 
-                    if (fg_idx >= 0) { lua_pushinteger(L, (lua_Integer)fg_idx); lua_setfield(L, -2, "fg"); }
+                    if (!fg_idx.IsUnset()) { lua_pushinteger(L, (lua_Integer)fg_idx.v); lua_setfield(L, -2, "fg"); }
                     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }
-                    if (bg_idx >= 0) { lua_pushinteger(L, (lua_Integer)bg_idx); lua_setfield(L, -2, "bg"); }
+                    if (!bg_idx.IsUnset()) { lua_pushinteger(L, (lua_Integer)bg_idx.v); lua_setfield(L, -2, "bg"); }
                     else { lua_pushnil(L); lua_setfield(L, -2, "bg"); }
                     lua_pushinteger(L, (lua_Integer)attrs);
                     lua_setfield(L, -2, "attrs");
@@ -2781,5 +2833,6 @@ const textmode_font::Registry* AnslScriptEngine::GetFontRegistry() const
         return nullptr;
     return impl_->font_registry.get();
 }
+
 
 
