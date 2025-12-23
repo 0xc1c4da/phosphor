@@ -1256,6 +1256,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     Pen pen;
     ApplyDefaults(options, pen);
+    bool saw_xterm256 = false;
+    bool saw_truecolor = false;
 
     // Auto-detect UTF-8 ANSI art vs classic CP437 ANSI art.
     bool decode_cp437 = options.cp437;
@@ -1264,8 +1266,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     // We build a single layer (Base).
     std::vector<char32_t> cells;
-    std::vector<AnsiCanvas::Color32> fg;
-    std::vector<AnsiCanvas::Color32> bg;
+    std::vector<AnsiCanvas::Color32> fg32;
+    std::vector<AnsiCanvas::Color32> bg32;
     std::vector<AnsiCanvas::Attrs> attrs;
 
     auto ensure_rows = [&](int rows_needed)
@@ -1275,8 +1277,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         if (cells.size() < need)
         {
             cells.resize(need, U' ');
-            fg.resize(need, 0);
-            bg.resize(need, pen.bg); // default background
+            fg32.resize(need, 0);
+            bg32.resize(need, pen.bg); // default background
             attrs.resize(need, 0);
         }
     };
@@ -1307,8 +1309,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         const size_t at = idx_of(row, col);
 
         cells[at] = cp;
-        fg[at] = pen.fg;
-        bg[at] = pen.bg;
+        fg32[at] = pen.fg;
+        bg32[at] = pen.bg;
 
         AnsiCanvas::Attrs a = 0;
         if (pen.bold)      a |= AnsiCanvas::Attr_Bold;
@@ -1519,8 +1521,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     rowMax = 0;
                     colMax = 0;
                     cells.assign((size_t)columns, U' ');
-                    fg.assign((size_t)columns, 0);
-                    bg.assign((size_t)columns, pen.bg);
+                    fg32.assign((size_t)columns, 0);
+                    bg32.assign((size_t)columns, pen.bg);
                     attrs.assign((size_t)columns, 0);
                 }
             }
@@ -1718,6 +1720,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                                     pen.fg_idx = idx;
                                     pen.fg = col32;
                                     pen.fg_bright_from_bold = false;
+                                    saw_xterm256 = true;
                                 }
                                 else
                                 {
@@ -1725,6 +1728,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                                     pen.bg_idx = idx;
                                     pen.bg = col32;
                                     pen.bg_bright_from_ice = false;
+                                    saw_xterm256 = true;
                                 }
                             }
                             k += 2;
@@ -1744,12 +1748,14 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                                     pen.fg_mode = Mode::TrueColor;
                                     pen.fg = col32;
                                     pen.fg_bright_from_bold = false;
+                                    saw_truecolor = true;
                                 }
                                 else
                                 {
                                     pen.bg_mode = Mode::TrueColor;
                                     pen.bg = col32;
                                     pen.bg_bright_from_ice = false;
+                                    saw_truecolor = true;
                                 }
                             }
                             k += 4;
@@ -1773,11 +1779,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     {
                         pen.bg_mode = Mode::TrueColor;
                         pen.bg = col32;
+                        saw_truecolor = true;
                     }
                     else if (which == 1)
                     {
                         pen.fg_mode = Mode::TrueColor;
                         pen.fg = col32;
+                        saw_truecolor = true;
                     }
                 }
             }
@@ -1814,9 +1822,9 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     {
         std::unordered_map<AnsiCanvas::Color32, std::uint32_t> hist;
         hist.reserve(64);
-        for (const auto c : fg)
+        for (const auto c : fg32)
             if (c != 0) ++hist[c];
-        for (const auto c : bg)
+        for (const auto c : bg32)
             if (c != 0) ++hist[c];
 
         // Avoid guessing from near-empty art (e.g. mostly-unset imports).
@@ -1834,9 +1842,36 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         }
     }
 
-    st.current.layers[0].cells = std::move(cells);
-    st.current.layers[0].fg = std::move(fg);
-    st.current.layers[0].bg = std::move(bg);
+    // Palette identity + indexed colors (Phase B).
+    {
+        auto& cs = phos::color::GetColorSystem();
+        const phos::color::BuiltinPalette builtin =
+            (saw_xterm256 || saw_truecolor) ? phos::color::BuiltinPalette::Xterm256 : phos::color::BuiltinPalette::Vga16;
+        st.palette_ref.is_builtin = true;
+        st.palette_ref.builtin = builtin;
+
+        const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
+        phos::color::QuantizePolicy qp;
+
+        std::vector<AnsiCanvas::ColorIndex16> fg;
+        std::vector<AnsiCanvas::ColorIndex16> bg;
+        fg.resize(fg32.size(), AnsiCanvas::kUnsetIndex16);
+        bg.resize(bg32.size(), AnsiCanvas::kUnsetIndex16);
+        for (std::size_t i2 = 0; i2 < fg32.size(); ++i2)
+        {
+            const phos::color::ColorIndex idx = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)fg32[i2], qp);
+            fg[i2] = idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)idx.v;
+        }
+        for (std::size_t i2 = 0; i2 < bg32.size(); ++i2)
+        {
+            const phos::color::ColorIndex idx = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)bg32[i2], qp);
+            bg[i2] = idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)idx.v;
+        }
+
+        st.current.layers[0].cells = std::move(cells);
+        st.current.layers[0].fg = std::move(fg);
+        st.current.layers[0].bg = std::move(bg);
+    }
     st.current.layers[0].attrs = std::move(attrs);
 
     // Preserve SAUCE metadata (if present) in the project state so exports and .phos saves can reuse it.

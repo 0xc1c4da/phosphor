@@ -524,8 +524,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int rows = (int)hdr.height;
 
     std::vector<char32_t> cells((size_t)cols * (size_t)rows, U' ');
-    std::vector<AnsiCanvas::Color32> fg((size_t)cols * (size_t)rows, 0);
-    std::vector<AnsiCanvas::Color32> bg((size_t)cols * (size_t)rows, 0);
+    std::vector<AnsiCanvas::ColorIndex16> fg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
+    std::vector<AnsiCanvas::ColorIndex16> bg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
 
     const int embedded_glyph_count = hdr.mode_512 ? 512 : 256;
     const bool use_embedded_font = hdr.has_font && !embedded_font_bitmap.empty();
@@ -594,8 +594,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             {
                 cells[idx] = decode_cp(c);
             }
-            fg[idx] = pal32[(size_t)fg_idx];
-            bg[idx] = pal32[(size_t)bg_idx];
+            fg[idx] = (AnsiCanvas::ColorIndex16)fg_idx;
+            bg[idx] = (AnsiCanvas::ColorIndex16)bg_idx;
         }
     };
 
