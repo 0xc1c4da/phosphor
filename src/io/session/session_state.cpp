@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <vector>
 
 using json = nlohmann::json;
@@ -554,6 +555,157 @@ static void FromJson(const json& j, SessionState& out)
         };
         migrate_key(out.imgui_windows, "Preview", "Minimap");
         migrate_key(out.imgui_window_chrome, "Preview", "Minimap");
+    }
+
+    // Migration: collapse per-instance canvas/image placement keys into stable per-document keys.
+    // This prevents unbounded growth when the same file is opened repeatedly (canvas ids / image ids keep increasing).
+    {
+        auto sanitize_id = [](std::string s) -> std::string {
+            for (;;)
+            {
+                const size_t pos = s.find("##");
+                if (pos == std::string::npos)
+                    break;
+                s.replace(pos, 2, "#");
+            }
+            return s;
+        };
+
+        auto starts_with = [](const std::string& s, const std::string& prefix) -> bool {
+            return s.size() >= prefix.size() && s.rfind(prefix, 0) == 0;
+        };
+
+        auto parse_trailing_int_after_hash = [](const std::string& s) -> int {
+            const size_t pos = s.rfind('#');
+            if (pos == std::string::npos || pos + 1 >= s.size())
+                return -1;
+            try
+            {
+                const long long v = std::stoll(s.substr(pos + 1));
+                if (v < 0 || v > (long long)std::numeric_limits<int>::max())
+                    return -1;
+                return (int)v;
+            }
+            catch (...)
+            {
+                return -1;
+            }
+        };
+
+        auto extract_canvas_path = [&](const std::string& key, std::string& out_path) -> bool {
+            out_path.clear();
+            const std::string needle = "canvas:";
+            const size_t pos = key.find(needle);
+            if (pos == std::string::npos)
+                return false;
+            const size_t start = pos + needle.size();
+            if (start >= key.size())
+                return false;
+            size_t end = key.find('#', start);
+            if (end == std::string::npos)
+                end = key.size();
+            if (end <= start)
+                return false;
+            out_path = key.substr(start, end - start);
+            return !out_path.empty();
+        };
+
+        auto extract_image_path_from_legacy_key = [&](const std::string& key, std::string& out_path) -> bool {
+            // Legacy image window ids used the *title* as the persistence key:
+            //   "<path>##image:<path>#<id>"
+            out_path.clear();
+            const std::string needle = "##image:";
+            const size_t pos = key.find(needle);
+            if (pos == std::string::npos)
+                return false;
+            const size_t start = pos + needle.size(); // points to "<path>#<id>" (path can contain ':', '/', etc)
+            if (start >= key.size())
+                return false;
+            const size_t hash = key.rfind('#');
+            if (hash == std::string::npos || hash <= start)
+                return false;
+            out_path = key.substr(start, hash - start);
+            return !out_path.empty();
+        };
+
+        const std::string session_canvas_dir = PhosphorCachePath("session_canvases");
+
+        // Collapse canvas placement keys:
+        // - keep temp session canvases per-instance (they get pruned by file existence elsewhere)
+        // - collapse all other canvas keys to "canvas:<path>"
+        std::unordered_map<std::string, std::pair<ImGuiWindowPlacement, int>> best_canvas;
+        std::vector<std::string> erase_canvas_keys;
+        best_canvas.reserve(out.imgui_windows.size());
+        erase_canvas_keys.reserve(out.imgui_windows.size());
+
+        for (const auto& kv : out.imgui_windows)
+        {
+            const std::string& key = kv.first;
+            const ImGuiWindowPlacement& p = kv.second;
+            std::string path;
+            if (!extract_canvas_path(key, path))
+                continue;
+            path = sanitize_id(path);
+
+            // Do not collapse temp session canvases (under <config>/cache/session_canvases).
+            if (!session_canvas_dir.empty() && starts_with(path, session_canvas_dir))
+                continue;
+
+            const std::string canonical = "canvas:" + path;
+            const int score = parse_trailing_int_after_hash(key);
+
+            auto it = best_canvas.find(canonical);
+            if (it == best_canvas.end() || score > it->second.second)
+                best_canvas[canonical] = std::make_pair(p, score);
+
+            if (key != canonical)
+                erase_canvas_keys.push_back(key);
+        }
+        for (const auto& k : erase_canvas_keys)
+            out.imgui_windows.erase(k);
+        for (auto& kv : best_canvas)
+        {
+            if (out.imgui_windows.find(kv.first) == out.imgui_windows.end())
+                out.imgui_windows[kv.first] = kv.second.first;
+        }
+
+        // Collapse legacy image placement keys to stable keys:
+        // - new key will be "image:<path>"
+        std::unordered_map<std::string, std::pair<ImGuiWindowPlacement, int>> best_image;
+        std::vector<std::string> erase_image_keys;
+        best_image.reserve(out.imgui_windows.size());
+        erase_image_keys.reserve(out.imgui_windows.size());
+
+        for (const auto& kv : out.imgui_windows)
+        {
+            const std::string& key = kv.first;
+            const ImGuiWindowPlacement& p = kv.second;
+
+            // Already stable form.
+            if (starts_with(key, "image:"))
+                continue;
+
+            std::string path;
+            if (!extract_image_path_from_legacy_key(key, path))
+                continue;
+            path = sanitize_id(path);
+
+            const std::string canonical = "image:" + path;
+            const int score = parse_trailing_int_after_hash(key);
+
+            auto it = best_image.find(canonical);
+            if (it == best_image.end() || score > it->second.second)
+                best_image[canonical] = std::make_pair(p, score);
+
+            erase_image_keys.push_back(key);
+        }
+        for (const auto& k : erase_image_keys)
+            out.imgui_windows.erase(k);
+        for (auto& kv : best_image)
+        {
+            if (out.imgui_windows.find(kv.first) == out.imgui_windows.end())
+                out.imgui_windows[kv.first] = kv.second.first;
+        }
     }
 
     // Font sanity cache (optional).

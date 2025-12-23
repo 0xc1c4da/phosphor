@@ -19,15 +19,12 @@ settings = {
 }
 
 local font_items = {}
-local font_label_to_id = {}
 
 local function rebuild_font_items()
   font_items = {}
-  font_label_to_id = {}
 
   if ansl == nil or ansl.font == nil or ansl.font.list == nil then
     font_items[1] = "(no fonts)"
-    font_label_to_id["(no fonts)"] = ""
     settings.params.font.items = font_items
     settings.params.font.default = font_items[1]
     return
@@ -52,23 +49,14 @@ local function rebuild_font_items()
     return tostring(a.label) < tostring(b.label)
   end)
 
-  local used = {}
   for i = 1, #entries do
     local e = entries[i]
-    local label = e.label
-    if used[label] ~= nil then
-      used[label] = used[label] + 1
-      label = label .. " (" .. tostring(used[label]) .. ")"
-    else
-      used[label] = 1
-    end
-    font_items[#font_items + 1] = label
-    font_label_to_id[label] = e.id
+    -- Store stable font ids as enum values; host UI can display labels and previews.
+    font_items[#font_items + 1] = e.id
   end
 
   if #font_items == 0 then
     font_items[1] = "(no fonts)"
-    font_label_to_id["(no fonts)"] = ""
   end
 
   settings.params.font.items = font_items
@@ -116,11 +104,10 @@ end
 
 local function current_font_id(ctx)
   local p = (ctx and ctx.params) or {}
-  local label = p.font
-  if type(label) ~= "string" then return "" end
-  local id = font_label_to_id[label]
-  if type(id) ~= "string" then return "" end
-  return id
+  local v = p.font
+  if type(v) ~= "string" then return "" end
+  if v == "(no fonts)" then return "" end
+  return v
 end
 
 local function set_cell(layer, x, y, cp, fg, bg)

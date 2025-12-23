@@ -10,6 +10,7 @@ class AnsiCanvas;
 
 namespace textmode_font
 {
+class Registry;
 struct SanityCache;
 }
 
@@ -387,6 +388,11 @@ public:
     bool FireParamButton(const std::string& key); // sets a button param true for the next frame
 
     void ResetParamsToDefaults();
+
+    // ---------------------------------------------------------------------
+    // Fonts (textmode_font::Registry backing ansl.font.*)
+    // ---------------------------------------------------------------------
+    const textmode_font::Registry* GetFontRegistry() const;
 
 private:
     struct Impl;

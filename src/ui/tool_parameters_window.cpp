@@ -17,6 +17,10 @@ ToolParametersWindow::ToolParametersWindow()
     presets_path_ = PhosphorAssetPath("tool-presets.json");
 }
 
+// Helpers (declared early so they can be used by RenderPresetsPopup as well as Render()).
+static const AnslParamSpec* FindParamSpec(const AnslScriptEngine& eng, const char* key);
+static bool EngineHasPrimaryParamKey(const AnslScriptEngine& eng, const char* key);
+
 void ToolParametersWindow::EnsurePresetsLoaded()
 {
     if (presets_loaded_)
@@ -182,8 +186,22 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             // Advanced tool params live here (formerly the "More…" section in the main window).
             ImGui::TextUnformatted("Advanced");
             ImGui::Separator();
-            static const char* k_skip_keys[] = {"size", "useFg", "useBg"};
-            const AnslParamsUISkipList skip{ k_skip_keys, 3 };
+            // Skip params that are deliberately surfaced in the main window's reserved rows
+            // (e.g. color row). IMPORTANT: don't skip non-primary versions of these keys (e.g. Font fallback),
+            // otherwise they'd disappear from Advanced; instead only skip if they are primary.
+            std::vector<const char*> skip_keys;
+            skip_keys.reserve(8);
+            auto add_skip_primary = [&](const char* k) {
+                if (EngineHasPrimaryParamKey(tool_engine, k))
+                    skip_keys.push_back(k);
+            };
+            add_skip_primary("useFg");
+            add_skip_primary("useBg");
+            add_skip_primary("fgSource");
+            add_skip_primary("bgSource");
+            add_skip_primary("pickFg");
+            add_skip_primary("pickBg");
+            const AnslParamsUISkipList skip{ skip_keys.data(), (int)skip_keys.size() };
             (void)RenderAnslParamsUIAdvanced("tool_params_advanced_popup", tool_engine, &skip);
 
             ImGui::Separator();
@@ -419,6 +437,24 @@ static bool EngineHasParamKey(const AnslScriptEngine& eng, const char* key)
     return false;
 }
 
+static const AnslParamSpec* FindParamSpec(const AnslScriptEngine& eng, const char* key)
+{
+    if (!key || !*key)
+        return nullptr;
+    if (!eng.HasParams())
+        return nullptr;
+    for (const auto& s : eng.GetParamSpecs())
+        if (s.key == key)
+            return &s;
+    return nullptr;
+}
+
+static bool EngineHasPrimaryParamKey(const AnslScriptEngine& eng, const char* key)
+{
+    const AnslParamSpec* s = FindParamSpec(eng, key);
+    return s && s->primary;
+}
+
 static bool AnyPresetsForTool(const std::vector<tool_params::ToolParamPreset>& presets, const std::string& tool_id)
 {
     if (tool_id.empty())
@@ -457,77 +493,120 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
 
     RenderPresetsPopup(base_id, compiled_tool_id, tool_engine, session, flags);
 
-    // Standardized top row: Presets | Size | FG | BG
     bool params_changed = false;
+
+    // Row 1 (reserved): Presets (first-class).
     {
-        const bool has_size = EngineHasParamKey(tool_engine, "size");
-        const bool has_fg = EngineHasParamKey(tool_engine, "useFg");
-        const bool has_bg = EngineHasParamKey(tool_engine, "useBg");
         const bool has_presets = AnyPresetsForTool(presets_, compiled_tool_id);
-
-        // Dynamic columns: don't reserve space for missing slots (fixes Font/Fill pushing FG/BG far right).
-        int cols = 1; // presets slot (always shown; becomes "+ Preset" when empty)
-        if (has_size) cols++;
-        if (has_fg) cols++;
-        if (has_bg) cols++;
-        cols++; // spacer
-
-        const ImGuiTableFlags tflags =
-            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
-
-        if (ImGui::BeginTable("##tool_params_top_row", cols, tflags))
+        if (has_presets)
         {
-            int c = 0;
-            ImGui::TableSetupColumn("Presets", ImGuiTableColumnFlags_WidthFixed, 0.0f); c++;
-            if (has_size) { ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 260.0f); c++; }
-            if (has_fg) { ImGui::TableSetupColumn("FG", ImGuiTableColumnFlags_WidthFixed, 0.0f); c++; }
-            if (has_bg) { ImGui::TableSetupColumn("BG", ImGuiTableColumnFlags_WidthFixed, 0.0f); c++; }
-            ImGui::TableSetupColumn("##spacer", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            params_changed =
+                RenderPresetButtonsRow(compiled_tool_id, presets_, selected_by_tool_, tool_engine, session, request_save_) || params_changed;
+        }
+        else
+        {
+            // Always provide an obvious entry point to create a preset, even when none exist yet.
+            if (ImGui::SmallButton("+ Preset"))
+                open_new_popup_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Save the current tool parameter values as a new preset.");
+        }
+    }
+    ImGui::Separator();
 
-            ImGui::TableNextRow();
+    // Row 2 (reserved when present): Color row (FG/BG + related options like Source).
+    // Only surface these here when the tool author marked them primary. Otherwise they remain in Advanced (e.g. Font fallback toggles).
+    std::vector<const char*> skip_keys;
+    skip_keys.reserve(8);
+    auto add_skip = [&](const char* k) {
+        if (k && *k)
+            skip_keys.push_back(k);
+    };
 
-            int col = 0;
-            ImGui::TableSetColumnIndex(col++);
-            if (has_presets)
-            {
-                params_changed =
-                    RenderPresetButtonsRow(compiled_tool_id, presets_, selected_by_tool_, tool_engine, session, request_save_) || params_changed;
-            }
-            else
-            {
-                // Always provide an obvious entry point to create a preset, even when none exist yet.
-                if (ImGui::SmallButton("+ Preset"))
-                    open_new_popup_ = true;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Save the current tool parameter values as a new preset.");
-            }
+    {
+        // Prefer the canonical "useFg/useBg" keys; fall back to pipette "pickFg/pickBg".
+        const bool has_use_bg = EngineHasPrimaryParamKey(tool_engine, "useBg");
+        const bool has_use_fg = EngineHasPrimaryParamKey(tool_engine, "useFg");
+        const bool has_bg_src = EngineHasPrimaryParamKey(tool_engine, "bgSource");
+        const bool has_fg_src = EngineHasPrimaryParamKey(tool_engine, "fgSource");
 
-            if (has_size)
-            {
-                ImGui::TableSetColumnIndex(col++);
-                params_changed = RenderAnslParamByKey("tool_top", tool_engine, "size", /*compact=*/true) || params_changed;
-            }
-            if (has_fg)
-            {
-                ImGui::TableSetColumnIndex(col++);
-                params_changed = RenderAnslParamByKey("tool_top", tool_engine, "useFg", /*compact=*/true) || params_changed;
-            }
-            if (has_bg)
-            {
-                ImGui::TableSetColumnIndex(col++);
-                params_changed = RenderAnslParamByKey("tool_top", tool_engine, "useBg", /*compact=*/true) || params_changed;
-            }
+        const bool has_pick_bg = EngineHasPrimaryParamKey(tool_engine, "pickBg");
+        const bool has_pick_fg = EngineHasPrimaryParamKey(tool_engine, "pickFg");
 
-            ImGui::TableSetColumnIndex(col++);
-            (void)col; // spacer
+        const bool want_use_row = has_use_bg || has_use_fg || has_bg_src || has_fg_src;
+        const bool want_pick_row = !want_use_row && (has_pick_bg || has_pick_fg);
 
-            ImGui::EndTable();
+        if (want_use_row || want_pick_row)
+        {
+            const ImGuiTableFlags tflags =
+                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
+            if (ImGui::BeginTable("##tool_params_colour_row", 3, tflags))
+            {
+                ImGui::TableSetupColumn("##left", ImGuiTableColumnFlags_WidthFixed, 0.0f);
+                ImGui::TableSetupColumn("##right", ImGuiTableColumnFlags_WidthFixed, 0.0f);
+                ImGui::TableSetupColumn("##spacer", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+
+                ImGui::TableNextRow();
+
+                // Left group (BG-ish)
+                ImGui::TableSetColumnIndex(0);
+                if (want_use_row)
+                {
+                    if (has_use_bg)
+                    {
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "useBg", /*compact=*/true) || params_changed;
+                        add_skip("useBg");
+                    }
+                    if (has_bg_src)
+                    {
+                        if (has_use_bg)
+                            ImGui::SameLine();
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "bgSource", /*compact=*/true) || params_changed;
+                        add_skip("bgSource");
+                    }
+                }
+                else
+                {
+                    if (has_pick_bg)
+                    {
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "pickBg", /*compact=*/true) || params_changed;
+                        add_skip("pickBg");
+                    }
+                }
+
+                // Right group (FG-ish)
+                ImGui::TableSetColumnIndex(1);
+                if (want_use_row)
+                {
+                    if (has_use_fg)
+                    {
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "useFg", /*compact=*/true) || params_changed;
+                        add_skip("useFg");
+                    }
+                    if (has_fg_src)
+                    {
+                        if (has_use_fg)
+                            ImGui::SameLine();
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "fgSource", /*compact=*/true) || params_changed;
+                        add_skip("fgSource");
+                    }
+                }
+                else
+                {
+                    if (has_pick_fg)
+                    {
+                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "pickFg", /*compact=*/true) || params_changed;
+                        add_skip("pickFg");
+                    }
+                }
+
+                ImGui::EndTable();
+            }
         }
     }
 
-    static const char* k_skip_keys[] = {"size", "useFg", "useBg"};
-    const AnslParamsUISkipList skip{ k_skip_keys, 3 };
-    // Main window shows only primary params (excluding top-row slots); advanced lives in ⋮.
+    // Main window shows only primary params (excluding reserved rows); advanced lives in ⋮.
+    const AnslParamsUISkipList skip{ skip_keys.data(), (int)skip_keys.size() };
     params_changed = RenderAnslParamsUIPrimaryBar("tool_params_primary", tool_engine, &skip) || params_changed;
     if (params_changed)
         tool_params::SaveToolParamsToSession(session, compiled_tool_id, tool_engine);

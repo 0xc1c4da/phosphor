@@ -2763,4 +2763,11 @@ void AnslScriptEngine::ResetParamsToDefaults()
     impl_->param_values = impl_->param_defaults;
 }
 
+const textmode_font::Registry* AnslScriptEngine::GetFontRegistry() const
+{
+    if (!impl_ || !impl_->initialized)
+        return nullptr;
+    return impl_->font_registry.get();
+}
+
 

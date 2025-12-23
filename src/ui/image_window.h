@@ -22,7 +22,9 @@ struct ImageWindow
 
 // Render a single image window (metadata + scalable preview + context menu).
 // Returns true if it was drawn (visible).
-bool RenderImageWindow(const char* title, ImageWindow& image, ImageToChafaDialog& dialog,
+// - `title` is the ImGui window name (must be unique if multiple instances are open).
+// - `persist_key` is the stable key used for session placement persistence.
+bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& image, ImageToChafaDialog& dialog,
                        SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 

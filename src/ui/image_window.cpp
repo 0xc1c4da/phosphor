@@ -123,11 +123,13 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
     }
 }
 
-bool RenderImageWindow(const char* title, ImageWindow& image, ImageToChafaDialog& dialog,
+bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& image, ImageToChafaDialog& dialog,
                        SessionState* session, bool apply_placement_this_frame)
 {
     if (!title || !*title)
         title = "Image";
+    if (!persist_key || !*persist_key)
+        persist_key = title;
 
     if (!image.open)
         return false;
@@ -136,7 +138,7 @@ bool RenderImageWindow(const char* title, ImageWindow& image, ImageToChafaDialog
     ImGui::PushID(image.id);
 
     if (session)
-        ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
+        ApplyImGuiWindowPlacement(*session, persist_key, apply_placement_this_frame);
 
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_None |
@@ -145,14 +147,14 @@ bool RenderImageWindow(const char* title, ImageWindow& image, ImageToChafaDialog
     if (!ImGui::Begin(title, &image.open, flags))
     {
         if (session)
-            CaptureImGuiWindowPlacement(*session, title);
+            CaptureImGuiWindowPlacement(*session, persist_key);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         ImGui::PopID();
         return true;
     }
     if (session)
-        CaptureImGuiWindowPlacement(*session, title);
+        CaptureImGuiWindowPlacement(*session, persist_key);
     if (session)
     {
         ApplyImGuiWindowChromeZOrder(session, title);

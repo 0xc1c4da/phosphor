@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 
 #include "ansl/ansl_native.h"
 #include "io/image_loader.h"
@@ -10,6 +11,84 @@
 
 namespace workspace_persist
 {
+namespace fs = std::filesystem;
+
+static bool ExtractCanvasAbsPathFromImGuiWindowKey(const std::string& key, std::string& out_abs_path)
+{
+    out_abs_path.clear();
+    const std::string needle = "canvas:";
+    const size_t pos = key.find(needle);
+    if (pos == std::string::npos)
+        return false;
+    const size_t start = pos + needle.size();
+    if (start >= key.size())
+        return false;
+
+    // Persist keys look like:
+    //   "canvas:/abs/path/to/file.phos#12"
+    // Legacy keys we still read can look like:
+    //   "* /abs/path/to/file.phos##canvas:/abs/path/to/file.phos#12"
+    //
+    // We take everything after "canvas:" up to the next '#', or to the end if no '#'
+    // (newer stable keys omit the instance suffix).
+    size_t end = key.find('#', start);
+    if (end == std::string::npos)
+        end = key.size();
+    if (end <= start)
+        return false;
+    out_abs_path = key.substr(start, end - start);
+    return !out_abs_path.empty();
+}
+
+static void PruneStaleSessionCanvasWindowState(SessionState& st)
+{
+    const fs::path session_cache_dir(open_canvas_cache::GetSessionCanvasCacheDir());
+    if (session_cache_dir.empty())
+        return;
+
+    // ImGui window placements
+    for (auto it = st.imgui_windows.begin(); it != st.imgui_windows.end();)
+    {
+        std::string abs_path;
+        if (ExtractCanvasAbsPathFromImGuiWindowKey(it->first, abs_path))
+        {
+            // Only prune session-canvas cache entries (temporary canvases).
+            // Do NOT prune normal file-backed canvases or other windows.
+            const fs::path p(abs_path);
+            if (p.is_absolute() && p.string().rfind(session_cache_dir.string(), 0) == 0)
+            {
+                std::error_code ec;
+                if (!fs::exists(p, ec))
+                {
+                    it = st.imgui_windows.erase(it);
+                    continue;
+                }
+            }
+        }
+        ++it;
+    }
+
+    // ImGui window chrome (opacity + z-order pinning) uses the actual ImGui::Begin() title,
+    // which includes the stable "canvas:" suffix for canvases. Prune the same way.
+    for (auto it = st.imgui_window_chrome.begin(); it != st.imgui_window_chrome.end();)
+    {
+        std::string abs_path;
+        if (ExtractCanvasAbsPathFromImGuiWindowKey(it->first, abs_path))
+        {
+            const fs::path p(abs_path);
+            if (p.is_absolute() && p.string().rfind(session_cache_dir.string(), 0) == 0)
+            {
+                std::error_code ec;
+                if (!fs::exists(p, ec))
+                {
+                    it = st.imgui_window_chrome.erase(it);
+                    continue;
+                }
+            }
+        }
+        ++it;
+    }
+}
 
 void RestoreWorkspaceFromSession(const SessionState& session_state,
                                  kb::KeyBindingsEngine& keybinds,
@@ -29,6 +108,8 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
     // Restore canvases.
     for (const auto& oc : session_state.open_canvases)
     {
+        if (!oc.open)
+            continue;
         auto cw = std::make_unique<CanvasWindow>();
         cw->open = oc.open;
         cw->id = (oc.id > 0) ? oc.id : next_canvas_id++;
@@ -95,6 +176,8 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
     // Restore images (paths only; pixels reloaded).
     for (const auto& oi : session_state.open_images)
     {
+        if (!oi.open)
+            continue;
         ImageWindow img;
         img.open = oi.open;
         img.id = (oi.id > 0) ? oi.id : next_image_id++;
@@ -217,6 +300,8 @@ void SaveSessionStateOnExit(const SessionState& session_state,
         if (!cw_ptr)
             continue;
         const CanvasWindow& cw = *cw_ptr;
+        if (!cw.open)
+            continue;
         SessionState::OpenCanvas oc;
         oc.id = cw.id;
         oc.open = cw.open;
@@ -270,11 +355,14 @@ void SaveSessionStateOnExit(const SessionState& session_state,
         st.open_canvases.push_back(std::move(oc));
     }
     open_canvas_cache::PruneSessionCanvasCache(keep_session_canvas_cache);
+    PruneStaleSessionCanvasWindowState(st);
 
     st.open_images.clear();
     st.open_images.reserve(images.size());
     for (const auto& im : images)
     {
+        if (!im.open)
+            continue;
         SessionState::OpenImage oi;
         oi.id = im.id;
         oi.open = im.open;

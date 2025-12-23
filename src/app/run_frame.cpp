@@ -1398,10 +1398,19 @@ void RunFrame(AppState& st)
         //   but we must keep the ImGui window ID stable to avoid one-frame "jumps"
         //   (ImGui will treat a renamed window as a different window and may re-apply defaults).
         // - Use the "###" separator so only the suffix participates in the window ID.
-        const std::string canvas_id = "canvas:" + sanitize_imgui_id(canvas_path) + "#" + std::to_string(canvas.id);
-        const std::string persist_key = canvas_id;
+        //
+        // Persistence strategy:
+        // - Keep the *window* ID per-instance (includes canvas.id) so multiple windows can share a file path.
+        // - Keep the *placement* key stable per-document for file-backed canvases, to prevent session.json growth
+        //   when the same file is opened repeatedly (canvas ids keep increasing).
+        const std::string doc_id = sanitize_imgui_id(canvas_path);
+        const std::string canvas_window_id = "canvas:" + doc_id + "#" + std::to_string(canvas.id);
+        const std::string session_canvas_dir = PhosphorCachePath("session_canvases");
+        const bool is_session_canvas =
+            (!session_canvas_dir.empty() && canvas_path.rfind(session_canvas_dir, 0) == 0);
+        const std::string persist_key = (!is_session_canvas ? ("canvas:" + doc_id) : canvas_window_id);
         const bool dirty = canvas.canvas.IsModifiedSinceLastSave();
-        std::string title = (dirty ? "* " : "") + canvas_path + "###" + canvas_id;
+        std::string title = (dirty ? "* " : "") + canvas_path + "###" + canvas_window_id;
 
         const auto it = session_state.imgui_windows.find(persist_key);
         const bool has_saved = (it != session_state.imgui_windows.end() && it->second.valid);
@@ -2275,9 +2284,10 @@ void RunFrame(AppState& st)
         }
         const std::string img_id = "image:" + img_path + "#" + std::to_string(img.id);
         std::string title = img_path + "##" + img_id;
+        const std::string persist_key = "image:" + img_path;
 
-        RenderImageWindow(title.c_str(), img, image_to_chafa_dialog,
-                          &session_state, should_apply_placement(title.c_str()));
+        RenderImageWindow(title.c_str(), persist_key.c_str(), img, image_to_chafa_dialog,
+                          &session_state, should_apply_placement(persist_key.c_str()));
     }
 
     // Minimap window
