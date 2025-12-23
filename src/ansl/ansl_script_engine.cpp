@@ -213,6 +213,7 @@ struct LayerBinding
 {
     AnsiCanvas* canvas = nullptr;
     int layer_index = 0;
+    int max_idx = 255; // cached palette max index for this canvas (0..N-1), computed per frame
 };
 
 struct CanvasBinding
@@ -804,18 +805,14 @@ static int l_layer_set(lua_State* L)
     // - pass "#RRGGBB"        => quantize to active palette
     //
     // This is intentionally "preserve-friendly" so tools can override FG/BG independently.
-    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
-    AnsiCanvas::Attrs attrs = 0;
-    bool has_attrs = false;
+    std::optional<AnsiCanvas::ColorIndex16> fg;
+    std::optional<AnsiCanvas::ColorIndex16> bg;
+    std::optional<AnsiCanvas::Attrs> attrs;
     const int nargs = lua_gettop(L);
 
-    // Read existing style so we can preserve it.
-    (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
+    const int max_idx = b->max_idx;
 
-    const int max_idx = CanvasPaletteMaxIndex(b->canvas);
-
-    auto parse_color_arg = [&](int idx, AnsiCanvas::ColorIndex16& out) {
+    auto parse_color_arg = [&](int idx, std::optional<AnsiCanvas::ColorIndex16>& out) {
         if (nargs < idx)
             return;
         if (lua_isnil(L, idx))
@@ -825,7 +822,7 @@ static int l_layer_set(lua_State* L)
             lua_Integer v = luaL_checkinteger(L, idx);
             if (v < 0)
             {
-                out = AnsiCanvas::kUnsetIndex16;
+                out = AnsiCanvas::kUnsetIndex16; // explicit unset
                 return;
             }
             out = (AnsiCanvas::ColorIndex16)std::clamp<int>((int)v, 0, max_idx);
@@ -849,13 +846,10 @@ static int l_layer_set(lua_State* L)
         if (v < 0) v = 0;
         if (v > 0xFFFF) v = 0xFFFF;
         attrs = (AnsiCanvas::Attrs)v;
-        has_attrs = true;
     }
 
-    if (has_attrs)
-        (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg, attrs);
-    else
-        (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg);
+    // Fast preserve-friendly write: avoid GetLayerCellIndices()+SetLayerCellIndices double-pass per cell.
+    (void)b->canvas->SetLayerCellIndicesPartial(b->layer_index, y, x, cp, fg, bg, attrs);
     return 0;
 }
 
@@ -1120,6 +1114,7 @@ static void PushLayerObject(lua_State* L, AnsiCanvas* canvas, int layer_index)
     auto* b = static_cast<LayerBinding*>(lua_newuserdata(L, sizeof(LayerBinding)));
     b->canvas = canvas;
     b->layer_index = layer_index;
+    b->max_idx = CanvasPaletteMaxIndex(canvas);
     luaL_setmetatable(L, "AnsiLayer");
 }
 
@@ -1874,6 +1869,11 @@ bool AnslScriptEngine::Init(const std::string& assets_dir,
 
 bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string& error)
 {
+    return CompileUserScript(source, /*canvas=*/nullptr, error);
+}
+
+bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCanvas* canvas, std::string& error)
+{
     if (!impl_ || !impl_->initialized)
     {
         error = "AnslScriptEngine not initialized";
@@ -1910,6 +1910,14 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, std::string&
     clear_global("main");
     clear_global("pre");
     clear_global("post");
+
+    // Ensure LuaJIT palette-aware helpers (ansl.color.*) see the correct palette *during compilation*.
+    // Many scripts compute color constants at load time, and those must be indices in the canvas palette.
+    {
+        const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+        lua_pushinteger(impl_->L, (lua_Integer)pal.v);
+        lua_setfield(impl_->L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
+    }
 
     if (luaL_loadbuffer(impl_->L, source.c_str(), source.size(), "<ansl_editor>") != LUA_OK)
     {

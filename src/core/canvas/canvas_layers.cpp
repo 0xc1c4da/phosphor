@@ -734,10 +734,17 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
 
 void AnsiCanvas::EnsureDocument()
 {
+    bool changed = false;
     if (m_columns <= 0)
+    {
         m_columns = 80;
+        changed = true;
+    }
     if (m_rows <= 0)
+    {
         m_rows = 1;
+        changed = true;
+    }
 
     if (m_layers.empty())
     {
@@ -751,6 +758,7 @@ void AnsiCanvas::EnsureDocument()
         base.attrs.assign(count, 0);
         m_layers.push_back(std::move(base));
         m_active_layer = 0;
+        changed = true;
     }
 
     // Ensure every layer has the correct cell count.
@@ -758,22 +766,42 @@ void AnsiCanvas::EnsureDocument()
     for (Layer& layer : m_layers)
     {
         if (layer.cells.size() != need)
+        {
             layer.cells.resize(need, U' ');
+            changed = true;
+        }
         if (layer.fg.size() != need)
+        {
             layer.fg.resize(need, kUnsetIndex16);
+            changed = true;
+        }
         if (layer.bg.size() != need)
+        {
             layer.bg.resize(need, kUnsetIndex16);
+            changed = true;
+        }
         if (layer.attrs.size() != need)
+        {
             layer.attrs.resize(need, 0);
+            changed = true;
+        }
     }
 
     if (m_active_layer < 0)
+    {
         m_active_layer = 0;
+        changed = true;
+    }
     if (m_active_layer >= (int)m_layers.size())
+    {
         m_active_layer = (int)m_layers.size() - 1;
+        changed = true;
+    }
 
-    // Ensure SAUCE defaults exist even for canvases created via bare constructor.
-    EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+    // Performance: EnsureDocument() is called from hot paths (per-cell tool/script writes).
+    // SAUCE defaults/geometry only need syncing when we actually had to repair/init state here.
+    if (changed)
+        EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
 }
 
 void AnsiCanvas::EnsureRows(int rows_needed)
@@ -892,6 +920,72 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
         return out;
     if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
         return out;
+
+    // Fast path: if every visible layer is Normal @ 100% opacity, compositing reduces to the legacy
+    // "topmost wins" rules and we should NOT pay the blend+quantize cost.
+    //
+    // This is a common case (default layer settings) and it's critical for script performance.
+    bool all_visible_normal_opaque = true;
+    bool any_visible = false;
+    for (const Layer& layer : m_layers)
+    {
+        if (!layer.visible)
+            continue;
+        any_visible = true;
+        if (layer.blend_mode != phos::LayerBlendMode::Normal || layer.blend_alpha != 255)
+        {
+            all_visible_normal_opaque = false;
+            break;
+        }
+    }
+    if (!any_visible)
+        return out;
+    if (all_visible_normal_opaque)
+    {
+        // Background: topmost visible non-unset bg wins.
+        for (int i = (int)m_layers.size() - 1; i >= 0; --i)
+        {
+            const Layer& layer = m_layers[(size_t)i];
+            if (!layer.visible)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.bg.size())
+            {
+                const ColorIndex16 bg = layer.bg[idx];
+                if (bg != kUnsetIndex16)
+                {
+                    out.bg = bg;
+                    break;
+                }
+            }
+        }
+
+        // Glyph/fg/attrs: topmost visible non-space glyph wins; attrs only apply with glyph.
+        for (int i = (int)m_layers.size() - 1; i >= 0; --i)
+        {
+            const Layer& layer = m_layers[(size_t)i];
+            if (!layer.visible)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForRead(i, row, col, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx >= layer.cells.size())
+                continue;
+            const char32_t cp = layer.cells[idx];
+            if (cp == U' ')
+                continue;
+            out.cp = cp;
+            out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+            break;
+        }
+
+        return out;
+    }
 
     // Compositing rules (preserved + extended, Phase D v1):
     // - Glyph: topmost visible non-space glyph wins (attrs only apply with glyph).
@@ -1438,6 +1532,84 @@ bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t
                                           new_cp, new_fg, new_bg, new_attrs))
             return false;
         if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+            return true;
+
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(layer_index, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = new_cp;
+        if (widx < layer.fg.size())
+            layer.fg[widx] = new_fg;
+        if (widx < layer.bg.size())
+            layer.bg[widx] = new_bg;
+        if (widx < layer.attrs.size())
+            layer.attrs[widx] = new_attrs;
+        return true;
+    };
+
+    const bool ok_primary = write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            (void)write_one(mirror_col);
+    }
+
+    return ok_primary;
+}
+
+bool AnsiCanvas::SetLayerCellIndicesPartial(int layer_index,
+                                           int row,
+                                           int col,
+                                           char32_t cp,
+                                           std::optional<ColorIndex16> fg,
+                                           std::optional<ColorIndex16> bg,
+                                           std::optional<Attrs> attrs)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+
+    auto write_one = [&](int write_col) -> bool
+    {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
+            return false;
+
+        Layer& layer = m_layers[(size_t)layer_index];
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+        const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+        const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+        const char32_t new_cp = cp;
+        const ColorIndex16 new_fg = fg.has_value() ? *fg : old_fg;
+        const ColorIndex16 new_bg = bg.has_value() ? *bg : old_bg;
+        const Attrs    new_attrs = attrs.has_value() ? *attrs : old_attrs;
+
+        if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                          old_cp, old_fg, old_bg, old_attrs,
+                                          new_cp, new_fg, new_bg, new_attrs))
+            return false;
+        if (in_bounds &&
+            old_cp == new_cp &&
+            old_fg == new_fg &&
+            old_bg == new_bg &&
+            old_attrs == new_attrs)
             return true;
 
         PrepareUndoForMutation();

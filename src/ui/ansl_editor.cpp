@@ -403,7 +403,7 @@ void AnslEditor::Render(const char* id,
                 return engine.HasRenderFunction();
 
             std::string err;
-            if (!engine.CompileUserScript(text_, err))
+            if (!engine.CompileUserScript(text_, canvas, err))
             {
                 last_error_ = err;
                 playing_ = false;

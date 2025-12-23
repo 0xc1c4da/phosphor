@@ -1224,9 +1224,12 @@ void RunFrame(AppState& st)
             if (active_canvas && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
                 active_canvas->SetColourPaletteTitle(palettes[xterm_selected_palette].title);
 
-            // Snap the UI palette colors into the active canvas palette so:
-            // - picker visuals are palette-correct
-            // - clicks on swatches map to exact palette entries (stable)
+            // Build a snapped version of the selected UI palette against the *active canvas palette*.
+            //
+            // IMPORTANT:
+            // - We keep `saved_palette` as the raw UI palette colors so browsing palettes is stable
+            //   (swatches should not visually change when the active canvas palette changes).
+            // - We use `saved_palette_snapped` only as a mapping helper for picking/quantized selection.
             saved_palette_snapped.clear();
             saved_palette_snapped.reserve(saved_palette.size());
             const phos::color::Palette* sp = cs.Palettes().Get(snap_pal);
@@ -1262,7 +1265,7 @@ void RunFrame(AppState& st)
 
         const ImGuiStyle& style = ImGui::GetStyle();
         ImVec2 avail = ImGui::GetContentRegionAvail();
-        const int count = (int)saved_palette_snapped.size();
+        const int count = (int)saved_palette.size();
 
         int   best_cols = 1;
         float best_size = 0.0f;
@@ -1322,21 +1325,26 @@ void RunFrame(AppState& st)
             if (n % cols != 0)
                 ImGui::SameLine(0.0f, style.ItemSpacing.x);
 
-            const bool mark_fg = same_rgb(saved_palette_snapped[n], fg_color);
-            const bool mark_bg = same_rgb(saved_palette_snapped[n], bg_color);
+            // Mark selection based on the *effective* snapped color (palette entry), even though
+            // we display the raw UI palette swatch.
+            const ImVec4 snapped = (n < (int)saved_palette_snapped.size()) ? saved_palette_snapped[n] : saved_palette[n];
+            const bool mark_fg = same_rgb(snapped, fg_color);
+            const bool mark_bg = same_rgb(snapped, bg_color);
             const ColourPaletteSwatchAction a =
-                RenderColourPaletteSwatchButton("##palette", saved_palette_snapped[n], button_size, mark_fg, mark_bg);
+                RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg);
             if (a.set_primary)
             {
-                pal_primary.x = saved_palette_snapped[n].x;
-                pal_primary.y = saved_palette_snapped[n].y;
-                pal_primary.z = saved_palette_snapped[n].z;
+                // Set the editor FG/BG to the snapped palette entry so downstream code
+                // (tools, ANSL, etc.) operates in the active palette index space.
+                pal_primary.x = snapped.x;
+                pal_primary.y = snapped.y;
+                pal_primary.z = snapped.z;
             }
             if (a.set_secondary)
             {
-                pal_secondary.x = saved_palette_snapped[n].x;
-                pal_secondary.y = saved_palette_snapped[n].y;
-                pal_secondary.z = saved_palette_snapped[n].z;
+                pal_secondary.x = snapped.x;
+                pal_secondary.y = snapped.y;
+                pal_secondary.z = snapped.z;
             }
 
             ImGui::PopID();
@@ -1839,7 +1847,9 @@ void RunFrame(AppState& st)
                     if (src != st.last_source)
                     {
                         std::string err;
-                        if (!st.engine->CompileUserScript(src, err))
+                        // Compile with the active canvas so palette-aware helpers (ansl.color.*)
+                        // produce indices in the correct palette at load time.
+                        if (!st.engine->CompileUserScript(src, active_canvas, err))
                         {
                             st.last_error = err;
                             return st.engine.get();
@@ -2372,17 +2382,32 @@ void RunFrame(AppState& st)
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
-        auto to_idx = [](const ImVec4& c) -> int {
+        AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
+
+        // ANSL contract: ctx.fg/ctx.bg are indices in the *active canvas palette* (not xterm indices).
+        auto to_idx = [&](const ImVec4& c) -> int {
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                         (std::uint8_t)std::clamp(g, 0, 255),
-                                         (std::uint8_t)std::clamp(b, 0, 255));
+
+            auto& cs = phos::color::GetColorSystem();
+            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+            if (ui_active_canvas)
+            {
+                if (auto id = cs.Palettes().Resolve(ui_active_canvas->GetPaletteRef()))
+                    pal = *id;
+            }
+
+            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+            return (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                                                               pal,
+                                                               (std::uint8_t)std::clamp(r, 0, 255),
+                                                               (std::uint8_t)std::clamp(g, 0, 255),
+                                                               (std::uint8_t)std::clamp(b, 0, 255),
+                                                               qp);
         };
         const int fg_idx2 = to_idx(fg_color);
         const int bg_idx2 = to_idx(bg_color);
-        AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         ansl_editor.Render("ansl_editor", ui_active_canvas, ansl_engine, fg_idx2, bg_idx2, ImGuiInputTextFlags_AllowTabInput);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);

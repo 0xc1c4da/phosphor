@@ -365,7 +365,12 @@ public:
               bool validate_fonts_if_cache_miss = false);
 
     // Compiles/evaluates user script and caches the `render` function.
+    //
+    // IMPORTANT: Some scripts compute color constants at load time (e.g. `local c = ansl.color.hex("#ff00ff")`).
+    // Since `ansl.color.*` depends on the active canvas palette, the host should pass the target canvas here
+    // so compilation happens with the correct active palette binding.
     bool CompileUserScript(const std::string& source, std::string& error);
+    bool CompileUserScript(const std::string& source, const AnsiCanvas* canvas, std::string& error);
 
     // Runs cached render() for a frame against the given canvas/layer.
     bool RunFrame(AnsiCanvas& canvas,

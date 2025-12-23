@@ -540,6 +540,19 @@ public:
     bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg);
     // Index-native variant: set glyph + fg/bg indices + attrs.
     bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg, Attrs attrs);
+    // Index-native partial update: preserve-friendly without requiring a separate read.
+    // - `std::nullopt` preserves the existing channel value
+    // - `kUnsetIndex16` explicitly unsets fg/bg (theme default fg / transparent bg)
+    //
+    // This exists primarily to support high-frequency tool/script writers (e.g. ANSL)
+    // without doing two passes (GetLayerCellIndices + SetLayerCellIndices) per cell.
+    bool     SetLayerCellIndicesPartial(int layer_index,
+                                        int row,
+                                        int col,
+                                        char32_t cp,
+                                        std::optional<ColorIndex16> fg,
+                                        std::optional<ColorIndex16> bg,
+                                        std::optional<Attrs> attrs);
     char32_t GetLayerCell(int layer_index, int row, int col) const;
     // Index-native: returns false if invalid/out of bounds. Outputs palette indices in the canvas's active palette.
     bool     GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const;

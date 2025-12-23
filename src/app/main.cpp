@@ -330,7 +330,8 @@ int main(int, char**)
             std::ifstream in(tool_path, std::ios::binary);
             const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::string cerr;
-            if (!tool_engine.CompileUserScript(src, cerr))
+            // No canvas is available at startup compile time; compile under the default palette.
+            if (!tool_engine.CompileUserScript(src, /*canvas=*/nullptr, cerr))
                 tool_compile_error = cerr;
             else
                 tool_compile_error.clear();
@@ -347,7 +348,8 @@ int main(int, char**)
         std::ifstream in(tool_path, std::ios::binary);
         const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         std::string cerr;
-        if (!tool_engine.CompileUserScript(src, cerr))
+        // No canvas context here; runtime RunFrame() will rebind the active palette per-canvas.
+        if (!tool_engine.CompileUserScript(src, /*canvas=*/nullptr, cerr))
             tool_compile_error = cerr;
         else
             tool_compile_error.clear();
