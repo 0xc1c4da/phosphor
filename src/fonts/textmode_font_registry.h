@@ -59,6 +59,10 @@ public:
     const std::vector<std::string>&  Errors() const { return errors_; }
     const std::vector<std::string>&  BrokenIds() const { return broken_ids_; }
 
+    // Lookup an entry by id. If the id was deduped out of List(), this resolves aliases and
+    // returns the canonical entry when available.
+    const RegistryEntry* Find(std::string_view id) const;
+
     bool Render(std::string_view id,
                 std::string_view utf8_text,
                 const RenderOptions& options,
@@ -66,7 +70,11 @@ public:
                 std::string& err) const;
 
 private:
+    std::string ResolveId(std::string_view id) const;
+
     std::vector<RegistryEntry> entries_;
+    std::unordered_map<std::string, size_t> entry_index_by_id_;
+    std::unordered_map<std::string, std::string> id_aliases_;
     std::unordered_map<std::string, Font> fonts_by_id_;
     std::vector<std::string> errors_;
     std::vector<std::string> broken_ids_;

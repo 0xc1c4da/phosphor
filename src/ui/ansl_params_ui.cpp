@@ -248,9 +248,11 @@ static void DrawBitmapThumbnail(ImDrawList* dl,
     if (bmp.w <= 0 || bmp.h <= 0 || bmp.cp.empty())
         return;
 
-    const float cell_w = ImGui::CalcTextSize("M").x;
-    const float cell_h = ImGui::GetTextLineHeight();
-    if (cell_w <= 0.0f || cell_h <= 0.0f)
+    ImFont* font = ImGui::GetFont();
+    const float base_font_sz = ImGui::GetFontSize();
+    const float base_cell_w = ImGui::CalcTextSize("M").x;
+    const float base_cell_h = ImGui::GetTextLineHeight();
+    if (!font || base_font_sz <= 0.0f || base_cell_w <= 0.0f || base_cell_h <= 0.0f)
         return;
 
     const int cols = std::max(0, std::min(max_cols, bmp.w));
@@ -270,17 +272,28 @@ static void DrawBitmapThumbnail(ImDrawList* dl,
 
     const float max_w_px = inner1.x - inner0.x;
     const float max_h_px = inner1.y - inner0.y;
-    const int clip_cols = std::min(cols, (int)std::floor(max_w_px / cell_w));
-    const int clip_rows = std::min(rows, (int)std::floor(max_h_px / cell_h));
-    if (clip_cols <= 0 || clip_rows <= 0)
+    if (max_w_px <= 1.0f || max_h_px <= 1.0f)
     {
         dl->PopClipRect();
         return;
     }
 
-    for (int y = 0; y < clip_rows; ++y)
+    // Shrink-to-fit (never upscale) so we can show the whole preview bitmap.
+    const float scale_x = max_w_px / ((float)cols * base_cell_w);
+    const float scale_y = max_h_px / ((float)rows * base_cell_h);
+    const float scale = std::min(1.0f, std::max(0.0f, std::min(scale_x, scale_y)));
+    const float cell_w = base_cell_w * scale;
+    const float cell_h = base_cell_h * scale;
+    const float font_sz = base_font_sz * scale;
+
+    const float content_w = (float)cols * cell_w;
+    const float content_h = (float)rows * cell_h;
+    const float ox = inner0.x + std::max(0.0f, (max_w_px - content_w) * 0.5f);
+    const float oy = inner0.y + std::max(0.0f, (max_h_px - content_h) * 0.5f);
+
+    for (int y = 0; y < rows; ++y)
     {
-        for (int x = 0; x < clip_cols; ++x)
+        for (int x = 0; x < cols; ++x)
         {
             const int idx = y * bmp.w + x;
             if (idx < 0 || (size_t)idx >= bmp.cp.size())
@@ -293,7 +306,7 @@ static void DrawBitmapThumbnail(ImDrawList* dl,
             const ImU32 fg = (idx < (int)bmp.fg.size() && bmp.fg[(size_t)idx] != 0u) ? (ImU32)bmp.fg[(size_t)idx] : col_text_fallback;
             const ImU32 bg = (idx < (int)bmp.bg.size()) ? (ImU32)bmp.bg[(size_t)idx] : 0u;
 
-            const ImVec2 cell0(inner0.x + (float)x * cell_w, inner0.y + (float)y * cell_h);
+            const ImVec2 cell0(ox + (float)x * cell_w, oy + (float)y * cell_h);
             const ImVec2 cell1(cell0.x + cell_w, cell0.y + cell_h);
             if (bg != 0u)
                 dl->AddRectFilled(cell0, cell1, bg);
@@ -303,7 +316,7 @@ static void DrawBitmapThumbnail(ImDrawList* dl,
             {
                 char buf[5] = {0, 0, 0, 0, 0};
                 (void)EncodeUtf8Local(cp, buf);
-                dl->AddText(cell0, fg, buf);
+                dl->AddText(font, font_sz, cell0, fg, buf);
             }
         }
     }
@@ -320,30 +333,33 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
     const textmode_font::Registry* reg_c = engine.GetFontRegistry();
     textmode_font::Registry* reg = const_cast<textmode_font::Registry*>(reg_c);
 
-    // Build id->entry map (small, and only when popup is open).
-    std::unordered_map<std::string, const textmode_font::RegistryEntry*> by_id;
-    if (reg)
-    {
-        const auto& list = reg->List();
-        by_id.reserve(list.size());
-        for (const auto& e : list)
-            by_id.emplace(e.id, &e);
-    }
-
     auto display_name_for_value = [&](const std::string& v) -> std::string {
         if (v.empty())
             return "(none)";
         if (v == "(no fonts)")
             return "(no fonts)";
-        const auto it = by_id.find(v);
-        if (it != by_id.end() && it->second)
+        if (reg)
         {
-            const std::string& name = it->second->meta.name;
-            if (!name.empty())
-                return name;
-            return it->second->label;
+            if (const auto* e = reg->Find(v))
+            {
+                if (!e->meta.name.empty())
+                    return e->meta.name;
+                return e->label;
+            }
         }
         return v;
+    };
+
+    auto kind_suffix_for_value = [&](const std::string& v) -> const char* {
+        if (v.empty() || v == "(no fonts)")
+            return "";
+        if (reg)
+        {
+            if (const auto* e = reg->Find(v))
+                return (e->meta.kind == textmode_font::Kind::Tdf) ? " (TDF)" : " (Figlet)";
+        }
+        // Match the UX request: show (Figlet) / (TDF)
+        return "";
     };
 
     const std::string preview_label = display_name_for_value(cur_value);
@@ -430,7 +446,7 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
     }
 
     bool changed = false;
-    ImGui::BeginChild("##font_combo_list", ImVec2(760.0f, 420.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##font_combo_list", ImVec2(0.0f, 420.0f), false);
     ImGuiListClipper clipper;
     clipper.Begin((int)filtered.size());
     while (clipper.Step())
@@ -457,37 +473,13 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
 
             // Preview box
             const ImVec2 pv0(r0.x + 8.0f, r0.y + 8.0f);
-            const ImVec2 pv1(pv0.x + 420.0f, r1.y - 8.0f);
-
-            // Right-side text
-            const ImVec2 tx0(pv1.x + 12.0f, r0.y + 10.0f);
-            dl->AddText(tx0, ImGui::GetColorU32(ImGuiCol_Text), disp.c_str());
-
-            std::string sub;
-            if (v != "(no fonts)")
-            {
-                const auto it = by_id.find(v);
-                if (it != by_id.end() && it->second)
-                {
-                    sub = it->second->label;
-                }
-                else
-                {
-                    sub = v;
-                }
-            }
-            if (!sub.empty() && sub != disp)
-            {
-                const ImVec2 tx1(tx0.x, tx0.y + ImGui::GetTextLineHeight());
-                dl->AddText(tx1, ImGui::GetColorU32(ImGuiCol_TextDisabled), sub.c_str());
-            }
+            const ImVec2 pv1(r1.x - 8.0f, r1.y - 8.0f);
 
             // Render/cached preview bitmap (skip sentinel).
             if (v != "(no fonts)" && reg)
             {
-                const auto it = by_id.find(v);
-                const std::string preferred_text =
-                    (it != by_id.end() && it->second && !it->second->meta.name.empty()) ? it->second->meta.name : disp;
+                const auto* e = reg->Find(v);
+                const std::string preferred_text = (e && !e->meta.name.empty()) ? e->meta.name : disp;
 
                 const std::string k = FontPreviewKey(v, preferred_text, ro);
                 auto itc = s_cache.find(k);
@@ -552,6 +544,28 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
                 dl->AddRect(pv0, pv1, col_border, 3.0f);
                 const ImVec2 tpos(pv0.x + 10.0f, pv0.y + 10.0f);
                 dl->AddText(tpos, ImGui::GetColorU32(ImGuiCol_TextDisabled), "(no fonts)");
+            }
+
+            // Bottom-right overlay label: "<name> (Figlet/TDF)".
+            if (v != "(no fonts)")
+            {
+                std::string overlay = disp;
+                overlay += kind_suffix_for_value(v);
+
+                const ImVec2 ts = ImGui::CalcTextSize(overlay.c_str());
+                const float pad_x = 6.0f;
+                const float pad_y = 3.0f;
+                const ImVec2 box1(pv1.x - 6.0f, pv1.y - 6.0f);
+                ImVec2 box0(box1.x - ts.x - pad_x * 2.0f, box1.y - ts.y - pad_y * 2.0f);
+                // Keep the label box inside the preview tile; text is clipped if needed.
+                box0.x = std::max(box0.x, pv0.x + 4.0f);
+                box0.y = std::max(box0.y, pv0.y + 4.0f);
+
+                dl->PushClipRect(pv0, pv1, true);
+                const ImU32 bg = IM_COL32(0, 0, 0, 170);
+                dl->AddRectFilled(box0, box1, bg, 4.0f);
+                dl->AddText(ImVec2(box0.x + pad_x, box0.y + pad_y), ImGui::GetColorU32(ImGuiCol_Text), overlay.c_str());
+                dl->PopClipRect();
             }
 
             ImGui::PopID();

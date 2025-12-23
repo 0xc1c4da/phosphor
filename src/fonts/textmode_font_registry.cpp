@@ -49,6 +49,19 @@ static std::string ToLowerAscii(std::string s)
     return s;
 }
 
+static std::string TrimAscii(std::string s)
+{
+    size_t b = 0;
+    while (b < s.size() && std::isspace((unsigned char)s[b]))
+        ++b;
+    size_t e = s.size();
+    while (e > b && std::isspace((unsigned char)s[e - 1]))
+        --e;
+    if (b == 0 && e == s.size())
+        return s;
+    return s.substr(b, e - b);
+}
+
 static std::string KindToString(Kind k)
 {
     return (k == Kind::Tdf) ? "TDF" : "FIGlet";
@@ -200,6 +213,8 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error, const
 {
     out_error.clear();
     entries_.clear();
+    entry_index_by_id_.clear();
+    id_aliases_.clear();
     fonts_by_id_.clear();
     errors_.clear();
     broken_ids_.clear();
@@ -303,11 +318,6 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error, const
     scan_dir(flf_dir, ".flf", "flf");
     scan_dir(tdf_dir, ".tdf", "tdf");
 
-    std::sort(entries_.begin(), entries_.end(),
-              [](const RegistryEntry& a, const RegistryEntry& b) {
-                  return a.label < b.label;
-              });
-
     if (entries_.empty())
     {
         std::ostringstream oss;
@@ -378,7 +388,103 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error, const
         }
     }
 
+    // Dedupe entries_ by normalized title (meta.name) + kind, to avoid UI/Lua list spam.
+    // Keep aliases so older saved ids can still resolve/render and show a friendly name.
+    auto dedupe_key = [&](const RegistryEntry& e) -> std::string {
+        std::string title = TrimAscii(e.meta.name);
+        if (title.empty())
+            title = TrimAscii(e.label);
+        title = ToLowerAscii(title);
+        title += "|";
+        title += (e.meta.kind == Kind::Tdf) ? "tdf" : "flf";
+        return title;
+    };
+
+    if (!entries_.empty())
+    {
+        std::vector<size_t> order(entries_.size());
+        for (size_t i = 0; i < order.size(); ++i)
+            order[i] = i;
+        std::sort(order.begin(), order.end(),
+                  [&](size_t a, size_t b) {
+                      const auto& ea = entries_[a];
+                      const auto& eb = entries_[b];
+                      const std::string ka = dedupe_key(ea);
+                      const std::string kb = dedupe_key(eb);
+                      if (ka != kb) return ka < kb;
+                      return ea.id < eb.id;
+                  });
+
+        std::unordered_map<std::string, std::string> canonical_by_key;
+        canonical_by_key.reserve(entries_.size());
+
+        std::vector<RegistryEntry> deduped;
+        deduped.reserve(entries_.size());
+        std::vector<std::string> dup_ids;
+        dup_ids.reserve(64);
+
+        for (size_t idx : order)
+        {
+            auto& e = entries_[idx];
+            const std::string k = dedupe_key(e);
+            auto itc = canonical_by_key.find(k);
+            if (itc == canonical_by_key.end())
+            {
+                canonical_by_key.emplace(k, e.id);
+                deduped.push_back(std::move(e));
+            }
+            else
+            {
+                id_aliases_.emplace(e.id, itc->second);
+                dup_ids.push_back(e.id);
+            }
+        }
+
+        // Drop duplicate font payloads (aliases will resolve to the canonical id).
+        for (const auto& id : dup_ids)
+            fonts_by_id_.erase(id);
+
+        entries_ = std::move(deduped);
+    }
+
+    // Stable presentation order.
+    std::sort(entries_.begin(), entries_.end(),
+              [](const RegistryEntry& a, const RegistryEntry& b) {
+                  return a.label < b.label;
+              });
+
+    // Build fast id->entry index for Find() and alias resolution.
+    entry_index_by_id_.reserve(entries_.size());
+    for (size_t i = 0; i < entries_.size(); ++i)
+        entry_index_by_id_[entries_[i].id] = i;
+
     return true;
+}
+
+std::string Registry::ResolveId(std::string_view id) const
+{
+    std::string cur(id);
+    // Follow alias chains defensively (should be 0-1 hop in practice).
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto it = id_aliases_.find(cur);
+        if (it == id_aliases_.end())
+            break;
+        cur = it->second;
+    }
+    return cur;
+}
+
+const RegistryEntry* Registry::Find(std::string_view id) const
+{
+    const std::string rid = ResolveId(id);
+    const auto it = entry_index_by_id_.find(rid);
+    if (it == entry_index_by_id_.end())
+        return nullptr;
+    const size_t idx = it->second;
+    if (idx >= entries_.size())
+        return nullptr;
+    return &entries_[idx];
 }
 
 bool Registry::Render(std::string_view id,
@@ -390,7 +496,8 @@ bool Registry::Render(std::string_view id,
     err.clear();
     out = Bitmap{};
 
-    const auto it = fonts_by_id_.find(std::string(id));
+    const std::string rid = ResolveId(id);
+    const auto it = fonts_by_id_.find(rid);
     if (it == fonts_by_id_.end())
     {
         err = "Unknown font id: " + std::string(id);
