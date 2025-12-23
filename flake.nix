@@ -37,6 +37,7 @@
           zstd
           libnoise
           md4c
+          libblake3
         ];
 
         phosphor = pkgs.stdenv.mkDerivation {

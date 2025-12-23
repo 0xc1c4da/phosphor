@@ -1,5 +1,7 @@
 #include "io/session/project_state_json.h"
 
+#include "core/color_system.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <span>
@@ -40,6 +42,20 @@ static bool LowerHexToBytes(std::string_view hex, std::span<std::uint8_t> out)
         out[i] = (std::uint8_t)((hi << 4) | lo);
     }
     return true;
+}
+
+static phos::color::Rgb8 Rgb8FromU24(std::uint32_t rgb)
+{
+    return phos::color::Rgb8{
+        (std::uint8_t)((rgb >> 16) & 0xFFu),
+        (std::uint8_t)((rgb >> 8) & 0xFFu),
+        (std::uint8_t)((rgb >> 0) & 0xFFu),
+    };
+}
+
+static std::uint32_t U24FromRgb8(const phos::color::Rgb8& c)
+{
+    return ((std::uint32_t)c.r << 16) | ((std::uint32_t)c.g << 8) | (std::uint32_t)c.b;
 }
 
 static json SauceMetaToJson(const AnsiCanvas::ProjectState::SauceMeta& s)
@@ -414,7 +430,24 @@ json ToJson(const AnsiCanvas::ProjectState& st)
         if (st.palette_ref.is_builtin)
             pj["builtin"] = (std::uint32_t)st.palette_ref.builtin;
         else if (!st.palette_ref.uid.IsZero())
+        {
             pj["uid"] = BytesToLowerHex(st.palette_ref.uid.bytes);
+            // Dynamic palettes: embed the RGB table so projects are self-contained.
+            // (PaletteUid is content-addressed from this RGB table; we validate on load.)
+            auto& cs = phos::color::GetColorSystem();
+            if (auto id = cs.Palettes().Resolve(st.palette_ref))
+            {
+                if (const phos::color::Palette* p = cs.Palettes().Get(*id))
+                {
+                    if (!p->title.empty())
+                        pj["title"] = p->title;
+                    json rgb = json::array();
+                    for (const phos::color::Rgb8& c : p->rgb)
+                        rgb.push_back(U24FromRgb8(c));
+                    pj["rgb_u24"] = std::move(rgb);
+                }
+            }
+        }
         j["palette_ref"] = std::move(pj);
     }
     if (!st.colour_palette_title.empty())
@@ -491,6 +524,50 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             {
                 out.palette_ref.is_builtin = false;
                 out.palette_ref.uid = uid;
+
+                // If the project includes the dynamic palette table, register it now.
+                // This ensures the palette can be resolved when the canvas applies state.
+                if (pj.contains("rgb_u24") && pj["rgb_u24"].is_array())
+                {
+                    std::vector<phos::color::Rgb8> rgb;
+                    rgb.reserve(pj["rgb_u24"].size());
+                    for (const auto& v : pj["rgb_u24"])
+                    {
+                        if (!v.is_number_unsigned() && !v.is_number_integer())
+                        {
+                            err = "palette_ref.rgb_u24 contains a non-integer value.";
+                            return false;
+                        }
+                        std::uint32_t u24 = 0;
+                        if (v.is_number_unsigned())
+                            u24 = v.get<std::uint32_t>();
+                        else
+                        {
+                            const std::int64_t si = v.get<std::int64_t>();
+                            if (si < 0)
+                            {
+                                err = "palette_ref.rgb_u24 contains a negative value.";
+                                return false;
+                            }
+                            u24 = (std::uint32_t)si;
+                        }
+                        rgb.push_back(Rgb8FromU24(u24));
+                        if (rgb.size() >= phos::color::kMaxPaletteSize)
+                            break;
+                    }
+
+                    const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
+                    if (computed != uid)
+                    {
+                        err = "palette_ref.uid does not match the palette_ref.rgb_u24 table.";
+                        return false;
+                    }
+
+                    std::string title;
+                    if (pj.contains("title") && pj["title"].is_string())
+                        title = pj["title"].get<std::string>();
+                    (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
+                }
             }
         }
     }

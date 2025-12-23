@@ -3,34 +3,21 @@
 #include "core/xterm256_palette.h"
 
 #include <algorithm>
+#include <blake3.h>
 #include <cstring>
 #include <span>
 
 namespace phos::color
 {
-static inline std::uint64_t Rotl64(std::uint64_t v, int r) { return (v << r) | (v >> (64 - r)); }
-
-// Deterministic 128-bit-ish content hash (placeholder for BLAKE3_128; see header note).
-static PaletteUid HashUidV1(std::span<const std::uint8_t> bytes)
+static PaletteUid HashUid_Blake3_128(std::span<const std::uint8_t> bytes)
 {
-    // Two-lane FNV-1a to fill 128 bits deterministically.
-    std::uint64_t h0 = 1469598103934665603ull;
-    std::uint64_t h1 = 1099511628211ull ^ 0x9E3779B185EBCA87ull;
-    for (std::uint8_t b : bytes)
-    {
-        h0 ^= (std::uint64_t)b;
-        h0 *= 1099511628211ull;
-
-        h1 ^= Rotl64((std::uint64_t)b + 0xA5u, 17);
-        h1 *= 14029467366897019727ull; // odd multiplier
-    }
+    blake3_hasher hasher;
+    blake3_hasher_init(&hasher);
+    if (!bytes.empty())
+        blake3_hasher_update(&hasher, bytes.data(), bytes.size());
 
     PaletteUid out;
-    // Encode little-endian.
-    for (int i = 0; i < 8; ++i)
-        out.bytes[(size_t)i] = (std::uint8_t)((h0 >> (i * 8)) & 0xFFu);
-    for (int i = 0; i < 8; ++i)
-        out.bytes[(size_t)8 + (size_t)i] = (std::uint8_t)((h1 >> (i * 8)) & 0xFFu);
+    blake3_hasher_finalize(&hasher, out.bytes.data(), out.bytes.size());
     return out;
 }
 
@@ -52,7 +39,7 @@ PaletteUid ComputePaletteUid(std::span<const Rgb8> rgb)
         buf.push_back(rgb[i].b);
     }
 
-    return HashUidV1(buf);
+    return HashUid_Blake3_128(buf);
 }
 
 std::size_t PaletteRegistry::UidHash::operator()(const PaletteUid& u) const noexcept
