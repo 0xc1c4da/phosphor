@@ -214,14 +214,14 @@ static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
                                       int layer_index,
                                       const AnsiCanvas::Rect& r,
                                       std::vector<char32_t>& cp,
-                                      std::vector<AnsiCanvas::Color32>& fg,
-                                      std::vector<AnsiCanvas::Color32>& bg,
+                                      std::vector<AnsiCanvas::ColorIndex16>& fg,
+                                      std::vector<AnsiCanvas::ColorIndex16>& bg,
                                       std::vector<AnsiCanvas::Attrs>& attrs)
 {
     const size_t n = (size_t)std::max(0, r.w) * (size_t)std::max(0, r.h);
     cp.resize(n, U' ');
-    fg.resize(n, 0);
-    bg.resize(n, 0);
+    fg.resize(n, AnsiCanvas::kUnsetIndex16);
+    bg.resize(n, AnsiCanvas::kUnsetIndex16);
     attrs.resize(n, 0);
     if (r.w <= 0 || r.h <= 0)
         return;
@@ -232,7 +232,7 @@ static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
         {
             const size_t i = (size_t)(row - r.y) * (size_t)r.w + (size_t)(col - r.x);
             cp[i] = canvas.GetLayerCell(layer_index, row, col);
-            (void)canvas.GetLayerCellColors(layer_index, row, col, fg[i], bg[i]);
+            (void)canvas.GetLayerCellIndices(layer_index, row, col, fg[i], bg[i]);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, attrs[i]);
         }
     }
@@ -367,8 +367,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
         }
 
         std::vector<char32_t> src_cp;
-        std::vector<AnsiCanvas::Color32> src_fg;
-        std::vector<AnsiCanvas::Color32> src_bg;
+        std::vector<AnsiCanvas::ColorIndex16> src_fg;
+        std::vector<AnsiCanvas::ColorIndex16> src_bg;
         std::vector<AnsiCanvas::Attrs> src_attrs;
         SnapshotLayerRegion(canvas, layer_index, clipped, src_cp, src_fg, src_bg, src_attrs);
 
@@ -395,20 +395,23 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 
                 const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
                 const char32_t new_cp = (si < src_cp.size()) ? src_cp[si] : U' ';
-                const AnsiCanvas::Color32 new_fg = (si < src_fg.size()) ? src_fg[si] : 0;
-                const AnsiCanvas::Color32 new_bg = (si < src_bg.size()) ? src_bg[si] : 0;
+                const AnsiCanvas::ColorIndex16 new_fg =
+                    (si < src_fg.size()) ? src_fg[si] : AnsiCanvas::kUnsetIndex16;
+                const AnsiCanvas::ColorIndex16 new_bg =
+                    (si < src_bg.size()) ? src_bg[si] : AnsiCanvas::kUnsetIndex16;
                 const AnsiCanvas::Attrs new_attrs = (si < src_attrs.size()) ? src_attrs[si] : 0;
 
                 // Apply if changed.
                 const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
-                AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+                AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
-                (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+                (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
                 if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
                 {
-                    (void)canvas.SetLayerCell(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
+                    (void)canvas.SetLayerCellIndices(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
                     res.changed = true;
                 }
             }
@@ -458,14 +461,15 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
             {
                 char32_t cp = U' ';
-                AnsiCanvas::Color32 fg = 0, bg = 0;
+                AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs a = 0;
                 if (args.sample == Sample::Composite)
-                    (void)canvas.GetCompositeCellPublic(row, col, cp, fg, bg, a);
+                    (void)canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg, a);
                 else
                 {
                     cp = canvas.GetLayerCell(layer_index, row, col);
-                    (void)canvas.GetLayerCellColors(layer_index, row, col, fg, bg);
+                    (void)canvas.GetLayerCellIndices(layer_index, row, col, fg, bg);
                     (void)canvas.GetLayerCellAttrs(layer_index, row, col, a);
                 }
                 if (cp == 0)
@@ -625,8 +629,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 
     // For sticky warp+quantize, we want a stable "source glyph" anchor from the edited layer.
     std::vector<char32_t> src_cp_for_anchor;
-    std::vector<AnsiCanvas::Color32> tmp_fg;
-    std::vector<AnsiCanvas::Color32> tmp_bg;
+    std::vector<AnsiCanvas::ColorIndex16> tmp_fg;
+    std::vector<AnsiCanvas::ColorIndex16> tmp_bg;
     std::vector<AnsiCanvas::Attrs> tmp_attrs;
     if (args.algo == DeformAlgo::WarpQuantizeSticky)
         SnapshotLayerRegion(canvas, layer_index, clipped, src_cp_for_anchor, tmp_fg, tmp_bg, tmp_attrs);
@@ -697,18 +701,19 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             {
                 // Fully transparent => unset bg + space.
                 const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
-                AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+                AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+                 AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
-                (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+                (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
                 const char32_t new_cp = U' ';
-                const AnsiCanvas::Color32 new_fg = 0;
-                const AnsiCanvas::Color32 new_bg = 0;
+                const AnsiCanvas::ColorIndex16 new_fg = AnsiCanvas::kUnsetIndex16;
+                const AnsiCanvas::ColorIndex16 new_bg = AnsiCanvas::kUnsetIndex16;
                 const AnsiCanvas::Attrs new_attrs = 0;
                 if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
                 {
-                    (void)canvas.SetLayerCell(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
+                    (void)canvas.SetLayerCellIndices(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
                     res.changed = true;
                 }
                 continue;
@@ -905,8 +910,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             }
 
             // Pick colors.
-            AnsiCanvas::Color32 out_fg = 0;
-            AnsiCanvas::Color32 out_bg = 0;
+            AnsiCanvas::ColorIndex16 out_fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 out_bg = AnsiCanvas::kUnsetIndex16;
 
             if (prefer_unset_bg)
             {
@@ -921,11 +926,11 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                              (std::uint8_t)std::clamp(g8, 0, 255),
                                                              (std::uint8_t)std::clamp(b8, 0, 255),
                                                              args.allowed_indices);
-                    out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx});
+                    out_fg = (AnsiCanvas::ColorIndex16)std::clamp(idx, 0, 255);
                 }
-                out_bg = 0;
+                out_bg = AnsiCanvas::kUnsetIndex16;
                 if (best_cp == U' ')
-                    out_fg = 0;
+                    out_fg = AnsiCanvas::kUnsetIndex16;
             }
             else
             {
@@ -954,10 +959,10 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                             (std::uint8_t)std::clamp(hi_g, 0, 255),
                                                             (std::uint8_t)std::clamp(hi_b, 0, 255),
                                                             args.allowed_indices);
-                out_bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)bg_idx});
-                out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)fg_idx});
+                out_bg = (AnsiCanvas::ColorIndex16)std::clamp(bg_idx, 0, 255);
+                out_fg = (AnsiCanvas::ColorIndex16)std::clamp(fg_idx, 0, 255);
                 if (best_cp == U' ')
-                    out_fg = 0;
+                    out_fg = AnsiCanvas::kUnsetIndex16;
             }
 
             // Force attrs=0 (stable).
@@ -965,14 +970,15 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 
             // Apply if changed.
             char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
-            AnsiCanvas::Color32 old_fg = 0, old_bg = 0;
+            AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+             AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs old_attrs = 0;
-            (void)canvas.GetLayerCellColors(layer_index, row, col, old_fg, old_bg);
+            (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
             if (old_cp != best_cp || old_fg != out_fg || old_bg != out_bg || old_attrs != out_attrs)
             {
-                (void)canvas.SetLayerCell(layer_index, row, col, best_cp, out_fg, out_bg, out_attrs);
+                (void)canvas.SetLayerCellIndices(layer_index, row, col, best_cp, out_fg, out_bg, out_attrs);
                 res.changed = true;
             }
         }
@@ -981,5 +987,6 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     return res;
 }
 } // namespace deform
+
 
 
