@@ -27,6 +27,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
         out.name = l.name;
         out.visible = l.visible;
         out.lock_transparency = l.lock_transparency;
+        out.blend_mode = l.blend_mode;
+        out.blend_alpha = l.blend_alpha;
         out.offset_x = l.offset_x;
         out.offset_y = l.offset_y;
         out.cells = l.cells;
@@ -70,6 +72,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
                 plm.name = lm.name;
                 plm.visible = lm.visible;
                 plm.lock_transparency = lm.lock_transparency;
+                plm.blend_mode = lm.blend_mode;
+                plm.blend_alpha = lm.blend_alpha;
                 plm.offset_x = lm.offset_x;
                 plm.offset_y = lm.offset_y;
                 out.patch.layers.push_back(std::move(plm));
@@ -124,6 +128,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         out.name = l.name;
         out.visible = l.visible;
         out.lock_transparency = l.lock_transparency;
+        out.blend_mode = l.blend_mode;
+        out.blend_alpha = l.blend_alpha;
         out.offset_x = l.offset_x;
         out.offset_y = l.offset_y;
         out.cells = l.cells;
@@ -198,6 +204,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
                 ilm.name = lm.name;
                 ilm.visible = lm.visible;
                 ilm.lock_transparency = lm.lock_transparency;
+                ilm.blend_mode = lm.blend_mode;
+                ilm.blend_alpha = lm.blend_alpha;
                 ilm.offset_x = lm.offset_x;
                 ilm.offset_y = lm.offset_y;
                 out.patch.layers.push_back(std::move(ilm));

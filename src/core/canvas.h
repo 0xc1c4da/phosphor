@@ -16,6 +16,7 @@
 
 #include "core/color_index.h"
 #include "core/fonts.h"
+#include "core/layer_blend_mode.h"
 #include "core/palette/palette.h"
 
 // Forward declarations from Dear ImGui
@@ -239,6 +240,15 @@ public:
     bool SetLayerVisible(int index, bool visible);
     bool SetLayerTransparencyLocked(int index, bool locked);
 
+    // Phase D groundwork: per-layer background blend mode.
+    // v1 affects background compositing only (glyph/fg/attrs unchanged).
+    phos::LayerBlendMode GetLayerBlendMode(int index) const;
+    bool                 SetLayerBlendMode(int index, phos::LayerBlendMode mode);
+
+    // Phase D: per-layer blend opacity/strength (0..255). 255 = full effect, 0 = no contribution.
+    std::uint8_t GetLayerBlendAlpha(int index) const;
+    bool         SetLayerBlendAlpha(int index, std::uint8_t alpha);
+
     // Reorder layers (changes compositing order / depth).
     // Lower index = further back; higher index = further front (drawn on top).
     bool MoveLayer(int from_index, int to_index);
@@ -297,6 +307,8 @@ public:
         std::string           name;
         bool                  visible = true;
         bool                  lock_transparency = false;
+        phos::LayerBlendMode  blend_mode = phos::LayerBlendMode::Normal;
+        std::uint8_t          blend_alpha = 255;
         // Layer translation in canvas cell-space.
         // Canvas-space (C) and layer-local (L) relate by: C = L + offset.
         int                   offset_x = 0;
@@ -391,6 +403,8 @@ public:
                 std::string name;
                 bool        visible = true;
                 bool        lock_transparency = false;
+                phos::LayerBlendMode blend_mode = phos::LayerBlendMode::Normal;
+                std::uint8_t blend_alpha = 255;
                 int         offset_x = 0;
                 int         offset_y = 0;
             };
@@ -792,6 +806,8 @@ private:
         std::string           name;
         bool                  visible = true;
         bool                  lock_transparency = false;
+        phos::LayerBlendMode  blend_mode = phos::LayerBlendMode::Normal;
+        std::uint8_t          blend_alpha = 255;
         int                   offset_x = 0;
         int                   offset_y = 0;
         std::vector<char32_t> cells; // size == rows * columns
@@ -834,6 +850,8 @@ private:
             std::string name;
             bool        visible = true;
             bool        lock_transparency = false;
+            phos::LayerBlendMode blend_mode = phos::LayerBlendMode::Normal;
+            std::uint8_t blend_alpha = 255;
             int         offset_x = 0;
             int         offset_y = 0;
         };

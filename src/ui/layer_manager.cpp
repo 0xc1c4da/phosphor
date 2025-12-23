@@ -481,8 +481,13 @@ void LayerManager::Render(const char* title,
     const float thumb_h = 42.0f;
     const float pad_y = 4.0f;
     const float line_h = ImGui::GetTextLineHeight();
+    const float frame_h = ImGui::GetFrameHeight();
+    // Layout:
+    // - Line 1: name
+    // - Line 2: visible + lock transparency
+    // - Line 3: blend mode + opacity
     const float row_h = std::max(thumb_h + pad_y * 2.0f,
-                                 pad_y + line_h + 2.0f + ImGui::GetFrameHeight() + pad_y);
+                                 pad_y + line_h + 2.0f + frame_h + 2.0f + frame_h + pad_y);
 
     // Use a scrollable child and clip rows so thumbnails are only drawn for visible items.
     if (ImGui::BeginChild("##layers_list", ImVec2(0, 0), true))
@@ -652,8 +657,9 @@ void LayerManager::Render(const char* title,
                     }
                 }
 
-                // Controls line (below name).
-                ImGui::SetCursorScreenPos(ImVec2(x_after_thumb, row_min.y + pad_y + line_h + 2.0f));
+                // Controls line 1 (below name): visibility + lock.
+                const float y_controls_1 = row_min.y + pad_y + line_h + 2.0f;
+                ImGui::SetCursorScreenPos(ImVec2(x_after_thumb, y_controls_1));
 
                 bool vis = is_visible;
                 if (ImGui::Checkbox("##vis", &vis))
@@ -667,6 +673,52 @@ void LayerManager::Render(const char* title,
                     canvas->SetLayerTransparencyLocked(layer_index, lock_transparency);
                 ImGui::SameLine();
                 ImGui::TextUnformatted("Lock Transparency");
+
+                // Controls line 2: blend mode + opacity (widgets only).
+                const float y_controls_2 = y_controls_1 + frame_h + 2.0f;
+                ImGui::SetCursorScreenPos(ImVec2(x_after_thumb, y_controls_2));
+                {
+                    const phos::LayerBlendMode cur = canvas->GetLayerBlendMode(layer_index);
+                    const char* preview = phos::LayerBlendModeToUiLabel(cur);
+                    ImGui::SetNextItemWidth(170.0f);
+                    if (ImGui::BeginCombo("##blend_mode", preview))
+                    {
+                        const phos::LayerBlendMode modes[] = {
+                            phos::LayerBlendMode::Normal,
+                            phos::LayerBlendMode::Multiply,
+                            phos::LayerBlendMode::Screen,
+                            phos::LayerBlendMode::Overlay,
+                            phos::LayerBlendMode::Darken,
+                            phos::LayerBlendMode::Lighten,
+                            phos::LayerBlendMode::ColorDodge,
+                            phos::LayerBlendMode::ColorBurn,
+                        };
+                        for (phos::LayerBlendMode m : modes)
+                        {
+                            const bool selected = (m == cur);
+                            if (ImGui::Selectable(phos::LayerBlendModeToUiLabel(m), selected))
+                                canvas->SetLayerBlendMode(layer_index, m);
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+                        ImGui::SetTooltip("Phase D v1:\n- Background blends across layers.\n- Foreground blends only when this layer draws a glyph (non-space) and fg is set;\n  it blends against the composited background.\n- Glyph and attrs selection are unchanged (topmost glyph wins).");
+                }
+
+                // Blend opacity (0..100%). 100% = full blend effect, 0% = transparent contribution.
+                ImGui::SameLine();
+                {
+                    const std::uint8_t a_u8 = canvas->GetLayerBlendAlpha(layer_index);
+                    float pct = ((float)a_u8 * 100.0f) / 255.0f;
+                    ImGui::SetNextItemWidth(140.0f);
+                    if (ImGui::SliderFloat("##blend_alpha", &pct, 0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+                    {
+                        const int ai = (int)std::lround((double)pct * 255.0 / 100.0);
+                        canvas->SetLayerBlendAlpha(layer_index, (std::uint8_t)std::clamp(ai, 0, 255));
+                    }
+                }
 
                 // Restore cursor (see note above).
                 ImGui::SetCursorScreenPos(cursor_after_row);

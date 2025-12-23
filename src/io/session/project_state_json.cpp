@@ -198,6 +198,8 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
     jl["name"] = l.name;
     jl["visible"] = l.visible;
     jl["lock_transparency"] = l.lock_transparency;
+    jl["blend_mode"] = phos::LayerBlendModeToString(l.blend_mode);
+    jl["blend_alpha"] = (std::uint32_t)l.blend_alpha; // 0..255
     jl["offset_x"] = l.offset_x;
     jl["offset_y"] = l.offset_y;
 
@@ -233,6 +235,36 @@ static bool ProjectLayerFromJson(const json& jl,
         out.visible = jl["visible"].get<bool>();
     if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean())
         out.lock_transparency = jl["lock_transparency"].get<bool>();
+    if (jl.contains("blend_mode"))
+    {
+        if (jl["blend_mode"].is_string())
+        {
+            phos::LayerBlendMode m = phos::LayerBlendMode::Normal;
+            const std::string s = jl["blend_mode"].get<std::string>();
+            if (phos::LayerBlendModeFromString(s, m))
+                out.blend_mode = m;
+        }
+        else if (jl["blend_mode"].is_number_unsigned() || jl["blend_mode"].is_number_integer())
+        {
+            const std::uint32_t v = jl["blend_mode"].get<std::uint32_t>();
+            out.blend_mode = phos::LayerBlendModeFromInt(v);
+        }
+    }
+    if (jl.contains("blend_alpha"))
+    {
+        if (jl["blend_alpha"].is_number_unsigned() || jl["blend_alpha"].is_number_integer())
+        {
+            const std::uint32_t v = jl["blend_alpha"].get<std::uint32_t>();
+            out.blend_alpha = (std::uint8_t)std::clamp<std::uint32_t>(v, 0u, 255u);
+        }
+        else if (jl["blend_alpha"].is_number_float())
+        {
+            // Tolerate 0..1 float encodings.
+            const double f = jl["blend_alpha"].get<double>();
+            const double cl = std::clamp(f, 0.0, 1.0);
+            out.blend_alpha = (std::uint8_t)std::clamp<int>((int)std::lround(cl * 255.0), 0, 255);
+        }
+    }
     if (jl.contains("offset_x") && jl["offset_x"].is_number_integer())
         out.offset_x = jl["offset_x"].get<int>();
     if (jl.contains("offset_y") && jl["offset_y"].is_number_integer())
@@ -367,6 +399,8 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
             jl["name"] = lm.name;
             jl["visible"] = lm.visible;
             jl["lock_transparency"] = lm.lock_transparency;
+            jl["blend_mode"] = phos::LayerBlendModeToString(lm.blend_mode);
+            jl["blend_alpha"] = (std::uint32_t)lm.blend_alpha;
             jl["offset_x"] = lm.offset_x;
             jl["offset_y"] = lm.offset_y;
             layers.push_back(std::move(jl));
@@ -443,6 +477,35 @@ static bool UndoEntryFromJson(const json& je,
                 if (jl.contains("name") && jl["name"].is_string()) lm.name = jl["name"].get<std::string>();
                 if (jl.contains("visible") && jl["visible"].is_boolean()) lm.visible = jl["visible"].get<bool>();
                 if (jl.contains("lock_transparency") && jl["lock_transparency"].is_boolean()) lm.lock_transparency = jl["lock_transparency"].get<bool>();
+                if (jl.contains("blend_mode"))
+                {
+                    if (jl["blend_mode"].is_string())
+                    {
+                        phos::LayerBlendMode m = phos::LayerBlendMode::Normal;
+                        const std::string s = jl["blend_mode"].get<std::string>();
+                        if (phos::LayerBlendModeFromString(s, m))
+                            lm.blend_mode = m;
+                    }
+                    else if (jl["blend_mode"].is_number_unsigned() || jl["blend_mode"].is_number_integer())
+                    {
+                        const std::uint32_t v = jl["blend_mode"].get<std::uint32_t>();
+                        lm.blend_mode = phos::LayerBlendModeFromInt(v);
+                    }
+                }
+                if (jl.contains("blend_alpha"))
+                {
+                    if (jl["blend_alpha"].is_number_unsigned() || jl["blend_alpha"].is_number_integer())
+                    {
+                        const std::uint32_t v = jl["blend_alpha"].get<std::uint32_t>();
+                        lm.blend_alpha = (std::uint8_t)std::clamp<std::uint32_t>(v, 0u, 255u);
+                    }
+                    else if (jl["blend_alpha"].is_number_float())
+                    {
+                        const double f = jl["blend_alpha"].get<double>();
+                        const double cl = std::clamp(f, 0.0, 1.0);
+                        lm.blend_alpha = (std::uint8_t)std::clamp<int>((int)std::lround(cl * 255.0), 0, 255);
+                    }
+                }
                 if (jl.contains("offset_x") && jl["offset_x"].is_number_integer()) lm.offset_x = jl["offset_x"].get<int>();
                 if (jl.contains("offset_y") && jl["offset_y"].is_number_integer()) lm.offset_y = jl["offset_y"].get<int>();
                 p.layers.push_back(std::move(lm));

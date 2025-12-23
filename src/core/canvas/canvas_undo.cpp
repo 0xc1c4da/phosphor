@@ -174,6 +174,8 @@ void AnsiCanvas::EnsureUndoCaptureIsPatch()
         lm.name = l.name;
         lm.visible = l.visible;
         lm.lock_transparency = l.lock_transparency;
+        lm.blend_mode = l.blend_mode;
+        lm.blend_alpha = l.blend_alpha;
         lm.offset_x = l.offset_x;
         lm.offset_y = l.offset_y;
         e.patch.layers.push_back(std::move(lm));
@@ -322,6 +324,8 @@ bool AnsiCanvas::Undo()
             lm.name = l.name;
             lm.visible = l.visible;
             lm.lock_transparency = l.lock_transparency;
+            lm.blend_mode = l.blend_mode;
+            lm.blend_alpha = l.blend_alpha;
             lm.offset_x = l.offset_x;
             lm.offset_y = l.offset_y;
             cur.patch.layers.push_back(std::move(lm));
@@ -392,6 +396,8 @@ bool AnsiCanvas::Undo()
             m_layers[i].name = prev.patch.layers[i].name;
             m_layers[i].visible = prev.patch.layers[i].visible;
             m_layers[i].lock_transparency = prev.patch.layers[i].lock_transparency;
+            m_layers[i].blend_mode = prev.patch.layers[i].blend_mode;
+            m_layers[i].blend_alpha = prev.patch.layers[i].blend_alpha;
             m_layers[i].offset_x = prev.patch.layers[i].offset_x;
             m_layers[i].offset_y = prev.patch.layers[i].offset_y;
         }
@@ -482,6 +488,8 @@ bool AnsiCanvas::Redo()
             lm.name = l.name;
             lm.visible = l.visible;
             lm.lock_transparency = l.lock_transparency;
+            lm.blend_mode = l.blend_mode;
+            lm.blend_alpha = l.blend_alpha;
             lm.offset_x = l.offset_x;
             lm.offset_y = l.offset_y;
             cur.patch.layers.push_back(std::move(lm));
@@ -555,6 +563,8 @@ bool AnsiCanvas::Redo()
             m_layers[i].name = next.patch.layers[i].name;
             m_layers[i].visible = next.patch.layers[i].visible;
             m_layers[i].lock_transparency = next.patch.layers[i].lock_transparency;
+            m_layers[i].blend_mode = next.patch.layers[i].blend_mode;
+            m_layers[i].blend_alpha = next.patch.layers[i].blend_alpha;
             m_layers[i].offset_x = next.patch.layers[i].offset_x;
             m_layers[i].offset_y = next.patch.layers[i].offset_y;
         }
