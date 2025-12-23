@@ -87,6 +87,13 @@ static std::vector<Rgb8> MakeVga16Rgb()
     };
 }
 
+static std::vector<Rgb8> MakeVga8Rgb()
+{
+    auto v = MakeVga16Rgb();
+    v.resize(8);
+    return v;
+}
+
 static std::vector<Rgb8> MakeXtermRgb(int lo, int hi)
 {
     lo = std::clamp(lo, 0, 255);
@@ -106,6 +113,23 @@ static std::vector<Rgb8> MakeXtermRgb(int lo, int hi)
 PaletteRegistry::PaletteRegistry()
 {
     // Register built-ins up-front (stable palette identity).
+    {
+        Palette p;
+        p.ref.is_builtin = true;
+        p.ref.builtin = BuiltinPalette::Vga8;
+        p.title = "VGA 8";
+        p.rgb = MakeVga8Rgb();
+        // Explicit mapping to VGA16 (lossless subset).
+        DerivedPaletteMapping m;
+        m.parent.is_builtin = true;
+        m.parent.builtin = BuiltinPalette::Vga16;
+        m.derived_to_parent.resize(8);
+        for (int i = 0; i < 8; ++i)
+            m.derived_to_parent[(size_t)i] = (std::uint16_t)i;
+        p.derived = std::move(m);
+        const auto id = RegisterInternal(std::move(p));
+        m_builtin_to_instance[(std::uint32_t)BuiltinPalette::Vga8] = id.v;
+    }
     {
         Palette p;
         p.ref.is_builtin = true;

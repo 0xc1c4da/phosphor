@@ -26,6 +26,7 @@ enum class BuiltinPalette : std::uint32_t
     Xterm256 = 2,
     Xterm16 = 3,
     Xterm240Safe = 4, // xterm indices 16..255 (240 colors)
+    Vga8 = 5,
 };
 
 struct PaletteUid

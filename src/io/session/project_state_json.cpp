@@ -2,9 +2,46 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace project_state_json
 {
+static std::string BytesToLowerHex(std::span<const std::uint8_t> bytes)
+{
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(bytes.size() * 2);
+    for (std::uint8_t b : bytes)
+    {
+        out.push_back(kHex[(b >> 4) & 0x0Fu]);
+        out.push_back(kHex[b & 0x0Fu]);
+    }
+    return out;
+}
+
+static bool LowerHexToBytes(std::string_view hex, std::span<std::uint8_t> out)
+{
+    auto nyb = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+        return -1;
+    };
+    if (hex.size() != out.size() * 2)
+        return false;
+    for (std::size_t i = 0; i < out.size(); ++i)
+    {
+        const int hi = nyb(hex[i * 2 + 0]);
+        const int lo = nyb(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0)
+            return false;
+        out[i] = (std::uint8_t)((hi << 4) | lo);
+    }
+    return true;
+}
+
 static json SauceMetaToJson(const AnsiCanvas::ProjectState::SauceMeta& s)
 {
     json js;
@@ -371,11 +408,13 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["magic"] = "utf8-art-editor";
     j["version"] = st.version;
     j["undo_limit"] = st.undo_limit;
-    // Core palette identity (builtin only for now; dynamic palettes will be serialized later).
+    // Core palette identity.
     {
         json pj;
         if (st.palette_ref.is_builtin)
             pj["builtin"] = (std::uint32_t)st.palette_ref.builtin;
+        else if (!st.palette_ref.uid.IsZero())
+            pj["uid"] = BytesToLowerHex(st.palette_ref.uid.bytes);
         j["palette_ref"] = std::move(pj);
     }
     if (!st.colour_palette_title.empty())
@@ -443,6 +482,16 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             const std::uint32_t b = pj["builtin"].get<std::uint32_t>();
             out.palette_ref.is_builtin = true;
             out.palette_ref.builtin = (phos::color::BuiltinPalette)b;
+        }
+        else if (pj.contains("uid") && pj["uid"].is_string())
+        {
+            const std::string uid_hex = pj["uid"].get<std::string>();
+            phos::color::PaletteUid uid;
+            if (LowerHexToBytes(uid_hex, uid.bytes))
+            {
+                out.palette_ref.is_builtin = false;
+                out.palette_ref.uid = uid;
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 #include "io/formats/xbin.h"
 
-#include "core/xterm256_palette.h"
+#include "core/color_system.h"
 #include "io/formats/sauce.h"
 
 #include <algorithm>
@@ -338,36 +338,6 @@ static std::uint8_t UnicodeToCp437Byte(char32_t cp)
     return (it == map.end()) ? (std::uint8_t)'?' : it->second;
 }
 
-static inline void UnpackImGuiCol32(AnsiCanvas::Color32 c, std::uint8_t& out_r, std::uint8_t& out_g, std::uint8_t& out_b)
-{
-    out_r = (std::uint8_t)(c & 0xFFu);
-    out_g = (std::uint8_t)((c >> 8) & 0xFFu);
-    out_b = (std::uint8_t)((c >> 16) & 0xFFu);
-}
-
-static int NearestPaletteIndex16(AnsiCanvas::Color32 c, const std::array<AnsiCanvas::Color32, 16>& pal)
-{
-    std::uint8_t r = 0, g = 0, b = 0;
-    UnpackImGuiCol32(c, r, g, b);
-    int best = 0;
-    int best_d = 0x7FFFFFFF;
-    for (int i = 0; i < 16; ++i)
-    {
-        std::uint8_t pr = 0, pg = 0, pb = 0;
-        UnpackImGuiCol32(pal[i], pr, pg, pb);
-        const int dr = (int)r - (int)pr;
-        const int dg = (int)g - (int)pg;
-        const int db = (int)b - (int)pb;
-        const int d = dr * dr + dg * dg + db * db;
-        if (d < best_d)
-        {
-            best_d = d;
-            best = i;
-        }
-    }
-    return best;
-}
-
 static std::uint8_t ToVga6(std::uint8_t v8)
 {
     // Map 0..255 -> 0..63 with rounding.
@@ -377,9 +347,14 @@ static std::uint8_t ToVga6(std::uint8_t v8)
 static void WriteDefaultPalette(std::vector<std::uint8_t>& out)
 {
     // Use xterm low-16 RGB as the palette entries for deterministic roundtrips.
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    const phos::color::Palette* p = cs.Palettes().Get(pal16);
+    if (!p || p->rgb.size() < 16)
+        return;
     for (int i = 0; i < 16; ++i)
     {
-        const auto& rgb = xterm256::RgbForIndex(i);
+        const phos::color::Rgb8 rgb = p->rgb[(size_t)i];
         out.push_back(ToVga6(rgb.r));
         out.push_back(ToVga6(rgb.g));
         out.push_back(ToVga6(rgb.b));
@@ -388,8 +363,13 @@ static void WriteDefaultPalette(std::vector<std::uint8_t>& out)
 
 static void BuildDefaultPalette32(std::array<AnsiCanvas::Color32, 16>& out_pal32)
 {
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    const phos::color::Palette* p = cs.Palettes().Get(pal16);
+    if (!p || p->rgb.size() < 16)
+        return;
     for (int i = 0; i < 16; ++i)
-        out_pal32[i] = (AnsiCanvas::Color32)xterm256::Color32ForIndex(i);
+        out_pal32[i] = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal16, phos::color::ColorIndex{(std::uint16_t)i});
 }
 
 static void EncodeRowRle(const std::uint8_t* ch, const std::uint8_t* at, int width, std::vector<std::uint8_t>& out)
@@ -665,6 +645,28 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].cells = std::move(cells);
     st.current.layers[0].fg = std::move(fg);
     st.current.layers[0].bg = std::move(bg);
+    // Track palette identity on the canvas (XBin palettes are always 16-color).
+    {
+        if (hdr.has_palette)
+        {
+            auto& cs = phos::color::GetColorSystem();
+            std::array<phos::color::Rgb8, 16> rgb{};
+            for (int i = 0; i < 16; ++i)
+            {
+                std::uint8_t r = 0, g = 0, b = 0;
+                (void)phos::color::ColorOps::UnpackImGuiAbgr((std::uint32_t)pal32[(size_t)i], r, g, b);
+                rgb[(size_t)i] = phos::color::Rgb8{r, g, b};
+            }
+            (void)cs.Palettes().RegisterDynamic("XBin Palette", rgb);
+            st.palette_ref.is_builtin = false;
+            st.palette_ref.uid = phos::color::ComputePaletteUid(rgb);
+        }
+        else
+        {
+            st.palette_ref.is_builtin = true;
+            st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm16;
+        }
+    }
 
     // Preserve SAUCE metadata (if present), else populate a minimal XBin-ish record.
     if (sp.record.present)
@@ -753,6 +755,9 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
 
     std::array<AnsiCanvas::Color32, 16> pal32{};
     BuildDefaultPalette32(pal32);
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    phos::color::QuantizePolicy qpol;
 
     const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
     const bool embedded_font =
@@ -827,8 +832,12 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (bg32 == 0)
                 bg32 = pal32[0];
 
-            const int fg_idx = NearestPaletteIndex16(fg32, pal32);
-            const int bg_idx = NearestPaletteIndex16(bg32, pal32);
+            const phos::color::ColorIndex fg_idx =
+                phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal16, (std::uint32_t)fg32, qpol);
+            const phos::color::ColorIndex bg_idx =
+                phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal16, (std::uint32_t)bg32, qpol);
+            const int fg_i = fg_idx.IsUnset() ? 7 : (int)std::clamp<int>((int)fg_idx.v, 0, 15);
+            const int bg_i = bg_idx.IsUnset() ? 0 : (int)std::clamp<int>((int)bg_idx.v, 0, 15);
 
             const size_t idx = (size_t)y * (size_t)cols + (size_t)x;
             if (embedded_font && cp >= AnsiCanvas::kEmbeddedGlyphBase && cp < (AnsiCanvas::kEmbeddedGlyphBase + 256))
@@ -840,12 +849,12 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             std::uint8_t attr = 0;
             if (options.nonblink)
             {
-                attr = (std::uint8_t)(((bg_idx & 0x0F) << 4) | (fg_idx & 0x0F));
+                attr = (std::uint8_t)(((bg_i & 0x0F) << 4) | (fg_i & 0x0F));
             }
             else
             {
                 // Blink mode: bg 0..7 (we clamp), no blink bit emitted.
-                attr = (std::uint8_t)(((bg_idx & 0x07) << 4) | (fg_idx & 0x0F));
+                attr = (std::uint8_t)(((bg_i & 0x07) << 4) | (fg_i & 0x0F));
             }
             at[idx] = attr;
         }

@@ -1,5 +1,6 @@
 #include "io/formats/ansi.h"
 
+#include "core/color_system.h"
 #include "core/fonts.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
@@ -410,32 +411,26 @@ static AnsiCanvas::Color32 DefaultBgForExport(const ExportOptions& opt)
 
 static int NearestAnsi16Index(AnsiCanvas::Color32 c)
 {
-    std::uint8_t r = 0, g = 0, b = 0;
-    UnpackImGuiCol32(c, r, g, b);
-    int best = 0;
-    int best_d = std::numeric_limits<int>::max();
-
-    for (int i = 0; i < 16; ++i)
-    {
-        const VgaRgb prgb = kVga16[i];
-        const int dr = (int)r - (int)prgb.r;
-        const int dg = (int)g - (int)prgb.g;
-        const int db = (int)b - (int)prgb.b;
-        const int d = dr * dr + dg * dg + db * db;
-        if (d < best_d)
-        {
-            best_d = d;
-            best = i;
-        }
-    }
-    return best;
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+    phos::color::QuantizePolicy qpol;
+    const phos::color::ColorIndex idx =
+        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)c, qpol);
+    if (idx.IsUnset())
+        return 0;
+    return (int)std::clamp<int>((int)idx.v, 0, 15);
 }
 
 static int NearestXtermIndex(AnsiCanvas::Color32 c)
 {
-    std::uint8_t r = 0, g = 0, b = 0;
-    UnpackImGuiCol32(c, r, g, b);
-    return xterm256::NearestIndex(r, g, b);
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    phos::color::QuantizePolicy qpol;
+    const phos::color::ColorIndex idx =
+        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)c, qpol);
+    if (idx.IsUnset())
+        return 0;
+    return (int)std::clamp<int>((int)idx.v, 0, 255);
 }
 
 static int NearestXtermIndexInRange(AnsiCanvas::Color32 c, int lo, int hi)
@@ -443,14 +438,41 @@ static int NearestXtermIndexInRange(AnsiCanvas::Color32 c, int lo, int hi)
     lo = std::clamp(lo, 0, 255);
     hi = std::clamp(hi, 0, 255);
     if (lo > hi) std::swap(lo, hi);
+
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::QuantizePolicy qpol;
+
+    // Common case: 240-safe mapping uses a derived palette with explicit mapping to xterm256.
+    if (lo == 16 && hi == 255)
+    {
+        const phos::color::PaletteInstanceId pal240 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm240Safe);
+        const phos::color::ColorIndex didx =
+            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal240, (std::uint32_t)c, qpol);
+        if (didx.IsUnset())
+            return 16;
+
+        const phos::color::Palette* p = cs.Palettes().Get(pal240);
+        if (p && p->derived && didx.v < p->derived->derived_to_parent.size())
+            return (int)p->derived->derived_to_parent[(size_t)didx.v];
+        return 16 + (int)didx.v; // fallback: preserve expected xterm index range
+    }
+
+    // Fallback: scan within the xterm256 palette table.
+    const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    if (!p || p->rgb.empty())
+        return lo;
+
     std::uint8_t r = 0, g = 0, b = 0;
-    UnpackImGuiCol32(c, r, g, b);
+    if (!phos::color::ColorOps::UnpackImGuiAbgr((std::uint32_t)c, r, g, b))
+        return lo;
 
     int best = lo;
     int best_d = std::numeric_limits<int>::max();
-    for (int i = lo; i <= hi; ++i)
+    const int hi2 = std::min<int>(hi, (int)p->rgb.size() - 1);
+    for (int i = lo; i <= hi2; ++i)
     {
-        const auto& prgb = xterm256::RgbForIndex(i);
+        const phos::color::Rgb8 prgb = p->rgb[(size_t)i];
         const int dr = (int)r - (int)prgb.r;
         const int dg = (int)g - (int)prgb.g;
         const int db = (int)b - (int)prgb.b;
