@@ -759,6 +759,12 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
     phos::color::QuantizePolicy qpol;
 
+    // Export is index-native: remap from the canvas palette to the XBin 16-color palette.
+    phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+        src_pal = *id;
+    const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, pal16, qpol);
+
     const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
     const bool embedded_font =
         (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
@@ -813,41 +819,30 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         for (int x = 0; x < cols; ++x)
         {
             char32_t cp = U' ';
-            AnsiCanvas::Color32 fg32 = 0;
-            AnsiCanvas::Color32 bg32 = 0;
+            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
 
             if (options.source == ExportOptions::Source::Composite)
             {
-                (void)canvas.GetCompositeCellPublic(y, x, cp, fg32, bg32);
+                (void)canvas.GetCompositeCellPublicIndices(y, x, cp, fg, bg);
             }
             else
             {
                 const int li = canvas.GetActiveLayerIndex();
                 cp = canvas.GetLayerCell(li, y, x);
-                {
-                    AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16, bi = AnsiCanvas::kUnsetIndex16;
-                    (void)canvas.GetLayerCellIndices(li, y, x, fi, bi);
-                    // Convert indices to packed colors for the (temporary) quantize-to-16 export path.
-                    auto& cs = phos::color::GetColorSystem();
-                    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
-                    if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
-                        pal = *id;
-                    fg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
-                    bg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
-                }
+                (void)canvas.GetLayerCellIndices(li, y, x, fg, bg);
             }
 
-            if (fg32 == 0)
-                fg32 = pal32[7];
-            if (bg32 == 0)
-                bg32 = pal32[0];
+            // Unset -> default indices (consistent with previous pal32[7]/pal32[0] behavior).
+            int fg_i = 7;
+            int bg_i = 0;
+            if (fg != AnsiCanvas::kUnsetIndex16 && remap_to_16 && (size_t)fg < remap_to_16->remap.size())
+                fg_i = (int)remap_to_16->remap[(size_t)fg];
+            if (bg != AnsiCanvas::kUnsetIndex16 && remap_to_16 && (size_t)bg < remap_to_16->remap.size())
+                bg_i = (int)remap_to_16->remap[(size_t)bg];
 
-            const phos::color::ColorIndex fg_idx =
-                phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal16, (std::uint32_t)fg32, qpol);
-            const phos::color::ColorIndex bg_idx =
-                phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal16, (std::uint32_t)bg32, qpol);
-            const int fg_i = fg_idx.IsUnset() ? 7 : (int)std::clamp<int>((int)fg_idx.v, 0, 15);
-            const int bg_i = bg_idx.IsUnset() ? 0 : (int)std::clamp<int>((int)bg_idx.v, 0, 15);
+            fg_i = std::clamp(fg_i, 0, 15);
+            bg_i = std::clamp(bg_i, 0, 15);
 
             const size_t idx = (size_t)y * (size_t)cols + (size_t)x;
             if (embedded_font && cp >= AnsiCanvas::kEmbeddedGlyphBase && cp < (AnsiCanvas::kEmbeddedGlyphBase + 256))

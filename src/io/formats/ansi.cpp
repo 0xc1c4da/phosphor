@@ -489,39 +489,59 @@ static int NearestXtermIndexInRange(AnsiCanvas::Color32 c, int lo, int hi)
 struct ExportCell
 {
     char32_t cp = U' ';
-    AnsiCanvas::Color32 fg = 0; // 0 means "unset"
-    AnsiCanvas::Color32 bg = 0; // 0 means "unset"
+
+    // Index-native channels (Phase B): palette indices in the canvas's active palette.
+    // Unset is represented as kUnsetIndex16.
+    AnsiCanvas::ColorIndex16 fg_idx = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColorIndex16 bg_idx = AnsiCanvas::kUnsetIndex16;
+
+    // Packed-color channels are kept for output modes that require RGB (truecolor / Pablo `...t`).
+    // 0 means "unset".
+    AnsiCanvas::Color32 fg = 0;
+    AnsiCanvas::Color32 bg = 0;
+
     AnsiCanvas::Attrs attrs = 0;
 };
 
 static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int row, int col, ExportCell& out)
 {
     char32_t cp = U' ';
-    AnsiCanvas::Color32 fg = 0;
-    AnsiCanvas::Color32 bg = 0;
+    AnsiCanvas::ColorIndex16 fg_idx = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColorIndex16 bg_idx = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::Attrs attrs = 0;
+
     if (opt.source == ExportOptions::Source::Composite)
     {
-        if (!canvas.GetCompositeCellPublic(row, col, cp, fg, bg, attrs))
+        // Index-native sampling (Phase B).
+        if (!canvas.GetCompositeCellPublicIndices(row, col, cp, fg_idx, bg_idx, attrs))
             return false;
     }
     else
     {
         const int layer = canvas.GetActiveLayerIndex();
         cp = canvas.GetLayerCell(layer, row, col);
-        {
-            auto& cs = phos::color::GetColorSystem();
-            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
-            if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
-                pal = *id;
-            AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16, bi = AnsiCanvas::kUnsetIndex16;
-            (void)canvas.GetLayerCellIndices(layer, row, col, fi, bi);
-            fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
-            bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
-        }
+        (void)canvas.GetLayerCellIndices(layer, row, col, fg_idx, bg_idx);
         (void)canvas.GetLayerCellAttrs(layer, row, col, attrs);
     }
+
+    // Packed-color bridge (temporary): only needed for truecolor output modes.
+    // We keep it here so downstream code can continue using want_fg/want_bg in Color32 space.
+    AnsiCanvas::Color32 fg = 0;
+    AnsiCanvas::Color32 bg = 0;
+    {
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+            pal = *id;
+        if (fg_idx != AnsiCanvas::kUnsetIndex16)
+            fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg_idx});
+        if (bg_idx != AnsiCanvas::kUnsetIndex16)
+            bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg_idx});
+    }
+
     out.cp = cp;
+    out.fg_idx = fg_idx;
+    out.bg_idx = bg_idx;
     out.fg = fg;
     out.bg = bg;
     out.attrs = attrs;
@@ -1989,6 +2009,17 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     };
     PenOut pen{};
 
+    // Index-native exporter LUTs.
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::QuantizePolicy qpol;
+    phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+        src_pal = *id;
+    const phos::color::PaletteInstanceId dst_vga16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+    const phos::color::PaletteInstanceId dst_xterm256 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    const auto remap_to_vga16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_vga16, qpol);
+    const auto remap_to_xterm256 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_xterm256, qpol);
+
     auto reset = [&]() {
         EmitSgr(out_bytes, "0");
         pen = PenOut{};
@@ -2052,8 +2083,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (options.pablo_t_with_ansi16_fallback)
             {
                 // ANSI16 baseline
-                const int fg16 = NearestAnsi16Index(want_fg);
-                const int bg16 = NearestAnsi16Index(want_bg);
+                const int fg16 = (fg_unset || !remap_to_vga16 || (size_t)c.fg_idx >= remap_to_vga16->remap.size()) ? 7 : (int)remap_to_vga16->remap[(size_t)c.fg_idx];
+                const int bg16 = (bg_unset || !remap_to_vga16 || (size_t)c.bg_idx >= remap_to_vga16->remap.size()) ? 0 : (int)remap_to_vga16->remap[(size_t)c.bg_idx];
 
                 bool want_bold16 = false;
                 bool want_blink16 = false;
@@ -2188,8 +2219,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
 
         if (options.color_mode == ExportOptions::ColorMode::Ansi16)
         {
-            const int fg16 = NearestAnsi16Index(want_fg);
-            const int bg16 = NearestAnsi16Index(want_bg);
+            const int fg16 = (fg_unset || !remap_to_vga16 || (size_t)c.fg_idx >= remap_to_vga16->remap.size()) ? 7 : (int)remap_to_vga16->remap[(size_t)c.fg_idx];
+            const int bg16 = (bg_unset || !remap_to_vga16 || (size_t)c.bg_idx >= remap_to_vga16->remap.size()) ? 0 : (int)remap_to_vga16->remap[(size_t)c.bg_idx];
 
             // Map into classic SGR codes.
             bool want_bold16 = false;
@@ -2301,7 +2332,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             {
                 if (options.color_mode == ExportOptions::ColorMode::Xterm256)
                 {
-                    int idx = NearestXtermIndex(want_fg);
+                    int idx = (!fg_unset && remap_to_xterm256 && (size_t)c.fg_idx < remap_to_xterm256->remap.size()) ? (int)remap_to_xterm256->remap[(size_t)c.fg_idx] : 7;
                     if (options.xterm_240_safe && idx < 16)
                         idx = NearestXtermIndexInRange(want_fg, 16, 255);
                     add_int(38); add_int(5); add_int(idx);
@@ -2334,7 +2365,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             {
                 if (options.color_mode == ExportOptions::ColorMode::Xterm256)
                 {
-                    int idx = NearestXtermIndex(want_bg);
+                    int idx = (!bg_unset && remap_to_xterm256 && (size_t)c.bg_idx < remap_to_xterm256->remap.size()) ? (int)remap_to_xterm256->remap[(size_t)c.bg_idx] : 0;
                     if (options.xterm_240_safe && idx < 16)
                         idx = NearestXtermIndexInRange(want_bg, 16, 255);
                     add_int(48); add_int(5); add_int(idx);
