@@ -1,6 +1,7 @@
 #include "ui/layer_manager.h"
 
 #include "core/canvas.h"
+#include "core/color_system.h"
 #include "core/fonts.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
@@ -214,8 +215,16 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
             const float lx = std::clamp(fx - (float)src_col, 0.0f, 1.0f);
 
             char32_t cp = canvas.GetLayerCell(layer_index, src_row, src_col);
-            AnsiCanvas::Color32 fg = 0, bg = 0;
-            (void)canvas.GetLayerCellColors(layer_index, src_row, src_col, fg, bg);
+            AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 bi = AnsiCanvas::kUnsetIndex16;
+            (void)canvas.GetLayerCellIndices(layer_index, src_row, src_col, fi, bi);
+
+            auto& cs = phos::color::GetColorSystem();
+            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+            if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+                pal = *id;
+            const AnsiCanvas::Color32 fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
+            const AnsiCanvas::Color32 bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
 
             if (bg == 0 && cp == U' ')
                 continue;

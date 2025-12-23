@@ -982,6 +982,11 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg)
 {
+    return SetLayerCellIndices(layer_index, row, col, cp, QuantizeColor32ToIndex(fg), QuantizeColor32ToIndex(bg));
+}
+
+bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg)
+{
     EnsureDocument();
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
@@ -1007,8 +1012,8 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
         const char32_t new_cp = cp;
-        const ColorIndex16 new_fg = QuantizeColor32ToIndex(fg);
-        const ColorIndex16 new_bg = QuantizeColor32ToIndex(bg);
+        const ColorIndex16 new_fg = fg;
+        const ColorIndex16 new_bg = bg;
         const Attrs    new_attrs = old_attrs;
 
         if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -1050,6 +1055,11 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
 
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg, Attrs attrs)
 {
+    return SetLayerCellIndices(layer_index, row, col, cp, QuantizeColor32ToIndex(fg), QuantizeColor32ToIndex(bg), attrs);
+}
+
+bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg, Attrs attrs)
+{
     EnsureDocument();
     if (layer_index < 0 || layer_index >= (int)m_layers.size())
         return false;
@@ -1075,8 +1085,8 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Co
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
         const char32_t new_cp = cp;
-        const ColorIndex16 new_fg = QuantizeColor32ToIndex(fg);
-        const ColorIndex16 new_bg = QuantizeColor32ToIndex(bg);
+        const ColorIndex16 new_fg = fg;
+        const ColorIndex16 new_bg = bg;
         const Attrs    new_attrs = attrs;
 
         if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -1135,10 +1145,10 @@ char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
     return layer.cells[idx];
 }
 
-bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const
+bool AnsiCanvas::GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const
 {
-    out_fg = 0;
-    out_bg = 0;
+    out_fg = kUnsetIndex16;
+    out_bg = kUnsetIndex16;
 
     if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
         return false;
@@ -1154,8 +1164,23 @@ bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& 
     const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
     if (idx >= layer.fg.size() || idx >= layer.bg.size())
         return false;
-    out_fg = IndexToColor32(layer.fg[idx]);
-    out_bg = IndexToColor32(layer.bg[idx]);
+    out_fg = layer.fg[idx];
+    out_bg = layer.bg[idx];
+    return true;
+}
+
+bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const
+{
+    ColorIndex16 fg = kUnsetIndex16;
+    ColorIndex16 bg = kUnsetIndex16;
+    if (!GetLayerCellIndices(layer_index, row, col, fg, bg))
+    {
+        out_fg = 0;
+        out_bg = 0;
+        return false;
+    }
+    out_fg = IndexToColor32(fg);
+    out_bg = IndexToColor32(bg);
     return true;
 }
 

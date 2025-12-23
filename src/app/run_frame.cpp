@@ -951,8 +951,8 @@ void RunFrame(AppState& st)
             if (auto id = cs.Palettes().Resolve(dst->GetPaletteRef()))
                 pal = *id;
         }
-        const AnsiCanvas::Color32 fg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)to_idx(fg_color, pal)});
-        const AnsiCanvas::Color32 bg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)to_idx(bg_color, pal)});
+        const AnsiCanvas::ColorIndex16 fg_idx = (AnsiCanvas::ColorIndex16)to_idx(fg_color, pal);
+        const AnsiCanvas::ColorIndex16 bg_idx = (AnsiCanvas::ColorIndex16)to_idx(bg_color, pal);
 
         int caret_x = 0;
         int caret_y = 0;
@@ -962,7 +962,7 @@ void RunFrame(AppState& st)
         dst->PushUndoSnapshot();
 
         const int layer_index = dst->GetActiveLayerIndex();
-        dst->SetLayerCell(layer_index, caret_y, caret_x, (char32_t)cp, fg32, bg32);
+        dst->SetLayerCellIndices(layer_index, caret_y, caret_x, (char32_t)cp, fg_idx, bg_idx);
 
         if (advance_caret)
         {
@@ -2052,8 +2052,8 @@ void RunFrame(AppState& st)
                         struct CropCell
                         {
                             char32_t cp = U' ';
-                            AnsiCanvas::Color32 fg = 0;
-                            AnsiCanvas::Color32 bg = 0;
+                            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                             AnsiCanvas::Attrs attrs = 0;
                         };
 
@@ -2072,7 +2072,7 @@ void RunFrame(AppState& st)
                                     const size_t idx = (size_t)y * (size_t)r.w + (size_t)x;
                                     CropCell cell;
                                     cell.cp = c.GetLayerCell(li, sy, sx);
-                                    (void)c.GetLayerCellColors(li, sy, sx, cell.fg, cell.bg);
+                                    (void)c.GetLayerCellIndices(li, sy, sx, cell.fg, cell.bg);
                                     (void)c.GetLayerCellAttrs(li, sy, sx, cell.attrs);
                                     saved[(size_t)li][idx] = cell;
                                 }
@@ -2092,10 +2092,7 @@ void RunFrame(AppState& st)
                                     if (idx >= cells.size())
                                         continue;
                                     const CropCell& cell = cells[idx];
-                                    if (cell.fg != 0 || cell.bg != 0 || cell.attrs != 0)
-                                        (void)c.SetLayerCell(li, y, x, cell.cp, cell.fg, cell.bg, cell.attrs);
-                                    else
-                                        (void)c.SetLayerCell(li, y, x, cell.cp);
+                                    (void)c.SetLayerCellIndices(li, y, x, cell.cp, cell.fg, cell.bg, cell.attrs);
                                 }
                         }
 

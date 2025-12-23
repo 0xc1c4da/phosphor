@@ -514,13 +514,20 @@ public:
     // Get/set a cell in a specific layer. `row` may extend the document (rows grow on demand).
     // Returns false if `layer_index` is invalid.
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp);
+    // Index-native variant: set glyph + fg/bg palette indices (in the canvas's active palette index space).
+    // Use kUnsetIndex16 for unset fg/bg (theme default fg / transparent bg).
+    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg);
     // Sets glyph + optional foreground/background colors for the cell.
     // Pass 0 for fg/bg to leave them "unset" (default fg / transparent bg).
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg);
+    // Index-native variant: set glyph + fg/bg indices + attrs.
+    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg, Attrs attrs);
     // Sets glyph + colors + attributes for the cell.
     // Pass 0 for fg/bg to leave them "unset". Pass 0 for attrs for "no attributes".
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg, Attrs attrs);
     char32_t GetLayerCell(int layer_index, int row, int col) const;
+    // Index-native: returns false if invalid/out of bounds. Outputs palette indices in the canvas's active palette.
+    bool     GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
     // Returns false if `layer_index` is invalid or out of bounds.
     bool     GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const;
     // Returns false if `layer_index` is invalid or out of bounds.

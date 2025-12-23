@@ -10,6 +10,7 @@
 
 #include "ansl/ansl_native.h"
 #include "core/canvas.h"
+#include "core/color_system.h"
 #include "io/formats/ansi.h"
 
 namespace app
@@ -224,16 +225,42 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
         pasted_w = (max_col >= 0) ? (max_col + 1) : 1;
         pasted_h = (max_row >= 0) ? (max_row + 1) : 1;
 
+        // Remap palette indices from the imported canvas palette to the destination canvas palette.
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal_src = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        phos::color::PaletteInstanceId pal_dst = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (auto id = cs.Palettes().Resolve(imported.GetPaletteRef()))
+            pal_src = *id;
+        if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+            pal_dst = *id;
+        phos::color::QuantizePolicy qpol;
+        const auto remap = cs.Luts().GetOrBuildRemap(cs.Palettes(), pal_src, pal_dst, qpol);
+
+        auto remap_idx = [&](AnsiCanvas::ColorIndex16 src) -> AnsiCanvas::ColorIndex16 {
+            if (src == AnsiCanvas::kUnsetIndex16)
+                return AnsiCanvas::kUnsetIndex16;
+            if (remap && (size_t)src < remap->remap.size())
+                return (AnsiCanvas::ColorIndex16)remap->remap[(size_t)src];
+            // Fallback: RGB round-trip through quantizer.
+            const std::uint32_t c32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal_src, phos::color::ColorIndex{src});
+            const phos::color::ColorIndex di = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal_dst, c32, qpol);
+            return di.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)di.v;
+        };
+
         for (int rr = 0; rr < pasted_h; ++rr)
         {
             for (int cc = 0; cc < pasted_w; ++cc)
             {
                 const char32_t cp = imported.GetLayerCell(0, rr, cc);
-                AnsiCanvas::Color32 fg = 0, bg = 0;
+                AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs attrs = 0;
-                (void)imported.GetLayerCellColors(0, rr, cc, fg, bg);
+                (void)imported.GetLayerCellIndices(0, rr, cc, fg, bg);
                 (void)imported.GetLayerCellAttrs(0, rr, cc, attrs);
-                (void)canvas.SetLayerCell(layer, y + rr, x + cc, cp, fg, bg, attrs);
+
+                const AnsiCanvas::ColorIndex16 out_fg = remap_idx(fg);
+                const AnsiCanvas::ColorIndex16 out_bg = remap_idx(bg);
+                (void)canvas.SetLayerCellIndices(layer, y + rr, x + cc, cp, out_fg, out_bg, attrs);
             }
         }
     }

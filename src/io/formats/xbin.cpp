@@ -824,7 +824,17 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             {
                 const int li = canvas.GetActiveLayerIndex();
                 cp = canvas.GetLayerCell(li, y, x);
-                (void)canvas.GetLayerCellColors(li, y, x, fg32, bg32);
+                {
+                    AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16, bi = AnsiCanvas::kUnsetIndex16;
+                    (void)canvas.GetLayerCellIndices(li, y, x, fi, bi);
+                    // Convert indices to packed colors for the (temporary) quantize-to-16 export path.
+                    auto& cs = phos::color::GetColorSystem();
+                    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+                    if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+                        pal = *id;
+                    fg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
+                    bg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
+                }
             }
 
             if (fg32 == 0)

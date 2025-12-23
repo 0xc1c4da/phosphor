@@ -53,14 +53,15 @@ static void DebugPrintCanvasStats(const char* label, const AnsiCanvas& c)
     {
         for (int col = 0; col < cols; ++col)
         {
-            AnsiCanvas::Color32 fg = 0, bg = 0;
+            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
             const char32_t cp = c.GetLayerCell(0, r, col);
-            c.GetLayerCellColors(0, r, col, fg, bg);
+            c.GetLayerCellIndices(0, r, col, fg, bg);
             if (cp != U' ')
                 non_space++;
-            if (fg != 0)
+            if (fg != AnsiCanvas::kUnsetIndex16)
                 fg_set++;
-            if (bg != 0)
+            if (bg != AnsiCanvas::kUnsetIndex16)
                 bg_set++;
         }
     }

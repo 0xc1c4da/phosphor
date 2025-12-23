@@ -1,5 +1,6 @@
 #include "core/canvas_rasterizer.h"
 
+#include "core/color_system.h"
 #include "core/fonts.h"
 
 #include "imgui.h"
@@ -662,6 +663,12 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
         return false;
     }
 
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
+        pal = *id;
+    phos::color::QuantizePolicy qpol;
+
     return RasterizeRegionImpl(canvas,
                               cell_rect,
                               out_rgba,
@@ -671,7 +678,11 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
                               opt,
                               [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
                                   out_cp = canvas.GetLayerCell(layer_index, row, col);
-                                  (void)canvas.GetLayerCellColors(layer_index, row, col, out_fg, out_bg);
+                                  AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                                  AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                                  (void)canvas.GetLayerCellIndices(layer_index, row, col, fg, bg);
+                                  out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
+                                  out_bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
                                   (void)canvas.GetLayerCellAttrs(layer_index, row, col, out_attrs);
                                   return true;
                               });
