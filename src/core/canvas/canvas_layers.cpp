@@ -980,11 +980,6 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
     return ok_primary;
 }
 
-bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg)
-{
-    return SetLayerCellIndices(layer_index, row, col, cp, QuantizeColor32ToIndex(fg), QuantizeColor32ToIndex(bg));
-}
-
 bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg)
 {
     EnsureDocument();
@@ -1051,11 +1046,6 @@ bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t
     }
 
     return ok_primary;
-}
-
-bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp, Color32 fg, Color32 bg, Attrs attrs)
-{
-    return SetLayerCellIndices(layer_index, row, col, cp, QuantizeColor32ToIndex(fg), QuantizeColor32ToIndex(bg), attrs);
 }
 
 bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg, Attrs attrs)
@@ -1166,21 +1156,6 @@ bool AnsiCanvas::GetLayerCellIndices(int layer_index, int row, int col, ColorInd
         return false;
     out_fg = layer.fg[idx];
     out_bg = layer.bg[idx];
-    return true;
-}
-
-bool AnsiCanvas::GetLayerCellColors(int layer_index, int row, int col, Color32& out_fg, Color32& out_bg) const
-{
-    ColorIndex16 fg = kUnsetIndex16;
-    ColorIndex16 bg = kUnsetIndex16;
-    if (!GetLayerCellIndices(layer_index, row, col, fg, bg))
-    {
-        out_fg = 0;
-        out_bg = 0;
-        return false;
-    }
-    out_fg = IndexToColor32(fg);
-    out_bg = IndexToColor32(bg);
     return true;
 }
 
