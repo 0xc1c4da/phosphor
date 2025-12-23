@@ -1,6 +1,7 @@
 #include "io/formats/image.h"
 
 #include "core/canvas_rasterizer.h"
+#include "core/color_system.h"
 #include "core/xterm256_palette.h"
 #include "io/image_loader.h"
 #include "io/image_writer.h"
@@ -176,6 +177,19 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
     }
 
     // Quantize each pixel to nearest among xterm indices 16..255.
+    //
+    // Refactor note: this used to scan 240 entries per pixel. We now use a coarse RGB->index 3D LUT
+    // cached in the core LUT cache (5 bits/channel => 32^3 entries).
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal240 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm240Safe);
+    phos::color::QuantizePolicy qpol;
+    const std::shared_ptr<const phos::color::RgbQuantize3dLut> qlut =
+        cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal240, /*bits=*/5, qpol);
+
+    const std::uint8_t bits = qlut ? qlut->bits : 0;
+    const std::size_t side = (bits > 0) ? ((std::size_t)1u << bits) : 0u;
+    const int shift = (bits > 0) ? (8 - (int)bits) : 0;
+
     for (int y = 0; y < h; ++y)
     {
         for (int x = 0; x < w; ++x)
@@ -185,23 +199,36 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
             const std::uint8_t g = rgba[si + 1];
             const std::uint8_t b = rgba[si + 2];
 
-            int best = 0; // palette index 0..239
-            int best_d2 = 0x7fffffff;
-            for (int i = 0; i < 240; ++i)
+            std::uint8_t best = 0; // palette index 0..239
+            if (qlut && side > 0)
             {
-                const int xterm_index = 16 + i;
-                const xterm256::Rgb& p = xterm256::RgbForIndex(xterm_index);
-                const int dr = (int)r - (int)p.r;
-                const int dg = (int)g - (int)p.g;
-                const int db = (int)b - (int)p.b;
-                const int d2 = dr * dr + dg * dg + db * db;
-                if (d2 < best_d2)
+                const std::size_t rx = (std::size_t)(r >> shift);
+                const std::size_t gy = (std::size_t)(g >> shift);
+                const std::size_t bz = (std::size_t)(b >> shift);
+                const std::size_t flat = (bz * side + gy) * side + rx;
+                // LUT stores palette index in the *palette* (0..239).
+                best = qlut->table[flat];
+            }
+            else
+            {
+                // Fallback: brute-force scan.
+                int best_d2 = 0x7fffffff;
+                for (int i = 0; i < 240; ++i)
                 {
-                    best_d2 = d2;
-                    best = i;
+                    const int xterm_index = 16 + i;
+                    const xterm256::Rgb& p = xterm256::RgbForIndex(xterm_index);
+                    const int dr = (int)r - (int)p.r;
+                    const int dg = (int)g - (int)p.g;
+                    const int db = (int)b - (int)p.b;
+                    const int d2 = dr * dr + dg * dg + db * db;
+                    if (d2 < best_d2)
+                    {
+                        best_d2 = d2;
+                        best = (std::uint8_t)i;
+                    }
                 }
             }
-            out_idx[(size_t)y * (size_t)w + (size_t)x] = (std::uint8_t)best;
+            out_idx[(size_t)y * (size_t)w + (size_t)x] = best;
         }
     }
 }

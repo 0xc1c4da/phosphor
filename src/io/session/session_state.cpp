@@ -85,6 +85,7 @@ static json ToJson(const SessionState& st)
     if (!st.ui_theme.empty())
         ui["theme"] = st.ui_theme;
     ui["undo_limit"] = st.undo_limit;
+    ui["lut_cache_budget_bytes"] = st.lut_cache_budget_bytes;
     ui["canvas_bg_white"] = st.canvas_bg_white;
     ui["character_palette_settings_open"] = st.character_palette_settings_open;
 
@@ -315,6 +316,14 @@ static void FromJson(const json& j, SessionState& out)
         {
             const int v = ui["undo_limit"].get<int>();
             out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 0;
+        }
+
+        if (ui.contains("lut_cache_budget_bytes") && ui["lut_cache_budget_bytes"].is_number_unsigned())
+            out.lut_cache_budget_bytes = ui["lut_cache_budget_bytes"].get<size_t>();
+        else if (ui.contains("lut_cache_budget_bytes") && ui["lut_cache_budget_bytes"].is_number_integer())
+        {
+            const int v = ui["lut_cache_budget_bytes"].get<int>();
+            out.lut_cache_budget_bytes = (v > 0) ? static_cast<size_t>(v) : 0;
         }
         if (ui.contains("canvas_bg_white") && ui["canvas_bg_white"].is_boolean())
             out.canvas_bg_white = ui["canvas_bg_white"].get<bool>();

@@ -25,6 +25,10 @@ AnsiCanvas::AnsiCanvas(int columns)
     // New canvases should start with consistent SAUCE defaults (even before the user opens the editor).
     // Rows are always >= 1.
     EnsureSauceDefaultsAndSyncGeometry(m_sauce, m_columns, m_rows);
+
+    // Default palette identity (core).
+    m_palette_ref.is_builtin = true;
+    m_palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
 }
 
 fonts::FontId AnsiCanvas::GetFontId() const

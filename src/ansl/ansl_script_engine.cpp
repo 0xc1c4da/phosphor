@@ -1,5 +1,6 @@
 #include "ansl/ansl_script_engine.h"
 
+#include "core/color_system.h"
 #include "core/canvas.h"
 #include "core/deform/deform_engine.h"
 #include "core/xterm256_palette.h"
@@ -180,13 +181,16 @@ static int Color32ToXtermIndex(AnsiCanvas::Color32 c32)
     if (c32 == 0)
         return -1;
 
-    // xterm256::Color32ForIndex() is documented as ABGR (A=255) where the low byte is R.
-    // Even if callers store non-xterm colors, we still want tools to be able to pick a reasonable
-    // palette index, so we compute the nearest xterm-256 index.
-    const std::uint8_t r = (std::uint8_t)((c32 >> 0) & 0xFF);
-    const std::uint8_t g = (std::uint8_t)((c32 >> 8) & 0xFF);
-    const std::uint8_t b = (std::uint8_t)((c32 >> 16) & 0xFF);
-    return xterm256::NearestIndex(r, g, b);
+    // Bridge into the palette system: tools/scripts still operate in xterm256 index space today,
+    // but this routes through the new core quantizer so we can generalize later.
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    phos::color::QuantizePolicy qpol;
+    const phos::color::ColorIndex idx =
+        phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, (std::uint32_t)c32, qpol);
+    if (idx.IsUnset())
+        return -1;
+    return (int)std::clamp<int>((int)idx.v, 0, 255);
 }
 
 static int LuaArrayLen(lua_State* L, int idx)
@@ -259,6 +263,8 @@ static int l_ansl_deform_apply_dab(lua_State* L)
     luaL_checktype(L, 3, LUA_TTABLE);
 
     deform::ApplyDabArgs args;
+    // Use the canvas's active palette identity for snapping/quantization.
+    args.palette_ref = cb->canvas->GetPaletteRef();
 
     // x, y
     lua_getfield(L, 3, "x");
@@ -2337,6 +2343,12 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pop(L, 1); // p
     }
     lua_pop(L, 1); // cursor
+
+    // Active palette identity (for tools): expose as ctx.palette_is_builtin + ctx.palette_builtin.
+    lua_pushboolean(L, frame_ctx.palette_is_builtin ? 1 : 0);
+    lua_setfield(L, -2, "palette_is_builtin");
+    lua_pushinteger(L, (lua_Integer)frame_ctx.palette_builtin);
+    lua_setfield(L, -2, "palette_builtin");
 
     // Tool palette: if host provided a palette list, expose it as ctx.palette = { idx, ... }.
     // We reuse the table to avoid churn: clear previous entries then write new ones.

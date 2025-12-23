@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/fonts.h"
+#include "core/palette/palette.h"
 
 // Forward declarations from Dear ImGui
 struct ImVec2;
@@ -309,7 +310,16 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 6;
+        int                     version = 7;
+
+        // Core palette identity for this canvas (LUT/index-centric pipeline).
+        // Default is xterm256 to preserve current behavior.
+        phos::color::PaletteRef palette_ref = []{
+            phos::color::PaletteRef r;
+            r.is_builtin = true;
+            r.builtin = phos::color::BuiltinPalette::Xterm256;
+            return r;
+        }();
 
         // Optional: UI colour palette identity (from assets/color-palettes.json).
         // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
@@ -421,6 +431,10 @@ public:
     const std::string& GetColourPaletteTitle() const { return m_colour_palette_title; }
     void SetColourPaletteTitle(const std::string& title) { m_colour_palette_title = title; }
     void ClearColourPaletteTitle() { m_colour_palette_title.clear(); }
+
+    // Core palette identity (used by LUT/index pipelines; not yet enforced on stored Color32 cells).
+    const phos::color::PaletteRef& GetPaletteRef() const { return m_palette_ref; }
+    void SetPaletteRef(const phos::color::PaletteRef& ref) { m_palette_ref = ref; TouchContent(); }
 
     // ---------------------------------------------------------------------
     // Canvas font selection (persisted via SAUCE TInfoS)
@@ -901,6 +915,7 @@ private:
 
     // Optional UI colour palette title (persisted via ProjectState).
     std::string m_colour_palette_title;
+    phos::color::PaletteRef m_palette_ref;
 
     // Optional embedded bitmap font (not currently serialized into .phos; supplied by some importers like XBin).
     std::optional<EmbeddedBitmapFont> m_embedded_font;

@@ -371,6 +371,13 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["magic"] = "utf8-art-editor";
     j["version"] = st.version;
     j["undo_limit"] = st.undo_limit;
+    // Core palette identity (builtin only for now; dynamic palettes will be serialized later).
+    {
+        json pj;
+        if (st.palette_ref.is_builtin)
+            pj["builtin"] = (std::uint32_t)st.palette_ref.builtin;
+        j["palette_ref"] = std::move(pj);
+    }
     if (!st.colour_palette_title.empty())
         j["colour_palette_title"] = st.colour_palette_title;
     j["sauce"] = SauceMetaToJson(st.sauce);
@@ -426,6 +433,18 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     // Optional UI colour palette identity.
     if (j.contains("colour_palette_title") && j["colour_palette_title"].is_string())
         out.colour_palette_title = j["colour_palette_title"].get<std::string>();
+
+    // Core palette identity (optional; defaults to xterm256).
+    if (j.contains("palette_ref") && j["palette_ref"].is_object())
+    {
+        const json& pj = j["palette_ref"];
+        if (pj.contains("builtin") && pj["builtin"].is_number_unsigned())
+        {
+            const std::uint32_t b = pj["builtin"].get<std::uint32_t>();
+            out.palette_ref.is_builtin = true;
+            out.palette_ref.builtin = (phos::color::BuiltinPalette)b;
+        }
+    }
 
     if (!j.contains("current"))
     {

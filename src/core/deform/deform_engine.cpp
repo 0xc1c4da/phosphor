@@ -1,6 +1,7 @@
 #include "core/deform/deform_engine.h"
 
 #include "core/canvas_rasterizer.h"
+#include "core/color_system.h"
 #include "core/deform/glyph_mask_cache.h"
 #include "core/xterm256_palette.h"
 
@@ -138,23 +139,45 @@ static inline void StoreRgba(const RgbaF& c, std::uint8_t* dst4)
     dst4[3] = to_u8(c.a);
 }
 
-static inline int SnapToAllowedXtermIndex(std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::vector<int>* allowed)
+static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
+                                            phos::color::LutCache& luts,
+                                            phos::color::PaletteInstanceId pal,
+                                            std::uint8_t r,
+                                            std::uint8_t g,
+                                            std::uint8_t b,
+                                            const std::vector<int>* allowed)
 {
+    phos::color::QuantizePolicy qpol;
     if (!allowed || allowed->empty())
-        return xterm256::NearestIndex(r, g, b);
+        return (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
+
+    // LUT-backed allowed quantization (coarse RGB 3D LUT).
+    const auto qlut = luts.GetOrBuildAllowedQuant3d(reg, pal, *allowed, /*bits=*/5, qpol);
+    if (qlut && qlut->bits > 0)
+    {
+        const int shift = 8 - (int)qlut->bits;
+        const std::size_t side = (std::size_t)1u << qlut->bits;
+        const std::size_t rx = (std::size_t)(r >> shift);
+        const std::size_t gy = (std::size_t)(g >> shift);
+        const std::size_t bz = (std::size_t)(b >> shift);
+        const std::size_t flat = (bz * side + gy) * side + rx;
+        return (int)qlut->table[flat];
+    }
+
+    // Fallback: exact scan (previous behavior) if LUT can't be built (budget pressure, etc).
+    const phos::color::Palette* p = reg.Get(pal);
+    if (!p || p->rgb.empty())
+        return (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
     int best = -1;
     int best_d = 0;
     for (int idx : *allowed)
     {
-        if (idx < 0 || idx > 255)
+        if (idx < 0 || idx >= (int)p->rgb.size())
             continue;
-        const std::uint32_t c32 = xterm256::Color32ForIndex(idx);
-        const int rr = (int)((c32 >> 0) & 0xFF);
-        const int gg = (int)((c32 >> 8) & 0xFF);
-        const int bb = (int)((c32 >> 16) & 0xFF);
-        const int dr = rr - (int)r;
-        const int dg = gg - (int)g;
-        const int db = bb - (int)b;
+        const phos::color::Rgb8 prgb = p->rgb[(size_t)idx];
+        const int dr = (int)prgb.r - (int)r;
+        const int dg = (int)prgb.g - (int)g;
+        const int db = (int)prgb.b - (int)b;
         const int d = dr * dr + dg * dg + db * db;
         if (best < 0 || d < best_d)
         {
@@ -163,7 +186,7 @@ static inline int SnapToAllowedXtermIndex(std::uint8_t r, std::uint8_t g, std::u
         }
     }
     if (best < 0)
-        best = xterm256::NearestIndex(r, g, b);
+        best = (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
     return best;
 }
 
@@ -301,6 +324,11 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                      std::string& err) const
 {
     err.clear();
+
+    auto& cs = phos::color::GetColorSystem();
+    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(args.palette_ref))
+        pal = *id;
 
     if (layer_index < 0 || layer_index >= canvas.GetLayerCount())
     {
@@ -759,18 +787,24 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 }
 
                 // Snap centers to palette.
-                const int idx0 = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(c0r, 0, 255),
-                                                        (std::uint8_t)std::clamp(c0g, 0, 255),
-                                                        (std::uint8_t)std::clamp(c0b, 0, 255),
-                                                        args.palette_xterm);
-                const int idx1 = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(c1r, 0, 255),
-                                                        (std::uint8_t)std::clamp(c1g, 0, 255),
-                                                        (std::uint8_t)std::clamp(c1b, 0, 255),
-                                                        args.palette_xterm);
-                const std::uint32_t bg32 = xterm256::Color32ForIndex(idx0);
-                const std::uint32_t fg32 = xterm256::Color32ForIndex(idx1);
-                const int bgr = (int)((bg32 >> 0) & 0xFF), bgg = (int)((bg32 >> 8) & 0xFF), bgb = (int)((bg32 >> 16) & 0xFF);
-                const int fgr = (int)((fg32 >> 0) & 0xFF), fgg = (int)((fg32 >> 8) & 0xFF), fgb = (int)((fg32 >> 16) & 0xFF);
+                const int idx0 = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
+                                                          (std::uint8_t)std::clamp(c0r, 0, 255),
+                                                          (std::uint8_t)std::clamp(c0g, 0, 255),
+                                                          (std::uint8_t)std::clamp(c0b, 0, 255),
+                                                          args.palette_xterm);
+                const int idx1 = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
+                                                          (std::uint8_t)std::clamp(c1r, 0, 255),
+                                                          (std::uint8_t)std::clamp(c1g, 0, 255),
+                                                          (std::uint8_t)std::clamp(c1b, 0, 255),
+                                                          args.palette_xterm);
+                const std::uint32_t bg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx0});
+                const std::uint32_t fg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx1});
+                std::uint8_t bgr8 = 0, bgg8 = 0, bgb8 = 0;
+                std::uint8_t fgr8 = 0, fgg8 = 0, fgb8 = 0;
+                (void)phos::color::ColorOps::UnpackImGuiAbgr(bg32, bgr8, bgg8, bgb8);
+                (void)phos::color::ColorOps::UnpackImGuiAbgr(fg32, fgr8, fgg8, fgb8);
+                const int bgr = (int)bgr8, bgg = (int)bgg8, bgb = (int)bgb8;
+                const int fgr = (int)fgr8, fgg = (int)fgg8, fgb = (int)fgb8;
 
                 for (int yy = 0; yy < cell_h_px; ++yy)
                 {
@@ -882,11 +916,12 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                     const int r8 = (int)std::lround(sum_wr / sum_w);
                     const int g8 = (int)std::lround(sum_wg / sum_w);
                     const int b8 = (int)std::lround(sum_wb / sum_w);
-                    const int idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(r8, 0, 255),
-                                                           (std::uint8_t)std::clamp(g8, 0, 255),
-                                                           (std::uint8_t)std::clamp(b8, 0, 255),
-                                                           args.palette_xterm);
-                    out_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(idx);
+                    const int idx = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
+                                                             (std::uint8_t)std::clamp(r8, 0, 255),
+                                                             (std::uint8_t)std::clamp(g8, 0, 255),
+                                                             (std::uint8_t)std::clamp(b8, 0, 255),
+                                                             args.palette_xterm);
+                    out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx});
                 }
                 out_bg = 0;
                 if (best_cp == U' ')
@@ -909,16 +944,18 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                         hi_r = std::max(hi_r, r8); hi_g = std::max(hi_g, g8); hi_b = std::max(hi_b, b8);
                     }
                 }
-                const int bg_idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(lo_r, 0, 255),
-                                                          (std::uint8_t)std::clamp(lo_g, 0, 255),
-                                                          (std::uint8_t)std::clamp(lo_b, 0, 255),
-                                                          args.palette_xterm);
-                const int fg_idx = SnapToAllowedXtermIndex((std::uint8_t)std::clamp(hi_r, 0, 255),
-                                                          (std::uint8_t)std::clamp(hi_g, 0, 255),
-                                                          (std::uint8_t)std::clamp(hi_b, 0, 255),
-                                                          args.palette_xterm);
-                out_bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(bg_idx);
-                out_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(fg_idx);
+                const int bg_idx = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
+                                                            (std::uint8_t)std::clamp(lo_r, 0, 255),
+                                                            (std::uint8_t)std::clamp(lo_g, 0, 255),
+                                                            (std::uint8_t)std::clamp(lo_b, 0, 255),
+                                                            args.palette_xterm);
+                const int fg_idx = SnapToAllowedPaletteIndex(cs.Palettes(), cs.Luts(), pal,
+                                                            (std::uint8_t)std::clamp(hi_r, 0, 255),
+                                                            (std::uint8_t)std::clamp(hi_g, 0, 255),
+                                                            (std::uint8_t)std::clamp(hi_b, 0, 255),
+                                                            args.palette_xterm);
+                out_bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)bg_idx});
+                out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)fg_idx});
                 if (best_cp == U' ')
                     out_fg = 0;
             }

@@ -27,6 +27,7 @@
 #include "app/workspace_persist.h"
 
 #include "core/embedded_assets.h"
+#include "core/color_system.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
 
@@ -89,6 +90,9 @@ int main(int, char**)
         if (!LoadSessionState(session_state, err) && !err.empty())
             std::fprintf(stderr, "[session] %s\n", err.c_str());
     }
+
+    // Apply session preferences to the core LUT cache (global for now).
+    phos::color::GetColorSystem().Luts().SetBudgetBytes(session_state.lut_cache_budget_bytes);
 
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
@@ -222,6 +226,9 @@ int main(int, char**)
     SettingsWindow settings_window;
     settings_window.SetOpen(show_settings_window);
     settings_window.SetMainScale(main_scale);
+    settings_window.SetLutCacheBudgetApplier([](size_t bytes) {
+        phos::color::GetColorSystem().Luts().SetBudgetBytes(bytes);
+    });
 
     ExportDialog export_dialog;
 

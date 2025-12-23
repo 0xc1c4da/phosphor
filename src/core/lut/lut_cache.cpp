@@ -1,0 +1,439 @@
+#include "core/lut/lut_cache.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <span>
+
+namespace phos::color
+{
+static inline std::uint64_t Mix64(std::uint64_t x)
+{
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return x;
+}
+
+std::size_t LutKeyHash::operator()(const LutKey& k) const noexcept
+{
+    std::uint64_t h = 0xCBF29CE484222325ULL;
+    h ^= (std::uint64_t)k.type; h *= 1099511628211ULL;
+    h ^= k.a.v; h *= 1099511628211ULL;
+    h ^= k.b.v; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)k.quant_bits; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)k.allowed_hash; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)k.quantize.distance; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)(k.quantize.tie_break_lowest_index ? 1 : 0); h *= 1099511628211ULL;
+    return (std::size_t)Mix64(h);
+}
+
+static inline int Dist2Rgb(const Rgb8& a, std::uint8_t r, std::uint8_t g, std::uint8_t b)
+{
+    const int dr = (int)a.r - (int)r;
+    const int dg = (int)a.g - (int)g;
+    const int db = (int)a.b - (int)b;
+    return dr * dr + dg * dg + db * db;
+}
+
+static std::uint8_t NearestIndexRgb_Scan(const Palette& pal,
+                                         std::uint8_t r,
+                                         std::uint8_t g,
+                                         std::uint8_t b,
+                                         const QuantizePolicy& policy)
+{
+    (void)policy; // only one metric today; tie-break = lowest index is implicit by scan order.
+    const int n = (int)pal.rgb.size();
+    int best = 0;
+    int best_d2 = 0x7fffffff;
+    for (int i = 0; i < n; ++i)
+    {
+        const int d2 = Dist2Rgb(pal.rgb[(size_t)i], r, g, b);
+        if (d2 < best_d2)
+        {
+            best_d2 = d2;
+            best = i;
+        }
+    }
+    return (std::uint8_t)std::clamp(best, 0, 255);
+}
+
+static std::uint64_t HashAllowedIndices(std::span<const int> indices)
+{
+    // Deterministic hash: sort+unique and FNV-1a over u16.
+    std::vector<std::uint16_t> v;
+    v.reserve(indices.size());
+    for (int x : indices)
+    {
+        if (x < 0 || x > 255)
+            continue;
+        v.push_back((std::uint16_t)x);
+    }
+    std::sort(v.begin(), v.end());
+    v.erase(std::unique(v.begin(), v.end()), v.end());
+
+    std::uint64_t h = 1469598103934665603ull;
+    for (std::uint16_t x : v)
+    {
+        h ^= (std::uint64_t)(x & 0xFFu);
+        h *= 1099511628211ull;
+        h ^= (std::uint64_t)((x >> 8) & 0xFFu);
+        h *= 1099511628211ull;
+    }
+    return Mix64(h);
+}
+
+LutCache::LutCache(std::size_t budget_bytes) : m_budget_bytes(budget_bytes) {}
+
+void LutCache::SetBudgetBytes(std::size_t bytes)
+{
+    m_budget_bytes = bytes;
+    EvictAsNeeded(0);
+}
+
+void LutCache::Touch(typename std::unordered_map<LutKey, Entry, LutKeyHash>::iterator it)
+{
+    // Move to front.
+    m_lru.erase(it->second.lru_it);
+    m_lru.push_front(it->first);
+    it->second.lru_it = m_lru.begin();
+}
+
+void LutCache::EvictAsNeeded(std::size_t incoming_bytes)
+{
+    if (incoming_bytes > m_budget_bytes)
+        return; // can't fit even in an empty cache; caller must handle fallback
+
+    while (!m_lru.empty() && m_used_bytes + incoming_bytes > m_budget_bytes)
+    {
+        const LutKey& k = m_lru.back();
+        auto it = m_map.find(k);
+        if (it != m_map.end())
+        {
+            m_used_bytes -= it->second.bytes;
+            m_map.erase(it);
+        }
+        m_lru.pop_back();
+    }
+}
+
+std::shared_ptr<const RgbQuantize3dLut> LutCache::GetOrBuildQuant3d(PaletteRegistry& palettes,
+                                                                    PaletteInstanceId pal,
+                                                                    std::uint8_t bits,
+                                                                    const QuantizePolicy& policy)
+{
+    if (bits < 1 || bits > 6)
+        return nullptr;
+    const Palette* p = palettes.Get(pal);
+    if (!p || p->rgb.empty() || p->rgb.size() > kMaxPaletteSize)
+        return nullptr;
+
+    LutKey key;
+    key.type = LutType::Quant3D;
+    key.a = pal;
+    key.b = PaletteInstanceId{0};
+    key.quant_bits = bits;
+    key.quantize = policy;
+    key.allowed_hash = 0;
+
+    auto it = m_map.find(key);
+    if (it != m_map.end())
+    {
+        Touch(it);
+        return std::static_pointer_cast<const RgbQuantize3dLut>(it->second.payload);
+    }
+
+    const std::size_t side = (std::size_t)1u << bits;
+    const std::size_t entries = side * side * side;
+    const std::size_t bytes = entries * sizeof(std::uint8_t);
+
+    EvictAsNeeded(bytes);
+    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+        return nullptr;
+
+    auto lut = std::make_shared<RgbQuantize3dLut>();
+    lut->bits = bits;
+    lut->table.resize(entries);
+
+    // Sample at bin center in 0..255:
+    // bin size = 256/side, center = (bin + 0.5)*binSize.
+    const int bin_size = (int)(256 / (int)side);
+    for (std::size_t bz = 0; bz < side; ++bz)
+    {
+        const int b0 = (int)bz * bin_size;
+        const int bcenter = std::min(255, b0 + bin_size / 2);
+        for (std::size_t gy = 0; gy < side; ++gy)
+        {
+            const int g0 = (int)gy * bin_size;
+            const int gcenter = std::min(255, g0 + bin_size / 2);
+            for (std::size_t rx = 0; rx < side; ++rx)
+            {
+                const int r0 = (int)rx * bin_size;
+                const int rcenter = std::min(255, r0 + bin_size / 2);
+
+                const std::uint8_t idx = NearestIndexRgb_Scan(*p,
+                                                              (std::uint8_t)rcenter,
+                                                              (std::uint8_t)gcenter,
+                                                              (std::uint8_t)bcenter,
+                                                              policy);
+                const std::size_t flat = (bz * side + gy) * side + rx;
+                lut->table[flat] = idx;
+            }
+        }
+    }
+
+    // Insert into cache.
+    m_lru.push_front(key);
+    Entry e;
+    e.payload = lut;
+    e.bytes = bytes;
+    e.lru_it = m_lru.begin();
+    m_used_bytes += bytes;
+    m_map.emplace(key, std::move(e));
+    return lut;
+}
+
+std::shared_ptr<const RemapLut> LutCache::GetOrBuildRemap(PaletteRegistry& palettes,
+                                                          PaletteInstanceId src,
+                                                          PaletteInstanceId dst,
+                                                          const QuantizePolicy& policy)
+{
+    const Palette* ps = palettes.Get(src);
+    const Palette* pd = palettes.Get(dst);
+    if (!ps || !pd || ps->rgb.empty() || pd->rgb.empty())
+        return nullptr;
+    if (ps->rgb.size() > kMaxPaletteSize || pd->rgb.size() > kMaxPaletteSize)
+        return nullptr;
+
+    // Fast-path: derived palette that losslessly maps to its parent (no quantization).
+    // This is safe only when src is derived-from dst with a validated mapping.
+    if (ps->derived && ps->derived->parent.is_builtin && pd->ref.is_builtin &&
+        ps->derived->parent.builtin == pd->ref.builtin &&
+        ps->derived->derived_to_parent.size() == ps->rgb.size())
+    {
+        auto lut = std::make_shared<RemapLut>();
+        lut->remap.resize(ps->rgb.size());
+        for (std::size_t i = 0; i < ps->rgb.size(); ++i)
+        {
+            const std::uint16_t pi = ps->derived->derived_to_parent[i];
+            lut->remap[i] = (std::uint8_t)std::clamp<int>((int)pi, 0, 255);
+        }
+        return lut;
+    }
+
+    LutKey key;
+    key.type = LutType::Remap;
+    key.a = src;
+    key.b = dst;
+    key.quant_bits = 0;
+    key.allowed_hash = 0;
+    key.quantize = policy;
+
+    auto it = m_map.find(key);
+    if (it != m_map.end())
+    {
+        Touch(it);
+        return std::static_pointer_cast<const RemapLut>(it->second.payload);
+    }
+
+    const std::size_t bytes = ps->rgb.size() * sizeof(std::uint8_t);
+    EvictAsNeeded(bytes);
+    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+        return nullptr;
+
+    auto lut = std::make_shared<RemapLut>();
+    lut->remap.resize(ps->rgb.size());
+    for (std::size_t i = 0; i < ps->rgb.size(); ++i)
+    {
+        const Rgb8 c = ps->rgb[i];
+        lut->remap[i] = NearestIndexRgb_Scan(*pd, c.r, c.g, c.b, policy);
+    }
+
+    m_lru.push_front(key);
+    Entry e;
+    e.payload = lut;
+    e.bytes = bytes;
+    e.lru_it = m_lru.begin();
+    m_used_bytes += bytes;
+    m_map.emplace(key, std::move(e));
+    return lut;
+}
+
+std::shared_ptr<const AllowedRgbQuantize3dLut> LutCache::GetOrBuildAllowedQuant3d(PaletteRegistry& palettes,
+                                                                                  PaletteInstanceId pal,
+                                                                                  std::span<const int> allowed_indices,
+                                                                                  std::uint8_t bits,
+                                                                                  const QuantizePolicy& policy)
+{
+    if (bits < 1 || bits > 6)
+        return nullptr;
+    const Palette* p = palettes.Get(pal);
+    if (!p || p->rgb.empty() || p->rgb.size() > kMaxPaletteSize)
+        return nullptr;
+    if (allowed_indices.empty())
+        return nullptr;
+
+    // Normalize allowed list to unique in-range u8 indices.
+    std::vector<std::uint8_t> allowed;
+    allowed.reserve(allowed_indices.size());
+    for (int idx : allowed_indices)
+    {
+        if (idx < 0 || idx >= (int)p->rgb.size())
+            continue;
+        allowed.push_back((std::uint8_t)idx);
+    }
+    if (allowed.empty())
+        return nullptr;
+    std::sort(allowed.begin(), allowed.end());
+    allowed.erase(std::unique(allowed.begin(), allowed.end()), allowed.end());
+
+    LutKey key;
+    key.type = LutType::AllowedQuant3D;
+    key.a = pal;
+    key.b = PaletteInstanceId{0};
+    key.quant_bits = bits;
+    key.allowed_hash = HashAllowedIndices(allowed_indices);
+    key.quantize = policy;
+
+    auto it = m_map.find(key);
+    if (it != m_map.end())
+    {
+        Touch(it);
+        return std::static_pointer_cast<const AllowedRgbQuantize3dLut>(it->second.payload);
+    }
+
+    const std::size_t side = (std::size_t)1u << bits;
+    const std::size_t entries = side * side * side;
+    const std::size_t bytes = entries * sizeof(std::uint8_t);
+
+    EvictAsNeeded(bytes);
+    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+        return nullptr;
+
+    auto lut = std::make_shared<AllowedRgbQuantize3dLut>();
+    lut->bits = bits;
+    lut->table.resize(entries);
+
+    const int bin_size = (int)(256 / (int)side);
+    for (std::size_t bz = 0; bz < side; ++bz)
+    {
+        const int b0 = (int)bz * bin_size;
+        const int bcenter = std::min(255, b0 + bin_size / 2);
+        for (std::size_t gy = 0; gy < side; ++gy)
+        {
+            const int g0 = (int)gy * bin_size;
+            const int gcenter = std::min(255, g0 + bin_size / 2);
+            for (std::size_t rx = 0; rx < side; ++rx)
+            {
+                const int r0 = (int)rx * bin_size;
+                const int rcenter = std::min(255, r0 + bin_size / 2);
+
+                int best_d2 = 0x7fffffff;
+                std::uint8_t best_idx = allowed[0];
+                for (std::uint8_t ai : allowed)
+                {
+                    const int d2 = Dist2Rgb(p->rgb[(size_t)ai],
+                                            (std::uint8_t)rcenter,
+                                            (std::uint8_t)gcenter,
+                                            (std::uint8_t)bcenter);
+                    if (d2 < best_d2)
+                    {
+                        best_d2 = d2;
+                        best_idx = ai;
+                    }
+                }
+
+                const std::size_t flat = (bz * side + gy) * side + rx;
+                lut->table[flat] = best_idx;
+            }
+        }
+    }
+
+    m_lru.push_front(key);
+    Entry e;
+    e.payload = lut;
+    e.bytes = bytes;
+    e.lru_it = m_lru.begin();
+    m_used_bytes += bytes;
+    m_map.emplace(key, std::move(e));
+    return lut;
+}
+
+std::shared_ptr<const AllowedSnapLut> LutCache::GetOrBuildAllowedSnap(PaletteRegistry& palettes,
+                                                                      PaletteInstanceId pal,
+                                                                      std::span<const int> allowed_indices,
+                                                                      const QuantizePolicy& policy)
+{
+    const Palette* p = palettes.Get(pal);
+    if (!p || p->rgb.empty() || p->rgb.size() > kMaxPaletteSize)
+        return nullptr;
+    if (allowed_indices.empty())
+        return nullptr;
+
+    // Normalize allowed list to unique in-range u8 indices.
+    std::vector<std::uint8_t> allowed;
+    allowed.reserve(allowed_indices.size());
+    for (int idx : allowed_indices)
+    {
+        if (idx < 0 || idx >= (int)p->rgb.size())
+            continue;
+        allowed.push_back((std::uint8_t)idx);
+    }
+    if (allowed.empty())
+        return nullptr;
+    std::sort(allowed.begin(), allowed.end());
+    allowed.erase(std::unique(allowed.begin(), allowed.end()), allowed.end());
+
+    LutKey key;
+    key.type = LutType::AllowedSnap;
+    key.a = pal;
+    key.b = PaletteInstanceId{0};
+    key.quant_bits = 0;
+    key.allowed_hash = HashAllowedIndices(allowed_indices);
+    key.quantize = policy;
+
+    auto it = m_map.find(key);
+    if (it != m_map.end())
+    {
+        Touch(it);
+        return std::static_pointer_cast<const AllowedSnapLut>(it->second.payload);
+    }
+
+    const std::size_t bytes = p->rgb.size() * sizeof(std::uint8_t);
+    EvictAsNeeded(bytes);
+    if (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes)
+        return nullptr;
+
+    auto lut = std::make_shared<AllowedSnapLut>();
+    lut->snap.resize(p->rgb.size());
+    for (std::size_t i = 0; i < p->rgb.size(); ++i)
+    {
+        const Rgb8 c = p->rgb[i];
+        int best_d2 = 0x7fffffff;
+        std::uint8_t best_idx = allowed[0];
+        for (std::uint8_t ai : allowed)
+        {
+            const int d2 = Dist2Rgb(p->rgb[(size_t)ai], c.r, c.g, c.b);
+            if (d2 < best_d2)
+            {
+                best_d2 = d2;
+                best_idx = ai;
+            }
+        }
+        lut->snap[i] = best_idx;
+    }
+
+    m_lru.push_front(key);
+    Entry e;
+    e.payload = lut;
+    e.bytes = bytes;
+    e.lru_it = m_lru.begin();
+    m_used_bytes += bytes;
+    m_map.emplace(key, std::move(e));
+    return lut;
+}
+
+} // namespace phos::color
+
+

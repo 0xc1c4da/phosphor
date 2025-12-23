@@ -190,6 +190,13 @@ struct SessionState
     // 0 = unlimited (default).
     size_t undo_limit = 0;
 
+    // Global LUT cache budget (bytes).
+    // This is an app-level performance/memory tuning knob intended for LUT-heavy features
+    // (palette remaps, allowed-snap LUTs, blend LUTs, quantization LUTs).
+    //
+    // Default: 64 MiB. Typical recommended range: <= 96 MiB (under 100MB).
+    size_t lut_cache_budget_bytes = 64ull * 1024ull * 1024ull;
+
     // Canvas background (independent of ImGui theme). False = black, true = white.
     bool canvas_bg_white = false;
 

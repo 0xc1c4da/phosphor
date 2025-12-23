@@ -39,7 +39,11 @@ SOURCES  = \
            src/core/embedded_assets.cpp \
            src/core/key_bindings.cpp \
            src/core/paths.cpp \
+           src/core/color_system.cpp \
+           src/core/color_ops.cpp \
            src/core/xterm256_palette.cpp \
+           src/core/palette/palette.cpp \
+           src/core/lut/lut_cache.cpp \
            src/ansl/ansl_script_engine.cpp \
            src/ansl/ansl_luajit.cpp \
            src/ansl/ansl_sort.cpp \

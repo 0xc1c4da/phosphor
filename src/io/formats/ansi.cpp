@@ -104,6 +104,37 @@ struct PaletteDef32
     std::vector<AnsiCanvas::Color32> colors;
 };
 
+// Canonical ANSI art palette: VGA 16 (matches assets/color-palettes.json "VGA 16").
+// IMPORTANT: Indices here are **ANSI/SGR order**, not IBM PC attribute order:
+//   0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white
+// and 8..15 are the bright variants.
+struct VgaRgb { std::uint8_t r, g, b; };
+static constexpr VgaRgb kVga16[16] = {
+    {0x00, 0x00, 0x00}, // 0 black
+    {0xAA, 0x00, 0x00}, // 1 red
+    {0x00, 0xAA, 0x00}, // 2 green
+    {0xAA, 0x55, 0x00}, // 3 yellow/brown
+    {0x00, 0x00, 0xAA}, // 4 blue
+    {0xAA, 0x00, 0xAA}, // 5 magenta
+    {0x00, 0xAA, 0xAA}, // 6 cyan
+    {0xAA, 0xAA, 0xAA}, // 7 light gray ("white" in classic 8-color)
+    {0x55, 0x55, 0x55}, // 8 dark gray
+    {0xFF, 0x55, 0x55}, // 9 bright red
+    {0x55, 0xFF, 0x55}, // 10 bright green
+    {0xFF, 0xFF, 0x55}, // 11 bright yellow
+    {0x55, 0x55, 0xFF}, // 12 bright blue
+    {0xFF, 0x55, 0xFF}, // 13 bright magenta
+    {0x55, 0xFF, 0xFF}, // 14 bright cyan
+    {0xFF, 0xFF, 0xFF}, // 15 bright white
+};
+
+static inline AnsiCanvas::Color32 Vga16Color32ForIndex(int idx)
+{
+    idx = std::clamp(idx, 0, 15);
+    const VgaRgb c = kVga16[idx];
+    return PackImGuiCol32(c.r, c.g, c.b);
+}
+
 static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
 {
     std::string s = hex;
@@ -384,36 +415,9 @@ static int NearestAnsi16Index(AnsiCanvas::Color32 c)
     int best = 0;
     int best_d = std::numeric_limits<int>::max();
 
-    // Canonical ANSI art palette: VGA 16 (matches assets/color-palettes.json "VGA 16").
-    // We use this for ANSI16 import/export so palette inference can reliably identify VGA artwork,
-    // and so ANSI16 export round-trips with the expected scene colors.
-    //
-    // IMPORTANT: Indices here are **ANSI/SGR order**, not IBM PC attribute order:
-    //   0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white
-    // and 8..15 are the bright variants.
-    struct Rgb { std::uint8_t r, g, b; };
-    static constexpr Rgb kVga16[16] = {
-        {0x00, 0x00, 0x00}, // 0 black
-        {0xAA, 0x00, 0x00}, // 1 red
-        {0x00, 0xAA, 0x00}, // 2 green
-        {0xAA, 0x55, 0x00}, // 3 yellow/brown
-        {0x00, 0x00, 0xAA}, // 4 blue
-        {0xAA, 0x00, 0xAA}, // 5 magenta
-        {0x00, 0xAA, 0xAA}, // 6 cyan
-        {0xAA, 0xAA, 0xAA}, // 7 light gray ("white" in classic 8-color)
-        {0x55, 0x55, 0x55}, // 8 dark gray
-        {0xFF, 0x55, 0x55}, // 9 bright red
-        {0x55, 0xFF, 0x55}, // 10 bright green
-        {0xFF, 0xFF, 0x55}, // 11 bright yellow
-        {0x55, 0x55, 0xFF}, // 12 bright blue
-        {0xFF, 0x55, 0xFF}, // 13 bright magenta
-        {0x55, 0xFF, 0xFF}, // 14 bright cyan
-        {0xFF, 0xFF, 0xFF}, // 15 bright white
-    };
-
     for (int i = 0; i < 16; ++i)
     {
-        const Rgb prgb = kVga16[i];
+        const VgaRgb prgb = kVga16[i];
         const int dr = (int)r - (int)prgb.r;
         const int dg = (int)g - (int)prgb.g;
         const int db = (int)b - (int)prgb.b;
@@ -2046,7 +2050,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 // (Exact equality check is fine because both are packed ABGR.)
                 if (!fg_unset)
                 {
-                    const auto base_fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(std::clamp(fg16, 0, 15));
+                    const auto base_fg = Vga16Color32ForIndex(fg16);
                     if (want_fg != base_fg)
                     {
                         std::uint8_t r = 0, g = 0, b = 0;
@@ -2061,7 +2065,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 }
                 if (!bg_unset)
                 {
-                    const auto base_bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(std::clamp(bg16, 0, 15));
+                    const auto base_bg = Vga16Color32ForIndex(bg16);
                     if (want_bg != base_bg)
                     {
                         std::uint8_t r = 0, g = 0, b = 0;

@@ -27,6 +27,7 @@
 #include <cfloat>
 
 #include "core/fonts.h"
+#include "core/color_system.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 
@@ -930,16 +931,28 @@ void RunFrame(AppState& st)
 
         // Respect current editor FG/BG selection (xterm-256 picker).
         // Canvas uses Color32 where 0 means "unset"; we always apply explicit colours here.
-        auto to_idx = [](const ImVec4& c) -> int {
+        // Respect current editor FG/BG selection, snapped to the active canvas palette.
+        auto to_idx = [&](const ImVec4& c, phos::color::PaletteInstanceId pal) -> int {
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                         (std::uint8_t)std::clamp(g, 0, 255),
-                                         (std::uint8_t)std::clamp(b, 0, 255));
+            phos::color::QuantizePolicy qp;
+            return (int)phos::color::ColorOps::NearestIndexRgb(phos::color::GetColorSystem().Palettes(),
+                                                               pal,
+                                                               (std::uint8_t)std::clamp(r, 0, 255),
+                                                               (std::uint8_t)std::clamp(g, 0, 255),
+                                                               (std::uint8_t)std::clamp(b, 0, 255),
+                                                               qp);
         };
-        const AnsiCanvas::Color32 fg32 = (AnsiCanvas::Color32)xterm256::Color32ForIndex(to_idx(fg_color));
-        const AnsiCanvas::Color32 bg32 = (AnsiCanvas::Color32)xterm256::Color32ForIndex(to_idx(bg_color));
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        if (dst)
+        {
+            if (auto id = cs.Palettes().Resolve(dst->GetPaletteRef()))
+                pal = *id;
+        }
+        const AnsiCanvas::Color32 fg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)to_idx(fg_color, pal)});
+        const AnsiCanvas::Color32 bg32 = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)to_idx(bg_color, pal)});
 
         int caret_x = 0;
         int caret_y = 0;
@@ -1526,20 +1539,16 @@ void RunFrame(AppState& st)
         char id_buf[32];
         snprintf(id_buf, sizeof(id_buf), "canvas_%d", canvas.id);
 
-        auto to_idx = [](const ImVec4& c) -> int {
-            const int r = (int)std::lround(c.x * 255.0f);
-            const int g = (int)std::lround(c.y * 255.0f);
-            const int b = (int)std::lround(c.z * 255.0f);
-            return xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                         (std::uint8_t)std::clamp(g, 0, 255),
-                                         (std::uint8_t)std::clamp(b, 0, 255));
-        };
-        const int fg_idx = to_idx(fg_color);
-        const int bg_idx = to_idx(bg_color);
+        // Current FG/BG selection quantized to the active canvas palette.
+        auto& cs = phos::color::GetColorSystem();
+        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
 
         auto tool_runner = [&](AnsiCanvas& c, int phase) {
             if (!tool_engine.HasRenderFunction())
                 return;
+
+            if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
+                pal = *id;
 
             AnslFrameContext ctx;
             std::vector<int> palette_xterm;
@@ -1555,8 +1564,23 @@ void RunFrame(AppState& st)
             ctx.metrics_aspect = c.GetLastCellAspect();
             ctx.phase = phase;
             ctx.focused = c.HasFocus();
-            ctx.fg = fg_idx;
-            ctx.bg = bg_idx;
+            {
+                auto to_idx_pal = [&](const ImVec4& col) -> int {
+                    const int r = (int)std::lround(col.x * 255.0f);
+                    const int g = (int)std::lround(col.y * 255.0f);
+                    const int b = (int)std::lround(col.z * 255.0f);
+                    phos::color::QuantizePolicy qp;
+                    return (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
+                                                                       (std::uint8_t)std::clamp(r, 0, 255),
+                                                                       (std::uint8_t)std::clamp(g, 0, 255),
+                                                                       (std::uint8_t)std::clamp(b, 0, 255),
+                                                                       qp);
+                };
+                ctx.fg = to_idx_pal(fg_color);
+                ctx.bg = to_idx_pal(bg_color);
+            }
+            ctx.palette_is_builtin = c.GetPaletteRef().is_builtin;
+            ctx.palette_builtin = (std::uint32_t)c.GetPaletteRef().builtin;
             ctx.glyph_utf8 = tool_brush_utf8;
             ctx.glyph_cp = (int)tool_brush_cp;
             ctx.attrs = tool_attrs_mask;
@@ -1579,8 +1603,8 @@ void RunFrame(AppState& st)
 
             c.GetCaretCell(ctx.caret_x, ctx.caret_y);
 
-            // Active palette: expose allowed xterm indices to tools (for quantization/snapping).
-            // Prefer the canvas's stored palette title; fallback to the current global selection.
+        // Active palette: expose allowed indices to tools (for quantization/snapping).
+        // These indices are in the canvas's active palette index space (canvas.palette_ref).
             if (!palettes.empty())
             {
                 const ColourPaletteDef* def = nullptr;
@@ -1601,16 +1625,23 @@ void RunFrame(AppState& st)
                 if (!def)
                     def = &palettes[0];
 
-                std::unordered_set<int> seen;
+            auto& cs = phos::color::GetColorSystem();
+            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+            if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
+                pal = *id;
+            std::unordered_set<int> seen;
                 seen.reserve(def->colors.size());
                 for (const ImVec4& ccol : def->colors)
                 {
                     const int r = (int)std::lround(ccol.x * 255.0f);
                     const int g = (int)std::lround(ccol.y * 255.0f);
                     const int b = (int)std::lround(ccol.z * 255.0f);
-                    const int idx = xterm256::NearestIndex((std::uint8_t)std::clamp(r, 0, 255),
-                                                          (std::uint8_t)std::clamp(g, 0, 255),
-                                                          (std::uint8_t)std::clamp(b, 0, 255));
+                phos::color::QuantizePolicy qp;
+                const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
+                                                                            (std::uint8_t)std::clamp(r, 0, 255),
+                                                                            (std::uint8_t)std::clamp(g, 0, 255),
+                                                                            (std::uint8_t)std::clamp(b, 0, 255),
+                                                                            qp);
                     if (seen.insert(idx).second)
                         palette_xterm.push_back(idx);
                 }
@@ -1921,8 +1952,11 @@ void RunFrame(AppState& st)
             else
             {
                 auto apply_idx_to_color = [&](int idx, ImVec4& dst) {
-                    idx = std::clamp(idx, 0, 255);
-                    const xterm256::Rgb rgb = xterm256::RgbForIndex(idx);
+                    const phos::color::Palette* p = cs.Palettes().Get(pal);
+                    if (!p || p->rgb.empty())
+                        return;
+                    idx = std::clamp(idx, 0, (int)p->rgb.size() - 1);
+                    const phos::color::Rgb8 rgb = p->rgb[(size_t)idx];
                     dst.x = (float)rgb.r / 255.0f;
                     dst.y = (float)rgb.g / 255.0f;
                     dst.z = (float)rgb.b / 255.0f;
@@ -2345,6 +2379,11 @@ void RunFrame(AppState& st)
                     continue;
                 cptr->canvas.SetUndoLimit(limit);
             }
+        });
+        settings_window.SetLutCacheBudgetApplier([&](size_t bytes) {
+            // LUT cache is not yet implemented as a core service; persist the preference now.
+            // When LutCache exists, apply it here (e.g. st.services.lut_cache->SetBudgetBytes(bytes)).
+            session_state.lut_cache_budget_bytes = bytes;
         });
         settings_window.Render(name, &session_state, should_apply_placement(name));
         show_settings_window = settings_window.IsOpen();

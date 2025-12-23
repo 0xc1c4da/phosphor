@@ -6,6 +6,8 @@
 #include <vector>
 #include <cstdint>
 
+#include "core/palette/palette.h"
+
 class AnsiCanvas;
 
 namespace textmode_font
@@ -174,6 +176,11 @@ struct AnslFrameContext
     int fg = -1;
     int bg = -1;
 
+    // Active palette identity for this canvas.
+    // Tools should interpret ctx.fg/ctx.bg and ctx.palette as indices in this palette.
+    bool          palette_is_builtin = true;
+    std::uint32_t palette_builtin = (std::uint32_t)phos::color::BuiltinPalette::Xterm256;
+
     // Current single-cell glyph selection for tools (UTF-8). Empty means " " (space).
     // Provided by the host (e.g. character picker/palette selection).
     std::string_view glyph_utf8;
@@ -200,7 +207,7 @@ struct AnslFrameContext
     // If null, ctx.brush is considered empty/unset.
     const BrushStamp* brush = nullptr;
 
-    // Active UI colour palette (optional): list of xterm-256 indices allowed for tools.
+    // Active UI colour palette (optional): list of indices allowed for tools (in the active palette index space).
     // If provided, tools should quantize/snap any computed colors to this list.
     // Host owns the vector; valid only for the duration of RunFrame().
     const std::vector<int>* palette_xterm = nullptr;

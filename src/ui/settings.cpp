@@ -233,6 +233,70 @@ void SettingsWindow::RenderTab_General()
 
     if (changed && undo_limit_applier_)
         undo_limit_applier_(session_->undo_limit);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("LUT Cache");
+    ImGui::Separator();
+
+    {
+        // Exposed as MiB for humans; stored as bytes.
+        int mib = (session_->lut_cache_budget_bytes > 0)
+                    ? (int)(session_->lut_cache_budget_bytes / (1024ull * 1024ull))
+                    : 0;
+
+        bool lut_changed = false;
+
+        bool unlimited_lut = (session_->lut_cache_budget_bytes == 0);
+        if (ImGui::Checkbox("Unlimited LUT cache (not recommended)", &unlimited_lut))
+        {
+            session_->lut_cache_budget_bytes = unlimited_lut ? 0 : (64ull * 1024ull * 1024ull);
+            lut_changed = true;
+        }
+
+        if (!unlimited_lut)
+        {
+            mib = std::clamp(mib <= 0 ? 64 : mib, 1, 1024);
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::InputInt("Max LUT cache (MiB)", &mib, 8, 32))
+            {
+                mib = std::clamp(mib, 1, 1024);
+                session_->lut_cache_budget_bytes = (size_t)mib * 1024ull * 1024ull;
+                lut_changed = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("32"))
+            {
+                session_->lut_cache_budget_bytes = 32ull * 1024ull * 1024ull;
+                lut_changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("64"))
+            {
+                session_->lut_cache_budget_bytes = 64ull * 1024ull * 1024ull;
+                lut_changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("96"))
+            {
+                session_->lut_cache_budget_bytes = 96ull * 1024ull * 1024ull;
+                lut_changed = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Default: 64 MiB. Recommended: keep under ~100 MiB.");
+        }
+        else
+        {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Unlimited can grow without bound and may cause stutters or OOM.");
+        }
+
+        if (lut_changed && lut_cache_budget_applier_)
+            lut_cache_budget_applier_(session_->lut_cache_budget_bytes);
+    }
 }
 
 void SettingsWindow::Render(const char* title, SessionState* session, bool apply_placement_this_frame)

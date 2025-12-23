@@ -40,6 +40,10 @@ public:
     // Convention: 0 = unlimited.
     void SetUndoLimitApplier(const std::function<void(size_t)>& fn) { undo_limit_applier_ = fn; }
 
+    // Optional: apply a global LUT cache budget (in bytes).
+    // Convention: 0 = unlimited (not recommended).
+    void SetLutCacheBudgetApplier(const std::function<void(size_t)>& fn) { lut_cache_budget_applier_ = fn; }
+
     // Extendable: allows future subsystems to register additional tabs/panels.
     // If a tab with the same id exists, it is replaced.
     void RegisterTab(const Tab& tab);
@@ -73,6 +77,9 @@ private:
 
     // Optional: handler used by the General tab to apply undo limit across canvases.
     std::function<void(size_t)> undo_limit_applier_;
+
+    // Optional: handler used by the General tab to apply LUT cache budget globally.
+    std::function<void(size_t)> lut_cache_budget_applier_;
 
     // UI state
     std::string           filter_text_;

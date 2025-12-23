@@ -74,7 +74,16 @@ struct ApplyDabArgs
     // Clip region in *cell* coordinates. If empty (w/h <= 0), the engine will use full canvas bounds.
     AnsiCanvas::Rect clip = {};
 
-    // Optional palette restriction (xterm-256 indices).
+    // Active palette identity for the canvas (used for snapping/quantization).
+    // Default is xterm256 to preserve current behavior.
+    phos::color::PaletteRef palette_ref = []{
+        phos::color::PaletteRef r;
+        r.is_builtin = true;
+        r.builtin = phos::color::BuiltinPalette::Xterm256;
+        return r;
+    }();
+
+    // Optional palette restriction (indices in the active palette index space).
     // If provided, color snapping should choose from these.
     const std::vector<int>* palette_xterm = nullptr;
 
