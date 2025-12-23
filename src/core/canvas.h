@@ -460,6 +460,13 @@ public:
     const phos::color::PaletteRef& GetPaletteRef() const { return m_palette_ref; }
     void SetPaletteRef(const phos::color::PaletteRef& ref) { m_palette_ref = ref; TouchContent(); }
 
+    // Convert the entire canvas to a new palette:
+    // - Remaps all stored fg/bg indices from the current palette into `new_ref`
+    //   via deterministic nearest-color mapping (Unset stays Unset).
+    // - Sets the canvas palette_ref to `new_ref`.
+    // This is an undoable structural operation (captured as a snapshot).
+    bool ConvertToPalette(const phos::color::PaletteRef& new_ref);
+
     // ---------------------------------------------------------------------
     // Canvas font selection (persisted via SAUCE TInfoS)
     // ---------------------------------------------------------------------

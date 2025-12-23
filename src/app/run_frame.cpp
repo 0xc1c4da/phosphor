@@ -1169,6 +1169,50 @@ void RunFrame(AppState& st)
             }
         }
 
+        // Apply/convert the canvas palette to match the selected UI palette.
+        // This is an explicit operation (not done automatically when browsing palettes),
+        // because it remaps the entire document and changes the canvas palette index space.
+        if (active_canvas)
+        {
+            const bool can_apply = (xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size());
+            if (!can_apply)
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Convert canvas to this palette (quantize)"))
+            {
+                const ColourPaletteDef& sel = palettes[xterm_selected_palette];
+                std::vector<phos::color::Rgb8> rgb;
+                rgb.reserve(std::min<std::size_t>(sel.colors.size(), phos::color::kMaxPaletteSize));
+                for (std::size_t i = 0; i < sel.colors.size() && rgb.size() < phos::color::kMaxPaletteSize; ++i)
+                {
+                    const ImVec4& c = sel.colors[i];
+                    const int r = (int)std::lround(c.x * 255.0f);
+                    const int g = (int)std::lround(c.y * 255.0f);
+                    const int b = (int)std::lround(c.z * 255.0f);
+                    rgb.push_back(phos::color::Rgb8{
+                        (std::uint8_t)std::clamp(r, 0, 255),
+                        (std::uint8_t)std::clamp(g, 0, 255),
+                        (std::uint8_t)std::clamp(b, 0, 255),
+                    });
+                }
+
+                if (!rgb.empty())
+                {
+                    auto& cs2 = phos::color::GetColorSystem();
+                    const phos::color::PaletteInstanceId pid = cs2.Palettes().RegisterDynamic(sel.title, rgb);
+                    if (const phos::color::Palette* pnew = cs2.Palettes().Get(pid))
+                    {
+                        active_canvas->SetColourPaletteTitle(sel.title);
+                        (void)active_canvas->ConvertToPalette(pnew->ref);
+                        // Force the picker to rebuild its snapped palette against the new active palette.
+                        last_snap_palette = phos::color::PaletteInstanceId{};
+                        last_palette_index = -1;
+                    }
+                }
+            }
+            if (!can_apply)
+                ImGui::EndDisabled();
+        }
+
         // Rebuild working palette when selection changes.
         const bool need_rebuild_palette =
             (xterm_selected_palette != last_palette_index) ||

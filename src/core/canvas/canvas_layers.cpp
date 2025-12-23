@@ -337,6 +337,68 @@ bool AnsiCanvas::SetLayerBlendAlpha(int index, std::uint8_t alpha)
     return true;
 }
 
+bool AnsiCanvas::ConvertToPalette(const phos::color::PaletteRef& new_ref)
+{
+    EnsureDocument();
+
+    // Structural-ish in the sense of "whole-canvas transform": prefer snapshot for undo correctness.
+    if (!m_undo_capture_active)
+        PushUndoSnapshot();
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
+
+    auto& cs = phos::color::GetColorSystem();
+    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+
+    // Resolve source and destination palette instances.
+    phos::color::PaletteInstanceId src_id = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    if (auto id = cs.Palettes().Resolve(m_palette_ref))
+        src_id = *id;
+
+    const auto dst_id_opt = cs.Palettes().Resolve(new_ref);
+    if (!dst_id_opt.has_value())
+        return false;
+    const phos::color::PaletteInstanceId dst_id = *dst_id_opt;
+
+    const phos::color::Palette* src_p = cs.Palettes().Get(src_id);
+    const phos::color::Palette* dst_p = cs.Palettes().Get(dst_id);
+    if (!src_p || !dst_p || src_p->rgb.empty() || dst_p->rgb.empty())
+        return false;
+
+    // Build remap table: src index -> dst index.
+    std::vector<std::uint8_t> remap;
+    remap.resize(std::min<std::size_t>(src_p->rgb.size(), 256u), 0u);
+    for (std::size_t i = 0; i < remap.size(); ++i)
+    {
+        const phos::color::Rgb8 c = src_p->rgb[i];
+        remap[i] = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), dst_id, c.r, c.g, c.b, qp);
+    }
+
+    const std::uint16_t src_max =
+        (std::uint16_t)std::min<std::size_t>(remap.empty() ? 0u : (remap.size() - 1), 0xFFu);
+
+    auto remap_idx = [&](ColorIndex16 idx) -> ColorIndex16
+    {
+        if (idx == kUnsetIndex16)
+            return kUnsetIndex16;
+        const std::uint16_t si = std::clamp<std::uint16_t>((std::uint16_t)idx, 0, src_max);
+        return (ColorIndex16)remap[(size_t)si];
+    };
+
+    for (Layer& layer : m_layers)
+    {
+        for (ColorIndex16& fg : layer.fg)
+            fg = remap_idx(fg);
+        for (ColorIndex16& bg : layer.bg)
+            bg = remap_idx(bg);
+    }
+
+    // Swap palette identity after remap so indices remain meaningful.
+    m_palette_ref = new_ref;
+    TouchContent();
+    return true;
+}
+
 bool AnsiCanvas::MoveLayer(int from_index, int to_index)
 {
     EnsureDocument();
