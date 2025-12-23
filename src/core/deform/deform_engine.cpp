@@ -179,7 +179,8 @@ static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
         const int dg = (int)prgb.g - (int)g;
         const int db = (int)prgb.b - (int)b;
         const int d = dr * dr + dg * dg + db * db;
-        if (best < 0 || d < best_d)
+        // Determinism: if distances tie, choose the lowest palette index.
+        if (best < 0 || d < best_d || (d == best_d && idx < best))
         {
             best = idx;
             best_d = d;
@@ -329,6 +330,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(args.palette_ref))
         pal = *id;
+    const phos::color::Palette* pal_def = cs.Palettes().Get(pal);
+    const int pal_max_idx = (pal_def && !pal_def->rgb.empty()) ? (int)pal_def->rgb.size() - 1 : 255;
 
     if (layer_index < 0 || layer_index >= canvas.GetLayerCount())
     {
@@ -702,7 +705,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 // Fully transparent => unset bg + space.
                 const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
                 AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
-                 AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
                 (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
@@ -802,14 +805,29 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                           (std::uint8_t)std::clamp(c1g, 0, 255),
                                                           (std::uint8_t)std::clamp(c1b, 0, 255),
                                                           args.allowed_indices);
-                const std::uint32_t bg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx0});
-                const std::uint32_t fg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx1});
-                std::uint8_t bgr8 = 0, bgg8 = 0, bgb8 = 0;
-                std::uint8_t fgr8 = 0, fgg8 = 0, fgb8 = 0;
-                (void)phos::color::ColorOps::UnpackImGuiAbgr(bg32, bgr8, bgg8, bgb8);
-                (void)phos::color::ColorOps::UnpackImGuiAbgr(fg32, fgr8, fgg8, fgb8);
-                const int bgr = (int)bgr8, bgg = (int)bgg8, bgb = (int)bgb8;
-                const int fgr = (int)fgr8, fgg = (int)fgg8, fgb = (int)fgb8;
+                int bgr = 0, bgg = 0, bgb = 0;
+                int fgr = 255, fgg = 255, fgb = 255;
+                if (pal_def && !pal_def->rgb.empty())
+                {
+                    const int bg_i = std::clamp(idx0, 0, (int)pal_def->rgb.size() - 1);
+                    const int fg_i = std::clamp(idx1, 0, (int)pal_def->rgb.size() - 1);
+                    const phos::color::Rgb8 bg_rgb = pal_def->rgb[(size_t)bg_i];
+                    const phos::color::Rgb8 fg_rgb = pal_def->rgb[(size_t)fg_i];
+                    bgr = (int)bg_rgb.r; bgg = (int)bg_rgb.g; bgb = (int)bg_rgb.b;
+                    fgr = (int)fg_rgb.r; fgg = (int)fg_rgb.g; fgb = (int)fg_rgb.b;
+                }
+                else
+                {
+                    // Fallback: go through the packed-color bridge (shouldn't happen for built-in palettes).
+                    const std::uint32_t bg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx0});
+                    const std::uint32_t fg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx1});
+                    std::uint8_t bgr8 = 0, bgg8 = 0, bgb8 = 0;
+                    std::uint8_t fgr8 = 0, fgg8 = 0, fgb8 = 0;
+                    (void)phos::color::ColorOps::UnpackImGuiAbgr(bg32, bgr8, bgg8, bgb8);
+                    (void)phos::color::ColorOps::UnpackImGuiAbgr(fg32, fgr8, fgg8, fgb8);
+                    bgr = (int)bgr8; bgg = (int)bgg8; bgb = (int)bgb8;
+                    fgr = (int)fgr8; fgg = (int)fgg8; fgb = (int)fgb8;
+                }
 
                 for (int yy = 0; yy < cell_h_px; ++yy)
                 {
@@ -926,7 +944,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                              (std::uint8_t)std::clamp(g8, 0, 255),
                                                              (std::uint8_t)std::clamp(b8, 0, 255),
                                                              args.allowed_indices);
-                    out_fg = (AnsiCanvas::ColorIndex16)std::clamp(idx, 0, 255);
+                    out_fg = (AnsiCanvas::ColorIndex16)std::clamp(idx, 0, pal_max_idx);
                 }
                 out_bg = AnsiCanvas::kUnsetIndex16;
                 if (best_cp == U' ')
@@ -959,8 +977,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                             (std::uint8_t)std::clamp(hi_g, 0, 255),
                                                             (std::uint8_t)std::clamp(hi_b, 0, 255),
                                                             args.allowed_indices);
-                out_bg = (AnsiCanvas::ColorIndex16)std::clamp(bg_idx, 0, 255);
-                out_fg = (AnsiCanvas::ColorIndex16)std::clamp(fg_idx, 0, 255);
+                out_bg = (AnsiCanvas::ColorIndex16)std::clamp(bg_idx, 0, pal_max_idx);
+                out_fg = (AnsiCanvas::ColorIndex16)std::clamp(fg_idx, 0, pal_max_idx);
                 if (best_cp == U' ')
                     out_fg = AnsiCanvas::kUnsetIndex16;
             }
@@ -971,7 +989,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             // Apply if changed.
             char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
             AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
-             AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs old_attrs = 0;
             (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
