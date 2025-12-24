@@ -22,6 +22,7 @@ SOURCES  = \
            src/app/workspace_persist.cpp \
            src/app/run_frame.cpp \
            src/app/canvas_preview_texture.cpp \
+           src/app/bitmap_glyph_atlas_texture.cpp \
            src/io/convert/chafa_convert.cpp \
            src/core/canvas/canvas_core.cpp \
            src/core/canvas/canvas_undo.cpp \
@@ -74,6 +75,7 @@ SOURCES  = \
            src/io/http_client.cpp \
            src/io/formats/ansi.cpp \
            src/io/formats/figlet.cpp \
+           src/io/formats/gpl.cpp \
            src/io/formats/image.cpp \
            src/io/formats/markdown.cpp \
            src/io/formats/plaintext.cpp \

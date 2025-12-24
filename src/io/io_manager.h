@@ -2,6 +2,7 @@
 
 #include "core/canvas.h"
 
+#include <deque>
 #include <functional>
 #include <string>
 #include <vector>
@@ -82,6 +83,7 @@ public:
         None = 0,
         Canvas,
         Image,
+        Palette,
     };
     struct OpenEvent
     {
@@ -126,6 +128,6 @@ private:
     AnsiCanvas* m_pending_save_canvas = nullptr;
 
     SaveEvent m_last_save_event;
-    OpenEvent m_last_open_event;
+    std::deque<OpenEvent> m_open_events;
 };
 

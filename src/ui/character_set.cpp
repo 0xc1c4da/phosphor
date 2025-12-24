@@ -560,6 +560,26 @@ void CharacterSetWindow::RenderSlots()
     const float cell = std::max(28.0f, best_size > 0.0f ? best_size : (style.FramePadding.y * 2.0f + 8.0f));
     const int cols = std::max(1, best_cols);
 
+    // If the active canvas uses a bitmap/embedded font, preserve its aspect in previews
+    // (avoid stretching into the square button).
+    float preview_aspect = 1.0f; // w/h
+    if (active_canvas_)
+    {
+        const fonts::FontInfo& finfo = fonts::Get(active_canvas_->GetFontId());
+        if (const AnsiCanvas::EmbeddedBitmapFont* ef = active_canvas_->GetEmbeddedFont();
+            ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+            ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h)
+        {
+            preview_aspect = (float)ef->cell_w / (float)ef->cell_h;
+        }
+        else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
+        {
+            preview_aspect = (float)finfo.cell_w / (float)finfo.cell_h;
+        }
+    }
+    if (!(preview_aspect > 0.0f))
+        preview_aspect = 1.0f;
+
     for (int i = 0; i < 12; ++i)
     {
         if (i % cols != 0)
@@ -584,10 +604,21 @@ void CharacterSetWindow::RenderSlots()
             const ImVec2 item_max = ImGui::GetItemRectMax();
             const float w = item_max.x - item_min.x;
             const float h = item_max.y - item_min.y;
+            // Fit glyph preview into the square while preserving aspect.
+            float dw = w;
+            float dh = h;
+            if (preview_aspect >= 1.0f)
+                dh = (preview_aspect > 0.0f) ? (w / preview_aspect) : h;
+            else
+                dw = h * preview_aspect;
+            dw = std::clamp(dw, 1.0f, w);
+            dh = std::clamp(dh, 1.0f, h);
+            const ImVec2 p(item_min.x + (w - dw) * 0.5f,
+                           item_min.y + (h - dh) * 0.5f);
             DrawGlyphPreview(ImGui::GetWindowDrawList(),
-                             item_min,
-                             w,
-                             h,
+                             p,
+                             dw,
+                             dh,
                              (char32_t)cp,
                              active_canvas_,
                              (std::uint32_t)ImGui::GetColorU32(ImGuiCol_Text));

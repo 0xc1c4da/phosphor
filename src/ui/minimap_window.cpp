@@ -269,7 +269,53 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
 
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
-    if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    bool click_consumed = false;
+
+    // Double-click: reset zoom (1:1) and keep the clicked world point centered.
+    if (hovered && canvas && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+    {
+        if (vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
+        {
+            auto snapped_scale_for_zoom = [&](float zoom) -> float
+            {
+                const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
+                if (snapped_cell_w < 1.0f)
+                    snapped_cell_w = 1.0f;
+                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
+            };
+
+            const float old_zoom = canvas->GetZoom();
+            const float old_scale = snapped_scale_for_zoom(old_zoom);
+
+            float focus_world_x = vs.scroll_x + vs.view_w * 0.5f;
+            float focus_world_y = vs.scroll_y + vs.view_h * 0.5f;
+            if (PointInRect(mouse, map0, map1) && map_w_px > 0.0f && map_h_px > 0.0f)
+            {
+                const float mx = std::clamp(mouse.x, map0.x, map1.x);
+                const float my = std::clamp(mouse.y, map0.y, map1.y);
+                const float nx = (mx - map0.x) / map_w_px;
+                const float ny = (my - map0.y) / map_h_px;
+                focus_world_x = nx * vs.canvas_w;
+                focus_world_y = ny * vs.canvas_h;
+            }
+
+            canvas->SetZoom(1.0f);
+            const float new_scale = snapped_scale_for_zoom(canvas->GetZoom());
+            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+
+            canvas->RequestScrollPixels(focus_world_x * ratio - vs.view_w * 0.5f,
+                                        focus_world_y * ratio - vs.view_h * 0.5f);
+        }
+        else
+        {
+            canvas->SetZoom(1.0f);
+        }
+
+        click_consumed = true;
+    }
+
+    if (!click_consumed && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         // Click-drag on rect: pan. Click elsewhere: center viewport there.
         if (PointInRect(mouse, rect0, rect1))

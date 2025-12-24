@@ -22,6 +22,7 @@
 #include "app/workspace_persist.h"
 #include "app/vulkan_state.h"
 #include "app/canvas_preview_texture.h"
+#include "app/bitmap_glyph_atlas_texture.h"
 #include "app/clipboard_utils.h"
 
 #include <cfloat>
@@ -37,6 +38,7 @@
 #include "io/file_dialog_tags.h"
 #include "io/image_loader.h"
 #include "io/io_manager.h"
+#include "io/formats/gpl.h"
 #include "io/sdl_file_dialog_queue.h"
 #include "io/session/open_canvas_cache.h"
 #include "io/session/session_state.h"
@@ -139,6 +141,7 @@ void RunFrame(AppState& st)
     MarkdownToAnsiDialog& markdown_to_ansi_dialog = *st.ui.markdown_to_ansi_dialog;
     MinimapWindow& minimap_window = *st.ui.minimap_window;
     CanvasPreviewTexture& preview_texture = *st.ui.preview_texture;
+    BitmapGlyphAtlasTextureCache& bitmap_glyph_atlas = *st.ui.bitmap_glyph_atlas;
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
     BrushPaletteWindow& brush_palette = *st.ui.brush_palette_window;
 
@@ -546,6 +549,7 @@ void RunFrame(AppState& st)
         canvas_window->open = true;
         canvas_window->id = next_canvas_id++;
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+        canvas_window->canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
 
         // Create a new blank canvas with a single base layer.
@@ -567,6 +571,7 @@ void RunFrame(AppState& st)
         canvas_window->id = next_canvas_id++;
         canvas_window->canvas = std::move(c);
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
+        canvas_window->canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
         canvas_window->canvas.MarkSaved();
         canvas_window->canvas.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
@@ -803,6 +808,68 @@ void RunFrame(AppState& st)
         {
             if (ev.kind == IoManager::OpenEventKind::Canvas && !ev.path.empty())
                 push_recent(ev.path);
+            else if (ev.kind == IoManager::OpenEventKind::Palette && !ev.path.empty())
+            {
+                // Import palette files (currently: GIMP Palette .gpl) into assets/color-palettes.json,
+                // then reload the cached palette list so the UI updates immediately.
+                std::string err;
+                formats::gpl::Palette pal;
+                std::string fallback;
+                try
+                {
+                    std::filesystem::path p(ev.path);
+                    fallback = p.stem().string();
+                }
+                catch (...) {}
+
+                if (!formats::gpl::ImportFileToPalette(ev.path, pal, err, fallback))
+                {
+                    io_manager.SetLastError(err.empty() ? "Failed to import palette." : err);
+                    continue;
+                }
+
+                ColourPaletteDef def;
+                def.title = pal.name.empty() ? fallback : pal.name;
+                def.colors.reserve(pal.colors.size());
+                for (const auto& c : pal.colors)
+                {
+                    ImVec4 v;
+                    v.x = c.r / 255.0f;
+                    v.y = c.g / 255.0f;
+                    v.z = c.b / 255.0f;
+                    v.w = 1.0f;
+                    def.colors.push_back(v);
+                }
+
+                const std::string json_path = PhosphorAssetPath("color-palettes.json");
+                std::string jerr;
+                if (!AppendColourPaletteToJson(json_path.c_str(), std::move(def), jerr))
+                {
+                    io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
+                    continue;
+                }
+
+                // Reload cached list now (not next frame) so open UI refreshes right away.
+                std::vector<ColourPaletteDef> prev_palettes = palettes;
+                const int prev_selected = xterm_selected_palette;
+                std::string reload_err;
+                std::vector<ColourPaletteDef> reloaded;
+                if (!LoadColourPalettesFromJson(json_path.c_str(), reloaded, reload_err))
+                {
+                    // Keep prior palettes if reload fails, but surface error.
+                    palettes = std::move(prev_palettes);
+                    xterm_selected_palette = prev_selected;
+                    palettes_loaded = true;
+                    io_manager.SetLastError(reload_err.empty() ? "Failed to reload palettes." : reload_err);
+                }
+                else
+                {
+                    palettes = std::move(reloaded);
+                    palettes_loaded = true;
+                    if (!palettes.empty())
+                        xterm_selected_palette = (int)palettes.size() - 1;
+                }
+            }
         }
     }
 
@@ -1003,24 +1070,6 @@ void RunFrame(AppState& st)
                     insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
                 }
             }
-
-            for (int d = 1; d <= 9; ++d)
-            {
-                const std::string id = "charset.insert.ctrl_" + std::to_string(d);
-                if (keybinds.ActionPressed(id, kctx))
-                {
-                    const int slot = d - 1;
-                    character_sets.SelectSlot(slot);
-                    const uint32_t cp = character_sets.GetSlotCodePoint(slot);
-                    insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
-                }
-            }
-            if (keybinds.ActionPressed("charset.insert.ctrl_0", kctx))
-            {
-                character_sets.SelectSlot(9);
-                const uint32_t cp = character_sets.GetSlotCodePoint(9);
-                insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
-            }
         }
     }
 
@@ -1177,7 +1226,7 @@ void RunFrame(AppState& st)
             const bool can_apply = (xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size());
             if (!can_apply)
                 ImGui::BeginDisabled();
-            if (ImGui::Button("Convert canvas to this palette (quantize)"))
+            if (ImGui::Button("Set Canvas Palette"))
             {
                 const ColourPaletteDef& sel = palettes[xterm_selected_palette];
                 std::vector<phos::color::Rgb8> rgb;
@@ -1448,6 +1497,9 @@ void RunFrame(AppState& st)
         if (!canvases[i])
             continue;
         CanvasWindow& canvas = *canvases[i];
+        // Ensure atlas provider is attached for restored canvases (session restore happens in main()).
+        if (canvas.canvas.GetBitmapGlyphAtlasProvider() != &bitmap_glyph_atlas)
+            canvas.canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         char close_popup_id[96];
         std::snprintf(close_popup_id, sizeof(close_popup_id),
                       "Save changes?##close_canvas_%d", canvas.id);
@@ -1551,15 +1603,15 @@ void RunFrame(AppState& st)
             float base_cell_h = 0.0f;
             if (embedded_font)
             {
-                const float base_scale = base_font_size / 16.0f;
-                base_cell_w = (float)ef->cell_w * base_scale;
-                base_cell_h = (float)ef->cell_h * base_scale;
+                // Keep initial sizing consistent with AnsiCanvas::Render():
+                // bitmap/embedded fonts use native pixel metrics (not scaled by UI font size).
+                base_cell_w = (float)ef->cell_w;
+                base_cell_h = (float)ef->cell_h;
             }
             else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
             {
-                const float base_scale = base_font_size / 16.0f;
-                base_cell_w = (float)finfo.cell_w * base_scale;
-                base_cell_h = (float)finfo.cell_h * base_scale;
+                base_cell_w = (float)finfo.cell_w;
+                base_cell_h = (float)finfo.cell_h;
             }
             else
             {
@@ -1622,6 +1674,51 @@ void RunFrame(AppState& st)
         CaptureImGuiWindowPlacement(session_state, persist_key.c_str());
         ApplyImGuiWindowChromeZOrder(&session_state, title.c_str());
         RenderImGuiWindowChromeMenu(&session_state, title.c_str());
+
+        // Title-bar ⛶ button: Reset Zoom (1:1).
+        {
+            ImVec2 rect_min(0.0f, 0.0f), rect_max(0.0f, 0.0f);
+            const bool has_close = true; // canvas windows always have a close button
+            const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+            if (RenderImGuiWindowChromeTitleBarButton("##canvas_reset_zoom", "\xE2\x9B\xB6", has_close, has_collapse,
+                                                      &rect_min, &rect_max))
+            {
+                const AnsiCanvas::ViewState vs = canvas.canvas.GetLastViewState();
+                if (vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
+                {
+                    auto snapped_scale_for_zoom = [&](float zoom) -> float
+                    {
+                        const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+                        float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
+                        if (snapped_cell_w < 1.0f)
+                            snapped_cell_w = 1.0f;
+                        return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
+                    };
+
+                    const float old_zoom = canvas.canvas.GetZoom();
+                    const float old_scale = snapped_scale_for_zoom(old_zoom);
+                    const float focus_x = vs.scroll_x + vs.view_w * 0.5f;
+                    const float focus_y = vs.scroll_y + vs.view_h * 0.5f;
+
+                    canvas.canvas.SetZoom(1.0f);
+                    const float new_scale = snapped_scale_for_zoom(canvas.canvas.GetZoom());
+                    const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+                    canvas.canvas.RequestScrollPixels(focus_x * ratio - vs.view_w * 0.5f,
+                                                      focus_y * ratio - vs.view_h * 0.5f);
+                }
+                else
+                {
+                    canvas.canvas.SetZoom(1.0f);
+                }
+            }
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            {
+                ImGui::BeginTooltip();
+                ImGui::TextUnformatted("Reset Zoom (1:1)");
+                ImGui::EndTooltip();
+            }
+        }
 
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             last_active_canvas_id = canvas.id;

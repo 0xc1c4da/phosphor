@@ -94,6 +94,55 @@ public:
     explicit AnsiCanvas(int columns = 80);
 
     // ---------------------------------------------------------------------
+    // Bitmap font glyph atlas (render optimization / pixel accuracy)
+    // ---------------------------------------------------------------------
+    // Bitmap 1bpp fonts (CP437 + embedded XBin fonts) can be rendered either by:
+    //  - drawing per-row rectangles (CPU-heavy and can produce subpixel edges when scaled), or
+    //  - sampling a prebuilt glyph atlas texture (preferred: crisp + fast).
+    //
+    // The atlas texture is renderer-backend specific (Vulkan/DX/etc), so the core canvas
+    // exposes an optional provider interface that the app layer can implement and attach.
+    struct BitmapGlyphAtlasView
+    {
+        // Backend texture handle (e.g. ImGui Vulkan descriptor set). Treated as opaque.
+        void* texture_id = nullptr;
+
+        // Atlas pixel dimensions.
+        int atlas_w = 0;
+        int atlas_h = 0;
+
+        // Glyph cell metrics (in atlas pixel space, excluding padding).
+        int cell_w = 0;
+        int cell_h = 0;
+
+        // Per-glyph tile metrics in the atlas (includes padding).
+        // Tile size is typically (cell_w + pad*2) x (cell_h + pad*2).
+        int pad = 0;
+        int tile_w = 0;
+        int tile_h = 0;
+
+        // Grid layout for glyphs in the atlas.
+        int cols = 0;        // glyphs per row
+        int rows = 0;        // glyph rows per variant
+        int glyph_count = 0; // 256 or 512
+
+        // Variant packing: 1 = normal only, 4 = normal/bold/italic/bolditalic stacked vertically.
+        int variant_count = 1;
+    };
+
+    class IBitmapGlyphAtlasProvider
+    {
+    public:
+        virtual ~IBitmapGlyphAtlasProvider() = default;
+        // Returns true and fills `out` if an atlas is available for the canvas's current font.
+        // Implementations may cache and lazily build/upload textures.
+        virtual bool GetBitmapGlyphAtlas(const AnsiCanvas& canvas, BitmapGlyphAtlasView& out) = 0;
+    };
+
+    void SetBitmapGlyphAtlasProvider(IBitmapGlyphAtlasProvider* provider) { m_bitmap_atlas_provider = provider; }
+    IBitmapGlyphAtlasProvider* GetBitmapGlyphAtlasProvider() const { return m_bitmap_atlas_provider; }
+
+    // ---------------------------------------------------------------------
     // Dirty state (savepoint tracking)
     // ---------------------------------------------------------------------
     // Returns true if the canvas content has changed since the last time the app
@@ -1007,6 +1056,9 @@ private:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
     kb::KeyBindingsEngine* m_keybinds = nullptr; // not owned
+
+    // Optional atlas provider for bitmap-font rendering (app-owned).
+    IBitmapGlyphAtlasProvider* m_bitmap_atlas_provider = nullptr;
 
     // UI visibility toggles (canvas-local).
     bool m_status_line_visible = true;

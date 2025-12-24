@@ -21,6 +21,7 @@
 
 #include "app/app_state.h"
 #include "app/canvas_preview_texture.h"
+#include "app/bitmap_glyph_atlas_texture.h"
 #include "app/run_frame.h"
 #include "app/vulkan_state.h"
 #include "app/workspace.h"
@@ -400,6 +401,7 @@ int main(int, char**)
     MarkdownToAnsiDialog markdown_to_ansi_dialog;
     MinimapWindow minimap_window;
     CanvasPreviewTexture preview_texture;
+    BitmapGlyphAtlasTextureCache bitmap_glyph_atlas;
     SixteenColorsBrowserWindow sixteen_browser;
 
     // Initialize the Vulkan-backed preview texture after the ImGui Vulkan backend is initialized.
@@ -411,6 +413,17 @@ int main(int, char**)
         pi.queue_family = vk.queue_family;
         pi.allocator = (void*)vk.allocator;
         (void)preview_texture.Init(pi);
+    }
+
+    // Initialize the Vulkan-backed bitmap glyph atlas cache (used by bitmap canvas fonts).
+    {
+        BitmapGlyphAtlasTextureCache::InitInfo gi;
+        gi.device = (void*)vk.device;
+        gi.physical_device = (void*)vk.physical_device;
+        gi.queue = (void*)vk.queue;
+        gi.queue_family = vk.queue_family;
+        gi.allocator = (void*)vk.allocator;
+        (void)bitmap_glyph_atlas.Init(gi);
     }
 
     // SDL native file dialogs (async -> polled queue).
@@ -485,6 +498,7 @@ int main(int, char**)
     st.ui.markdown_to_ansi_dialog = &markdown_to_ansi_dialog;
     st.ui.minimap_window = &minimap_window;
     st.ui.preview_texture = &preview_texture;
+    st.ui.bitmap_glyph_atlas = &bitmap_glyph_atlas;
     st.ui.sixteen_browser = &sixteen_browser;
     st.ui.brush_palette_window = &brush_palette;
 
@@ -559,6 +573,7 @@ int main(int, char**)
 
     // Destroy preview texture before tearing down the ImGui Vulkan backend / Vulkan device.
     preview_texture.Shutdown();
+    bitmap_glyph_atlas.Shutdown();
 
     // During a Ctrl+C shutdown the Vulkan device might already be in a bad
     // state; don't abort the whole process just because vkDeviceWaitIdle()

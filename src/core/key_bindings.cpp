@@ -737,6 +737,11 @@ std::vector<Action> DefaultActions()
             .description="Open the Window menu (keyboard navigation).",
             .bindings={ {.enabled=true, .chord="Alt+W", .context="global", .platform="any"} }
         },
+        {
+            .id="menu.open.view", .title="Open View Menu", .category="Menu",
+            .description="Open the View menu (keyboard navigation).",
+            .bindings={ {.enabled=true, .chord="Alt+V", .context="global", .platform="any"} }
+        },
 
         // --- File ---
         {
@@ -1277,7 +1282,8 @@ std::vector<Action> DefaultActions()
         {
             .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
             .bindings={
-                // Note: Ctrl+0 conflicts with our Ctrl+0 Character Set insert mapping; use Ctrl+Alt+0 instead.
+                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
+                // Back-compat / alternate chord (useful on some layouts).
                 {.enabled=true, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
             }
@@ -1525,57 +1531,8 @@ std::vector<Action> DefaultActions()
             .description="Insert the glyph mapped to F12 in the active character set.",
             .bindings={ {.enabled=true, .chord="F12", .context="editor", .platform="any"} }
         },
-        // Alternate mapping: Ctrl+1..9,0 to slots 1..10 (matches current hardcoded behavior).
-        {
-            .id="charset.insert.ctrl_1", .title="Insert Character Set Slot 1 (Ctrl+1)", .category="Character Set",
-            .description="Insert the glyph mapped to F1 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+1", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_2", .title="Insert Character Set Slot 2 (Ctrl+2)", .category="Character Set",
-            .description="Insert the glyph mapped to F2 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+2", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_3", .title="Insert Character Set Slot 3 (Ctrl+3)", .category="Character Set",
-            .description="Insert the glyph mapped to F3 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+3", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_4", .title="Insert Character Set Slot 4 (Ctrl+4)", .category="Character Set",
-            .description="Insert the glyph mapped to F4 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+4", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_5", .title="Insert Character Set Slot 5 (Ctrl+5)", .category="Character Set",
-            .description="Insert the glyph mapped to F5 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+5", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_6", .title="Insert Character Set Slot 6 (Ctrl+6)", .category="Character Set",
-            .description="Insert the glyph mapped to F6 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+6", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_7", .title="Insert Character Set Slot 7 (Ctrl+7)", .category="Character Set",
-            .description="Insert the glyph mapped to F7 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+7", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_8", .title="Insert Character Set Slot 8 (Ctrl+8)", .category="Character Set",
-            .description="Insert the glyph mapped to F8 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+8", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_9", .title="Insert Character Set Slot 9 (Ctrl+9)", .category="Character Set",
-            .description="Insert the glyph mapped to F9 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+9", .context="editor", .platform="any"} }
-        },
-        {
-            .id="charset.insert.ctrl_0", .title="Insert Character Set Slot 10 (Ctrl+0)", .category="Character Set",
-            .description="Insert the glyph mapped to F10 in the active character set.",
-            .bindings={ {.enabled=true, .chord="Ctrl+0", .context="editor", .platform="any"} }
-        },
+        // NOTE: We intentionally do NOT bind Ctrl+1..9/0 for character-set insertion.
+        // Those chords are reserved for editor/view shortcuts (notably Ctrl+0 = Reset Zoom).
 
         // TODO(wire): Character-set navigation (Moebius) is useful when multiple sets exist.
         // This currently conflicts with some global UI toggles (Ctrl+/), so keep disabled by default.

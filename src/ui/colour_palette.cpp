@@ -4,8 +4,11 @@
 
 #include "imgui.h"
 
+#include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 static inline float ClampF(float v, float lo, float hi)
@@ -200,6 +203,157 @@ bool LoadColourPalettesFromJson(const char* path,
     }
 
     error.clear();
+    return true;
+}
+
+static std::string ImVec4ToHexRgb(const ImVec4& c)
+{
+    auto to_u8 = [](float v) -> int
+    {
+        v = ClampF(v, 0.0f, 1.0f);
+        return (int)std::lround(v * 255.0f);
+    };
+
+    const int r = to_u8(c.x);
+    const int g = to_u8(c.y);
+    const int b = to_u8(c.z);
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", r, g, b);
+    return std::string(buf);
+}
+
+static std::string TrimCopy(const std::string& s)
+{
+    size_t b = 0;
+    while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b])))
+        ++b;
+    size_t e = s.size();
+    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
+        --e;
+    return s.substr(b, e - b);
+}
+
+static std::string MakeUniqueTitle(const nlohmann::json& j, const std::string& wanted)
+{
+    using nlohmann::json;
+    const std::string base = TrimCopy(wanted.empty() ? std::string("Imported Palette") : wanted);
+
+    auto title_exists = [&](const std::string& t) -> bool
+    {
+        if (!j.is_array())
+            return false;
+        for (const auto& item : j)
+        {
+            if (!item.is_object())
+                continue;
+            auto it = item.find("title");
+            if (it != item.end() && it->is_string() && it->get<std::string>() == t)
+                return true;
+        }
+        return false;
+    };
+
+    if (!title_exists(base))
+        return base;
+
+    for (int n = 2; n < 10000; ++n)
+    {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "%s (%d)", base.c_str(), n);
+        std::string cand(buf);
+        if (!title_exists(cand))
+            return cand;
+    }
+    return base; // fallback
+}
+
+bool AppendColourPaletteToJson(const char* path,
+                               ColourPaletteDef def,
+                               std::string& error)
+{
+    using nlohmann::json;
+    error.clear();
+
+    if (!path || !*path)
+    {
+        error = "Invalid path";
+        return false;
+    }
+    if (def.colors.empty())
+    {
+        error = "Palette has no colors";
+        return false;
+    }
+
+    json j;
+    {
+        std::ifstream f(path);
+        if (!f)
+        {
+            error = std::string("Failed to open ") + path;
+            return false;
+        }
+        try
+        {
+            f >> j;
+        }
+        catch (const std::exception& e)
+        {
+            error = e.what();
+            return false;
+        }
+    }
+
+    if (!j.is_array())
+    {
+        error = "Expected top-level JSON array in color-palettes.json";
+        return false;
+    }
+
+    def.title = MakeUniqueTitle(j, def.title);
+
+    json item;
+    item["title"] = def.title;
+    json colors = json::array();
+    for (const auto& c : def.colors)
+        colors.push_back(ImVec4ToHexRgb(c));
+    item["colors"] = std::move(colors);
+    j.push_back(std::move(item));
+
+    try
+    {
+        namespace fs = std::filesystem;
+        fs::path p(path);
+        fs::path tmp = p;
+        tmp += ".tmp";
+
+        {
+            std::ofstream out(tmp.string());
+            if (!out)
+            {
+                error = std::string("Failed to write ") + tmp.string();
+                return false;
+            }
+            out << j.dump(2) << "\n";
+        }
+
+        std::error_code ec;
+        fs::rename(tmp, p, ec);
+        if (ec)
+        {
+            // Best-effort cleanup; keep original file intact if rename fails.
+            std::error_code ec2;
+            fs::remove(tmp, ec2);
+            error = std::string("Failed to replace ") + p.string() + ": " + ec.message();
+            return false;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        error = e.what();
+        return false;
+    }
+
     return true;
 }
 

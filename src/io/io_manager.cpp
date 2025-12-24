@@ -2,6 +2,7 @@
 
 #include "io/file_dialog_tags.h"
 #include "io/formats/ansi.h"
+#include "io/formats/gpl.h"
 #include "io/formats/image.h"
 #include "io/formats/markdown.h"
 #include "io/formats/plaintext.h"
@@ -127,10 +128,10 @@ bool IoManager::TakeLastSaveEvent(SaveEvent& out)
 
 bool IoManager::TakeLastOpenEvent(OpenEvent& out)
 {
-    if (m_last_open_event.kind == OpenEventKind::None)
+    if (m_open_events.empty())
         return false;
-    out = m_last_open_event;
-    m_last_open_event = OpenEvent{};
+    out = std::move(m_open_events.front());
+    m_open_events.pop_front();
     return true;
 }
 
@@ -212,6 +213,10 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(text_exts_v, formats::plaintext::ImportExtensions());
     const std::string text_exts = JoinExtsForDialog(text_exts_v);
 
+    std::vector<std::string_view> pal_exts_v;
+    AppendUnique(pal_exts_v, formats::gpl::ImportExtensions());
+    const std::string pal_exts = JoinExtsForDialog(pal_exts_v);
+
     std::vector<std::string_view> md_exts_v;
     AppendUnique(md_exts_v, formats::markdown::ImportExtensions());
     const std::string md_exts = JoinExtsForDialog(md_exts_v);
@@ -226,6 +231,7 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     std::vector<std::string_view> supported_exts_v;
     supported_exts_v.push_back("phos");
     AppendUnique(supported_exts_v, text_exts_v);
+    AppendUnique(supported_exts_v, pal_exts_v);
     AppendUnique(supported_exts_v, md_exts_v);
     AppendUnique(supported_exts_v, xbin_exts_v);
     // Keep the same image list for "Supported files".
@@ -233,15 +239,16 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
+        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.gpl;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
         {"Phosphor Project (*.phos)", "phos"},
         {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", text_exts},
+        {"GIMP Palette (*.gpl)", pal_exts},
         {"Markdown (*.md;*.markdown;*.mdown;*.mkd)", md_exts},
         {"XBin (*.xb)", xbin_exts},
         {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", image_exts},
         {"All files", "*"},
     };
-    dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, false);
+    dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, true);
 }
 
 void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialogs)
@@ -366,6 +373,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
     const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
     const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
     const bool looks_markdown = ExtIn(ext, formats::markdown::ImportExtensions());
+    const bool looks_gpl = ExtIn(ext, formats::gpl::ImportExtensions());
 
     auto try_load_project = [&]() -> bool
     {
@@ -381,7 +389,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
             loaded.MarkSaved();
             cb.create_canvas(std::move(loaded));
             m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::Canvas, path, {}};
+            m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, path, {}});
             return true;
         }
         return false;
@@ -402,7 +410,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
             imported.MarkSaved();
             cb.create_canvas(std::move(imported));
             m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::Canvas, path, {}};
+            m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, path, {}});
             return true;
         }
         err = ierr;
@@ -427,7 +435,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
             imported.MarkSaved();
             cb.create_canvas(std::move(imported));
             m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::Canvas, path, {}};
+            m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, path, {}});
             return true;
         }
         err = ierr;
@@ -449,7 +457,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
             imported.MarkSaved();
             cb.create_canvas(std::move(imported));
             m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::Canvas, path, {}};
+            m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, path, {}});
             return true;
         }
         err = ierr;
@@ -475,7 +483,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
             li.pixels = std::move(rgba);
             cb.create_image(std::move(li));
             m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::Image, path, {}};
+            m_open_events.push_back(OpenEvent{OpenEventKind::Image, path, {}});
             return true;
         }
         err = ierr;
@@ -487,7 +495,6 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
         if (!cb.open_markdown_import_dialog)
         {
             m_last_error = "Internal error: open_markdown_import_dialog callback not set.";
-            m_last_open_event = OpenEvent{OpenEventKind::None, path, m_last_error};
             return true; // handled (as error)
         }
         std::vector<std::uint8_t> bytes;
@@ -504,13 +511,23 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
         cb.open_markdown_import_dialog(std::move(mp));
         m_last_error.clear();
         // IMPORTANT: opening the dialog is not an "open event" for recents; accept path updates recents.
-        m_last_open_event = OpenEvent{OpenEventKind::None, {}, {}};
+        return true;
+    };
+
+    auto handle_gpl_palette = [&]() -> bool
+    {
+        // Palette import is applied by app layer (RunFrame) so that it can update
+        // assets/color-palettes.json and refresh the palette UI.
+        m_last_error.clear();
+        m_open_events.push_back(OpenEvent{OpenEventKind::Palette, path, {}});
         return true;
     };
 
     bool handled = false;
     if (looks_project)
         handled = try_load_project();
+    else if (looks_gpl)
+        handled = handle_gpl_palette();
     else if (looks_markdown)
         handled = try_open_markdown_dialog();
     else if (looks_plaintext)
@@ -527,7 +544,6 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
     if (!handled)
     {
         m_last_error = err.empty() ? "Unsupported file type or failed to load file." : err;
-        m_last_open_event = OpenEvent{OpenEventKind::None, path, m_last_error};
         return true;
     }
     return true;
@@ -638,201 +654,237 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
     }
     else if (r.tag == kDialog_LoadFile)
     {
-        std::string ext;
-        if (!is_uri(chosen))
-        {
-            try
-            {
-                fs::path p(chosen);
-                ext = p.extension().string();
-            }
-            catch (...) {}
-        }
-        if (!ext.empty() && ext[0] == '.')
-            ext.erase(ext.begin());
-        ext = ToLowerAscii(ext);
+        int fail_count = 0;
+        std::string last_fail;
+        bool markdown_opened = false;
 
-        auto is_ext = [&](const std::initializer_list<const char*>& exts) -> bool
+        for (const std::string& chosen_path : r.paths)
         {
-            for (const char* e : exts)
+            std::string ext;
+            if (!is_uri(chosen_path))
             {
-                if (ext == e)
-                    return true;
+                try
+                {
+                    fs::path p(chosen_path);
+                    ext = p.extension().string();
+                    if (p.has_parent_path())
+                        m_last_dir = p.parent_path().string();
+                }
+                catch (...) {}
             }
-            return false;
-        };
+            if (!ext.empty() && ext[0] == '.')
+                ext.erase(ext.begin());
+            ext = ToLowerAscii(ext);
 
-        // Fast-path by file extension.
-        const bool looks_project = is_ext({"phos"});
-        const bool looks_plaintext = ExtIn(ext, formats::plaintext::ImportExtensions());
-        const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
-        const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
-        const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
-        const bool looks_markdown = ExtIn(ext, formats::markdown::ImportExtensions());
-
-        auto try_load_project = [&]() -> bool
-        {
-            if (!cb.create_canvas)
+            auto is_ext = [&](const std::initializer_list<const char*>& exts) -> bool
             {
-                m_last_error = "Internal error: create_canvas callback not set.";
-                return true; // handled (as error)
-            }
-            AnsiCanvas loaded;
-            if (project_file::LoadProjectFromFile(chosen, loaded, err))
-            {
-                loaded.SetFilePath(chosen);
-                loaded.MarkSaved();
-                cb.create_canvas(std::move(loaded));
-                m_last_error.clear();
-                m_last_open_event = OpenEvent{OpenEventKind::Canvas, chosen, {}};
-                return true;
-            }
-            return false;
-        };
-
-        auto try_import_ansi = [&]() -> bool
-        {
-            if (!cb.create_canvas)
-            {
-                m_last_error = "Internal error: create_canvas callback not set.";
-                return true; // handled (as error)
-            }
-            AnsiCanvas imported;
-            std::string ierr;
-            if (formats::ansi::ImportFileToCanvas(chosen, imported, ierr))
-            {
-                imported.SetFilePath(chosen);
-                imported.MarkSaved();
-                cb.create_canvas(std::move(imported));
-                m_last_error.clear();
-                m_last_open_event = OpenEvent{OpenEventKind::Canvas, chosen, {}};
-                return true;
-            }
-            err = ierr;
-            return false;
-        };
-
-        auto try_import_plaintext = [&]() -> bool
-        {
-            if (!cb.create_canvas)
-            {
-                m_last_error = "Internal error: create_canvas callback not set.";
-                return true; // handled (as error)
-            }
-            AnsiCanvas imported;
-            std::string ierr;
-            formats::plaintext::ImportOptions opt;
-            // If the user picked .asc, default to ASCII; otherwise assume UTF-8.
-            if (ext == "asc")
-                opt.text_encoding = formats::plaintext::ImportOptions::TextEncoding::Ascii;
-            if (formats::plaintext::ImportFileToCanvas(chosen, imported, ierr, opt))
-            {
-                imported.SetFilePath(chosen);
-                imported.MarkSaved();
-                cb.create_canvas(std::move(imported));
-                m_last_error.clear();
-                m_last_open_event = OpenEvent{OpenEventKind::Canvas, chosen, {}};
-                return true;
-            }
-            err = ierr;
-            return false;
-        };
-
-        auto try_import_xbin = [&]() -> bool
-        {
-            if (!cb.create_canvas)
-            {
-                m_last_error = "Internal error: create_canvas callback not set.";
-                return true; // handled (as error)
-            }
-            AnsiCanvas imported;
-            std::string ierr;
-            if (formats::xbin::ImportFileToCanvas(chosen, imported, ierr))
-            {
-                imported.SetFilePath(chosen);
-                imported.MarkSaved();
-                cb.create_canvas(std::move(imported));
-                m_last_error.clear();
-                m_last_open_event = OpenEvent{OpenEventKind::Canvas, chosen, {}};
-                return true;
-            }
-            err = ierr;
-            return false;
-        };
-
-        auto try_load_image = [&]() -> bool
-        {
-            if (!cb.create_image)
-            {
-                m_last_error = "Internal error: create_image callback not set.";
-                return true; // handled (as error)
-            }
-            int iw = 0, ih = 0;
-            std::vector<unsigned char> rgba;
-            std::string ierr;
-            if (image_loader::LoadImageAsRgba32(chosen, iw, ih, rgba, ierr))
-            {
-                Callbacks::LoadedImage li;
-                li.path = chosen;
-                li.width = iw;
-                li.height = ih;
-                li.pixels = std::move(rgba);
-                cb.create_image(std::move(li));
-                m_last_error.clear();
-                m_last_open_event = OpenEvent{OpenEventKind::Image, chosen, {}};
-                return true;
-            }
-            err = ierr;
-            return false;
-        };
-
-        auto try_open_markdown_dialog = [&]() -> bool
-        {
-            if (!cb.open_markdown_import_dialog)
-            {
-                m_last_error = "Internal error: open_markdown_import_dialog callback not set.";
-                return true; // handled (as error)
-            }
-            std::vector<std::uint8_t> bytes;
-            std::string rerr;
-            if (!ReadAllBytesLimited(chosen, bytes, rerr, (std::size_t)(2u * 1024u * 1024u)))
-            {
-                err = rerr;
+                for (const char* e : exts)
+                {
+                    if (ext == e)
+                        return true;
+                }
                 return false;
-            }
-            Callbacks::MarkdownPayload mp;
-            mp.path = chosen;
-            mp.markdown.assign((const char*)bytes.data(), (const char*)bytes.data() + bytes.size());
-            cb.open_markdown_import_dialog(std::move(mp));
-            m_last_error.clear();
-            m_last_open_event = OpenEvent{OpenEventKind::None, {}, {}};
-            return true;
-        };
+            };
 
-        bool handled = false;
-        if (looks_project)
-            handled = try_load_project();
-        else if (looks_markdown)
-            handled = try_open_markdown_dialog();
-        else if (looks_plaintext)
-            handled = try_import_plaintext();
-        else if (looks_ansi)
-            handled = try_import_ansi();
-        else if (looks_xbin)
-            handled = try_import_xbin();
-        else if (looks_image)
-            handled = try_load_image();
+            // Fast-path by file extension.
+            const bool looks_project = is_ext({"phos"});
+            const bool looks_plaintext = ExtIn(ext, formats::plaintext::ImportExtensions());
+            const bool looks_ansi = ExtIn(ext, formats::ansi::ImportExtensions());
+            const bool looks_image = ExtIn(ext, formats::image::ImportExtensions());
+            const bool looks_xbin = ExtIn(ext, formats::xbin::ImportExtensions());
+            const bool looks_markdown = ExtIn(ext, formats::markdown::ImportExtensions());
+            const bool looks_gpl = ExtIn(ext, formats::gpl::ImportExtensions());
+
+            std::string perr;
+
+            auto try_load_project = [&]() -> bool
+            {
+                if (!cb.create_canvas)
+                {
+                    perr = "Internal error: create_canvas callback not set.";
+                    return true; // handled (as error)
+                }
+                AnsiCanvas loaded;
+                if (project_file::LoadProjectFromFile(chosen_path, loaded, perr))
+                {
+                    loaded.SetFilePath(chosen_path);
+                    loaded.MarkSaved();
+                    cb.create_canvas(std::move(loaded));
+                    m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, chosen_path, {}});
+                    return true;
+                }
+                return false;
+            };
+
+            auto try_import_ansi = [&]() -> bool
+            {
+                if (!cb.create_canvas)
+                {
+                    perr = "Internal error: create_canvas callback not set.";
+                    return true; // handled (as error)
+                }
+                AnsiCanvas imported;
+                std::string ierr;
+                if (formats::ansi::ImportFileToCanvas(chosen_path, imported, ierr))
+                {
+                    imported.SetFilePath(chosen_path);
+                    imported.MarkSaved();
+                    cb.create_canvas(std::move(imported));
+                    m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, chosen_path, {}});
+                    return true;
+                }
+                perr = ierr;
+                return false;
+            };
+
+            auto try_import_plaintext = [&]() -> bool
+            {
+                if (!cb.create_canvas)
+                {
+                    perr = "Internal error: create_canvas callback not set.";
+                    return true; // handled (as error)
+                }
+                AnsiCanvas imported;
+                std::string ierr;
+                formats::plaintext::ImportOptions opt;
+                // If the user picked .asc, default to ASCII; otherwise assume UTF-8.
+                if (ext == "asc")
+                    opt.text_encoding = formats::plaintext::ImportOptions::TextEncoding::Ascii;
+                if (formats::plaintext::ImportFileToCanvas(chosen_path, imported, ierr, opt))
+                {
+                    imported.SetFilePath(chosen_path);
+                    imported.MarkSaved();
+                    cb.create_canvas(std::move(imported));
+                    m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, chosen_path, {}});
+                    return true;
+                }
+                perr = ierr;
+                return false;
+            };
+
+            auto try_import_xbin = [&]() -> bool
+            {
+                if (!cb.create_canvas)
+                {
+                    perr = "Internal error: create_canvas callback not set.";
+                    return true; // handled (as error)
+                }
+                AnsiCanvas imported;
+                std::string ierr;
+                if (formats::xbin::ImportFileToCanvas(chosen_path, imported, ierr))
+                {
+                    imported.SetFilePath(chosen_path);
+                    imported.MarkSaved();
+                    cb.create_canvas(std::move(imported));
+                    m_open_events.push_back(OpenEvent{OpenEventKind::Canvas, chosen_path, {}});
+                    return true;
+                }
+                perr = ierr;
+                return false;
+            };
+
+            auto try_load_image = [&]() -> bool
+            {
+                if (!cb.create_image)
+                {
+                    perr = "Internal error: create_image callback not set.";
+                    return true; // handled (as error)
+                }
+                int iw = 0, ih = 0;
+                std::vector<unsigned char> rgba;
+                std::string ierr;
+                if (image_loader::LoadImageAsRgba32(chosen_path, iw, ih, rgba, ierr))
+                {
+                    Callbacks::LoadedImage li;
+                    li.path = chosen_path;
+                    li.width = iw;
+                    li.height = ih;
+                    li.pixels = std::move(rgba);
+                    cb.create_image(std::move(li));
+                    m_open_events.push_back(OpenEvent{OpenEventKind::Image, chosen_path, {}});
+                    return true;
+                }
+                perr = ierr;
+                return false;
+            };
+
+            auto try_open_markdown_dialog = [&]() -> bool
+            {
+                if (markdown_opened)
+                {
+                    perr = "Multiple Markdown files selected; only one Markdown import can be opened at a time.";
+                    return true; // handled (as error)
+                }
+                if (!cb.open_markdown_import_dialog)
+                {
+                    perr = "Internal error: open_markdown_import_dialog callback not set.";
+                    return true; // handled (as error)
+                }
+                std::vector<std::uint8_t> bytes;
+                std::string rerr;
+                if (!ReadAllBytesLimited(chosen_path, bytes, rerr, (std::size_t)(2u * 1024u * 1024u)))
+                {
+                    perr = rerr;
+                    return false;
+                }
+                Callbacks::MarkdownPayload mp;
+                mp.path = chosen_path;
+                mp.markdown.assign((const char*)bytes.data(), (const char*)bytes.data() + bytes.size());
+                cb.open_markdown_import_dialog(std::move(mp));
+                markdown_opened = true;
+                return true;
+            };
+
+            auto handle_gpl_palette = [&]() -> bool
+            {
+                m_open_events.push_back(OpenEvent{OpenEventKind::Palette, chosen_path, {}});
+                return true;
+            };
+
+            bool handled = false;
+            if (looks_project)
+                handled = try_load_project();
+            else if (looks_gpl)
+                handled = handle_gpl_palette();
+            else if (looks_markdown)
+                handled = try_open_markdown_dialog();
+            else if (looks_plaintext)
+                handled = try_import_plaintext();
+            else if (looks_ansi)
+                handled = try_import_ansi();
+            else if (looks_xbin)
+                handled = try_import_xbin();
+            else if (looks_image)
+                handled = try_load_image();
+            else
+            {
+                // Unknown extension (or URI). Try in descending order of likelihood.
+                handled = try_load_project() || try_open_markdown_dialog() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
+            }
+
+            if (!handled)
+            {
+                ++fail_count;
+                last_fail = perr.empty() ? "Unsupported file type or failed to load file." : perr;
+            }
+            else if (!perr.empty())
+            {
+                // "Handled as error" (e.g. missing callbacks, skipped extra markdown).
+                ++fail_count;
+                last_fail = perr;
+            }
+        }
+
+        if (fail_count > 0)
+        {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "Failed to open %d/%d files. Last error: %s",
+                          fail_count, (int)r.paths.size(), last_fail.c_str());
+            m_last_error = buf;
+        }
         else
         {
-            // Unknown extension (or URI). Try in descending order of likelihood.
-            handled = try_load_project() || try_open_markdown_dialog() || try_import_ansi() || try_import_xbin() || try_import_plaintext() || try_load_image();
-        }
-
-        if (!handled)
-        {
-            // Use the most recent decoder error if we have one.
-            m_last_error = err.empty() ? "Unsupported file type or failed to load file." : err;
-            m_last_open_event = OpenEvent{OpenEventKind::None, chosen, m_last_error};
+            m_last_error.clear();
         }
     }
     else if (r.tag == kDialog_ExportAnsi)

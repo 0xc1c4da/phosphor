@@ -209,6 +209,20 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
     const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
+    // Optional: use a GPU glyph atlas for bitmap fonts (preferred over per-rect rendering).
+    BitmapGlyphAtlasView atlas{};
+    const bool atlas_ok =
+        bitmap_font && m_bitmap_atlas_provider && m_bitmap_atlas_provider->GetBitmapGlyphAtlas(*this, atlas) &&
+        atlas.texture_id != nullptr && atlas.atlas_w > 0 && atlas.atlas_h > 0 &&
+        atlas.cell_w > 0 && atlas.cell_h > 0 && atlas.tile_w > 0 && atlas.tile_h > 0 &&
+        atlas.cols > 0 && atlas.rows > 0 && atlas.glyph_count > 0;
+
+    // IMPORTANT: anti-aliased fill can create 1px hairline seams between adjacent per-cell quads.
+    // Disable it for bitmap fonts so filled rects and tinted atlas quads meet cleanly.
+    const ImDrawListFlags prev_flags = draw_list->Flags;
+    if (bitmap_font)
+        draw_list->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+
     // Compute visible cell range based on ImGui's actual clipping rectangle.
     // Using GetWindowContentRegionMin/Max is tempting but becomes subtly wrong under
     // child scrolling + scrollbars; InnerClipRect is what the renderer really clips to.
@@ -263,6 +277,15 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
         {
             ImVec2 cell_min(x, y);
             ImVec2 cell_max(x + cell_w, y + cell_h);
+            // Bitmap fonts are pixel-grid based; snap cell rects to integer pixels to avoid
+            // tiny float drift that can show up as 1px cracks between adjacent quads/rects.
+            if (bitmap_font)
+            {
+                cell_min.x = std::floor(cell_min.x + 0.5f);
+                cell_min.y = std::floor(cell_min.y + 0.5f);
+                cell_max.x = std::floor(cell_max.x + 0.5f);
+                cell_max.y = std::floor(cell_max.y + 0.5f);
+            }
 
             CompositeCell cell = GetCompositeCell(row, col);
 
@@ -422,12 +445,58 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                     return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
                 };
 
+                const bool bold = (a & Attr_Bold) != 0;
+                const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp);
+
+                if (atlas_ok)
+                {
+                    // Variant selection: atlas packs 4 variants stacked vertically:
+                    // 0=normal, 1=bold, 2=italic, 3=bold+italic.
+                    int variant = 0;
+                    if (bold)   variant |= 1;
+                    if (italic) variant |= 2;
+                    if (variant >= atlas.variant_count)
+                        variant = 0; // conservative fallback
+
+                    // Compute glyph index in the atlas (0..glyph_count-1).
+                    const int gi = (int)glyph_index;
+                    if (gi >= 0 && gi < atlas.glyph_count)
+                    {
+                        const int tile_x = gi % atlas.cols;
+                        const int tile_y = gi / atlas.cols;
+                        if (tile_y >= 0 && tile_y < atlas.rows)
+                        {
+                            const int px0 = tile_x * atlas.tile_w + atlas.pad;
+                            const int py0 = (variant * atlas.rows + tile_y) * atlas.tile_h + atlas.pad;
+                            const int px1 = px0 + atlas.cell_w;
+                            const int py1 = py0 + atlas.cell_h;
+
+                            // Sample texel centers (avoid seams when NEAREST sampling lands on edge texels).
+                            const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
+                            const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
+                            float u0 = (float)px0 / (float)atlas.atlas_w;
+                            float v0 = (float)py0 / (float)atlas.atlas_h;
+                            float u1 = (float)px1 / (float)atlas.atlas_w;
+                            float v1 = (float)py1 / (float)atlas.atlas_h;
+                            if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
+                            if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                            const ImVec2 uv0(u0, v0);
+                            const ImVec2 uv1(u1, v1);
+
+                            const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+                            draw_list->AddImage((ImTextureID)atlas.texture_id,
+                                                cell_min, cell_max,
+                                                uv0, uv1, col);
+                            continue;
+                        }
+                    }
+                    // Fall back to rect rendering if out-of-range or atlas mismatch.
+                }
+
                 const float px_w = cell_w / (float)std::max(1, glyph_cell_w);
                 const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
                 const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
                 const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
-                const bool bold = (a & Attr_Bold) != 0;
-                const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp);
                 const float shear = italic ? (0.20f * (cell_w / std::max(1.0f, cell_h))) : 0.0f;
 
                 for (int yy = 0; yy < glyph_cell_h; ++yy)
@@ -485,6 +554,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
         }
     }
+    // Restore draw list flags.
+    draw_list->Flags = prev_flags;
 }
 
 void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
@@ -505,6 +576,17 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
         (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
     const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+
+    BitmapGlyphAtlasView atlas{};
+    const bool atlas_ok =
+        bitmap_font && m_bitmap_atlas_provider && m_bitmap_atlas_provider->GetBitmapGlyphAtlas(*this, atlas) &&
+        atlas.texture_id != nullptr && atlas.atlas_w > 0 && atlas.atlas_h > 0 &&
+        atlas.cell_w > 0 && atlas.cell_h > 0 && atlas.tile_w > 0 && atlas.tile_h > 0 &&
+        atlas.cols > 0 && atlas.rows > 0 && atlas.glyph_count > 0;
+
+    const ImDrawListFlags prev_flags = draw_list->Flags;
+    if (bitmap_font)
+        draw_list->Flags &= ~ImDrawListFlags_AntiAliasedFill;
 
     // Reverse-video bright-bit preservation is only well-defined for the canonical VGA16 palette.
     const bool active_palette_is_vga16 =
@@ -529,6 +611,13 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                                 origin.y + y * cell_h);
                 ImVec2 cell_max(cell_min.x + cell_w,
                                 cell_min.y + cell_h);
+                if (bitmap_font)
+                {
+                    cell_min.x = std::floor(cell_min.x + 0.5f);
+                    cell_min.y = std::floor(cell_min.y + 0.5f);
+                    cell_max.x = std::floor(cell_max.x + 0.5f);
+                    cell_max.y = std::floor(cell_max.y + 0.5f);
+                }
                 const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
                 const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
 
@@ -668,12 +757,51 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                             return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
                         };
 
+                        const bool bold = (a & Attr_Bold) != 0;
+                        const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(c.cp);
+
+                        if (atlas_ok)
+                        {
+                            int variant = 0;
+                            if (bold) variant |= 1;
+                            if (italic) variant |= 2;
+                            if (variant >= atlas.variant_count)
+                                variant = 0;
+
+                            const int gi = (int)glyph_index;
+                            if (gi >= 0 && gi < atlas.glyph_count)
+                            {
+                                const int tile_x = gi % atlas.cols;
+                                const int tile_y = gi / atlas.cols;
+                                if (tile_y >= 0 && tile_y < atlas.rows)
+                                {
+                                    const int px0 = tile_x * atlas.tile_w + atlas.pad;
+                                    const int py0 = (variant * atlas.rows + tile_y) * atlas.tile_h + atlas.pad;
+                                    const int px1 = px0 + atlas.cell_w;
+                                    const int py1 = py0 + atlas.cell_h;
+                                    const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
+                                    const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
+                                    float u0 = (float)px0 / (float)atlas.atlas_w;
+                                    float v0 = (float)py0 / (float)atlas.atlas_h;
+                                    float u1 = (float)px1 / (float)atlas.atlas_w;
+                                    float v1 = (float)py1 / (float)atlas.atlas_h;
+                                    if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
+                                    if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                                    const ImVec2 uv0(u0, v0);
+                                    const ImVec2 uv1(u1, v1);
+                                    const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
+                                    draw_list->AddImage((ImTextureID)atlas.texture_id,
+                                                        cell_min, cell_max,
+                                                        uv0, uv1, col);
+                                    continue;
+                                }
+                            }
+                        }
+
                         const float px_w = cell_w / (float)std::max(1, glyph_cell_w);
                         const float px_h = cell_h / (float)std::max(1, glyph_cell_h);
                         const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
                         const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
-                        const bool bold = (a & Attr_Bold) != 0;
-                        const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(c.cp);
                         const float shear = italic ? (0.20f * (cell_w / std::max(1.0f, cell_h))) : 0.0f;
 
                         for (int yy = 0; yy < glyph_cell_h; ++yy)
@@ -749,6 +877,8 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
         const ImU32 col = ImGui::GetColorU32(ImVec4(0.15f, 0.75f, 1.0f, 0.90f));
         draw_list->AddRect(p0, p1, col, 0.0f, 0, 2.0f);
     }
+
+    draw_list->Flags = prev_flags;
 }
 
 void AnsiCanvas::Render(const char* id)
@@ -783,8 +913,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     // Base cell size:
     // - For Unscii (ImGui atlas): use the current ImGui font metrics.
-    // - For bitmap fonts: use the selected font's textmode cell metrics, scaled by the
-    //   current ImGui font size so HiDPI stays consistent with the rest of the UI.
+    // - For bitmap/embedded fonts: use the font's native textmode pixel metrics directly.
+    //   (This avoids coupling bitmap font geometry to the UI font size, which can distort aspect.)
     //
     // We intentionally *do not auto-fit to window width*; the user controls zoom explicitly.
     const float base_font_size = ImGui::GetFontSize();
@@ -797,15 +927,13 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     float cell_h = 0.0f;
     if (embedded_font)
     {
-        const float base_scale = base_font_size / 16.0f;
-        cell_w = (float)ef->cell_w * base_scale;
-        cell_h = (float)ef->cell_h * base_scale;
+        cell_w = (float)ef->cell_w;
+        cell_h = (float)ef->cell_h;
     }
     else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
     {
-        const float base_scale = base_font_size / 16.0f;
-        cell_w = (float)finfo.cell_w * base_scale;
-        cell_h = (float)finfo.cell_h * base_scale;
+        cell_w = (float)finfo.cell_w;
+        cell_h = (float)finfo.cell_h;
     }
     else
     {

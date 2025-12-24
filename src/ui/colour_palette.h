@@ -22,6 +22,14 @@ bool LoadColourPalettesFromJson(const char* path,
                                 std::vector<ColourPaletteDef>& out,
                                 std::string& error);
 
+// Appends a single palette to assets/color-palettes.json (creating a unique title if needed).
+// Returns true on success; on failure returns false and sets `error`.
+//
+// Note: This mutates the JSON file; callers are responsible for reloading any cached palette lists.
+bool AppendColourPaletteToJson(const char* path,
+                               ColourPaletteDef def,
+                               std::string& error);
+
 // UI helper for rendering a colour swatch (palette grid cell) with:
 // - Left click / Enter: select "primary" (typically the active FG/BG)
 // - Right click / Shift+Enter: select "secondary" (the other of FG/BG)

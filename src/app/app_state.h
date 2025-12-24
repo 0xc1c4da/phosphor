@@ -37,6 +37,7 @@ class ImageToChafaDialog;
 class MarkdownToAnsiDialog;
 class MinimapWindow;
 class CanvasPreviewTexture;
+class BitmapGlyphAtlasTextureCache;
 class SixteenColorsBrowserWindow;
 
 struct CanvasWindow;
@@ -114,6 +115,7 @@ struct AppState
         MarkdownToAnsiDialog* markdown_to_ansi_dialog = nullptr;
         MinimapWindow* minimap_window = nullptr;
         CanvasPreviewTexture* preview_texture = nullptr;
+        BitmapGlyphAtlasTextureCache* bitmap_glyph_atlas = nullptr;
         SixteenColorsBrowserWindow* sixteen_browser = nullptr;
         class BrushPaletteWindow* brush_palette_window = nullptr;
     } ui;

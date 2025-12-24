@@ -178,15 +178,16 @@ std::string ShortcutForAction(const kb::KeyBindingsEngine& keybinds,
 static int RequestedTopMenu(kb::KeyBindingsEngine& keybinds)
 {
     // Menu keyboard navigation:
-    // - Alt+F / Alt+E / Alt+W open the respective top-level menu.
+    // - Alt+F / Alt+E / Alt+V / Alt+W open the respective top-level menu.
     // - We intentionally do NOT use F10, because F1..F12 (including F10) are reserved for character sets.
-    int requested_top_menu = 0; // 1=File, 2=Edit, 3=Window
+    int requested_top_menu = 0; // 1=File, 2=Edit, 3=View, 4=Window
     kb::EvalContext mctx;
     mctx.global = true;
     mctx.platform = kb::RuntimePlatform();
     if (keybinds.ActionPressed("menu.open.file", mctx)) requested_top_menu = 1;
     if (keybinds.ActionPressed("menu.open.edit", mctx)) requested_top_menu = 2;
-    if (keybinds.ActionPressed("menu.open.window", mctx)) requested_top_menu = 3;
+    if (keybinds.ActionPressed("menu.open.view", mctx)) requested_top_menu = 3;
+    if (keybinds.ActionPressed("menu.open.window", mctx)) requested_top_menu = 4;
     return requested_top_menu;
 }
 
@@ -451,6 +452,25 @@ void RenderMainMenuBar(SDL_Window* window,
     }
 
     if (requested_top_menu == 3)
+        ImGui::OpenPopup("View");
+    if (ImGui::BeginMenu("View"))
+    {
+        const bool can_zoom = (active_canvas != nullptr);
+        const std::string sc_zoom_in = ShortcutForAction(keybinds, "view.zoom_in", "global");
+        const std::string sc_zoom_out = ShortcutForAction(keybinds, "view.zoom_out", "global");
+        const std::string sc_zoom_reset = ShortcutForAction(keybinds, "view.zoom_reset", "global");
+
+        if (ImGui::MenuItem("Zoom In", sc_zoom_in.empty() ? nullptr : sc_zoom_in.c_str(), false, can_zoom))
+            active_canvas->SetZoom(active_canvas->GetZoom() * 1.10f);
+        if (ImGui::MenuItem("Zoom Out", sc_zoom_out.empty() ? nullptr : sc_zoom_out.c_str(), false, can_zoom))
+            active_canvas->SetZoom(active_canvas->GetZoom() / 1.10f);
+        if (ImGui::MenuItem("Reset Zoom (1:1)", sc_zoom_reset.empty() ? nullptr : sc_zoom_reset.c_str(), false, can_zoom))
+            active_canvas->SetZoom(1.0f);
+
+        ImGui::EndMenu();
+    }
+
+    if (requested_top_menu == 4)
         ImGui::OpenPopup("Window");
     if (ImGui::BeginMenu("Window"))
     {

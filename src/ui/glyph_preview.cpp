@@ -222,6 +222,86 @@ void DrawGlyphPreview(ImDrawList* dl,
         return;
     }
 
+    // Prefer the canvas's bitmap glyph atlas (if available) so previews match the main renderer.
+    if (canvas && canvas->GetBitmapGlyphAtlasProvider())
+    {
+        AnsiCanvas::BitmapGlyphAtlasView atlas{};
+        if (canvas->GetBitmapGlyphAtlasProvider()->GetBitmapGlyphAtlas(*canvas, atlas) &&
+            atlas.texture_id != nullptr && atlas.atlas_w > 0 && atlas.atlas_h > 0 &&
+            atlas.cell_w > 0 && atlas.cell_h > 0 && atlas.tile_w > 0 && atlas.tile_h > 0 &&
+            atlas.cols > 0 && atlas.rows > 0 && atlas.glyph_count > 0)
+        {
+            // Resolve glyph index (same rules as the canvas renderer).
+            int glyph_cell_w = finfo.cell_w;
+            int glyph_cell_h = finfo.cell_h;
+            bool vga_dup = finfo.vga_9col_dup;
+
+            std::uint16_t glyph_index = 0;
+            if (embedded_font_ok)
+            {
+                glyph_cell_w = ef->cell_w;
+                glyph_cell_h = ef->cell_h;
+                vga_dup = ef->vga_9col_dup;
+
+                if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
+                    cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
+                {
+                    glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
+                }
+                else
+                {
+                    std::uint8_t b = 0;
+                    if (fonts::UnicodeToCp437Byte(cp, b))
+                        glyph_index = (std::uint16_t)b;
+                    else
+                        glyph_index = (std::uint16_t)'?';
+                }
+            }
+            else
+            {
+                std::uint8_t b = 0;
+                if (!fonts::UnicodeToCp437Byte(cp, b))
+                {
+                    std::uint8_t q = 0;
+                    b = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
+                }
+                glyph_index = (std::uint16_t)b;
+            }
+            (void)glyph_cell_w;
+            (void)glyph_cell_h;
+            (void)vga_dup;
+
+            const int gi = (int)glyph_index;
+            if (gi >= 0 && gi < atlas.glyph_count)
+            {
+                const int variant = 0; // preview shows normal only (attrs are not modeled here)
+                const int tile_x = gi % atlas.cols;
+                const int tile_y = gi / atlas.cols;
+                if (tile_y >= 0 && tile_y < atlas.rows)
+                {
+                    const int px0 = tile_x * atlas.tile_w + atlas.pad;
+                    const int py0 = (variant * atlas.rows + tile_y) * atlas.tile_h + atlas.pad;
+                    const int px1 = px0 + atlas.cell_w;
+                    const int py1 = py0 + atlas.cell_h;
+                    const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
+                    const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
+                    float u0 = (float)px0 / (float)atlas.atlas_w;
+                    float v0 = (float)py0 / (float)atlas.atlas_h;
+                    float u1 = (float)px1 / (float)atlas.atlas_w;
+                    float v1 = (float)py1 / (float)atlas.atlas_h;
+                    if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
+                    if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                    const ImVec2 uv0(u0, v0);
+                    const ImVec2 uv1(u1, v1);
+                    dl->AddImage((ImTextureID)atlas.texture_id,
+                                 p0, ImVec2(p0.x + cell_w, p0.y + cell_h),
+                                 uv0, uv1, (ImU32)fg_col);
+                    return;
+                }
+            }
+        }
+    }
+
     // Bitmap/embedded path: mirror the canvas renderer's glyph index resolution rules.
     int glyph_cell_w = finfo.cell_w;
     int glyph_cell_h = finfo.cell_h;

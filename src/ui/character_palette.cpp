@@ -811,6 +811,26 @@ void CharacterPalette::RenderGrid()
     const ImU32 col_hover_bg = ImGui::GetColorU32(ImGuiCol_HeaderHovered);
     const ImU32 col_nav = ImGui::GetColorU32(ImGuiCol_NavHighlight);
 
+    // If the active canvas uses a bitmap/embedded font, preserve its aspect in previews
+    // (avoid stretching into the square cell).
+    float preview_aspect = 1.0f; // w/h
+    if (active_canvas_)
+    {
+        const fonts::FontInfo& finfo = fonts::Get(active_canvas_->GetFontId());
+        if (const AnsiCanvas::EmbeddedBitmapFont* ef = active_canvas_->GetEmbeddedFont();
+            ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+            ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h)
+        {
+            preview_aspect = (float)ef->cell_w / (float)ef->cell_h;
+        }
+        else if (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0)
+        {
+            preview_aspect = (float)finfo.cell_w / (float)finfo.cell_h;
+        }
+    }
+    if (!(preview_aspect > 0.0f))
+        preview_aspect = 1.0f;
+
     for (int idx = 0; idx < total_items; ++idx)
     {
         const int c = idx % cols;
@@ -931,7 +951,18 @@ void CharacterPalette::RenderGrid()
             tooltip_utf8 = (*glyphs_ptr)[(size_t)idx].utf8.empty() ? "(empty)" : (*glyphs_ptr)[(size_t)idx].utf8.c_str();
         }
 
-        DrawGlyphPreview(dl, p0, cell, cell, cp_to_draw, active_canvas_, (std::uint32_t)col_text);
+        // Fit glyph preview into the square while preserving aspect.
+        float dw = cell;
+        float dh = cell;
+        if (preview_aspect >= 1.0f)
+            dh = (preview_aspect > 0.0f) ? (cell / preview_aspect) : cell;
+        else
+            dw = cell * preview_aspect;
+        dw = std::clamp(dw, 1.0f, cell);
+        dh = std::clamp(dh, 1.0f, cell);
+        const ImVec2 p(p0.x + (cell - dw) * 0.5f,
+                       p0.y + (cell - dh) * 0.5f);
+        DrawGlyphPreview(dl, p, dw, dh, cp_to_draw, active_canvas_, (std::uint32_t)col_text);
 
         if (hovered)
         {
