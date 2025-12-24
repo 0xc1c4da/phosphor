@@ -65,6 +65,55 @@ void AnsiCanvas::SetZoom(float zoom)
     m_zoom = zoom;
 }
 
+float AnsiCanvas::SnappedScaleForZoom(float zoom, float base_cell_w_px) const
+{
+    // Keep this in sync with the renderer's snapping assumptions.
+    // Note: snapping depends both on user preference and on whether the current canvas font is bitmap-based.
+    if (!(base_cell_w_px > 0.0f))
+        base_cell_w_px = 8.0f;
+
+    const auto snap_integer = [&](float z) -> float
+    {
+        float n = std::floor(z + 0.5f);
+        if (n < 1.0f) n = 1.0f;
+        return n;
+    };
+    const auto snap_pixel_aligned = [&](float z) -> float
+    {
+        float snapped_cell_w = std::floor(base_cell_w_px * z + 0.5f);
+        if (snapped_cell_w < 1.0f)
+            snapped_cell_w = 1.0f;
+        return (base_cell_w_px > 0.0f) ? (snapped_cell_w / base_cell_w_px) : 1.0f;
+    };
+
+    // Detect bitmap font path (embedded fonts are always bitmap).
+    const EmbeddedBitmapFont* ef = GetEmbeddedFont();
+    const bool embedded_font =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const fonts::FontInfo& finfo = fonts::Get(GetFontId());
+    const bool bitmap_font =
+        embedded_font ||
+        (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+
+    // Migration safety: older session files used 0=Auto; treat that as PixelAligned.
+    ZoomSnapMode mode = m_zoom_snap_mode;
+    if ((int)mode == 0)
+        mode = ZoomSnapMode::PixelAligned;
+
+    switch (mode)
+    {
+        case ZoomSnapMode::IntegerScale:
+            return snap_integer(zoom);
+        case ZoomSnapMode::PixelAligned:
+            return snap_pixel_aligned(zoom);
+        default:
+            // Defensive: if enum expands in future, prefer pixel-aligned.
+            (void)bitmap_font;
+            return snap_pixel_aligned(zoom);
+    }
+}
+
 void AnsiCanvas::RequestScrollPixels(float scroll_x, float scroll_y)
 {
     m_scroll_request_valid = true;

@@ -204,6 +204,9 @@ void SettingsWindow::RenderTab_General()
             changed = true;
         }
 
+        // These preset buttons use numeric labels that also appear elsewhere in this window.
+        // Scope them with a unique ID to avoid ImGui ID collisions.
+        ImGui::PushID("undo_limit_presets");
         ImGui::SameLine();
         if (ImGui::SmallButton("256"))
         {
@@ -222,6 +225,7 @@ void SettingsWindow::RenderTab_General()
             session_->undo_limit = 4096;
             changed = true;
         }
+        ImGui::PopID();
 
         ImGui::Spacing();
         ImGui::TextDisabled("Tip: large values can use a lot of memory for big canvases.");
@@ -234,6 +238,30 @@ void SettingsWindow::RenderTab_General()
 
     if (changed && undo_limit_applier_)
         undo_limit_applier_(session_->undo_limit);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Zoom");
+    ImGui::Separator();
+    {
+        // Applies to all canvases; the app propagates this setting each frame.
+        int mode = session_->zoom_snap_mode;
+        if (mode == 0) mode = 2; // migrated default (Auto -> Pixel-aligned)
+        mode = std::clamp(mode, 1, 2);
+        const char* items[] = {
+            "Integer scale (N\xC3\x97)",
+            "Pixel-aligned cell width",
+        };
+        ImGui::SetNextItemWidth(280.0f);
+        if (ImGui::Combo("Zoom snapping", &mode, items, IM_ARRAYSIZE(items)))
+        {
+            session_->zoom_snap_mode = std::clamp(mode, 1, 2);
+        }
+        ImGui::TextDisabled(
+            "Integer: always snap to integer zoom steps.\n"
+            "Pixel-aligned: always snap by cell width (can introduce artifacts for bitmap fonts).");
+    }
 
     ImGui::Spacing();
     ImGui::Spacing();
@@ -271,6 +299,8 @@ void SettingsWindow::RenderTab_General()
                 lut_changed = true;
             }
 
+            // Scope preset buttons to avoid collisions with other numeric presets in this window.
+            ImGui::PushID("lut_budget_presets");
             ImGui::SameLine();
             if (ImGui::SmallButton("32"))
             {
@@ -289,6 +319,7 @@ void SettingsWindow::RenderTab_General()
                 session_->lut_cache_budget_bytes = 96ull * 1024ull * 1024ull;
                 lut_changed = true;
             }
+            ImGui::PopID();
         }
 
         if (lut_changed && lut_cache_budget_applier_)
@@ -355,6 +386,8 @@ void SettingsWindow::RenderTab_General()
                 atlas_changed = true;
             }
 
+            // Scope preset buttons to avoid collisions with other numeric presets in this window.
+            ImGui::PushID("glyph_atlas_budget_presets");
             ImGui::SameLine();
             if (ImGui::SmallButton("32"))
             {
@@ -379,6 +412,7 @@ void SettingsWindow::RenderTab_General()
                 session_->glyph_atlas_cache_budget_bytes = 128ull * 1024ull * 1024ull;
                 atlas_changed = true;
             }
+            ImGui::PopID();
         }
 
         if (atlas_changed && glyph_atlas_cache_budget_applier_)

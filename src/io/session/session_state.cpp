@@ -14,6 +14,8 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+static constexpr int kSessionSchemaVersion = 19;
+
 static std::string EnvOrEmpty(const char* name)
 {
     const char* v = std::getenv(name);
@@ -58,7 +60,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 18;
+    j["schema_version"] = kSessionSchemaVersion;
 
     json win;
     win["w"] = st.window_w;
@@ -85,6 +87,7 @@ static json ToJson(const SessionState& st)
     if (!st.ui_theme.empty())
         ui["theme"] = st.ui_theme;
     ui["undo_limit"] = st.undo_limit;
+    ui["zoom_snap_mode"] = st.zoom_snap_mode;
     ui["lut_cache_budget_bytes"] = st.lut_cache_budget_bytes;
     ui["glyph_atlas_cache_budget_bytes"] = st.glyph_atlas_cache_budget_bytes;
     ui["canvas_bg_white"] = st.canvas_bg_white;
@@ -317,6 +320,16 @@ static void FromJson(const json& j, SessionState& out)
         {
             const int v = ui["undo_limit"].get<int>();
             out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 0;
+        }
+
+        if (ui.contains("zoom_snap_mode") && ui["zoom_snap_mode"].is_number_integer())
+        {
+            const int v = ui["zoom_snap_mode"].get<int>();
+            // Migration: previous builds used 0=Auto; we now default to Pixel-aligned.
+            if (v == 0)
+                out.zoom_snap_mode = 2;
+            else
+                out.zoom_snap_mode = std::clamp(v, 1, 2);
         }
 
         if (ui.contains("lut_cache_budget_bytes") && ui["lut_cache_budget_bytes"].is_number_unsigned())
@@ -844,11 +857,9 @@ bool LoadSessionState(SessionState& out, std::string& err)
         if (dj.contains("schema_version") && dj["schema_version"].is_number_integer())
         {
             const int ver = dj["schema_version"].get<int>();
-            if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-                ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16 &&
-                ver != 17)
+            // Unknown *future* schema: ignore file rather than failing startup.
+            if (ver > kSessionSchemaVersion)
             {
-                // Unknown schema: ignore file rather than failing startup.
                 return true;
             }
         }
@@ -872,11 +883,9 @@ bool LoadSessionState(SessionState& out, std::string& err)
     if (j.contains("schema_version") && j["schema_version"].is_number_integer())
     {
         const int ver = j["schema_version"].get<int>();
-        if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
-            ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16 &&
-            ver != 17 && ver != 18)
+        // Unknown *future* schema: ignore file rather than failing startup.
+        if (ver > kSessionSchemaVersion)
         {
-            // Unknown schema: ignore file rather than failing startup.
             return true;
         }
     }

@@ -54,6 +54,12 @@ public:
         Attr_Strikethrough = 1u << 6, // SGR 9  (reset: 29)
     };
 
+    enum class ZoomSnapMode : std::uint8_t
+    {
+        IntegerScale = 1, // always snap to integer N×
+        PixelAligned = 2, // always snap based on pixel-aligned cell width
+    };
+
     // Embedded bitmap font support (used by XBin and other binary formats).
     //
     // Some formats (notably XBin) can embed a raw 1bpp bitmap font table where the on-disk
@@ -201,6 +207,14 @@ public:
     // This is independent of the window size (no auto-fit).
     float GetZoom() const { return m_zoom; }
     void  SetZoom(float zoom);
+
+    ZoomSnapMode GetZoomSnapMode() const { return m_zoom_snap_mode; }
+    void SetZoomSnapMode(ZoomSnapMode m) { m_zoom_snap_mode = m; }
+
+    // Returns the snapped render scale for a candidate zoom value, based on the configured snap mode.
+    // `base_cell_w_px` should be the pre-snap base cell width used by the renderer (in pixels).
+    // If <= 0, a safe fallback will be used.
+    float SnappedScaleForZoom(float zoom, float base_cell_w_px) const;
 
     // Optional: attach a key bindings engine so navigation/edit keys captured for
     // tools/scripts can be resolved via configurable action IDs.
@@ -1017,6 +1031,7 @@ private:
 
     // Zoom and last captured viewport metrics.
     float    m_zoom = 1.0f;
+    ZoomSnapMode m_zoom_snap_mode = ZoomSnapMode::PixelAligned;
     ViewState m_last_view;
     bool     m_follow_caret = true;
     // Zoom stabilization: keep certain layout decisions stable for a few frames after zoom changes

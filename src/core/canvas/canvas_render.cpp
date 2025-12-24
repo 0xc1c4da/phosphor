@@ -1381,28 +1381,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         if (io.KeyCtrl && io.MouseWheel != 0.0f &&
             ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))
         {
-            auto snapped_scale_for_zoom = [&](float zoom) -> float
-            {
-                // Must match the snapping logic below.
-                //
-                // For bitmap fonts, we intentionally snap to *integer scale factors* (N x the
-                // native glyph cell) to avoid uneven nearest-neighbor resampling artifacts
-                // (e.g. a repeated/extra scanline inside the glyph).
-                if (bitmap_font)
-                {
-                    float n = std::floor(zoom + 0.5f);
-                    if (n < 1.0f) n = 1.0f;
-                    return n;
-                }
-                // For vector/ImGui atlas fonts, snap based on pixel-aligned cell width.
-                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
-                if (snapped_cell_w < 1.0f)
-                    snapped_cell_w = 1.0f;
-                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
-            };
-
             const float old_zoom = m_zoom;
-            const float old_scale = snapped_scale_for_zoom(old_zoom);
+            const float old_scale = SnappedScaleForZoom(old_zoom, base_cell_w);
 
             wheel_pre_scroll_x = ImGui::GetScrollX();
             wheel_pre_scroll_y = ImGui::GetScrollY();
@@ -1412,33 +1392,15 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
             SetZoom(old_zoom * factor);
 
             const float new_zoom = m_zoom;
-            const float new_scale = snapped_scale_for_zoom(new_zoom);
+            const float new_scale = SnappedScaleForZoom(new_zoom, base_cell_w);
             wheel_zoom_ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
             wheel_zoom_this_frame = true;
         }
     }
 
-    // Explicit zoom (no auto-fit), with snapping:
-    //
-    // IMPORTANT:
-    // - Bitmap/embedded fonts are 1bpp pixel art. To avoid uneven nearest-neighbor resampling
-    //   (visible as a "repeated" pixel row/scanline inside glyphs), we snap to an integer scale N,
-    //   and render cells at (base_cell_w*N, base_cell_h*N).
-    // - For ImGui atlas fonts, we snap cell_w to integer pixels and derive a consistent scale.
-    float snapped_scale = 1.0f;
-    if (bitmap_font)
-    {
-        snapped_scale = std::floor(m_zoom + 0.5f);
-        if (snapped_scale < 1.0f)
-            snapped_scale = 1.0f;
-    }
-    else
-    {
-        float snapped_cell_w = std::floor(base_cell_w * m_zoom + 0.5f);
-        if (snapped_cell_w < 1.0f)
-            snapped_cell_w = 1.0f;
-        snapped_scale = snapped_cell_w / base_cell_w;
-    }
+    // Explicit zoom (no auto-fit), with snapping.
+    // Snapping policy is user-configurable (see AnsiCanvas::ZoomSnapMode).
+    const float snapped_scale = SnappedScaleForZoom(m_zoom, base_cell_w);
 
     float scaled_font_size = std::max(1.0f, std::floor(base_font_size * snapped_scale + 0.5f));
     float scaled_cell_w    = std::floor(base_cell_w * snapped_scale + 0.5f);

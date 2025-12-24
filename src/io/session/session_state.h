@@ -190,6 +190,14 @@ struct SessionState
     // 0 = unlimited (default).
     size_t undo_limit = 0;
 
+    // Zoom snapping mode (applies to all canvases).
+    //
+    // 1 = Integer scale (always snap to N×)
+    // 2 = Pixel-aligned cell width (always snap cell width to integer pixels)
+    //
+    // Note: older session files may contain 0 (Auto); we treat that as 2 during load.
+    int zoom_snap_mode = 2; // default: Pixel-aligned
+
     // Global LUT cache budget (bytes).
     // This is an app-level performance/memory tuning knob intended for LUT-heavy features
     // (palette remaps, allowed-snap LUTs, blend LUTs, quantization LUTs).

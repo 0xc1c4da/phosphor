@@ -500,6 +500,18 @@ void RunFrame(AppState& st)
             cptr->canvas.SetUndoLimit(session_state.undo_limit);
     }
 
+    // Apply global zoom snapping preference to all open canvases.
+    {
+        const int mode_i = std::clamp(session_state.zoom_snap_mode, 0, 2);
+        const AnsiCanvas::ZoomSnapMode mode = (AnsiCanvas::ZoomSnapMode)mode_i;
+        for (auto& cptr : canvases)
+        {
+            if (!cptr || !cptr->open)
+                continue;
+            cptr->canvas.SetZoomSnapMode(mode);
+        }
+    }
+
     auto try_restore_canvas_from_cache = [&](CanvasWindow& cw) {
         if (!cw.restore_pending || cw.restore_attempted || cw.restore_phos_cache_rel.empty())
             return;
@@ -1625,11 +1637,10 @@ void RunFrame(AppState& st)
             base_cell_h = std::max(1.0f, base_cell_h);
             const float zoom = canvas.canvas.GetZoom();
 
-            float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
-            if (snapped_cell_w < 1.0f) snapped_cell_w = 1.0f;
-            const float snapped_scale = (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
-            float scaled_cell_w = snapped_cell_w;
+            const float snapped_scale = canvas.canvas.SnappedScaleForZoom(zoom, base_cell_w);
+            float scaled_cell_w = std::floor(base_cell_w * snapped_scale + 0.5f);
             float scaled_cell_h = std::floor(base_cell_h * snapped_scale + 0.5f);
+            if (scaled_cell_w < 1.0f) scaled_cell_w = 1.0f;
             if (scaled_cell_h < 1.0f) scaled_cell_h = 1.0f;
 
             const int cols2 = canvas.canvas.GetColumns();
@@ -1687,22 +1698,14 @@ void RunFrame(AppState& st)
                 const AnsiCanvas::ViewState vs = canvas.canvas.GetLastViewState();
                 if (vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
                 {
-                    auto snapped_scale_for_zoom = [&](float zoom) -> float
-                    {
-                        const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
-                        float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
-                        if (snapped_cell_w < 1.0f)
-                            snapped_cell_w = 1.0f;
-                        return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
-                    };
-
                     const float old_zoom = canvas.canvas.GetZoom();
-                    const float old_scale = snapped_scale_for_zoom(old_zoom);
+                    const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+                    const float old_scale = canvas.canvas.SnappedScaleForZoom(old_zoom, base_cell_w);
                     const float focus_x = vs.scroll_x + vs.view_w * 0.5f;
                     const float focus_y = vs.scroll_y + vs.view_h * 0.5f;
 
                     canvas.canvas.SetZoom(1.0f);
-                    const float new_scale = snapped_scale_for_zoom(canvas.canvas.GetZoom());
+                    const float new_scale = canvas.canvas.SnappedScaleForZoom(canvas.canvas.GetZoom(), base_cell_w);
                     const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
                     canvas.canvas.RequestScrollPixels(focus_x * ratio - vs.view_w * 0.5f,
                                                       focus_y * ratio - vs.view_h * 0.5f);

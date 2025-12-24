@@ -222,24 +222,15 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
             // - If the mouse is over the minimap content, zoom focuses that point (recenters viewport there).
             // - Otherwise, zoom focuses the current viewport center.
             //
-            // IMPORTANT: match the snapping logic used by AnsiCanvas::Render() (snap based on base_cell_w).
-            auto snapped_scale_for_zoom = [&](float zoom) -> float
-            {
-                const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
-                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
-                if (snapped_cell_w < 1.0f)
-                    snapped_cell_w = 1.0f;
-                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
-            };
-
             const float old_zoom = canvas->GetZoom();
-            const float old_scale = snapped_scale_for_zoom(old_zoom);
+            const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+            const float old_scale = canvas->SnappedScaleForZoom(old_zoom, base_cell_w);
 
             const float factor = (wheel > 0.0f) ? 1.10f : (1.0f / 1.10f);
             canvas->SetZoom(old_zoom * factor);
 
             const float new_zoom = canvas->GetZoom();
-            const float new_scale = snapped_scale_for_zoom(new_zoom);
+            const float new_scale = canvas->SnappedScaleForZoom(new_zoom, base_cell_w);
             const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
 
             // Pick focus point in old canvas pixel space.
@@ -276,17 +267,9 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     {
         if (vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
         {
-            auto snapped_scale_for_zoom = [&](float zoom) -> float
-            {
-                const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
-                float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
-                if (snapped_cell_w < 1.0f)
-                    snapped_cell_w = 1.0f;
-                return (base_cell_w > 0.0f) ? (snapped_cell_w / base_cell_w) : 1.0f;
-            };
-
             const float old_zoom = canvas->GetZoom();
-            const float old_scale = snapped_scale_for_zoom(old_zoom);
+            const float base_cell_w = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+            const float old_scale = canvas->SnappedScaleForZoom(old_zoom, base_cell_w);
 
             float focus_world_x = vs.scroll_x + vs.view_w * 0.5f;
             float focus_world_y = vs.scroll_y + vs.view_h * 0.5f;
@@ -301,7 +284,7 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
             }
 
             canvas->SetZoom(1.0f);
-            const float new_scale = snapped_scale_for_zoom(canvas->GetZoom());
+            const float new_scale = canvas->SnappedScaleForZoom(canvas->GetZoom(), base_cell_w);
             const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
 
             canvas->RequestScrollPixels(focus_world_x * ratio - vs.view_w * 0.5f,
