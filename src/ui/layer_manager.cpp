@@ -703,8 +703,6 @@ void LayerManager::Render(const char* title,
                         }
                         ImGui::EndCombo();
                     }
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
-                        ImGui::SetTooltip("Phase D v1:\n- Background blends across layers.\n- Foreground blends only when this layer draws a glyph (non-space) and fg is set;\n  it blends against the composited background.\n- Glyph and attrs selection are unchanged (topmost glyph wins).");
                 }
 
                 // Blend opacity (0..100%). 100% = full blend effect, 0% = transparent contribution.

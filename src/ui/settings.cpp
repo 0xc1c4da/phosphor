@@ -254,7 +254,7 @@ void SettingsWindow::RenderTab_General()
         bool lut_changed = false;
 
         bool unlimited_lut = (session_->lut_cache_budget_bytes == 0);
-        if (ImGui::Checkbox("Unlimited LUT cache (not recommended)", &unlimited_lut))
+        if (ImGui::Checkbox("Unlimited LUT cache", &unlimited_lut))
         {
             session_->lut_cache_budget_bytes = unlimited_lut ? 0 : (64ull * 1024ull * 1024ull);
             lut_changed = true;
@@ -289,14 +289,6 @@ void SettingsWindow::RenderTab_General()
                 session_->lut_cache_budget_bytes = 96ull * 1024ull * 1024ull;
                 lut_changed = true;
             }
-
-            ImGui::Spacing();
-            ImGui::TextDisabled("Default: 64 MiB. Recommended: keep under ~100 MiB.");
-        }
-        else
-        {
-            ImGui::Spacing();
-            ImGui::TextDisabled("Unlimited can grow without bound and may cause stutters or OOM.");
         }
 
         if (lut_changed && lut_cache_budget_applier_)
@@ -319,31 +311,12 @@ void SettingsWindow::RenderTab_General()
                               format_mib(used_b), format_mib(budget_b),
                               (double)std::clamp(frac, 0.0f, 1.0f) * 100.0);
                 ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label);
-                ImGui::TextDisabled("LUTs are built lazily; a fresh run can be 0%% until a feature requests a LUT.");
-                ImGui::TextDisabled("Under pressure, LUT-backed features fall back to slower exact paths.");
             }
             else
             {
                 char label[128];
                 std::snprintf(label, sizeof(label), "%.1f MiB used (unlimited budget)", format_mib(used_b));
                 ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label);
-                ImGui::TextDisabled("Unlimited has no cap, so there's no meaningful 100%% budget pressure target.");
-            }
-
-            // Optional warm-up so users can verify the budget/usage UI without running an export/deform.
-            if (ImGui::SmallButton("Warm up LUT cache"))
-            {
-                const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-                auto& pal = cs.Palettes();
-                auto& luts = cs.Luts();
-                const phos::color::PaletteInstanceId x256 = pal.Builtin(phos::color::BuiltinPalette::Xterm256);
-                const phos::color::PaletteInstanceId x16  = pal.Builtin(phos::color::BuiltinPalette::Xterm16);
-                const phos::color::PaletteInstanceId x240 = pal.Builtin(phos::color::BuiltinPalette::Xterm240Safe);
-                const phos::color::PaletteInstanceId v16  = pal.Builtin(phos::color::BuiltinPalette::Vga16);
-                // Representative, small LUTs:
-                (void)luts.GetOrBuildRemap(pal, x16, x256, qp);
-                (void)luts.GetOrBuildRemap(pal, x256, v16, qp);
-                (void)luts.GetOrBuildQuant3d(pal, x240, /*bits=*/5, qp);
             }
         }
     }

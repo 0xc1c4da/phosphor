@@ -23,6 +23,31 @@ extern "C"
 
 namespace
 {
+static inline std::uint8_t QuantizeRgbToPaletteIndex_Quant3dOrExact(phos::color::PaletteInstanceId pal,
+                                                                    std::uint8_t r,
+                                                                    std::uint8_t g,
+                                                                    std::uint8_t b,
+                                                                    const phos::color::QuantizePolicy& qp)
+{
+    // Lua-facing rgb()/hex() are hot in scripts that generate colors per-pixel. Prefer a Quant3D LUT
+    // (prebuilt by the host when possible), falling back to the exact deterministic scan path.
+    auto& cs = phos::color::GetColorSystem();
+    constexpr std::uint8_t kBits = 5;
+    const auto qlut = cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, kBits, qp);
+    if (qlut && qlut->bits == kBits && !qlut->table.empty())
+    {
+        const std::size_t side = (std::size_t)1u << kBits;
+        const std::size_t bin_size = 256u / side;
+        const std::size_t rx = std::min<std::size_t>(side - 1u, (std::size_t)r / bin_size);
+        const std::size_t gy = std::min<std::size_t>(side - 1u, (std::size_t)g / bin_size);
+        const std::size_t bz = std::min<std::size_t>(side - 1u, (std::size_t)b / bin_size);
+        const std::size_t flat = (bz * side + gy) * side + rx;
+        if (flat < qlut->table.size())
+            return qlut->table[flat];
+    }
+    return phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qp);
+}
+
 // LuaJIT (Lua 5.1) compatibility: lua_absindex exists only in Lua 5.2+.
 static int LuaAbsIndex(lua_State* L, int idx)
 {
@@ -841,15 +866,13 @@ static int l_color_rgb(lua_State* L)
     const int r = (int)std::llround(luaL_checknumber(L, 1));
     const int g = (int)std::llround(luaL_checknumber(L, 2));
     const int b = (int)std::llround(luaL_checknumber(L, 3));
-    auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
     const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-    const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
-                                                               pal,
-                                                               (std::uint8_t)std::clamp(r, 0, 255),
-                                                               (std::uint8_t)std::clamp(g, 0, 255),
-                                                               (std::uint8_t)std::clamp(b, 0, 255),
-                                                               qp);
+    const int idx = (int)QuantizeRgbToPaletteIndex_Quant3dOrExact(pal,
+                                                                 (std::uint8_t)std::clamp(r, 0, 255),
+                                                                 (std::uint8_t)std::clamp(g, 0, 255),
+                                                                 (std::uint8_t)std::clamp(b, 0, 255),
+                                                                 qp);
     lua_pushinteger(L, idx);
     return 1;
 }
@@ -900,15 +923,13 @@ static int l_color_hex(lua_State* L)
     const int r = std::clamp(byte(0), 0, 255);
     const int g = std::clamp(byte(2), 0, 255);
     const int b = std::clamp(byte(4), 0, 255);
-    auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
     const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-    const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
-                                                               pal,
-                                                               (std::uint8_t)r,
-                                                               (std::uint8_t)g,
-                                                               (std::uint8_t)b,
-                                                               qp);
+    const int idx = (int)QuantizeRgbToPaletteIndex_Quant3dOrExact(pal,
+                                                                 (std::uint8_t)r,
+                                                                 (std::uint8_t)g,
+                                                                 (std::uint8_t)b,
+                                                                 qp);
     lua_pushinteger(L, idx);
     return 1;
 }
@@ -1459,13 +1480,12 @@ static int Color32ToActivePaletteIndexOrMinus1(lua_State* L, std::uint32_t c32)
 {
     if (c32 == 0)
         return -1;
-    auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal = LuaGetActivePaletteId(L);
     const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-    const phos::color::ColorIndex idx = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, c32, qp);
-    if (idx.IsUnset())
+    std::uint8_t r = 0, g = 0, b = 0;
+    if (!phos::color::ColorOps::UnpackImGuiAbgr(c32, r, g, b))
         return -1;
-    return (int)idx.v;
+    return (int)QuantizeRgbToPaletteIndex_Quant3dOrExact(pal, r, g, b, qp);
 }
 
 static int l_font_list(lua_State* L)

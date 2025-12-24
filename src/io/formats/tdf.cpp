@@ -32,26 +32,17 @@ static phos::color::BuiltinPalette ChooseBuiltinPaletteForBitmap(const textmode_
     auto& cs = phos::color::GetColorSystem();
     const auto pal_vga16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
 
-    std::vector<std::uint32_t> pal_colors;
-    {
-        const phos::color::Palette* p = cs.Palettes().Get(pal_vga16);
-        if (p && !p->rgb.empty())
-        {
-            pal_colors.reserve(p->rgb.size());
-            for (std::size_t i = 0; i < p->rgb.size(); ++i)
-                pal_colors.push_back(phos::color::ColorOps::IndexToColor32(cs.Palettes(),
-                                                                           pal_vga16,
-                                                                           phos::color::ColorIndex{(std::uint16_t)i}));
-        }
-    }
-
+    const phos::color::Palette* vga = cs.Palettes().Get(pal_vga16);
     auto is_in_vga16 = [&](std::uint32_t c32) -> bool {
         if (c32 == 0)
             return true; // unset
-        for (std::uint32_t pc : pal_colors)
-            if (pc == c32)
-                return true;
-        return false;
+        if (!vga || vga->rgb.empty())
+            return false;
+        std::uint8_t r = 0, g = 0, b = 0;
+        if (!phos::color::ColorOps::UnpackImGuiAbgr(c32, r, g, b))
+            return true; // treat non-color as unset
+        const std::uint32_t u24 = (std::uint32_t)r | ((std::uint32_t)g << 8) | ((std::uint32_t)b << 16);
+        return vga->exact_u24_to_index.find(u24) != vga->exact_u24_to_index.end();
     };
 
     bool any_color = false;

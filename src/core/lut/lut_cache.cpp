@@ -1,5 +1,7 @@
 #include "core/lut/lut_cache.h"
 
+#include "core/color_blend.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <span>
@@ -24,6 +26,8 @@ std::size_t LutKeyHash::operator()(const LutKey& k) const noexcept
     h ^= k.b.v; h *= 1099511628211ULL;
     h ^= (std::uint64_t)k.quant_bits; h *= 1099511628211ULL;
     h ^= (std::uint64_t)k.allowed_hash; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)k.blend_mode; h *= 1099511628211ULL;
+    h ^= (std::uint64_t)k.blend_alpha; h *= 1099511628211ULL;
     h ^= (std::uint64_t)k.quantize.distance; h *= 1099511628211ULL;
     h ^= (std::uint64_t)(k.quantize.tie_break_lowest_index ? 1 : 0); h *= 1099511628211ULL;
     return (std::size_t)Mix64(h);
@@ -44,6 +48,14 @@ static std::uint8_t NearestIndexRgb_Scan(const Palette& pal,
                                          const QuantizePolicy& policy)
 {
     (void)policy; // only one metric today; tie-break = lowest index is implicit by scan order.
+    // Exact reverse-map fast path (if available).
+    if (!pal.exact_u24_to_index.empty())
+    {
+        const std::uint32_t u24 = (std::uint32_t)r | ((std::uint32_t)g << 8) | ((std::uint32_t)b << 16);
+        auto it = pal.exact_u24_to_index.find(u24);
+        if (it != pal.exact_u24_to_index.end())
+            return it->second;
+    }
     const int n = (int)pal.rgb.size();
     int best = 0;
     int best_d2 = 0x7fffffff;
@@ -438,6 +450,86 @@ std::shared_ptr<const AllowedSnapLut> LutCache::GetOrBuildAllowedSnap(PaletteReg
             }
         }
         lut->snap[i] = best_idx;
+    }
+
+    m_lru.push_front(key);
+    Entry e;
+    e.payload = lut;
+    e.bytes = bytes;
+    e.lru_it = m_lru.begin();
+    m_used_bytes += bytes;
+    m_map.emplace(key, std::move(e));
+    return lut;
+}
+
+std::shared_ptr<const BlendLut> LutCache::GetOrBuildBlend(PaletteRegistry& palettes,
+                                                          PaletteInstanceId pal,
+                                                          phos::LayerBlendMode mode,
+                                                          std::uint8_t alpha,
+                                                          const QuantizePolicy& policy)
+{
+    const Palette* p = palettes.Get(pal);
+    if (!p || p->rgb.empty() || p->rgb.size() > kMaxPaletteSize)
+        return nullptr;
+
+    const std::size_t n = p->rgb.size();
+    if (n < 1 || n > 256)
+        return nullptr;
+
+    LutKey key;
+    key.type = LutType::Blend;
+    key.a = pal;
+    key.b = PaletteInstanceId{0};
+    key.quant_bits = 0;
+    key.allowed_hash = 0;
+    key.quantize = policy;
+    key.blend_mode = (std::uint8_t)mode;
+    key.blend_alpha = alpha;
+
+    auto it = m_map.find(key);
+    if (it != m_map.end())
+    {
+        Touch(it);
+        return std::static_pointer_cast<const BlendLut>(it->second.payload);
+    }
+
+    const std::size_t entries = n * n;
+    const std::size_t bytes = entries * sizeof(std::uint8_t);
+
+    EvictAsNeeded(bytes);
+    if (m_budget_bytes != 0 && (bytes > m_budget_bytes || m_used_bytes + bytes > m_budget_bytes))
+        return nullptr;
+
+    auto lut = std::make_shared<BlendLut>();
+    lut->pal_size = (std::uint16_t)std::clamp<std::size_t>(n, 0, 256);
+    lut->mode = mode;
+    lut->alpha = alpha;
+    lut->table.resize(entries);
+
+    // Build: for each (base, src) -> out index.
+    // Special cases are encoded to avoid unnecessary quantization scans.
+    for (std::size_t bi = 0; bi < n; ++bi)
+    {
+        for (std::size_t si = 0; si < n; ++si)
+        {
+            std::uint8_t out = 0;
+            if (alpha == 0)
+            {
+                out = (std::uint8_t)bi;
+            }
+            else if (mode == phos::LayerBlendMode::Normal && alpha == 255)
+            {
+                out = (std::uint8_t)si;
+            }
+            else
+            {
+                const Rgb8 base_rgb = p->rgb[bi];
+                const Rgb8 src_rgb = p->rgb[si];
+                const Rgb8 res_rgb = phos::color::BlendOverRgb(base_rgb, src_rgb, mode, alpha);
+                out = NearestIndexRgb_Scan(*p, res_rgb.r, res_rgb.g, res_rgb.b, policy);
+            }
+            lut->table[bi * n + si] = out;
+        }
     }
 
     m_lru.push_front(key);

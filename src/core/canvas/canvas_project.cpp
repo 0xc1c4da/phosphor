@@ -46,6 +46,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
         out.active_layer = s.active_layer;
         out.caret_row = s.caret_row;
         out.caret_col = s.caret_col;
+        out.palette_ref = s.palette_ref;
+        out.colour_palette_title = s.colour_palette_title;
         out.layers.reserve(s.layers.size());
         for (const auto& l : s.layers)
             out.layers.push_back(to_project_layer(l));
@@ -62,6 +64,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
             out.patch.active_layer = e.patch.active_layer;
             out.patch.caret_row = e.patch.caret_row;
             out.patch.caret_col = e.patch.caret_col;
+            out.patch.palette_ref = e.patch.palette_ref;
+            out.patch.colour_palette_title = e.patch.colour_palette_title;
             out.patch.state_token = e.patch.state_token;
             out.patch.page_rows = e.patch.page_rows;
             out.patch.layers.clear();
@@ -103,7 +107,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 8;
+    out.version = 9;
     out.palette_ref = m_palette_ref;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
@@ -170,6 +174,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         out.active_layer = s.active_layer;
         out.caret_row = s.caret_row;
         out.caret_col = s.caret_col;
+        out.palette_ref = s.palette_ref;
+        out.colour_palette_title = s.colour_palette_title;
         out.layers.clear();
         out.layers.reserve(s.layers.size());
         for (const auto& pl : s.layers)
@@ -194,6 +200,8 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
             out.patch.active_layer = e.patch.active_layer;
             out.patch.caret_row = e.patch.caret_row;
             out.patch.caret_col = e.patch.caret_col;
+            out.patch.palette_ref = e.patch.palette_ref;
+            out.patch.colour_palette_title = e.patch.colour_palette_title;
             out.patch.state_token = e.patch.state_token;
             out.patch.page_rows = e.patch.page_rows;
             out.patch.layers.clear();

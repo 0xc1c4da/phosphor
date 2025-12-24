@@ -1,5 +1,6 @@
 #include "core/canvas/canvas_internal.h"
 
+#include "core/color_blend.h"
 #include "core/color_system.h"
 #include "core/key_bindings.h"
 
@@ -21,90 +22,6 @@
 
 namespace
 {
-// Shared blend helpers (deterministic integer math; matches references/luts-refactor.md Phase D v1 formulas).
-static inline std::uint8_t LerpU8(std::uint8_t a, std::uint8_t b, std::uint8_t t)
-{
-    // Round-to-nearest lerp in 8-bit space: (a*(255-t) + b*t)/255.
-    const std::uint32_t v = (std::uint32_t)a * (255u - (std::uint32_t)t) + (std::uint32_t)b * (std::uint32_t)t;
-    return (std::uint8_t)((v + 127u) / 255u);
-}
-
-static inline std::uint8_t Mul255(std::uint32_t x, std::uint32_t y)
-{
-    return (std::uint8_t)((x * y + 127u) / 255u);
-}
-
-static inline std::uint32_t DivRound(std::uint32_t num, std::uint32_t den)
-{
-    if (den == 0)
-        return 0;
-    return (num + (den / 2u)) / den;
-}
-
-static inline std::uint8_t BlendChannel(std::uint8_t b, std::uint8_t s, phos::LayerBlendMode mode)
-{
-    switch (mode)
-    {
-        case phos::LayerBlendMode::Normal:
-            return s;
-        case phos::LayerBlendMode::Multiply:
-            return Mul255(b, s);
-        case phos::LayerBlendMode::Screen:
-            return (std::uint8_t)(255u - (std::uint32_t)Mul255(255u - b, 255u - s));
-        case phos::LayerBlendMode::Overlay:
-            if (b <= 127u)
-                return (std::uint8_t)((2u * (std::uint32_t)b * (std::uint32_t)s + 127u) / 255u);
-            return (std::uint8_t)(255u - (std::uint32_t)((2u * (255u - (std::uint32_t)b) * (255u - (std::uint32_t)s) + 127u) / 255u));
-        case phos::LayerBlendMode::Darken:
-            return (b < s) ? b : s;
-        case phos::LayerBlendMode::Lighten:
-            return (b > s) ? b : s;
-        case phos::LayerBlendMode::ColorDodge:
-            if (s == 255u)
-                return 255u;
-            return (std::uint8_t)std::min<std::uint32_t>(255u, DivRound((std::uint32_t)b * 255u, 255u - (std::uint32_t)s));
-        case phos::LayerBlendMode::ColorBurn:
-            if (s == 0u)
-                return 0u;
-            return (std::uint8_t)(255u - std::min<std::uint32_t>(255u, DivRound((255u - (std::uint32_t)b) * 255u, (std::uint32_t)s)));
-    }
-    return s;
-}
-
-static inline phos::color::Rgb8 BlendRgb(const phos::color::Rgb8& base,
-                                        const phos::color::Rgb8& src,
-                                        phos::LayerBlendMode mode)
-{
-    phos::color::Rgb8 out;
-    out.r = BlendChannel(base.r, src.r, mode);
-    out.g = BlendChannel(base.g, src.g, mode);
-    out.b = BlendChannel(base.b, src.b, mode);
-    return out;
-}
-
-static inline phos::color::Rgb8 ApplyOpacityRgb(const phos::color::Rgb8& base,
-                                               const phos::color::Rgb8& blended,
-                                               std::uint8_t alpha)
-{
-    if (alpha == 255)
-        return blended;
-    if (alpha == 0)
-        return base;
-    return phos::color::Rgb8{
-        LerpU8(base.r, blended.r, alpha),
-        LerpU8(base.g, blended.g, alpha),
-        LerpU8(base.b, blended.b, alpha),
-    };
-}
-
-static inline phos::color::Rgb8 BlendOverRgb(const phos::color::Rgb8& base,
-                                            const phos::color::Rgb8& src,
-                                            phos::LayerBlendMode mode,
-                                            std::uint8_t alpha)
-{
-    return ApplyOpacityRgb(base, BlendRgb(base, src, mode), alpha);
-}
-
 static inline phos::color::Rgb8 PaperRgb(bool white)
 {
     const std::uint8_t v = white ? 255u : 0u;
@@ -365,14 +282,19 @@ bool AnsiCanvas::ConvertToPalette(const phos::color::PaletteRef& new_ref)
     if (!src_p || !dst_p || src_p->rgb.empty() || dst_p->rgb.empty())
         return false;
 
-    // Build remap table: src index -> dst index.
-    std::vector<std::uint8_t> remap;
-    remap.resize(std::min<std::size_t>(src_p->rgb.size(), 256u), 0u);
-    for (std::size_t i = 0; i < remap.size(); ++i)
+    // Remap table: src index -> dst index (prefer cached LUT; fall back to deterministic scan if budget pressure prevents it).
+    std::vector<std::uint8_t> remap_fallback;
+    const auto remap_lut = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_id, dst_id, qp);
+    if (!remap_lut)
     {
-        const phos::color::Rgb8 c = src_p->rgb[i];
-        remap[i] = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), dst_id, c.r, c.g, c.b, qp);
+        remap_fallback.resize(std::min<std::size_t>(src_p->rgb.size(), 256u), 0u);
+        for (std::size_t i = 0; i < remap_fallback.size(); ++i)
+        {
+            const phos::color::Rgb8 c = src_p->rgb[i];
+            remap_fallback[i] = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), dst_id, c.r, c.g, c.b, qp);
+        }
     }
+    const std::vector<std::uint8_t>& remap = remap_lut ? remap_lut->remap : remap_fallback;
 
     const std::uint16_t src_max =
         (std::uint16_t)std::min<std::size_t>(remap.empty() ? 0u : (remap.size() - 1), 0xFFu);
@@ -1001,14 +923,12 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
     // Note: bg needs back->front order; glyph selection remains top->bottom.
 
     // ---- Background plane (background-only blend, v1) ----
-    std::optional<phos::color::Rgb8> out_bg_rgb;
+    std::optional<std::uint8_t> out_bg_idx;
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = ResolveActivePaletteId();
         const phos::color::Palette* p = cs.Palettes().Get(pal);
         const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-        ColorIndex16 out_bg = kUnsetIndex16;
-        bool have_bg = false;
         const phos::color::Rgb8 paper = PaperRgb(IsCanvasBackgroundWhite());
 
         // Fallback path: if palette isn't available, preserve legacy "topmost bg wins".
@@ -1035,6 +955,9 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
             goto bg_done;
         }
 
+        const std::uint8_t paper_i =
+            phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, paper.r, paper.g, paper.b, qp);
+
         for (int i = 0; i < (int)m_layers.size(); ++i)
         {
             const Layer& layer = m_layers[(size_t)i];
@@ -1052,19 +975,27 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
             if (layer.blend_alpha == 0)
                 continue; // fully transparent contribution
 
-            const phos::color::Rgb8 src_rgb = PaletteRgbClamped(p, src_bg);
-            const phos::color::Rgb8 base_rgb = out_bg_rgb.has_value() ? *out_bg_rgb : paper;
-            const phos::color::Rgb8 res_rgb = BlendOverRgb(base_rgb, src_rgb, layer.blend_mode, layer.blend_alpha);
-            out_bg_rgb = res_rgb;
-            have_bg = true;
+            const std::uint8_t src_i = ClampPaletteIndexU8(p, src_bg);
+            const std::uint8_t base_i = out_bg_idx.has_value() ? *out_bg_idx : paper_i;
+
+            const auto blut = cs.Luts().GetOrBuildBlend(cs.Palettes(), pal, layer.blend_mode, layer.blend_alpha, qp);
+            if (blut && blut->pal_size == (std::uint16_t)p->rgb.size())
+            {
+                const std::size_t n = p->rgb.size();
+                out_bg_idx = blut->table[(std::size_t)base_i * n + (std::size_t)src_i];
+            }
+            else
+            {
+                // Exact fallback (must match LUT builder semantics).
+                const phos::color::Rgb8 base_rgb = p->rgb[(size_t)base_i];
+                const phos::color::Rgb8 src_rgb = p->rgb[(size_t)src_i];
+                const phos::color::Rgb8 res_rgb = phos::color::BlendOverRgb(base_rgb, src_rgb, layer.blend_mode, layer.blend_alpha);
+                const std::uint8_t oi =
+                    phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, res_rgb.r, res_rgb.g, res_rgb.b, qp);
+                out_bg_idx = oi;
+            }
         }
-        if (have_bg && out_bg_rgb.has_value())
-        {
-            const std::uint8_t oi =
-                phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, out_bg_rgb->r, out_bg_rgb->g, out_bg_rgb->b, qp);
-            out_bg = (ColorIndex16)oi;
-        }
-        out.bg = out_bg;
+        out.bg = out_bg_idx.has_value() ? (ColorIndex16)(*out_bg_idx) : kUnsetIndex16;
     }
 bg_done:
 
@@ -1119,24 +1050,28 @@ bg_done:
         {
             const bool paper_white = IsCanvasBackgroundWhite();
             const phos::color::Rgb8 paper = PaperRgb(paper_white);
+            const std::uint8_t paper_i =
+                phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, paper.r, paper.g, paper.b, qp);
+            const phos::color::Rgb8 def_fg_rgb = DefaultFgRgb(paper_white);
+            const std::uint8_t def_fg_i =
+                phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, def_fg_rgb.r, def_fg_rgb.g, def_fg_rgb.b, qp);
 
-            // Source fg (top glyph layer):
-            // - If unset: treat as theme default fg for blend math.
-            // - Otherwise: palette color.
-            const phos::color::Rgb8 src_rgb =
-                (out.fg == kUnsetIndex16) ? DefaultFgRgb(paper_white) : PaletteRgbClamped(p, out.fg);
+            // Source fg (top glyph layer) for blend math:
+            // - If unset: use theme default fg *as a color* for blending, but preserve "unset" output when blending is identity.
+            const std::uint8_t src_i =
+                (out.fg == kUnsetIndex16) ? def_fg_i : ClampPaletteIndexU8(p, out.fg);
 
             // Base for fg blending:
             // - If there is a glyph below, use its fg (or default fg if unset).
             // - Otherwise, use composited background (or paper).
-            phos::color::Rgb8 base_rgb;
+            std::uint8_t base_i = paper_i;
             if (have_under_glyph)
             {
-                base_rgb = (under_fg == kUnsetIndex16) ? DefaultFgRgb(paper_white) : PaletteRgbClamped(p, under_fg);
+                base_i = (under_fg == kUnsetIndex16) ? def_fg_i : ClampPaletteIndexU8(p, under_fg);
             }
             else
             {
-                base_rgb = out_bg_rgb.has_value() ? *out_bg_rgb : paper;
+                base_i = (out.bg != kUnsetIndex16) ? ClampPaletteIndexU8(p, out.bg) : paper_i;
             }
 
             // Foreground blending opacity is the layer opacity only.
@@ -1146,9 +1081,7 @@ bg_done:
             if (alpha == 0)
             {
                 // Fully transparent effect: make ink match background (glyph becomes visually invisible).
-                const std::uint8_t bi =
-                    phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, base_rgb.r, base_rgb.g, base_rgb.b, qp);
-                out.fg = (ColorIndex16)bi;
+                out.fg = (ColorIndex16)base_i;
             }
             else
             {
@@ -1161,10 +1094,21 @@ bg_done:
                 }
                 else
                 {
-                    const phos::color::Rgb8 res_rgb = BlendOverRgb(base_rgb, src_rgb, glyph_blend_mode, alpha);
-                    const std::uint8_t oi =
-                        phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, res_rgb.r, res_rgb.g, res_rgb.b, qp);
-                    out.fg = (ColorIndex16)oi;
+                    const auto blut = cs.Luts().GetOrBuildBlend(cs.Palettes(), pal, glyph_blend_mode, alpha, qp);
+                    if (blut && blut->pal_size == (std::uint16_t)p->rgb.size())
+                    {
+                        const std::size_t n = p->rgb.size();
+                        out.fg = (ColorIndex16)blut->table[(std::size_t)base_i * n + (std::size_t)src_i];
+                    }
+                    else
+                    {
+                        const phos::color::Rgb8 base_rgb = p->rgb[(size_t)base_i];
+                        const phos::color::Rgb8 src_rgb = p->rgb[(size_t)src_i];
+                        const phos::color::Rgb8 res_rgb = phos::color::BlendOverRgb(base_rgb, src_rgb, glyph_blend_mode, alpha);
+                        const std::uint8_t oi =
+                            phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, res_rgb.r, res_rgb.g, res_rgb.b, qp);
+                        out.fg = (ColorIndex16)oi;
+                    }
                 }
             }
         }

@@ -27,6 +27,33 @@ namespace
 static bool ParseHexColorToRgb8(const std::string& s, int& out_r, int& out_g, int& out_b);
 static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx);
 
+static inline std::uint8_t QuantizeRgbToPaletteIndex_Quant3dOrExact(phos::color::PaletteInstanceId pal,
+                                                                    std::uint8_t r,
+                                                                    std::uint8_t g,
+                                                                    std::uint8_t b,
+                                                                    const phos::color::QuantizePolicy& qpol)
+{
+    // ANSL/Lua hotspot: many scripts quantize lots of random RGB values. A Quant3D LUT gives an O(1)
+    // mapping to a reasonable nearest index. If the LUT can't be allocated, we fall back to the exact
+    // deterministic scan path.
+    auto& cs = phos::color::GetColorSystem();
+    constexpr std::uint8_t kBits = 5; // 32^3 = 32768 entries (~32KiB), a good speed/size tradeoff.
+    const auto qlut = cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, kBits, qpol);
+    if (qlut && qlut->bits == kBits && !qlut->table.empty())
+    {
+        const std::size_t side = (std::size_t)1u << kBits;
+        const std::size_t bin_size = 256u / side; // matches LUT builder (256/side)
+        const std::size_t rx = std::min<std::size_t>(side - 1u, (std::size_t)r / bin_size);
+        const std::size_t gy = std::min<std::size_t>(side - 1u, (std::size_t)g / bin_size);
+        const std::size_t bz = std::min<std::size_t>(side - 1u, (std::size_t)b / bin_size);
+        const std::size_t flat = (bz * side + gy) * side + rx;
+        if (flat < qlut->table.size())
+            return qlut->table[flat];
+    }
+
+    return phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qpol);
+}
+
 static phos::color::PaletteInstanceId ResolveCanvasPaletteOrXterm256(const AnsiCanvas* canvas)
 {
     auto& cs = phos::color::GetColorSystem();
@@ -1274,15 +1301,13 @@ static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::str
     const int g = std::clamp(byte(2), 0, 255);
     const int b = std::clamp(byte(4), 0, 255);
 
-    auto& cs = phos::color::GetColorSystem();
     const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
     const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
-    out_idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
-                                                          pal,
-                                                          (std::uint8_t)r,
-                                                          (std::uint8_t)g,
-                                                          (std::uint8_t)b,
-                                                          qpol);
+    out_idx = (int)QuantizeRgbToPaletteIndex_Quant3dOrExact(pal,
+                                                           (std::uint8_t)r,
+                                                           (std::uint8_t)g,
+                                                           (std::uint8_t)b,
+                                                           qpol);
     return true;
 }
 
@@ -1653,6 +1678,11 @@ struct AnslScriptEngine::Impl
     int ctx_ref = LUA_NOREF; // reusable ctx table (with nested metrics/cursor/p tables)
     int params_ref = LUA_NOREF; // reusable ctx.params table
     std::string last_source;
+    // Cache key extension: many scripts compute palette-dependent constants at load time via
+    // ansl.color.* helpers, so we must recompile if the active canvas palette identity changes
+    // even when the source text is unchanged.
+    bool has_last_compile_palette_ref = false;
+    phos::color::PaletteRef last_compile_palette_ref;
     bool initialized = false;
     AnslScriptSettings settings;
 
@@ -1880,8 +1910,32 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
         return false;
     }
 
-    if (source == impl_->last_source && impl_->render_ref != LUA_NOREF)
+    // Determine the palette identity that load-time helpers should bind against.
+    // If we don't have a canvas, default to xterm256.
+    phos::color::PaletteRef compile_pref;
+    if (canvas)
+        compile_pref = canvas->GetPaletteRef();
+    else
+    {
+        compile_pref.is_builtin = true;
+        compile_pref.builtin = phos::color::BuiltinPalette::Xterm256;
+        compile_pref.uid = {}; // unused for builtins
+    }
+
+    auto pref_equal = [](const phos::color::PaletteRef& a, const phos::color::PaletteRef& b) -> bool
+    {
+        return a.is_builtin == b.is_builtin &&
+               a.builtin == b.builtin &&
+               a.uid == b.uid;
+    };
+
+    if (source == impl_->last_source &&
+        impl_->render_ref != LUA_NOREF &&
+        impl_->has_last_compile_palette_ref &&
+        pref_equal(impl_->last_compile_palette_ref, compile_pref))
+    {
         return true;
+    }
 
     impl_->last_source = source;
     impl_->settings = AnslScriptSettings{};
@@ -1917,6 +1971,12 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
         const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
         lua_pushinteger(impl_->L, (lua_Integer)pal.v);
         lua_setfield(impl_->L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
+
+        // Prebuild Quant3D for ANSL/Lua color quantization hotspots (if budget allows).
+        // This avoids a "first-frame hitch" when scripts start quantizing random colors.
+        auto& cs = phos::color::GetColorSystem();
+        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+        (void)cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, /*bits=*/5, qpol);
     }
 
     if (luaL_loadbuffer(impl_->L, source.c_str(), source.size(), "<ansl_editor>") != LUA_OK)
@@ -2083,6 +2143,9 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
     }
 
     error.clear();
+    // Record the palette identity this successful compile was bound against.
+    impl_->last_compile_palette_ref = compile_pref;
+    impl_->has_last_compile_palette_ref = true;
     return true;
 }
 
@@ -2169,6 +2232,11 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
         lua_pushinteger(L, (lua_Integer)pal.v);
         lua_setfield(L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
+
+        // Prebuild Quant3D for runtime (palette can change across frames / canvases).
+        auto& cs = phos::color::GetColorSystem();
+        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+        (void)cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, /*bits=*/5, qpol);
     }
 
     // Push render(ctx, layer)

@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "ui/layer_manager.h"
 #include "ansl/ansl_script_engine.h"
+#include "core/palette/palette.h"
 
 #include <string>
 #include <vector>
@@ -98,4 +99,10 @@ private:
     // Engine state
     bool        needs_recompile_ = true;
     std::string last_error_;
+
+    // Some scripts compute palette indices at compile time (via ansl.color.* helpers).
+    // If the canvas palette changes (e.g. Convert canvas palette), we must recompile so
+    // those indices are re-quantized into the new palette index space.
+    bool                  has_compiled_palette_ref_ = false;
+    phos::color::PaletteRef compiled_palette_ref_;
 };

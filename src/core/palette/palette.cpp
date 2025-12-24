@@ -230,6 +230,23 @@ PaletteInstanceId PaletteRegistry::RegisterInternal(Palette p)
     PaletteInstanceId id;
     id.v = m_next_instance++;
     p.instance = id;
+
+    // Build exact reverse lookup map (RGB24 -> lowest index).
+    // This is used as a fast path for "already-in-palette" colors and for deterministic blending outputs.
+    p.exact_u24_to_index.clear();
+    p.exact_u24_to_index.reserve(p.rgb.size());
+    for (std::size_t i = 0; i < p.rgb.size(); ++i)
+    {
+        const Rgb8 c = p.rgb[i];
+        const std::uint32_t u24 = (std::uint32_t)c.r | ((std::uint32_t)c.g << 8) | ((std::uint32_t)c.b << 16);
+        if (u24 > 0xFFFFFFu)
+            continue;
+        auto it = p.exact_u24_to_index.find(u24);
+        if (it == p.exact_u24_to_index.end())
+            p.exact_u24_to_index.emplace(u24, (std::uint8_t)std::clamp<std::size_t>(i, 0, 255));
+        // else: keep existing (lowest index wins)
+    }
+
     m_by_instance[id.v] = std::move(p);
     return id;
 }

@@ -74,6 +74,9 @@ struct Palette
     std::string title;
     std::vector<Rgb8> rgb; // size 1..256
     std::optional<DerivedPaletteMapping> derived;
+    // Exact reverse lookup (RGB24 -> lowest palette index with that exact color).
+    // Built once at palette registration time; safe because palettes are immutable after registration.
+    std::unordered_map<std::uint32_t, std::uint8_t> exact_u24_to_index;
 };
 
 struct QuantizePolicy

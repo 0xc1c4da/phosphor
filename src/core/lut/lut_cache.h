@@ -1,11 +1,13 @@
 #pragma once
 
 #include "core/palette/palette.h"
+#include "core/layer_blend_mode.h"
 
 #include <cstdint>
 #include <list>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -17,6 +19,7 @@ enum class LutType : std::uint8_t
     Remap = 2,
     AllowedQuant3D = 3,
     AllowedSnap = 4,
+    Blend = 5,
 };
 
 struct LutKey
@@ -27,6 +30,8 @@ struct LutKey
     QuantizePolicy quantize;
     std::uint8_t quant_bits = 0; // 0 => invalid
     std::uint64_t allowed_hash = 0; // for AllowedQuant3D
+    std::uint8_t blend_mode = 0; // for Blend (phos::LayerBlendMode as u8)
+    std::uint8_t blend_alpha = 0; // for Blend (0..255)
 
     bool operator==(const LutKey& o) const
     {
@@ -35,6 +40,8 @@ struct LutKey
                b == o.b &&
                quant_bits == o.quant_bits &&
                allowed_hash == o.allowed_hash &&
+               blend_mode == o.blend_mode &&
+               blend_alpha == o.blend_alpha &&
                quantize.distance == o.quantize.distance &&
                quantize.tie_break_lowest_index == o.quantize.tie_break_lowest_index;
     }
@@ -77,6 +84,17 @@ public:
     std::vector<std::uint8_t> snap;
 };
 
+class BlendLut
+{
+public:
+    // Table is palSize*palSize entries, each is a palette index stored as u8.
+    // Indexing: table[base*palSize + src] -> out
+    std::uint16_t pal_size = 0;
+    phos::LayerBlendMode mode = phos::LayerBlendMode::Normal;
+    std::uint8_t alpha = 255;
+    std::vector<std::uint8_t> table;
+};
+
 class LutCache
 {
 public:
@@ -106,6 +124,12 @@ public:
                                                                 PaletteInstanceId pal,
                                                                 std::span<const int> allowed_indices,
                                                                 const QuantizePolicy& policy);
+
+    std::shared_ptr<const BlendLut> GetOrBuildBlend(PaletteRegistry& palettes,
+                                                    PaletteInstanceId pal,
+                                                    phos::LayerBlendMode mode,
+                                                    std::uint8_t alpha,
+                                                    const QuantizePolicy& policy);
 
 private:
     struct Entry

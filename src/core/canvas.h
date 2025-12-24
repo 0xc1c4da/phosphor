@@ -326,13 +326,17 @@ public:
         int                     active_layer = 0;
         int                     caret_row = 0;
         int                     caret_col = 0;
+        // Core palette identity for interpreting fg/bg indices.
+        phos::color::PaletteRef palette_ref;
+        // Optional UI colour palette identity.
+        std::string             colour_palette_title;
         std::vector<ProjectLayer> layers;
     };
 
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 8;
+        int                     version = 9;
 
         // Core palette identity for this canvas (LUT/index-centric pipeline).
         // Default is xterm256 to preserve current behavior.
@@ -427,6 +431,10 @@ public:
                 int active_layer = 0;
                 int caret_row = 0;
                 int caret_col = 0;
+                // Core palette identity for interpreting fg/bg indices.
+                phos::color::PaletteRef palette_ref;
+                // Optional UI colour palette identity.
+                std::string colour_palette_title;
                 std::uint64_t state_token = 1;
 
                 int page_rows = 64;
@@ -843,6 +851,10 @@ private:
         int                active_layer = 0;
         int                caret_row = 0;
         int                caret_col = 0;
+        // Core palette identity for interpreting fg/bg indices.
+        phos::color::PaletteRef palette_ref;
+        // Optional UI colour palette identity (does not affect stored indices, but should be undoable).
+        std::string        colour_palette_title;
         std::vector<Layer> layers;
 
         // Monotonic state identity token used for savepoint/dirty tracking.
@@ -893,6 +905,10 @@ private:
             int active_layer = 0;
             int caret_row = 0;
             int caret_col = 0;
+            // Core palette identity for interpreting fg/bg indices.
+            phos::color::PaletteRef palette_ref;
+            // Optional UI colour palette identity.
+            std::string colour_palette_title;
             std::uint64_t state_token = 1;
 
             int page_rows = 64;

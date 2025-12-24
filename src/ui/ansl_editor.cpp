@@ -16,6 +16,13 @@
 
 namespace fs = std::filesystem;
 
+static bool PaletteRefEqual(const phos::color::PaletteRef& a, const phos::color::PaletteRef& b)
+{
+    return a.is_builtin == b.is_builtin &&
+           a.builtin == b.builtin &&
+           a.uid == b.uid;
+}
+
 static std::string ReadFileToString(const std::string& path)
 {
     std::ifstream in(path, std::ios::binary);
@@ -399,6 +406,21 @@ void AnslEditor::Render(const char* id,
             if (for_execution && !engine.HasRenderFunction())
                 needs_recompile_ = true;
 
+            // If the active canvas palette has changed since the last successful compile,
+            // force a recompile so palette-dependent constants (ansl.color.*) are re-quantized
+            // into the new palette index space.
+            if (canvas && engine.HasRenderFunction())
+            {
+                if (!has_compiled_palette_ref_)
+                {
+                    needs_recompile_ = true;
+                }
+                else if (!PaletteRefEqual(compiled_palette_ref_, canvas->GetPaletteRef()))
+                {
+                    needs_recompile_ = true;
+                }
+            }
+
             if (!needs_recompile_)
                 return engine.HasRenderFunction();
 
@@ -412,6 +434,11 @@ void AnslEditor::Render(const char* id,
 
             last_error_.clear();
             needs_recompile_ = false;
+            if (canvas)
+            {
+                compiled_palette_ref_ = canvas->GetPaletteRef();
+                has_compiled_palette_ref_ = true;
+            }
             ResetPlaybackState();
             ApplyScriptSettings(canvas);
             return true;
@@ -534,6 +561,14 @@ void AnslEditor::Render(const char* id,
                 fps_window_start_ = now;
                 fps_window_frames_ = 0;
             }
+        }
+
+        if (canvas && should_run)
+        {
+            // Palette conversion can happen while paused/playing. Ensure we compile against
+            // the current palette before executing any tick.
+            if (!EnsureCompiled(/*for_execution=*/true))
+                should_run = false;
         }
 
         if (canvas && should_run)

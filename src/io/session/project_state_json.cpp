@@ -58,6 +58,108 @@ static std::uint32_t U24FromRgb8(const phos::color::Rgb8& c)
     return ((std::uint32_t)c.r << 16) | ((std::uint32_t)c.g << 8) | (std::uint32_t)c.b;
 }
 
+static json PaletteRefToJson(const phos::color::PaletteRef& ref)
+{
+    json pj;
+    if (ref.is_builtin)
+    {
+        pj["builtin"] = (std::uint32_t)ref.builtin;
+        return pj;
+    }
+    if (ref.uid.IsZero())
+        return pj;
+
+    pj["uid"] = BytesToLowerHex(ref.uid.bytes);
+
+    // Dynamic palettes: embed the RGB table so undo history remains self-contained.
+    auto& cs = phos::color::GetColorSystem();
+    if (auto id = cs.Palettes().Resolve(ref))
+    {
+        if (const phos::color::Palette* p = cs.Palettes().Get(*id))
+        {
+            if (!p->title.empty())
+                pj["title"] = p->title;
+            json rgb = json::array();
+            for (const phos::color::Rgb8& c : p->rgb)
+                rgb.push_back(U24FromRgb8(c));
+            pj["rgb_u24"] = std::move(rgb);
+        }
+    }
+    return pj;
+}
+
+static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std::string& err)
+{
+    err.clear();
+    out = phos::color::PaletteRef{};
+    if (!pj.is_object())
+        return true;
+
+    if (pj.contains("builtin") && pj["builtin"].is_number_unsigned())
+    {
+        const std::uint32_t b = pj["builtin"].get<std::uint32_t>();
+        out.is_builtin = true;
+        out.builtin = (phos::color::BuiltinPalette)b;
+        return true;
+    }
+
+    if (pj.contains("uid") && pj["uid"].is_string())
+    {
+        const std::string uid_hex = pj["uid"].get<std::string>();
+        phos::color::PaletteUid uid;
+        if (!LowerHexToBytes(uid_hex, uid.bytes))
+            return true;
+
+        out.is_builtin = false;
+        out.uid = uid;
+
+        // If the JSON includes the dynamic palette table, register it now so the palette can be resolved.
+        if (pj.contains("rgb_u24") && pj["rgb_u24"].is_array())
+        {
+            std::vector<phos::color::Rgb8> rgb;
+            rgb.reserve(pj["rgb_u24"].size());
+            for (const auto& v : pj["rgb_u24"])
+            {
+                if (!v.is_number_unsigned() && !v.is_number_integer())
+                {
+                    err = "palette_ref.rgb_u24 contains a non-integer value.";
+                    return false;
+                }
+                std::uint32_t u24 = 0;
+                if (v.is_number_unsigned())
+                    u24 = v.get<std::uint32_t>();
+                else
+                {
+                    const std::int64_t si = v.get<std::int64_t>();
+                    if (si < 0)
+                    {
+                        err = "palette_ref.rgb_u24 contains a negative value.";
+                        return false;
+                    }
+                    u24 = (std::uint32_t)si;
+                }
+                rgb.push_back(Rgb8FromU24(u24));
+                if (rgb.size() >= phos::color::kMaxPaletteSize)
+                    break;
+            }
+
+            const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
+            if (computed != uid)
+            {
+                err = "palette_ref.uid does not match the palette_ref.rgb_u24 table.";
+                return false;
+            }
+
+            std::string title;
+            if (pj.contains("title") && pj["title"].is_string())
+                title = pj["title"].get<std::string>();
+            (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
+        }
+        return true;
+    }
+    return true;
+}
+
 static bool ParseIndexPlaneFromJson(const json& arr,
                                    std::vector<AnsiCanvas::ColorIndex16>& out,
                                    const phos::color::PaletteRef& palette_ref,
@@ -329,6 +431,9 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
     js["active_layer"] = s.active_layer;
     js["caret_row"] = s.caret_row;
     js["caret_col"] = s.caret_col;
+    js["palette_ref"] = PaletteRefToJson(s.palette_ref);
+    if (!s.colour_palette_title.empty())
+        js["colour_palette_title"] = s.colour_palette_title;
     json layers = json::array();
     for (const auto& l : s.layers)
         layers.push_back(ProjectLayerToJson(l));
@@ -350,6 +455,23 @@ static bool ProjectSnapshotFromJson(const json& js,
     }
 
     out = AnsiCanvas::ProjectSnapshot{};
+    // Default to the project's palette identity, but allow snapshots to override it.
+    out.palette_ref = palette_ref;
+    out.colour_palette_title.clear();
+    if (js.contains("palette_ref") && js["palette_ref"].is_object())
+    {
+        phos::color::PaletteRef pref;
+        std::string perr;
+        if (!PaletteRefFromJson(js["palette_ref"], pref, perr))
+        {
+            err = perr;
+            return false;
+        }
+        if (pref.is_builtin || !pref.uid.IsZero())
+            out.palette_ref = pref;
+    }
+    if (js.contains("colour_palette_title") && js["colour_palette_title"].is_string())
+        out.colour_palette_title = js["colour_palette_title"].get<std::string>();
     if (js.contains("columns") && js["columns"].is_number_integer())
         out.columns = js["columns"].get<int>();
     if (js.contains("rows") && js["rows"].is_number_integer())
@@ -371,7 +493,7 @@ static bool ProjectSnapshotFromJson(const json& js,
     for (const auto& jl : js["layers"])
     {
         AnsiCanvas::ProjectLayer pl;
-        if (!ProjectLayerFromJson(jl, pl, palette_ref, project_version, err))
+        if (!ProjectLayerFromJson(jl, pl, out.palette_ref, project_version, err))
             return false;
         out.layers.push_back(std::move(pl));
     }
@@ -389,6 +511,9 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
         je["active_layer"] = e.patch.active_layer;
         je["caret_row"] = e.patch.caret_row;
         je["caret_col"] = e.patch.caret_col;
+        je["palette_ref"] = PaletteRefToJson(e.patch.palette_ref);
+        if (!e.patch.colour_palette_title.empty())
+            je["colour_palette_title"] = e.patch.colour_palette_title;
         je["state_token"] = e.patch.state_token;
         je["page_rows"] = e.patch.page_rows;
 
@@ -461,6 +586,23 @@ static bool UndoEntryFromJson(const json& je,
         if (je.contains("active_layer") && je["active_layer"].is_number_integer()) p.active_layer = je["active_layer"].get<int>();
         if (je.contains("caret_row") && je["caret_row"].is_number_integer()) p.caret_row = je["caret_row"].get<int>();
         if (je.contains("caret_col") && je["caret_col"].is_number_integer()) p.caret_col = je["caret_col"].get<int>();
+        // Default to the project's palette identity, but allow patches to override it.
+        p.palette_ref = palette_ref;
+        p.colour_palette_title.clear();
+        if (je.contains("palette_ref") && je["palette_ref"].is_object())
+        {
+            phos::color::PaletteRef pref;
+            std::string perr;
+            if (!PaletteRefFromJson(je["palette_ref"], pref, perr))
+            {
+                err = perr;
+                return false;
+            }
+            if (pref.is_builtin || !pref.uid.IsZero())
+                p.palette_ref = pref;
+        }
+        if (je.contains("colour_palette_title") && je["colour_palette_title"].is_string())
+            p.colour_palette_title = je["colour_palette_title"].get<std::string>();
         if (je.contains("state_token") && (je["state_token"].is_number_unsigned() || je["state_token"].is_number_integer()))
             p.state_token = je["state_token"].get<std::uint64_t>();
         if (je.contains("page_rows") && je["page_rows"].is_number_integer())
@@ -556,12 +698,12 @@ static bool UndoEntryFromJson(const json& je,
                 }
                 if (jp.contains("fg") && jp["fg"].is_array())
                 {
-                    if (!ParseIndexPlaneFromJson(jp["fg"], pg.fg, palette_ref, project_version, err))
+                    if (!ParseIndexPlaneFromJson(jp["fg"], pg.fg, out.patch.palette_ref, project_version, err))
                         return false;
                 }
                 if (jp.contains("bg") && jp["bg"].is_array())
                 {
-                    if (!ParseIndexPlaneFromJson(jp["bg"], pg.bg, palette_ref, project_version, err))
+                    if (!ParseIndexPlaneFromJson(jp["bg"], pg.bg, out.patch.palette_ref, project_version, err))
                         return false;
                 }
                 if (jp.contains("attrs") && jp["attrs"].is_array())
@@ -588,31 +730,7 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["version"] = st.version;
     j["undo_limit"] = st.undo_limit;
     // Core palette identity.
-    {
-        json pj;
-        if (st.palette_ref.is_builtin)
-            pj["builtin"] = (std::uint32_t)st.palette_ref.builtin;
-        else if (!st.palette_ref.uid.IsZero())
-        {
-            pj["uid"] = BytesToLowerHex(st.palette_ref.uid.bytes);
-            // Dynamic palettes: embed the RGB table so projects are self-contained.
-            // (PaletteUid is content-addressed from this RGB table; we validate on load.)
-            auto& cs = phos::color::GetColorSystem();
-            if (auto id = cs.Palettes().Resolve(st.palette_ref))
-            {
-                if (const phos::color::Palette* p = cs.Palettes().Get(*id))
-                {
-                    if (!p->title.empty())
-                        pj["title"] = p->title;
-                    json rgb = json::array();
-                    for (const phos::color::Rgb8& c : p->rgb)
-                        rgb.push_back(U24FromRgb8(c));
-                    pj["rgb_u24"] = std::move(rgb);
-                }
-            }
-        }
-        j["palette_ref"] = std::move(pj);
-    }
+    j["palette_ref"] = PaletteRefToJson(st.palette_ref);
     if (!st.colour_palette_title.empty())
         j["colour_palette_title"] = st.colour_palette_title;
     j["sauce"] = SauceMetaToJson(st.sauce);
@@ -672,67 +790,15 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     // Core palette identity (optional; defaults to xterm256).
     if (j.contains("palette_ref") && j["palette_ref"].is_object())
     {
-        const json& pj = j["palette_ref"];
-        if (pj.contains("builtin") && pj["builtin"].is_number_unsigned())
+        phos::color::PaletteRef pref;
+        std::string perr;
+        if (!PaletteRefFromJson(j["palette_ref"], pref, perr))
         {
-            const std::uint32_t b = pj["builtin"].get<std::uint32_t>();
-            out.palette_ref.is_builtin = true;
-            out.palette_ref.builtin = (phos::color::BuiltinPalette)b;
+            err = perr;
+            return false;
         }
-        else if (pj.contains("uid") && pj["uid"].is_string())
-        {
-            const std::string uid_hex = pj["uid"].get<std::string>();
-            phos::color::PaletteUid uid;
-            if (LowerHexToBytes(uid_hex, uid.bytes))
-            {
-                out.palette_ref.is_builtin = false;
-                out.palette_ref.uid = uid;
-
-                // If the project includes the dynamic palette table, register it now.
-                // This ensures the palette can be resolved when the canvas applies state.
-                if (pj.contains("rgb_u24") && pj["rgb_u24"].is_array())
-                {
-                    std::vector<phos::color::Rgb8> rgb;
-                    rgb.reserve(pj["rgb_u24"].size());
-                    for (const auto& v : pj["rgb_u24"])
-                    {
-                        if (!v.is_number_unsigned() && !v.is_number_integer())
-                        {
-                            err = "palette_ref.rgb_u24 contains a non-integer value.";
-                            return false;
-                        }
-                        std::uint32_t u24 = 0;
-                        if (v.is_number_unsigned())
-                            u24 = v.get<std::uint32_t>();
-                        else
-                        {
-                            const std::int64_t si = v.get<std::int64_t>();
-                            if (si < 0)
-                            {
-                                err = "palette_ref.rgb_u24 contains a negative value.";
-                                return false;
-                            }
-                            u24 = (std::uint32_t)si;
-                        }
-                        rgb.push_back(Rgb8FromU24(u24));
-                        if (rgb.size() >= phos::color::kMaxPaletteSize)
-                            break;
-                    }
-
-                    const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
-                    if (computed != uid)
-                    {
-                        err = "palette_ref.uid does not match the palette_ref.rgb_u24 table.";
-                        return false;
-                    }
-
-                    std::string title;
-                    if (pj.contains("title") && pj["title"].is_string())
-                        title = pj["title"].get<std::string>();
-                    (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
-                }
-            }
-        }
+        if (pref.is_builtin || !pref.uid.IsZero())
+            out.palette_ref = pref;
     }
 
     if (!j.contains("current"))
