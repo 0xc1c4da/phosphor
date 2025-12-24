@@ -418,27 +418,19 @@ void RunFrame(AppState& st)
             continue;
         if (!c.canvas.HasFocus())
             continue;
-        // Only treat this as the focused canvas if it's also the last active canvas window.
-        // Otherwise the UI "active canvas" should fall back to last_active_canvas_id below.
-        if (last_active_canvas_id != -1 && c.id != last_active_canvas_id)
-            continue;
-
-        if (c.open && c.canvas.HasFocus())
-        {
-            focused_canvas = &c.canvas;
-            focused_canvas_window = &c;
-            if (last_active_canvas_id == -1)
-                last_active_canvas_id = c.id;
-            break;
-        }
+        focused_canvas = &c.canvas;
+        focused_canvas_window = &c;
+        if (last_active_canvas_id == -1)
+            last_active_canvas_id = c.id;
+        break;
     }
     // Active canvas for global actions (File menu, Edit menu items, future actions):
-    // - prefer the focused grid canvas
-    // - otherwise use the last active canvas window
+    // - prefer the last active canvas window (tracks window focus/clicks)
+    // - otherwise fall back to focused grid canvas
     // - otherwise fall back to the first open canvas
-    AnsiCanvas* active_canvas = focused_canvas;
-    CanvasWindow* active_canvas_window = focused_canvas_window;
-    if (!focused_canvas && last_active_canvas_id != -1)
+    AnsiCanvas* active_canvas = nullptr;
+    CanvasWindow* active_canvas_window = nullptr;
+    if (last_active_canvas_id != -1)
     {
         for (auto& cptr : canvases)
         {
@@ -452,6 +444,11 @@ void RunFrame(AppState& st)
                 break;
             }
         }
+    }
+    if (!active_canvas && focused_canvas)
+    {
+        active_canvas = focused_canvas;
+        active_canvas_window = focused_canvas_window;
     }
     if (!active_canvas)
     {
@@ -2551,9 +2548,12 @@ void RunFrame(AppState& st)
     if (show_minimap_window)
     {
         const char* name = "Minimap";
-        preview_texture.Update(active_canvas, 768, ImGui::GetTime());
+        // Important: resolve *UI active* canvas late (after canvas windows updated last_active_canvas_id)
+        // so the minimap tracks the currently focused canvas window.
+        AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
+        preview_texture.Update(ui_active_canvas, 768, ImGui::GetTime());
         const CanvasPreviewTextureView pv_view = preview_texture.View();
-        minimap_window.Render(name, &show_minimap_window, active_canvas, &pv_view,
+        minimap_window.Render(name, &show_minimap_window, ui_active_canvas, &pv_view,
                               &session_state, should_apply_placement(name));
     }
 
