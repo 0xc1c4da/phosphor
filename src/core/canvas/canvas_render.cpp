@@ -8,6 +8,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -249,7 +250,6 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
     const int caret_row = m_caret_row;
     const int caret_col = m_caret_col;
-    const ImU32 caret_fill = ImGui::GetColorU32(ImVec4(0.30f, 0.30f, 0.60f, 0.75f));
     const float now = (float)ImGui::GetTime();
     const bool blink_phase_on = (std::fmod(now, 1.0f) < 0.5f);
     const float deco_thickness = std::max(1.0f, std::floor(cell_h / 16.0f));
@@ -269,22 +269,26 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     const bool active_palette_is_vga16 =
         (m_palette_ref.is_builtin && m_palette_ref.builtin == phos::color::BuiltinPalette::Vga16);
 
-    float y = origin.y + (float)start_row * cell_h;
-    for (int row = start_row; row < end_row; ++row, y += cell_h)
+    // For bitmap/atlas rendering, avoid incremental float accumulation (x += cell_w) and
+    // independently-rounded endpoints. Compute cell rects from (row,col) so adjacent cells
+    // share identical edges after snapping (prevents 1px cracks between quads).
+    auto snap_px = [](float v) -> float { return std::floor(v + 0.5f); };
+
+    for (int row = start_row; row < end_row; ++row)
     {
-        float x = origin.x + (float)start_col * cell_w;
-        for (int col = start_col; col < end_col; ++col, x += cell_w)
+        for (int col = start_col; col < end_col; ++col)
         {
-            ImVec2 cell_min(x, y);
-            ImVec2 cell_max(x + cell_w, y + cell_h);
-            // Bitmap fonts are pixel-grid based; snap cell rects to integer pixels to avoid
-            // tiny float drift that can show up as 1px cracks between adjacent quads/rects.
+            ImVec2 cell_min(origin.x + (float)col * cell_w,
+                            origin.y + (float)row * cell_h);
+            ImVec2 cell_max(origin.x + (float)(col + 1) * cell_w,
+                            origin.y + (float)(row + 1) * cell_h);
+            // Bitmap fonts are pixel-grid based; snap cell edges to integer pixels to avoid seams.
             if (bitmap_font)
             {
-                cell_min.x = std::floor(cell_min.x + 0.5f);
-                cell_min.y = std::floor(cell_min.y + 0.5f);
-                cell_max.x = std::floor(cell_max.x + 0.5f);
-                cell_max.y = std::floor(cell_max.y + 0.5f);
+                cell_min.x = snap_px(cell_min.x);
+                cell_min.y = snap_px(cell_min.y);
+                cell_max.x = snap_px(cell_max.x);
+                cell_max.y = snap_px(cell_max.y);
             }
 
             CompositeCell cell = GetCompositeCell(row, col);
@@ -294,8 +298,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             ImU32 bg_col = (cell.bg != kUnsetIndex16) ? (ImU32)IndexToColor32(cell.bg) : paper_bg;
 
             const Attrs a = cell.attrs;
-            const bool reverse = (a & Attr_Reverse) != 0;
-            if (reverse)
+            const bool reverse_attr = (a & Attr_Reverse) != 0;
+            if (reverse_attr)
             {
                 // If both colors are exact VGA16 palette entries, emulate libansilove's
                 // special reverse rule that preserves the bright-foreground bit.
@@ -324,14 +328,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             // Background fill:
             // - normally, only fill when bg is explicitly set
             // - in reverse mode, fill using the effective swapped bg
-            if (cell.bg != kUnsetIndex16 || reverse)
+            if (cell.bg != kUnsetIndex16 || reverse_attr)
                 draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
-
-            // Caret highlight.
-            if (row == caret_row && col == caret_col)
-            {
-                draw_list->AddRectFilled(cell_min, cell_max, caret_fill);
-            }
 
             // Blink (SGR 5): blink foreground/attributes only (background remains).
             const bool blink = (a & Attr_Blink) != 0;
@@ -471,15 +469,19 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                             const int px1 = px0 + atlas.cell_w;
                             const int py1 = py0 + atlas.cell_h;
 
-                            // Sample texel centers (avoid seams when NEAREST sampling lands on edge texels).
-                            const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
-                            const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
                             float u0 = (float)px0 / (float)atlas.atlas_w;
                             float v0 = (float)py0 / (float)atlas.atlas_h;
                             float u1 = (float)px1 / (float)atlas.atlas_w;
                             float v1 = (float)py1 / (float)atlas.atlas_h;
-                            if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
-                            if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                            // For NEAREST sampling and pixel-snapped cell geometry, map quad corners to
+                            // texel edges (not texel centers). Using a half-texel inset here can cause
+                            // a subtle "repeat/scale" artifact inside a cell.
+                            //
+                            // However, we still want to guarantee we never sample *past* the max edge
+                            // due to floating/rasterization rounding (which can show up as a 1px line
+                            // from the adjacent atlas row/column). Nudge the max UVs inward by 1 ULP.
+                            u1 = std::nextafter(u1, u0);
+                            v1 = std::nextafter(v1, v0);
                             const ImVec2 uv0(u0, v0);
                             const ImVec2 uv1(u1, v1);
 
@@ -552,8 +554,113 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                     }
                 }
             }
+
         }
     }
+
+    // Caret outline overlay pass:
+    // Draw AFTER all cells so adjacent cell fills/glyphs cannot paint over the 1px border.
+    if (m_has_focus &&
+        caret_row >= start_row && caret_row < end_row &&
+        caret_col >= start_col && caret_col < end_col)
+    {
+        // Pick a steady (non-blinking) caret outline color that stays visible even when the
+        // caret is on a solid glyph (e.g. U+2588 full block) whose ink matches a naive black/white outline.
+        //
+        // We must handle two different "surfaces" the outline overlaps:
+        // - inside the cell (often ink if the glyph fills the edge, e.g. U+2588)
+        // - outside the cell (neighbor cells / paper). We can't sample neighbors cheaply here,
+        //   so we at least ensure strong contrast with the dominant *inside* surface, and fall
+        //   back to a high-contrast choice against both ink+bgplane when inversion would be weak.
+        {
+            CompositeCell cell = GetCompositeCell(caret_row, caret_col);
+
+            ImU32 fg_col = (cell.fg != kUnsetIndex16) ? (ImU32)IndexToColor32(cell.fg) : default_fg;
+            ImU32 bg_col = (cell.bg != kUnsetIndex16) ? (ImU32)IndexToColor32(cell.bg) : paper_bg;
+
+            const Attrs a = cell.attrs;
+            const bool reverse_attr = (a & Attr_Reverse) != 0;
+            if (reverse_attr)
+            {
+                if (active_palette_is_vga16 && cell.fg != kUnsetIndex16 && cell.bg != kUnsetIndex16)
+                {
+                    const int fi = (int)std::clamp<int>((int)cell.fg, 0, 15);
+                    const int bi = (int)std::clamp<int>((int)cell.bg, 0, 15);
+                    const int inv_bg = fi % 8;
+                    const int inv_fg = bi + (fi & 8);
+                    bg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_bg, 0, 15));
+                    fg_col = (ImU32)IndexToColor32((ColorIndex16)std::clamp(inv_fg, 0, 15));
+                }
+                else
+                {
+                    std::swap(fg_col, bg_col);
+                }
+            }
+            if ((a & Attr_Dim) != 0)
+                fg_col = adjust_intensity(fg_col, 0.60f);
+            if ((a & Attr_Bold) != 0)
+                fg_col = adjust_intensity(fg_col, 1.25f);
+
+            const bool bg_fills = (cell.bg != kUnsetIndex16) || reverse_attr;
+            const ImU32 bg_plane = bg_fills ? bg_col : paper_bg;
+
+            auto luminance = [](ImU32 col) -> float
+            {
+                const ImVec4 v = ImGui::ColorConvertU32ToFloat4(col);
+                return 0.2126f * v.x + 0.7152f * v.y + 0.0722f * v.z;
+            };
+
+            auto invert_rgb_keep_a = [](ImU32 col) -> ImU32
+            {
+                return col ^ 0x00FFFFFFu;
+            };
+
+            // Dominant "inside" surface for the outline:
+            // - if the cell has a glyph, assume ink can touch the border (handles U+2588 correctly)
+            // - otherwise, it's the background plane (bg or paper)
+            const ImU32 inside = (cell.cp != U' ') ? fg_col : bg_plane;
+            ImU32 outline_raw = invert_rgb_keep_a(inside);
+
+            // If inversion is too close to either surface, fall back to black/white to maximize contrast.
+            const float l_inside = luminance(inside);
+            const float l_bg = luminance(bg_plane);
+            const float l_out = luminance(outline_raw);
+            const float min_contrast = std::min(std::abs(l_out - l_inside), std::abs(l_out - l_bg));
+            if (min_contrast < 0.25f)
+            {
+                const float c_black = std::min(std::abs(0.0f - l_inside), std::abs(0.0f - l_bg));
+                const float c_white = std::min(std::abs(1.0f - l_inside), std::abs(1.0f - l_bg));
+                outline_raw = (c_white >= c_black) ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
+            }
+
+            const ImU32 caret_outline_col = ApplyCurrentStyleAlpha(outline_raw);
+
+            ImVec2 cell_min(origin.x + (float)caret_col * cell_w,
+                            origin.y + (float)caret_row * cell_h);
+            ImVec2 cell_max(origin.x + (float)(caret_col + 1) * cell_w,
+                            origin.y + (float)(caret_row + 1) * cell_h);
+            // Bitmap fonts are pixel-grid based; snap cell edges to integer pixels to avoid seams.
+            if (bitmap_font)
+            {
+                cell_min.x = snap_px(cell_min.x);
+                cell_min.y = snap_px(cell_min.y);
+                cell_max.x = snap_px(cell_max.x);
+                cell_max.y = snap_px(cell_max.y);
+            }
+
+            // Crisp 1px outline: align to pixel grid like selection borders.
+            ImVec2 p0 = cell_min;
+            ImVec2 p1 = cell_max;
+            p0.x = std::floor(p0.x) + 0.5f;
+            p0.y = std::floor(p0.y) + 0.5f;
+            p1.x = std::floor(p1.x) - 0.5f;
+            p1.y = std::floor(p1.y) - 0.5f;
+            // Thicker outline for visibility: stable screen pixels (doesn't "breathe" with zoom).
+            const float caret_outline_thickness = 3.0f;
+            draw_list->AddRect(p0, p1, caret_outline_col, 0.0f, 0, caret_outline_thickness);
+        }
+    }
+
     // Restore draw list flags.
     draw_list->Flags = prev_flags;
 }
@@ -592,6 +699,9 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
     const bool active_palette_is_vga16 =
         (m_palette_ref.is_builtin && m_palette_ref.builtin == phos::color::BuiltinPalette::Vga16);
 
+    // Keep bitmap overlay geometry consistent with DrawVisibleCells() to avoid 1px cracks.
+    auto snap_px = [](float v) -> float { return std::floor(v + 0.5f); };
+
     // Floating selection preview (drawn above the document).
     if (m_move.active && m_move.w > 0 && m_move.h > 0 && (int)m_move.cells.size() == m_move.w * m_move.h)
     {
@@ -607,16 +717,16 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     continue;
 
                 const ClipCell& c = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
-                ImVec2 cell_min(origin.x + x * cell_w,
-                                origin.y + y * cell_h);
-                ImVec2 cell_max(cell_min.x + cell_w,
-                                cell_min.y + cell_h);
+                ImVec2 cell_min(origin.x + (float)x * cell_w,
+                                origin.y + (float)y * cell_h);
+                ImVec2 cell_max(origin.x + (float)(x + 1) * cell_w,
+                                origin.y + (float)(y + 1) * cell_h);
                 if (bitmap_font)
                 {
-                    cell_min.x = std::floor(cell_min.x + 0.5f);
-                    cell_min.y = std::floor(cell_min.y + 0.5f);
-                    cell_max.x = std::floor(cell_max.x + 0.5f);
-                    cell_max.y = std::floor(cell_max.y + 0.5f);
+                    cell_min.x = snap_px(cell_min.x);
+                    cell_min.y = snap_px(cell_min.y);
+                    cell_max.x = snap_px(cell_max.x);
+                    cell_max.y = snap_px(cell_max.y);
                 }
                 const ImU32 paper_bg = m_canvas_bg_white ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
                 const ImU32 default_fg = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
@@ -779,14 +889,13 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                                     const int py0 = (variant * atlas.rows + tile_y) * atlas.tile_h + atlas.pad;
                                     const int px1 = px0 + atlas.cell_w;
                                     const int py1 = py0 + atlas.cell_h;
-                                    const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
-                                    const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
                                     float u0 = (float)px0 / (float)atlas.atlas_w;
                                     float v0 = (float)py0 / (float)atlas.atlas_h;
                                     float u1 = (float)px1 / (float)atlas.atlas_w;
                                     float v1 = (float)py1 / (float)atlas.atlas_h;
-                                    if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
-                                    if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                                    // See DrawVisibleCells(): use texel-edge mapping for NEAREST.
+                                    u1 = std::nextafter(u1, u0);
+                                    v1 = std::nextafter(v1, v0);
                                     const ImVec2 uv0(u0, v0);
                                     const ImVec2 uv1(u1, v1);
                                     const ImU32 col = ApplyCurrentStyleAlpha(fg_col);
@@ -923,6 +1032,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const bool embedded_font =
         (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
     float cell_w = 0.0f;
     float cell_h = 0.0f;
     if (embedded_font)
@@ -1273,7 +1383,18 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         {
             auto snapped_scale_for_zoom = [&](float zoom) -> float
             {
-                // Must match the snapping logic below (snap based on cell_w).
+                // Must match the snapping logic below.
+                //
+                // For bitmap fonts, we intentionally snap to *integer scale factors* (N x the
+                // native glyph cell) to avoid uneven nearest-neighbor resampling artifacts
+                // (e.g. a repeated/extra scanline inside the glyph).
+                if (bitmap_font)
+                {
+                    float n = std::floor(zoom + 0.5f);
+                    if (n < 1.0f) n = 1.0f;
+                    return n;
+                }
+                // For vector/ImGui atlas fonts, snap based on pixel-aligned cell width.
                 float snapped_cell_w = std::floor(base_cell_w * zoom + 0.5f);
                 if (snapped_cell_w < 1.0f)
                     snapped_cell_w = 1.0f;
@@ -1297,21 +1418,30 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         }
     }
 
-    // Explicit zoom (no auto-fit), but SNAP to the nearest pixel-aligned glyph cell.
+    // Explicit zoom (no auto-fit), with snapping:
     //
-    // IMPORTANT: do NOT round width/height independently based on m_zoom.
-    // That breaks the font's cell aspect ratio and can create visible seams between glyphs.
-    // Instead:
-    //  - snap cell_w to integer pixels
-    //  - derive a single snapped_scale from that
-    //  - compute font size and cell_h from the same snapped_scale
-    float snapped_cell_w = std::floor(base_cell_w * m_zoom + 0.5f);
-    if (snapped_cell_w < 1.0f)
-        snapped_cell_w = 1.0f;
-    const float snapped_scale = snapped_cell_w / base_cell_w;
+    // IMPORTANT:
+    // - Bitmap/embedded fonts are 1bpp pixel art. To avoid uneven nearest-neighbor resampling
+    //   (visible as a "repeated" pixel row/scanline inside glyphs), we snap to an integer scale N,
+    //   and render cells at (base_cell_w*N, base_cell_h*N).
+    // - For ImGui atlas fonts, we snap cell_w to integer pixels and derive a consistent scale.
+    float snapped_scale = 1.0f;
+    if (bitmap_font)
+    {
+        snapped_scale = std::floor(m_zoom + 0.5f);
+        if (snapped_scale < 1.0f)
+            snapped_scale = 1.0f;
+    }
+    else
+    {
+        float snapped_cell_w = std::floor(base_cell_w * m_zoom + 0.5f);
+        if (snapped_cell_w < 1.0f)
+            snapped_cell_w = 1.0f;
+        snapped_scale = snapped_cell_w / base_cell_w;
+    }
 
     float scaled_font_size = std::max(1.0f, std::floor(base_font_size * snapped_scale + 0.5f));
-    float scaled_cell_w    = snapped_cell_w;
+    float scaled_cell_w    = std::floor(base_cell_w * snapped_scale + 0.5f);
     float scaled_cell_h    = std::floor(base_cell_h * snapped_scale + 0.5f);
     if (scaled_cell_h < 1.0f)
         scaled_cell_h = 1.0f;

@@ -44,6 +44,13 @@ public:
     // Convention: 0 = unlimited (not recommended).
     void SetLutCacheBudgetApplier(const std::function<void(size_t)>& fn) { lut_cache_budget_applier_ = fn; }
 
+    // Optional: apply a bitmap glyph atlas cache budget (in bytes).
+    // Convention: 0 = unlimited (not recommended).
+    void SetGlyphAtlasCacheBudgetApplier(const std::function<void(size_t)>& fn) { glyph_atlas_cache_budget_applier_ = fn; }
+
+    // Optional: query live glyph atlas cache usage (bytes).
+    void SetGlyphAtlasCacheUsedBytesGetter(const std::function<size_t()>& fn) { glyph_atlas_cache_used_bytes_getter_ = fn; }
+
     // Extendable: allows future subsystems to register additional tabs/panels.
     // If a tab with the same id exists, it is replaced.
     void RegisterTab(const Tab& tab);
@@ -80,6 +87,11 @@ private:
 
     // Optional: handler used by the General tab to apply LUT cache budget globally.
     std::function<void(size_t)> lut_cache_budget_applier_;
+
+    // Optional: handler used by the General tab to apply glyph atlas cache budget globally.
+    std::function<void(size_t)> glyph_atlas_cache_budget_applier_;
+    // Optional: getter for live glyph atlas cache bytes for pressure UI.
+    std::function<size_t()>     glyph_atlas_cache_used_bytes_getter_;
 
     // UI state
     std::string           filter_text_;

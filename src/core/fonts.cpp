@@ -84,6 +84,23 @@ static const std::unordered_map<char32_t, std::uint8_t>& Cp437ReverseMap()
     return map;
 }
 
+// Built-in bitmap fonts are 1bpp, 256 glyphs, 1 byte per glyph row (8 pixels wide).
+// Enforce dimensional correctness at compile time.
+template <size_t N>
+constexpr FontInfo MakeBitmapFont8xH(FontId id,
+                                     const char* label,
+                                     const char* sauce_name,
+                                     const std::uint8_t (&bitmap)[N])
+{
+    static_assert(N > 0, "Bitmap font table must not be empty.");
+    static_assert(N % 256u == 0u, "Bitmap font table must be 256 glyphs * cell_h rows.");
+    constexpr int cell_h = (int)(N / 256u);
+    static_assert(cell_h > 0, "Bitmap font table must have a positive cell height.");
+    // NOTE: The tables are 8 pixels wide because each row is 1 byte; the 9th VGA column
+    // (when desired) is a render-time duplication rule, not stored in the bitmap.
+    return FontInfo{id, Kind::Bitmap1bpp, label, sauce_name, 8, cell_h, bitmap, false};
+}
+
 static const std::vector<FontInfo>& BuildRegistry()
 {
     static const std::vector<FontInfo> v = {
@@ -92,38 +109,42 @@ static const std::vector<FontInfo>& BuildRegistry()
 
         // libansilove-derived bitmap fonts (CP437-ordered glyphs).
         // SAUCE canonical names are from references/sauce-spec.md (FontName section).
-        {FontId::Font_PC_80x25, Kind::Bitmap1bpp, "IBM VGA 437", "IBM VGA 437", 9, 16, font_pc_80x25, true},
-        {FontId::Font_PC_80x50, Kind::Bitmap1bpp, "IBM VGA50 437", "IBM VGA50 437", 9, 8, font_pc_80x50, true},
+        //
+        // NOTE: The bitmap tables are 8px wide (1 byte per row). We intentionally use cell_w=8
+        // here (rather than DOS/VGA's sometimes-emulated 9px cell) to avoid introducing a
+        // permanent blank spacer column for most glyphs (especially visible on CP437 shades).
+        MakeBitmapFont8xH(FontId::Font_PC_80x25, "IBM VGA 437", "IBM VGA 437", font_pc_80x25),
+        MakeBitmapFont8xH(FontId::Font_PC_80x50, "IBM VGA50 437", "IBM VGA50 437", font_pc_80x50),
 
         // IBM PC OEM codepage fonts (names follow the SAUCE "IBM VGA ###" convention).
         // Note: We treat these as 256-glyph bitmap fonts; higher-level encoding semantics are handled elsewhere.
-        {FontId::Font_PC_Latin1, Kind::Bitmap1bpp, "IBM VGA 850", "IBM VGA 850", 9, 16, font_pc_latin1, true},
-        {FontId::Font_PC_Latin2, Kind::Bitmap1bpp, "IBM VGA 852", "IBM VGA 852", 9, 16, font_pc_latin2, true},
-        {FontId::Font_PC_Cyrillic, Kind::Bitmap1bpp, "IBM VGA 855", "IBM VGA 855", 9, 16, font_pc_cyrillic, true},
-        {FontId::Font_PC_Russian, Kind::Bitmap1bpp, "IBM VGA 866", "IBM VGA 866", 9, 16, font_pc_russian, true},
-        {FontId::Font_PC_Greek, Kind::Bitmap1bpp, "IBM VGA 737", "IBM VGA 737", 9, 16, font_pc_greek, true},
-        {FontId::Font_PC_Greek869, Kind::Bitmap1bpp, "IBM VGA 869", "IBM VGA 869", 9, 16, font_pc_greek_869, true},
-        {FontId::Font_PC_Turkish, Kind::Bitmap1bpp, "IBM VGA 857", "IBM VGA 857", 9, 16, font_pc_turkish, true},
-        {FontId::Font_PC_Hebrew, Kind::Bitmap1bpp, "IBM VGA 862", "IBM VGA 862", 9, 16, font_pc_hebrew, true},
-        {FontId::Font_PC_Icelandic, Kind::Bitmap1bpp, "IBM VGA 861", "IBM VGA 861", 9, 16, font_pc_icelandic, true},
-        {FontId::Font_PC_Nordic, Kind::Bitmap1bpp, "IBM VGA 865", "IBM VGA 865", 9, 16, font_pc_nordic, true},
-        {FontId::Font_PC_Portuguese, Kind::Bitmap1bpp, "IBM VGA 860", "IBM VGA 860", 9, 16, font_pc_portuguese, true},
-        {FontId::Font_PC_FrenchCanadian, Kind::Bitmap1bpp, "IBM VGA 863", "IBM VGA 863", 9, 16, font_pc_french_canadian, true},
-        {FontId::Font_PC_Baltic, Kind::Bitmap1bpp, "IBM VGA 775", "IBM VGA 775", 9, 16, font_pc_baltic, true},
+        MakeBitmapFont8xH(FontId::Font_PC_Latin1, "IBM VGA 850", "IBM VGA 850", font_pc_latin1),
+        MakeBitmapFont8xH(FontId::Font_PC_Latin2, "IBM VGA 852", "IBM VGA 852", font_pc_latin2),
+        MakeBitmapFont8xH(FontId::Font_PC_Cyrillic, "IBM VGA 855", "IBM VGA 855", font_pc_cyrillic),
+        MakeBitmapFont8xH(FontId::Font_PC_Russian, "IBM VGA 866", "IBM VGA 866", font_pc_russian),
+        MakeBitmapFont8xH(FontId::Font_PC_Greek, "IBM VGA 737", "IBM VGA 737", font_pc_greek),
+        MakeBitmapFont8xH(FontId::Font_PC_Greek869, "IBM VGA 869", "IBM VGA 869", font_pc_greek_869),
+        MakeBitmapFont8xH(FontId::Font_PC_Turkish, "IBM VGA 857", "IBM VGA 857", font_pc_turkish),
+        MakeBitmapFont8xH(FontId::Font_PC_Hebrew, "IBM VGA 862", "IBM VGA 862", font_pc_hebrew),
+        MakeBitmapFont8xH(FontId::Font_PC_Icelandic, "IBM VGA 861", "IBM VGA 861", font_pc_icelandic),
+        MakeBitmapFont8xH(FontId::Font_PC_Nordic, "IBM VGA 865", "IBM VGA 865", font_pc_nordic),
+        MakeBitmapFont8xH(FontId::Font_PC_Portuguese, "IBM VGA 860", "IBM VGA 860", font_pc_portuguese),
+        MakeBitmapFont8xH(FontId::Font_PC_FrenchCanadian, "IBM VGA 863", "IBM VGA 863", font_pc_french_canadian),
+        MakeBitmapFont8xH(FontId::Font_PC_Baltic, "IBM VGA 775", "IBM VGA 775", font_pc_baltic),
 
         // Extra bitmap fonts: these aren't in the SAUCE canonical list, but we still provide a stable hint.
-        {FontId::Font_Terminus, Kind::Bitmap1bpp, "Terminus", "Terminus", 9, 16, font_pc_terminus, true},
-        {FontId::Font_Spleen, Kind::Bitmap1bpp, "Spleen", "Spleen", 9, 16, font_pc_spleen, true},
+        MakeBitmapFont8xH(FontId::Font_Terminus, "Terminus", "Terminus", font_pc_terminus),
+        MakeBitmapFont8xH(FontId::Font_Spleen, "Spleen", "Spleen", font_pc_spleen),
 
         // Amiga fonts (SAUCE canonical names).
-        {FontId::Font_Amiga_Topaz500, Kind::Bitmap1bpp, "Amiga Topaz 1", "Amiga Topaz 1", 8, 16, font_amiga_topaz_500, false},
-        {FontId::Font_Amiga_Topaz500Plus, Kind::Bitmap1bpp, "Amiga Topaz 1+", "Amiga Topaz 1+", 8, 16, font_amiga_topaz_500_plus, false},
-        {FontId::Font_Amiga_Topaz1200, Kind::Bitmap1bpp, "Amiga Topaz 2", "Amiga Topaz 2", 8, 16, font_amiga_topaz_1200, false},
-        {FontId::Font_Amiga_Topaz1200Plus, Kind::Bitmap1bpp, "Amiga Topaz 2+", "Amiga Topaz 2+", 8, 16, font_amiga_topaz_1200_plus, false},
-        {FontId::Font_Amiga_PotNoodle, Kind::Bitmap1bpp, "Amiga P0T-NOoDLE", "Amiga P0T-NOoDLE", 8, 16, font_amiga_pot_noodle, false},
-        {FontId::Font_Amiga_Microknight, Kind::Bitmap1bpp, "Amiga MicroKnight", "Amiga MicroKnight", 8, 16, font_amiga_microknight, false},
-        {FontId::Font_Amiga_MicroknightPlus, Kind::Bitmap1bpp, "Amiga MicroKnight+", "Amiga MicroKnight+", 8, 16, font_amiga_microknight_plus, false},
-        {FontId::Font_Amiga_Mosoul, Kind::Bitmap1bpp, "Amiga mOsOul", "Amiga mOsOul", 8, 16, font_amiga_mosoul, false},
+        MakeBitmapFont8xH(FontId::Font_Amiga_Topaz500, "Amiga Topaz 1", "Amiga Topaz 1", font_amiga_topaz_500),
+        MakeBitmapFont8xH(FontId::Font_Amiga_Topaz500Plus, "Amiga Topaz 1+", "Amiga Topaz 1+", font_amiga_topaz_500_plus),
+        MakeBitmapFont8xH(FontId::Font_Amiga_Topaz1200, "Amiga Topaz 2", "Amiga Topaz 2", font_amiga_topaz_1200),
+        MakeBitmapFont8xH(FontId::Font_Amiga_Topaz1200Plus, "Amiga Topaz 2+", "Amiga Topaz 2+", font_amiga_topaz_1200_plus),
+        MakeBitmapFont8xH(FontId::Font_Amiga_PotNoodle, "Amiga P0T-NOoDLE", "Amiga P0T-NOoDLE", font_amiga_pot_noodle),
+        MakeBitmapFont8xH(FontId::Font_Amiga_Microknight, "Amiga MicroKnight", "Amiga MicroKnight", font_amiga_microknight),
+        MakeBitmapFont8xH(FontId::Font_Amiga_MicroknightPlus, "Amiga MicroKnight+", "Amiga MicroKnight+", font_amiga_microknight_plus),
+        MakeBitmapFont8xH(FontId::Font_Amiga_Mosoul, "Amiga mOsOul", "Amiga mOsOul", font_amiga_mosoul),
     };
     return v;
 }

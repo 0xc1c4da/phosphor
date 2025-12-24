@@ -145,7 +145,10 @@ void VulkanState::SetupVulkan(ImVector<const char*> instance_extensions)
     {
         VkDescriptorPoolSize pool_sizes[] =
         {
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE },
+            // We allocate user textures via ImGui_ImplVulkan_AddTexture (preview textures, glyph atlases, etc).
+            // The ImGui backend's "minimum" pool size is intentionally tiny; bump it so we don't crash with
+            // VK_ERROR_OUT_OF_POOL_MEMORY when caching multiple atlases.
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2048 },
         };
         VkDescriptorPoolCreateInfo pool_info = {};
         pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;

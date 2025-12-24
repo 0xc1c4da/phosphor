@@ -283,14 +283,14 @@ void DrawGlyphPreview(ImDrawList* dl,
                     const int py0 = (variant * atlas.rows + tile_y) * atlas.tile_h + atlas.pad;
                     const int px1 = px0 + atlas.cell_w;
                     const int py1 = py0 + atlas.cell_h;
-                    const float du = (atlas.atlas_w > 0) ? (0.5f / (float)atlas.atlas_w) : 0.0f;
-                    const float dv = (atlas.atlas_h > 0) ? (0.5f / (float)atlas.atlas_h) : 0.0f;
                     float u0 = (float)px0 / (float)atlas.atlas_w;
                     float v0 = (float)py0 / (float)atlas.atlas_h;
                     float u1 = (float)px1 / (float)atlas.atlas_w;
                     float v1 = (float)py1 / (float)atlas.atlas_h;
-                    if (atlas.cell_w > 1) { u0 += du; u1 -= du; }
-                    if (atlas.cell_h > 1) { v0 += dv; v1 -= dv; }
+                    // Match the main canvas renderer: for NEAREST sampling, map to texel edges (not centers).
+                    // Nudge max UV inward by 1 ULP to avoid bleeding into adjacent atlas tiles.
+                    u1 = std::nextafter(u1, u0);
+                    v1 = std::nextafter(v1, v0);
                     const ImVec2 uv0(u0, v0);
                     const ImVec2 uv1(u1, v1);
                     dl->AddImage((ImTextureID)atlas.texture_id,

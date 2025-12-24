@@ -24,8 +24,17 @@ enum class FontId : std::uint8_t
     Unscii = 0,
 
     // libansilove-derived bitmap fonts (CP437 glyph order)
-    Font_PC_80x25, // classic DOS font; rendered as 9x16 cells (8-bit data + VGA 9th col rule)
-    Font_PC_80x50, // 8x8 (rendered as 9x8 cells)
+    //
+    // IMPORTANT:
+    // The underlying bitmap tables are 8 pixels wide (1 byte per row).
+    // Some DOS/VGA renderers treat the cell as 9 pixels wide and apply a special
+    // 9th-column duplication rule for box/line glyphs (CP437 192..223).
+    //
+    // In Phosphor we treat the bitmap fonts by their actual bitmap width (8px)
+    // to avoid introducing an always-empty spacer column for most glyphs (notably
+    // the CP437 shading characters U+2591..U+2593).
+    Font_PC_80x25, // classic DOS font; 8x16 bitmap
+    Font_PC_80x50, // 8x8 bitmap
 
     // IBM PC OEM codepage fonts (libansilove-derived bitmap fonts).
     Font_PC_Latin1,
@@ -75,9 +84,21 @@ struct FontInfo
     // Therefore: keep it stable across releases.
     const char* sauce_name = "";
 
-    // Cell metrics in "bitmap pixel units" at nominal 16px scale.
+    // Cell metrics in "bitmap pixel units".
     // For ImGuiAtlas fonts, these are advisory and may be 0.
-    int cell_w = 0; // 8 or 9 for classic textmode
+    //
+    // IMPORTANT (Bitmap1bpp fonts):
+    // Our built-in bitmap font tables are stored as 1 byte per glyph row (8 pixels wide).
+    // Therefore built-in Bitmap1bpp fonts must use cell_w == 8.
+    //
+    // libansilove (the upstream source of many of these tables) reports PC fonts as width=9, but
+    // that 9th pixel column is *not* stored in the bitmap. It's a render-time rule:
+    // duplicate the 8th column for CP437 192..223 when rendering with "bits==9".
+    //
+    // A legacy DOS/VGA "9th-column duplication" mode exists (for CP437 192..223 when cell_w==9),
+    // but Phosphor intentionally does not use it for built-in fonts (to avoid a permanent spacer
+    // column that is especially visible on shading glyphs U+2591..U+2593).
+    int cell_w = 0; // built-in Bitmap1bpp fonts: 8
     int cell_h = 0; // 8 or 16
 
     // Bitmap data (only for Bitmap1bpp fonts). Format:
@@ -87,7 +108,8 @@ struct FontInfo
     // - MSB is leftmost pixel
     const std::uint8_t* bitmap = nullptr;
 
-    // VGA 9th-column duplication (applies when cell_w==9).
+    // VGA 9th-column duplication (legacy DOS behavior; only meaningful if cell_w==9).
+    // NOTE: built-in Bitmap1bpp fonts ship with vga_9col_dup == false.
     bool vga_9col_dup = false;
 };
 

@@ -145,6 +145,10 @@ void RunFrame(AppState& st)
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
     BrushPaletteWindow& brush_palette = *st.ui.brush_palette_window;
 
+    // Advance the atlas cache clock and collect deferred frees.
+    // (Safe to call every frame; no-ops if cache is uninitialized.)
+    bitmap_glyph_atlas.BeginFrame();
+
     auto& canvases = *st.workspace.canvases;
     auto& images = *st.workspace.images;
     int& next_canvas_id = *st.workspace.next_canvas_id;
@@ -2456,6 +2460,14 @@ void RunFrame(AppState& st)
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         brush_palette.Render(name, &show_brush_palette_window, ui_active_canvas,
                              &session_state, should_apply_placement(name));
+
+        // UX: selecting/creating a brush implies "I want to stamp now", so auto-switch
+        // to the Brush tool unless it's already active.
+        if (brush_palette.TakeActivateBrushToolRequested())
+        {
+            if (active_tool_id() != "02-brush")
+                activate_tool_by_id("02-brush");
+        }
     }
 
     // Layer Manager window

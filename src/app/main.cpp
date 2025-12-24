@@ -424,7 +424,19 @@ int main(int, char**)
         gi.queue_family = vk.queue_family;
         gi.allocator = (void*)vk.allocator;
         (void)bitmap_glyph_atlas.Init(gi);
+        // Cache policy tuning from user session (mirrors LUT cache UX).
+        bitmap_glyph_atlas.SetBudgetBytes(session_state.glyph_atlas_cache_budget_bytes);
+        // Conservative deferred-destruction window (swapchain images in flight).
+        bitmap_glyph_atlas.SetFramesInFlight((std::uint32_t)wd->ImageCount);
     }
+
+    // Hook Settings UI controls to the live glyph atlas cache.
+    settings_window.SetGlyphAtlasCacheBudgetApplier([&](size_t bytes) {
+        bitmap_glyph_atlas.SetBudgetBytes(bytes);
+    });
+    settings_window.SetGlyphAtlasCacheUsedBytesGetter([&]() -> size_t {
+        return bitmap_glyph_atlas.UsedBytes();
+    });
 
     // SDL native file dialogs (async -> polled queue).
     SdlFileDialogQueue file_dialogs;

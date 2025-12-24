@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "imgui.h" // ImTextureID
@@ -32,6 +33,18 @@ public:
 
     bool Init(const InitInfo& info, const char* debug_name = "BitmapGlyphAtlasTextureCache");
     void Shutdown();
+
+    // Cache policy (budget is in bytes; 0 = unlimited).
+    void SetBudgetBytes(std::size_t bytes);
+    std::size_t BudgetBytes() const;
+    std::size_t UsedBytes() const; // live GPU bytes (cached + deferred-free pending)
+
+    // Deferred destruction safety. Should be set to swapchain images-in-flight (usually 2-3).
+    void SetFramesInFlight(std::uint32_t n);
+    std::uint32_t FramesInFlight() const;
+
+    // Call once per rendered frame to advance the cache clock and collect deferred frees.
+    void BeginFrame();
 
     // AnsiCanvas::IBitmapGlyphAtlasProvider
     bool GetBitmapGlyphAtlas(const AnsiCanvas& canvas, AnsiCanvas::BitmapGlyphAtlasView& out) override;

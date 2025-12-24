@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <unordered_map>
 #include <vector>
 
@@ -175,9 +176,29 @@ struct BitmapGlyphAtlasTextureCache::Impl
 
         AnsiCanvas::BitmapGlyphAtlasView view;
         std::uint64_t key = 0;
+
+        // Cache policy
+        std::uint64_t last_used_frame = 0;
+        std::size_t   bytes = 0; // estimated GPU bytes (RGBA8)
     };
 
     std::unordered_map<std::uint64_t, Entry> cache;
+
+    // Deferred destruction: entries evicted from `cache` are moved here and destroyed after
+    // a few frames to avoid freeing textures still referenced by in-flight command buffers.
+    struct Retired
+    {
+        Entry entry;
+        std::uint64_t retire_frame = 0;
+    };
+    std::deque<Retired> retired;
+
+    // Cache tuning knobs (0 = unlimited).
+    std::size_t budget_bytes = 96ull * 1024ull * 1024ull;
+    std::size_t live_bytes = 0; // cached + retired (until actually destroyed)
+    std::uint32_t frames_in_flight = 3;
+    std::uint64_t frame_counter = 0;
+    std::size_t max_entries = 1024; // safety rail even under unlimited budget
 
     bool InitUploadObjects()
     {
@@ -242,9 +263,15 @@ struct BitmapGlyphAtlasTextureCache::Impl
 
     void Shutdown()
     {
+        // Destroy retired entries first.
+        for (auto& r : retired)
+            DestroyEntry(r.entry);
+        retired.clear();
+
         for (auto& kv : cache)
             DestroyEntry(kv.second);
         cache.clear();
+        live_bytes = 0;
 
         if (sampler != VK_NULL_HANDLE)
         {
@@ -267,6 +294,88 @@ struct BitmapGlyphAtlasTextureCache::Impl
         queue = VK_NULL_HANDLE;
         queue_family = 0;
         allocator = nullptr;
+    }
+
+    static std::size_t AtlasBytes(int w, int h)
+    {
+        if (w <= 0 || h <= 0)
+            return 0;
+        return (std::size_t)w * (std::size_t)h * 4u;
+    }
+
+    void CollectGarbage()
+    {
+        // Conservative: defer at least `frames_in_flight + 1` frames.
+        // This matches the common "N frames in flight" resource lifetime rule.
+        const std::uint64_t safe_before =
+            (frame_counter > (std::uint64_t)frames_in_flight + 1)
+                ? (frame_counter - (std::uint64_t)frames_in_flight - 1)
+                : 0;
+
+        // Retired entries are appended in eviction order; drain from front while safe.
+        while (!retired.empty() && retired.front().retire_frame <= safe_before)
+        {
+            Retired r = std::move(retired.front());
+            retired.pop_front();
+            const std::size_t b = r.entry.bytes;
+            DestroyEntry(r.entry);
+            if (live_bytes >= b)
+                live_bytes -= b;
+            else
+                live_bytes = 0;
+        }
+    }
+
+    bool EvictOneLru()
+    {
+        if (cache.empty())
+            return false;
+
+        // Find least-recently-used entry.
+        auto best = cache.begin();
+        for (auto it = cache.begin(); it != cache.end(); ++it)
+        {
+            if (it->second.last_used_frame < best->second.last_used_frame)
+                best = it;
+        }
+
+        Retired r;
+        r.entry = std::move(best->second);
+        r.retire_frame = frame_counter;
+        retired.push_back(std::move(r));
+        cache.erase(best);
+        // live_bytes stays the same until actual destruction.
+        return true;
+    }
+
+    void EnforceBudget(std::size_t incoming_bytes)
+    {
+        // If budget is unlimited, we still respect max_entries.
+        const bool unlimited = (budget_bytes == 0);
+
+        // Evict until under entry cap.
+        while (cache.size() >= max_entries)
+        {
+            if (!EvictOneLru())
+                break;
+        }
+
+        if (unlimited)
+            return;
+
+        // Budget is a "soft" cap because we defer frees. Eviction reduces future churn and keeps
+        // the active cache bounded, but live_bytes may temporarily exceed budget while retired
+        // entries are waiting to be safely destroyed.
+        const std::size_t target_budget = std::max(budget_bytes, incoming_bytes);
+
+        // Evict to reduce active set pressure when adding a new atlas would exceed the budget.
+        // (Note: live_bytes won't drop until CollectGarbage() runs.)
+        while (!cache.empty() && (live_bytes + incoming_bytes) > target_budget)
+        {
+            if (!EvictOneLru())
+                break;
+            // Stop if we've evicted everything; we'll allow overshoot for the incoming atlas.
+        }
     }
 
     bool ImmediateSubmit(const std::function<void(VkCommandBuffer)>& record)
@@ -614,6 +723,45 @@ void BitmapGlyphAtlasTextureCache::Shutdown()
     }
 }
 
+void BitmapGlyphAtlasTextureCache::SetBudgetBytes(std::size_t bytes)
+{
+    if (!m)
+        return;
+    m->budget_bytes = bytes;
+    // Apply immediately (best-effort): evict LRU entries if needed.
+    m->EnforceBudget(/*incoming_bytes=*/0);
+}
+
+std::size_t BitmapGlyphAtlasTextureCache::BudgetBytes() const
+{
+    return m ? m->budget_bytes : 0;
+}
+
+std::size_t BitmapGlyphAtlasTextureCache::UsedBytes() const
+{
+    return m ? m->live_bytes : 0;
+}
+
+void BitmapGlyphAtlasTextureCache::SetFramesInFlight(std::uint32_t n)
+{
+    if (!m)
+        return;
+    m->frames_in_flight = std::max(1u, n);
+}
+
+std::uint32_t BitmapGlyphAtlasTextureCache::FramesInFlight() const
+{
+    return m ? m->frames_in_flight : 0;
+}
+
+void BitmapGlyphAtlasTextureCache::BeginFrame()
+{
+    if (!m)
+        return;
+    ++m->frame_counter;
+    m->CollectGarbage();
+}
+
 static bool CanvasHasBitmapFont(const AnsiCanvas& canvas, bool& out_embedded)
 {
     out_embedded = false;
@@ -682,6 +830,7 @@ bool BitmapGlyphAtlasTextureCache::GetBitmapGlyphAtlas(const AnsiCanvas& canvas,
     // Cache hit.
     if (auto it = m->cache.find(key); it != m->cache.end())
     {
+        it->second.last_used_frame = m->frame_counter;
         out = it->second.view;
         return out.texture_id != nullptr;
     }
@@ -721,9 +870,17 @@ bool BitmapGlyphAtlasTextureCache::GetBitmapGlyphAtlas(const AnsiCanvas& canvas,
     if (rgba.empty() || atlas_w <= 0 || atlas_h <= 0)
         return false;
 
+    const std::size_t atlas_bytes = Impl::AtlasBytes(atlas_w, atlas_h);
+    // Enforce cache policy before allocating GPU objects.
+    m->EnforceBudget(atlas_bytes);
+    // Note: budget enforcement may move entries to the retired list. Collect old frees opportunistically.
+    m->CollectGarbage();
+
     // Create GPU resources.
     Impl::Entry e;
     e.key = key;
+    e.last_used_frame = m->frame_counter;
+    e.bytes = atlas_bytes;
     e.view.atlas_w = atlas_w;
     e.view.atlas_h = atlas_h;
     e.view.cell_w = cell_w;
@@ -758,6 +915,7 @@ bool BitmapGlyphAtlasTextureCache::GetBitmapGlyphAtlas(const AnsiCanvas& canvas,
 
     // Store and return.
     m->cache.emplace(key, e);
+    m->live_bytes += atlas_bytes;
     out = e.view;
     return out.texture_id != nullptr;
 }

@@ -23,6 +23,16 @@ public:
 
     BrushPaletteWindow();
 
+    // If true, the user interacted in a way that implies they want to stamp a brush
+    // (e.g. selected/created a brush). Callers can use this as a UX hint to auto-switch
+    // to the Brush tool.
+    bool TakeActivateBrushToolRequested()
+    {
+        const bool v = request_activate_brush_tool_;
+        request_activate_brush_tool_ = false;
+        return v;
+    }
+
     // Returns true if the window is open after rendering.
     bool Render(const char* window_title,
                 bool* p_open = nullptr,
@@ -35,12 +45,12 @@ private:
     void RenderSettingsContents();
     void RenderGrid(AnsiCanvas* active_canvas, SessionState* session);
 
-    void EnsureLoaded(SessionState* session);
-    bool LoadFromFile(const char* path, std::string& error);
+    void EnsureLoaded(AnsiCanvas* active_canvas, SessionState* session);
+    bool LoadFromFile(const char* path, AnsiCanvas* active_canvas, std::string& error);
     bool SaveToFile(const char* path, std::string& error) const;
 
     // One-time migration path (session.json -> brush-palettes.json) for older installs.
-    void LoadFromSessionBrushPalette(SessionState* session);
+    void LoadFromSessionBrushPalette(SessionState* session, AnsiCanvas* active_canvas);
 
 private:
     std::vector<Entry> entries_;
@@ -65,6 +75,9 @@ private:
     bool        request_save_ = false;
     bool        request_reload_ = false;
     bool        migrated_from_session_ = false;
+
+    // UX hint for host: user selected/created a brush and likely wants the Brush tool active.
+    bool        request_activate_brush_tool_ = false;
 };
 
 

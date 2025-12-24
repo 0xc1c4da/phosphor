@@ -525,6 +525,19 @@ public:
     bool ConvertToPalette(const phos::color::PaletteRef& new_ref);
 
     // ---------------------------------------------------------------------
+    // Public color/index helpers
+    // ---------------------------------------------------------------------
+    // Convenience wrappers around the internal Phase-B palette index helpers.
+    // These are intentionally public so UI code can render indexed colors (e.g. brush thumbnails)
+    // without duplicating palette-resolution logic.
+    //
+    // Semantics:
+    // - `kUnsetIndex16` maps to Color32 0 ("unset")
+    // - Color32 0 maps to `kUnsetIndex16`
+    ColorIndex16 QuantizeColor32ToIndexPublic(Color32 c32) const { return QuantizeColor32ToIndex(c32); }
+    Color32      IndexToColor32Public(ColorIndex16 idx) const { return IndexToColor32(idx); }
+
+    // ---------------------------------------------------------------------
     // Canvas font selection (persisted via SAUCE TInfoS)
     // ---------------------------------------------------------------------
     // Note: this controls how the canvas grid is rendered and rasterized (export image/minimap).

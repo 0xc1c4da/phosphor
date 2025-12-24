@@ -4,6 +4,7 @@
 
 #include "ansl/ansl_native.h"
 #include "core/paths.h"
+#include "core/xterm256_palette.h"
 #include "io/session/imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "ui/imgui_window_chrome.h"
@@ -13,9 +14,44 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <utility>
 
 using nlohmann::json;
+
+static inline AnsiCanvas::ColorIndex16 ClampIndex16(std::uint32_t v)
+{
+    if (v > (std::uint32_t)std::numeric_limits<AnsiCanvas::ColorIndex16>::max())
+        return (AnsiCanvas::ColorIndex16)std::numeric_limits<AnsiCanvas::ColorIndex16>::max();
+    return (AnsiCanvas::ColorIndex16)v;
+}
+
+static inline AnsiCanvas::ColorIndex16 LegacyColor32ToIndex16(std::uint32_t legacy_c32, AnsiCanvas* active_canvas)
+{
+    if (legacy_c32 == 0)
+        return AnsiCanvas::kUnsetIndex16;
+
+    if (active_canvas)
+        return active_canvas->QuantizeColor32ToIndexPublic((AnsiCanvas::Color32)legacy_c32);
+
+    // Fallback: quantize to xterm-256 based on RGB channels in IM_COL32 layout.
+    const std::uint8_t r = (std::uint8_t)(legacy_c32 & 0xffu);
+    const std::uint8_t g = (std::uint8_t)((legacy_c32 >> 8) & 0xffu);
+    const std::uint8_t b = (std::uint8_t)((legacy_c32 >> 16) & 0xffu);
+    const int idx = xterm256::NearestIndex(r, g, b);
+    return (AnsiCanvas::ColorIndex16)idx;
+}
+
+static inline ImU32 Index16ToImU32(AnsiCanvas::ColorIndex16 idx, AnsiCanvas* active_canvas)
+{
+    if (idx == AnsiCanvas::kUnsetIndex16)
+        return 0;
+    if (active_canvas)
+        return (ImU32)active_canvas->IndexToColor32Public(idx);
+    // Fallback: interpret as xterm-256 index.
+    const int i = (int)std::clamp((int)idx, 0, 255);
+    return (ImU32)xterm256::Color32ForIndex(i);
+}
 
 static std::string DefaultBrushName(int idx)
 {
@@ -42,7 +78,7 @@ BrushPaletteWindow::BrushPaletteWindow()
     file_path_ = PhosphorAssetPath("brush-palettes.json");
 }
 
-void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session)
+void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session, AnsiCanvas* active_canvas)
 {
     if (!session)
         return;
@@ -70,8 +106,8 @@ void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session)
         for (size_t i = 0; i < n; ++i)
         {
             b.cp[i] = (char32_t)se.cp[i];
-            b.fg[i] = (AnsiCanvas::Color32)se.fg[i];
-            b.bg[i] = (AnsiCanvas::Color32)se.bg[i];
+            b.fg[i] = LegacyColor32ToIndex16(se.fg[i], active_canvas);
+            b.bg[i] = LegacyColor32ToIndex16(se.bg[i], active_canvas);
             b.attrs[i] = (AnsiCanvas::Attrs)se.attrs[i];
         }
         if (!IsValidBrush(b))
@@ -89,7 +125,7 @@ void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session)
         selected_ = (int)entries_.size() - 1;
 }
 
-bool BrushPaletteWindow::LoadFromFile(const char* path, std::string& error)
+bool BrushPaletteWindow::LoadFromFile(const char* path, AnsiCanvas* active_canvas, std::string& error)
 {
     error.clear();
     if (!path || !*path)
@@ -127,6 +163,10 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, std::string& error)
         error = "Expected 'brushes' array in brush-palettes.json";
         return false;
     }
+
+    int schema_version = 1;
+    if (j.contains("schema_version") && j["schema_version"].is_number_integer())
+        schema_version = j["schema_version"].get<int>();
 
     int sel = -1;
     if (j.contains("selected") && j["selected"].is_number_integer())
@@ -179,6 +219,44 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, std::string& error)
             continue;
         }
 
+        // Schema handling:
+        // - v2+: fg/bg are palette indices (ColorIndex16).
+        // - v1: historically fg/bg were packed Color32 (0 = unset). Some intermediate builds wrote
+        //       indices while still labeling schema_version=1. We auto-detect per-brush.
+        //
+        // Detection rules (for v1):
+        // - If we see an alpha byte (top 8 bits) or values > 0xffff, it's packed Color32.
+        // - Else if max <= 255 and there exists a non-zero value, it's almost certainly indices.
+        // - Else (notably the common "all zeros" case), treat as packed Color32 so 0 stays "unset"
+        //   instead of becoming palette index 0 (black).
+        bool fg_bg_are_indices = (schema_version >= 2);
+        if (!fg_bg_are_indices)
+        {
+            const size_t scan_n = std::min(n, (size_t)64);
+            bool saw_alpha_or_wide = false;
+            bool saw_nonzero = false;
+            std::uint32_t max_v = 0;
+            for (size_t i = 0; i < scan_n; ++i)
+            {
+                const std::uint32_t fv = fg[i];
+                const std::uint32_t bv = bg[i];
+                max_v = std::max(max_v, std::max(fv, bv));
+                saw_nonzero = saw_nonzero || (fv != 0u) || (bv != 0u);
+                if (((fv & 0xff000000u) != 0u && fv != 0u) ||
+                    ((bv & 0xff000000u) != 0u && bv != 0u) ||
+                    fv > 0xffffu || bv > 0xffffu)
+                {
+                    saw_alpha_or_wide = true;
+                    break;
+                }
+            }
+
+            if (!saw_alpha_or_wide && max_v <= 255u && saw_nonzero)
+                fg_bg_are_indices = true;
+            else
+                fg_bg_are_indices = false;
+        }
+
         AnsiCanvas::Brush b;
         b.w = w;
         b.h = h;
@@ -189,8 +267,17 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, std::string& error)
         for (size_t i = 0; i < n; ++i)
         {
             b.cp[i] = (char32_t)cp[i];
-            b.fg[i] = (AnsiCanvas::Color32)fg[i];
-            b.bg[i] = (AnsiCanvas::Color32)bg[i];
+            if (fg_bg_are_indices)
+            {
+                b.fg[i] = ClampIndex16(fg[i]);
+                b.bg[i] = ClampIndex16(bg[i]);
+            }
+            else
+            {
+                // Legacy schema: fg/bg stored as packed Color32 (0 = unset).
+                b.fg[i] = LegacyColor32ToIndex16(fg[i], active_canvas);
+                b.bg[i] = LegacyColor32ToIndex16(bg[i], active_canvas);
+            }
             b.attrs[i] = (AnsiCanvas::Attrs)attrs[i];
         }
         if (!IsValidBrush(b))
@@ -218,7 +305,8 @@ bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
     }
 
     json j;
-    j["schema_version"] = 1;
+    // v2: fg/bg are stored as palette indices (ColorIndex16), not packed Color32.
+    j["schema_version"] = 2;
     j["selected"] = selected_;
 
     json brushes = json::array();
@@ -272,20 +360,20 @@ bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
     return true;
 }
 
-void BrushPaletteWindow::EnsureLoaded(SessionState* session)
+void BrushPaletteWindow::EnsureLoaded(AnsiCanvas* active_canvas, SessionState* session)
 {
     if (loaded_)
         return;
 
     std::string err;
-    if (!LoadFromFile(file_path_.c_str(), err))
+    if (!LoadFromFile(file_path_.c_str(), active_canvas, err))
     {
         last_error_ = err;
 
         // Migration: import from legacy session.json data if present.
         if (session && !session->brush_palette.entries.empty() && !migrated_from_session_)
         {
-            LoadFromSessionBrushPalette(session);
+            LoadFromSessionBrushPalette(session, active_canvas);
             migrated_from_session_ = true;
             std::string save_err;
             if (!SaveToFile(file_path_.c_str(), save_err))
@@ -331,6 +419,7 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
             // Apply immediately so tools see ctx.brush without requiring an extra click.
             if (active_canvas)
                 (void)active_canvas->SetCurrentBrush(entries_.back().brush);
+            request_activate_brush_tool_ = true;
             request_save_ = true;
             // Clear the buffer after successful add
             new_name_buf_[0] = '\0';
@@ -437,6 +526,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
             selected_ = i;
             if (active_canvas && valid)
                 (void)active_canvas->SetCurrentBrush(b);
+            request_activate_brush_tool_ = true;
             request_save_ = true;
         }
 
@@ -472,15 +562,17 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
                     const ImVec2 cmin(origin.x + cell * (float)x, origin.y + cell * (float)y);
                     const ImVec2 cmax(cmin.x + cell, cmin.y + cell);
 
-                    const ImU32 bg = (ImU32)b.bg[idx];
-                    if (bg != 0)
-                        dl->AddRectFilled(cmin, cmax, bg);
+                    const AnsiCanvas::ColorIndex16 bg_idx = b.bg[idx];
+                    const ImU32 bg_col = Index16ToImU32(bg_idx, active_canvas);
+                    if (bg_idx != AnsiCanvas::kUnsetIndex16)
+                        dl->AddRectFilled(cmin, cmax, bg_col);
 
                     const char32_t cp = b.cp[idx];
-                    if (cp == U' ' && bg == 0)
+                    if (cp == U' ' && bg_idx == AnsiCanvas::kUnsetIndex16)
                         continue;
 
-                    const ImU32 fg = (b.fg[idx] != 0) ? (ImU32)b.fg[idx] : default_fg;
+                    const AnsiCanvas::ColorIndex16 fg_idx = b.fg[idx];
+                    const ImU32 fg = (fg_idx != AnsiCanvas::kUnsetIndex16) ? Index16ToImU32(fg_idx, active_canvas) : default_fg;
                     const std::string ch = EncodeUtf8(cp);
 
                     // Center glyph in the cell.
@@ -598,14 +690,14 @@ bool BrushPaletteWindow::Render(const char* window_title,
         return p_open ? *p_open : false;
     }
 
-    EnsureLoaded(session);
+    EnsureLoaded(active_canvas, session);
 
     // Handle queued file operations (triggered by UI buttons).
     if (request_reload_)
     {
         request_reload_ = false;
         std::string err;
-        if (!LoadFromFile(file_path_.c_str(), err))
+        if (!LoadFromFile(file_path_.c_str(), active_canvas, err))
             last_error_ = err;
         else
             last_error_.clear();

@@ -167,15 +167,10 @@ local function stamp(ctx, layer, cx, cy)
     return
   end
 
-  -- Fallback: behave like a 1x1 brush using ctx.glyph + (optional) ctx.fg/bg/attrs.
-  local ch = current_glyph(ctx)
-  local fg = (useFg and ctx.fg) or nil
-  local bg = (useBg and ctx.bg) or nil
-  local attrs = ctx.attrs
-  if type(fg) ~= "number" then fg = nil end
-  if type(bg) ~= "number" then bg = nil end
-  if type(attrs) ~= "number" then attrs = nil end
-  apply_cell(layer, cx, cy, ch, fg, bg, attrs, mode)
+  -- No multi-cell brush selected: do nothing.
+  -- This avoids surprising "single glyph" stamping behavior (and tofu/fallback glyphs)
+  -- when the user expected the Brush tool to require a captured brush.
+  return
 end
 
 function render(ctx, layer)

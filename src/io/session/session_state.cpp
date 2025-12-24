@@ -58,7 +58,7 @@ static void EnsureParentDirExists(const std::string& path, std::string& err)
 static json ToJson(const SessionState& st)
 {
     json j;
-    j["schema_version"] = 17;
+    j["schema_version"] = 18;
 
     json win;
     win["w"] = st.window_w;
@@ -86,6 +86,7 @@ static json ToJson(const SessionState& st)
         ui["theme"] = st.ui_theme;
     ui["undo_limit"] = st.undo_limit;
     ui["lut_cache_budget_bytes"] = st.lut_cache_budget_bytes;
+    ui["glyph_atlas_cache_budget_bytes"] = st.glyph_atlas_cache_budget_bytes;
     ui["canvas_bg_white"] = st.canvas_bg_white;
     ui["character_palette_settings_open"] = st.character_palette_settings_open;
 
@@ -324,6 +325,14 @@ static void FromJson(const json& j, SessionState& out)
         {
             const int v = ui["lut_cache_budget_bytes"].get<int>();
             out.lut_cache_budget_bytes = (v > 0) ? static_cast<size_t>(v) : 0;
+        }
+
+        if (ui.contains("glyph_atlas_cache_budget_bytes") && ui["glyph_atlas_cache_budget_bytes"].is_number_unsigned())
+            out.glyph_atlas_cache_budget_bytes = ui["glyph_atlas_cache_budget_bytes"].get<size_t>();
+        else if (ui.contains("glyph_atlas_cache_budget_bytes") && ui["glyph_atlas_cache_budget_bytes"].is_number_integer())
+        {
+            const int v = ui["glyph_atlas_cache_budget_bytes"].get<int>();
+            out.glyph_atlas_cache_budget_bytes = (v > 0) ? static_cast<size_t>(v) : 0;
         }
         if (ui.contains("canvas_bg_white") && ui["canvas_bg_white"].is_boolean())
             out.canvas_bg_white = ui["canvas_bg_white"].get<bool>();
@@ -865,7 +874,7 @@ bool LoadSessionState(SessionState& out, std::string& err)
         const int ver = j["schema_version"].get<int>();
         if (ver != 1 && ver != 2 && ver != 3 && ver != 4 && ver != 5 && ver != 6 && ver != 7 && ver != 8 &&
             ver != 9 && ver != 10 && ver != 11 && ver != 12 && ver != 13 && ver != 14 && ver != 15 && ver != 16 &&
-            ver != 17)
+            ver != 17 && ver != 18)
         {
             // Unknown schema: ignore file rather than failing startup.
             return true;

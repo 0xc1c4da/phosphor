@@ -320,6 +320,98 @@ void SettingsWindow::RenderTab_General()
             }
         }
     }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Glyph Atlas Cache");
+    ImGui::Separator();
+
+    {
+        auto format_mib = [](std::size_t bytes) -> float {
+            return (bytes > 0) ? ((float)bytes / (1024.0f * 1024.0f)) : 0.0f;
+        };
+
+        int mib = (session_->glyph_atlas_cache_budget_bytes > 0)
+                    ? (int)(session_->glyph_atlas_cache_budget_bytes / (1024ull * 1024ull))
+                    : 0;
+
+        bool atlas_changed = false;
+        bool unlimited_atlas = (session_->glyph_atlas_cache_budget_bytes == 0);
+        if (ImGui::Checkbox("Unlimited glyph atlas cache", &unlimited_atlas))
+        {
+            session_->glyph_atlas_cache_budget_bytes = unlimited_atlas ? 0 : (96ull * 1024ull * 1024ull);
+            atlas_changed = true;
+        }
+
+        if (!unlimited_atlas)
+        {
+            mib = std::clamp(mib <= 0 ? 96 : mib, 1, 2048);
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::InputInt("Max glyph atlas cache (MiB)", &mib, 8, 32))
+            {
+                mib = std::clamp(mib, 1, 2048);
+                session_->glyph_atlas_cache_budget_bytes = (size_t)mib * 1024ull * 1024ull;
+                atlas_changed = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("32"))
+            {
+                session_->glyph_atlas_cache_budget_bytes = 32ull * 1024ull * 1024ull;
+                atlas_changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("64"))
+            {
+                session_->glyph_atlas_cache_budget_bytes = 64ull * 1024ull * 1024ull;
+                atlas_changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("96"))
+            {
+                session_->glyph_atlas_cache_budget_bytes = 96ull * 1024ull * 1024ull;
+                atlas_changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("128"))
+            {
+                session_->glyph_atlas_cache_budget_bytes = 128ull * 1024ull * 1024ull;
+                atlas_changed = true;
+            }
+        }
+
+        if (atlas_changed && glyph_atlas_cache_budget_applier_)
+            glyph_atlas_cache_budget_applier_(session_->glyph_atlas_cache_budget_bytes);
+
+        // Budget pressure indicator (live): 100% corresponds to the current budget.
+        {
+            const std::size_t used_b = glyph_atlas_cache_used_bytes_getter_ ? glyph_atlas_cache_used_bytes_getter_() : 0;
+            const std::size_t budget_b = session_->glyph_atlas_cache_budget_bytes;
+
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Budget pressure");
+
+            if (budget_b > 0)
+            {
+                const float frac = (budget_b > 0) ? (float)((double)used_b / (double)budget_b) : 0.0f;
+                char label[128];
+                std::snprintf(label, sizeof(label), "%.1f / %.1f MiB (%.0f%%)",
+                              format_mib(used_b), format_mib(budget_b),
+                              (double)std::clamp(frac, 0.0f, 1.0f) * 100.0);
+                ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label);
+            }
+            else
+            {
+                char label[128];
+                std::snprintf(label, sizeof(label), "%.1f MiB used (unlimited budget)", format_mib(used_b));
+                ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label);
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Tip: this caches bitmap font atlases for fast/correct rendering across many open canvases.");
+        }
+    }
 }
 
 void SettingsWindow::Render(const char* title, SessionState* session, bool apply_placement_this_frame)
