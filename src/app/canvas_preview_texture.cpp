@@ -3,6 +3,7 @@
 #include "core/canvas.h"
 #include "core/color_system.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 
 // ImGui Vulkan backend texture registration.
 #include "imgui_impl_vulkan.h"
@@ -703,10 +704,11 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
 
     auto sample_cell_color = [&](int row, int col, float lx, float ly) -> ImU32
     {
-        char32_t cp = U' ';
+        AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
         AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
         AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
-        (void)canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg);
+        (void)canvas.GetCompositeCellPublicGlyphIndices(row, col, glyph, fg, bg);
+        const char32_t cp_rep = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
 
         auto& cs = phos::color::GetColorSystem();
         phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
@@ -720,7 +722,7 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
 
         const ImU32 bg_col = (bg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(bg) : paper;
         const ImU32 fg_col = (fg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(fg) : default_fg;
-        const Ink2x2 ink = glyph_ink2x2(cp);
+        const Ink2x2 ink = glyph_ink2x2(cp_rep);
         const bool right = (lx >= 0.5f);
         const bool bot   = (ly >= 0.5f);
         float t = 0.0f;

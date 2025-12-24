@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,6 +12,7 @@
 #include "ansl/ansl_native.h"
 #include "core/canvas.h"
 #include "core/color_system.h"
+#include "core/glyph_id.h"
 #include "io/formats/ansi.h"
 
 namespace app
@@ -215,8 +217,8 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
         {
             for (int cc = 0; cc < cols; ++cc)
             {
-                const char32_t cp = imported.GetLayerCell(0, rr, cc);
-                if (cp != U' ' && cp != U'\0')
+                const AnsiCanvas::GlyphId glyph = imported.GetLayerGlyph(0, rr, cc);
+                if (glyph != 0 && !phos::glyph::IsBlank(glyph))
                 {
                     max_row = std::max(max_row, rr);
                     max_col = std::max(max_col, cc);
@@ -252,7 +254,7 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
         {
             for (int cc = 0; cc < pasted_w; ++cc)
             {
-                const char32_t cp = imported.GetLayerCell(0, rr, cc);
+                const AnsiCanvas::GlyphId glyph = imported.GetLayerGlyph(0, rr, cc);
                 AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs attrs = 0;
@@ -261,7 +263,13 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
 
                 const AnsiCanvas::ColorIndex16 out_fg = remap_idx(fg);
                 const AnsiCanvas::ColorIndex16 out_bg = remap_idx(bg);
-                (void)canvas.SetLayerCellIndices(layer, y + rr, x + cc, cp, out_fg, out_bg, attrs);
+                (void)canvas.SetLayerGlyphIndicesPartial(layer,
+                                                        y + rr,
+                                                        x + cc,
+                                                        glyph,
+                                                        std::optional<AnsiCanvas::ColorIndex16>(out_fg),
+                                                        std::optional<AnsiCanvas::ColorIndex16>(out_bg),
+                                                        std::optional<AnsiCanvas::Attrs>(attrs));
             }
         }
     }

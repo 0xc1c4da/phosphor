@@ -214,13 +214,13 @@ static inline void AddBasicBlockCandidates(std::vector<char32_t>& out)
 static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
                                       int layer_index,
                                       const AnsiCanvas::Rect& r,
-                                      std::vector<char32_t>& cp,
+                                      std::vector<AnsiCanvas::GlyphId>& glyph,
                                       std::vector<AnsiCanvas::ColorIndex16>& fg,
                                       std::vector<AnsiCanvas::ColorIndex16>& bg,
                                       std::vector<AnsiCanvas::Attrs>& attrs)
 {
     const size_t n = (size_t)std::max(0, r.w) * (size_t)std::max(0, r.h);
-    cp.resize(n, U' ');
+    glyph.resize(n, phos::glyph::MakeUnicodeScalar(U' '));
     fg.resize(n, AnsiCanvas::kUnsetIndex16);
     bg.resize(n, AnsiCanvas::kUnsetIndex16);
     attrs.resize(n, 0);
@@ -232,7 +232,7 @@ static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
         for (int col = r.x; col < r.x + r.w; ++col)
         {
             const size_t i = (size_t)(row - r.y) * (size_t)r.w + (size_t)(col - r.x);
-            cp[i] = canvas.GetLayerCell(layer_index, row, col);
+            glyph[i] = canvas.GetLayerGlyph(layer_index, row, col);
             (void)canvas.GetLayerCellIndices(layer_index, row, col, fg[i], bg[i]);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, attrs[i]);
         }
@@ -369,11 +369,11 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             return res;
         }
 
-        std::vector<char32_t> src_cp;
+        std::vector<AnsiCanvas::GlyphId> src_glyph;
         std::vector<AnsiCanvas::ColorIndex16> src_fg;
         std::vector<AnsiCanvas::ColorIndex16> src_bg;
         std::vector<AnsiCanvas::Attrs> src_attrs;
-        SnapshotLayerRegion(canvas, layer_index, clipped, src_cp, src_fg, src_bg, src_attrs);
+        SnapshotLayerRegion(canvas, layer_index, clipped, src_glyph, src_fg, src_bg, src_attrs);
 
         ApplyDabResult res;
         res.changed = false;
@@ -397,7 +397,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 src_row = std::clamp(src_row, clipped.y, clipped.y + clipped.h - 1);
 
                 const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
-                const char32_t new_cp = (si < src_cp.size()) ? src_cp[si] : U' ';
+                const AnsiCanvas::GlyphId new_glyph =
+                    (si < src_glyph.size()) ? src_glyph[si] : (AnsiCanvas::GlyphId)phos::glyph::MakeUnicodeScalar(U' ');
                 const AnsiCanvas::ColorIndex16 new_fg =
                     (si < src_fg.size()) ? src_fg[si] : AnsiCanvas::kUnsetIndex16;
                 const AnsiCanvas::ColorIndex16 new_bg =
@@ -405,16 +406,22 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 const AnsiCanvas::Attrs new_attrs = (si < src_attrs.size()) ? src_attrs[si] : 0;
 
                 // Apply if changed.
-                const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
+                const AnsiCanvas::GlyphId old_glyph = canvas.GetLayerGlyph(layer_index, row, col);
                 AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
                 (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
-                if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
+                if (old_glyph != new_glyph || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
                 {
-                    (void)canvas.SetLayerCellIndices(layer_index, row, col, new_cp, new_fg, new_bg, new_attrs);
+                    (void)canvas.SetLayerGlyphIndicesPartial(layer_index,
+                                                            row,
+                                                            col,
+                                                            new_glyph,
+                                                            new_fg,
+                                                            new_bg,
+                                                            new_attrs);
                     res.changed = true;
                 }
             }
@@ -428,75 +435,99 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     // - base_candidates: explicit list / ASCII / blocks (host-provided palette, etc)
     // - region_candidates: glyphs already present in the affected region
     // ---------------------------------------------------------------------
-    std::vector<char32_t> base_candidates;
+    std::vector<AnsiCanvas::GlyphId> base_candidates;
     base_candidates.reserve(512);
     switch (args.glyph_set.kind)
     {
         case GlyphSetKind::ExplicitList:
-            for (char32_t cp : args.glyph_set.explicit_codepoints)
-                if (cp != 0)
-                    base_candidates.push_back(cp);
+            if (!args.glyph_set.explicit_glyph_ids.empty())
+            {
+                for (AnsiCanvas::GlyphId g : args.glyph_set.explicit_glyph_ids)
+                    if (g != 0)
+                        base_candidates.push_back(g);
+            }
+            else
+            {
+                for (char32_t cp : args.glyph_set.explicit_codepoints)
+                    if (cp != 0)
+                        base_candidates.push_back(phos::glyph::MakeUnicodeScalar(cp));
+            }
             break;
         case GlyphSetKind::Ascii:
-            AddAsciiCandidates(base_candidates);
+            {
+                std::vector<char32_t> tmp;
+                AddAsciiCandidates(tmp);
+                for (char32_t cp : tmp)
+                    base_candidates.push_back(phos::glyph::MakeUnicodeScalar(cp));
+            }
             break;
         case GlyphSetKind::BasicBlocks:
-            AddBasicBlockCandidates(base_candidates);
+            {
+                std::vector<char32_t> tmp;
+                AddBasicBlockCandidates(tmp);
+                for (char32_t cp : tmp)
+                    base_candidates.push_back(phos::glyph::MakeUnicodeScalar(cp));
+            }
             break;
         case GlyphSetKind::FontAll:
             // Not supported in v1 (too expensive for atlas fonts). Fall back to blocks.
-            AddBasicBlockCandidates(base_candidates);
+            {
+                std::vector<char32_t> tmp;
+                AddBasicBlockCandidates(tmp);
+                for (char32_t cp : tmp)
+                    base_candidates.push_back(phos::glyph::MakeUnicodeScalar(cp));
+            }
             break;
     }
 
     // Add glyphs already present on the canvas in the affected region.
-    std::vector<char32_t> region_candidates;
+    std::vector<AnsiCanvas::GlyphId> region_candidates;
     {
-        std::unordered_set<char32_t> seen;
+        std::unordered_set<AnsiCanvas::GlyphId> seen;
         seen.reserve((size_t)clipped.w * (size_t)clipped.h);
         // Preserve order: seed with existing base candidates first.
-        for (char32_t cp : base_candidates)
-            if (cp != 0)
-                seen.insert(cp);
+        for (AnsiCanvas::GlyphId g : base_candidates)
+            if (g != 0)
+                seen.insert(g);
 
         for (int row = clipped.y; row < clipped.y + clipped.h; ++row)
         {
             for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
             {
-                char32_t cp = U' ';
+                AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
                 AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs a = 0;
                 if (args.sample == Sample::Composite)
-                    (void)canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg, a);
+                    (void)canvas.GetCompositeCellPublicGlyphIndices(row, col, glyph, fg, bg, a);
                 else
                 {
-                    cp = canvas.GetLayerCell(layer_index, row, col);
+                    glyph = canvas.GetLayerGlyph(layer_index, row, col);
                     (void)canvas.GetLayerCellIndices(layer_index, row, col, fg, bg);
                     (void)canvas.GetLayerCellAttrs(layer_index, row, col, a);
                 }
-                if (cp == 0)
+                if (glyph == 0)
                     continue;
-                if (seen.insert(cp).second)
+                if (seen.insert(glyph).second)
                 {
                     if (region_candidates.size() < 512)
-                        region_candidates.push_back(cp);
+                        region_candidates.push_back(glyph);
                 }
             }
         }
     }
 
     // Union candidates (bounded).
-    std::vector<char32_t> candidates = base_candidates;
+    std::vector<AnsiCanvas::GlyphId> candidates = base_candidates;
     if (candidates.size() < 512)
     {
-        for (char32_t cp : region_candidates)
+        for (AnsiCanvas::GlyphId g : region_candidates)
         {
-            if (cp == 0)
+            if (g == 0)
                 continue;
-            if (std::find(candidates.begin(), candidates.end(), cp) == candidates.end())
+            if (std::find(candidates.begin(), candidates.end(), g) == candidates.end())
             {
-                candidates.push_back(cp);
+                candidates.push_back(g);
                 if (candidates.size() >= 512)
                     break;
             }
@@ -631,12 +662,12 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
     std::string mask_err;
 
     // For sticky warp+quantize, we want a stable "source glyph" anchor from the edited layer.
-    std::vector<char32_t> src_cp_for_anchor;
+    std::vector<AnsiCanvas::GlyphId> src_glyph_for_anchor;
     std::vector<AnsiCanvas::ColorIndex16> tmp_fg;
     std::vector<AnsiCanvas::ColorIndex16> tmp_bg;
     std::vector<AnsiCanvas::Attrs> tmp_attrs;
     if (args.algo == DeformAlgo::WarpQuantizeSticky)
-        SnapshotLayerRegion(canvas, layer_index, clipped, src_cp_for_anchor, tmp_fg, tmp_bg, tmp_attrs);
+        SnapshotLayerRegion(canvas, layer_index, clipped, src_glyph_for_anchor, tmp_fg, tmp_bg, tmp_attrs);
 
     auto compute_error = [&](const std::vector<std::uint8_t>& target_mask, const GlyphMaskCache::Mask& gm) -> double {
         const size_t n = (size_t)cell_w_px * (size_t)cell_h_px;
@@ -845,65 +876,65 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             }
 
             // Choose glyph by mask correlation.
-            char32_t best_cp = U' ';
+            AnsiCanvas::GlyphId best_glyph = phos::glyph::MakeUnicodeScalar(U' ');
             double best_err = 1e30;
 
-            auto find_best = [&](const std::vector<char32_t>& pool, char32_t& out_cp, double& out_err) {
-                out_cp = U' ';
+            auto find_best = [&](const std::vector<AnsiCanvas::GlyphId>& pool, AnsiCanvas::GlyphId& out_glyph, double& out_err) {
+                out_glyph = phos::glyph::MakeUnicodeScalar(U' ');
                 out_err = 1e30;
-                for (char32_t cp : pool)
+                for (AnsiCanvas::GlyphId g : pool)
                 {
-                    GlyphMaskCache::Mask gm = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cp, mask_err);
+                    GlyphMaskCache::Mask gm = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, g, mask_err);
                     const double e = compute_error(target_mask, gm);
                     if (e < out_err)
                     {
                         out_err = e;
-                        out_cp = cp;
+                        out_glyph = g;
                     }
                 }
             };
 
             if (args.algo == DeformAlgo::WarpQuantizeSticky && !region_candidates.empty() && !base_candidates.empty())
             {
-                char32_t best_region_cp = U' ';
+                AnsiCanvas::GlyphId best_region_glyph = phos::glyph::MakeUnicodeScalar(U' ');
                 double best_region_err = 1e30;
-                find_best(region_candidates, best_region_cp, best_region_err);
+                find_best(region_candidates, best_region_glyph, best_region_err);
 
-                char32_t best_base_cp = U' ';
+                AnsiCanvas::GlyphId best_base_glyph = phos::glyph::MakeUnicodeScalar(U' ');
                 double best_base_err = 1e30;
-                find_best(base_candidates, best_base_cp, best_base_err);
+                find_best(base_candidates, best_base_glyph, best_base_err);
 
                 // Prefer region glyphs unless the base set is meaningfully better.
                 constexpr double kImprove = 0.85; // base must be >=15% better to override region
                 if (best_base_err < best_region_err * kImprove)
                 {
-                    best_cp = best_base_cp;
+                    best_glyph = best_base_glyph;
                     best_err = best_base_err;
                 }
                 else
                 {
-                    best_cp = best_region_cp;
+                    best_glyph = best_region_glyph;
                     best_err = best_region_err;
                 }
             }
             else
             {
-                find_best(candidates, best_cp, best_err);
+                find_best(candidates, best_glyph, best_err);
             }
 
             // Hysteresis: keep current glyph if it's close enough.
-            const char32_t cur_cp = canvas.GetLayerCell(layer_index, row, col);
-            if (args.hysteresis > 0.0f && std::find(candidates.begin(), candidates.end(), cur_cp) != candidates.end())
+            const AnsiCanvas::GlyphId cur_glyph = canvas.GetLayerGlyph(layer_index, row, col);
+            if (args.hysteresis > 0.0f && std::find(candidates.begin(), candidates.end(), cur_glyph) != candidates.end())
             {
-                GlyphMaskCache::Mask gm_cur = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cur_cp, mask_err);
+                GlyphMaskCache::Mask gm_cur = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, cur_glyph, mask_err);
                 const double e_cur = compute_error(target_mask, gm_cur);
                 const double eps = (double)std::max(0.0f, args.hysteresis);
                 if (e_cur <= best_err * (1.0 + eps))
-                    best_cp = cur_cp;
+                    best_glyph = cur_glyph;
             }
 
             // Sticky anchor: prefer the inverse-mapped *source* glyph if close enough.
-            if (args.algo == DeformAlgo::WarpQuantizeSticky && args.hysteresis > 0.0f && !src_cp_for_anchor.empty())
+            if (args.algo == DeformAlgo::WarpQuantizeSticky && args.hysteresis > 0.0f && !src_glyph_for_anchor.empty())
             {
                 const float px_cell = (float)col + 0.5f;
                 const float py_cell = (float)row + 0.5f;
@@ -915,14 +946,15 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                     src_col = std::clamp(src_col, clipped.x, clipped.x + clipped.w - 1);
                     src_row = std::clamp(src_row, clipped.y, clipped.y + clipped.h - 1);
                     const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
-                    const char32_t anchor_cp = (si < src_cp_for_anchor.size()) ? src_cp_for_anchor[si] : U' ';
-                    if (anchor_cp != 0 && std::find(candidates.begin(), candidates.end(), anchor_cp) != candidates.end())
+                    const AnsiCanvas::GlyphId anchor_glyph =
+                        (si < src_glyph_for_anchor.size()) ? src_glyph_for_anchor[si] : (AnsiCanvas::GlyphId)phos::glyph::MakeUnicodeScalar(U' ');
+                    if (anchor_glyph != 0 && std::find(candidates.begin(), candidates.end(), anchor_glyph) != candidates.end())
                     {
-                        GlyphMaskCache::Mask gm_anchor = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, anchor_cp, mask_err);
+                        GlyphMaskCache::Mask gm_anchor = mask_cache.GetMask(canvas, cell_w_px, cell_h_px, 1, anchor_glyph, mask_err);
                         const double e_anchor = compute_error(target_mask, gm_anchor);
                         const double eps_anchor = (double)std::clamp(args.hysteresis * 3.0f, 0.0f, 1.0f);
                         if (e_anchor <= best_err * (1.0 + eps_anchor))
-                            best_cp = anchor_cp;
+                            best_glyph = anchor_glyph;
                     }
                 }
             }
@@ -947,7 +979,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                     out_fg = (AnsiCanvas::ColorIndex16)std::clamp(idx, 0, pal_max_idx);
                 }
                 out_bg = AnsiCanvas::kUnsetIndex16;
-                if (best_cp == U' ')
+                if (phos::glyph::IsBlank((phos::GlyphId)best_glyph))
                     out_fg = AnsiCanvas::kUnsetIndex16;
             }
             else
@@ -979,7 +1011,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                             args.allowed_indices);
                 out_bg = (AnsiCanvas::ColorIndex16)std::clamp(bg_idx, 0, pal_max_idx);
                 out_fg = (AnsiCanvas::ColorIndex16)std::clamp(fg_idx, 0, pal_max_idx);
-                if (best_cp == U' ')
+                if (phos::glyph::IsBlank((phos::GlyphId)best_glyph))
                     out_fg = AnsiCanvas::kUnsetIndex16;
             }
 
@@ -987,16 +1019,22 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             const AnsiCanvas::Attrs out_attrs = 0;
 
             // Apply if changed.
-            char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
+            AnsiCanvas::GlyphId old_glyph = canvas.GetLayerGlyph(layer_index, row, col);
             AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs old_attrs = 0;
             (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
-            if (old_cp != best_cp || old_fg != out_fg || old_bg != out_bg || old_attrs != out_attrs)
+            if (old_glyph != best_glyph || old_fg != out_fg || old_bg != out_bg || old_attrs != out_attrs)
             {
-                (void)canvas.SetLayerCellIndices(layer_index, row, col, best_cp, out_fg, out_bg, out_attrs);
+                (void)canvas.SetLayerGlyphIndicesPartial(layer_index,
+                                                        row,
+                                                        col,
+                                                        best_glyph,
+                                                        out_fg,
+                                                        out_bg,
+                                                        out_attrs);
                 res.changed = true;
             }
         }

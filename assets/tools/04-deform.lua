@@ -72,7 +72,10 @@ local function apply_dab(ctx, layer, x, y, px, py)
     scope = scope,
     hysteresis = hysteresis,
     palette = ctx.palette, -- allowed indices list (optional; indices are in the active canvas palette)
-    glyphCandidates = ctx.glyphCandidates, -- codepoints (optional)
+    -- Prefer GlyphId token candidates when available (lossless for embedded/bitmap indices).
+    glyphIdCandidates = ctx.glyphIdCandidates, -- glyph ids (optional; preferred)
+    -- Only pass legacy codepoint candidates when we don't have glyph ids.
+    glyphCandidates = (ctx.glyphIdCandidates ~= nil and #ctx.glyphIdCandidates > 0) and nil or ctx.glyphCandidates,
   }
 
   return ansl.deform.apply_dab(layer, canvas, args)

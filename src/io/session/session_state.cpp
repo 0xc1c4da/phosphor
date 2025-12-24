@@ -194,8 +194,10 @@ static json ToJson(const SessionState& st)
         jc["scroll_x"] = c.scroll_x;
         jc["scroll_y"] = c.scroll_y;
         jc["canvas_bg_white"] = c.canvas_bg_white;
-        if (c.active_glyph_cp != 0)
-            jc["active_glyph_cp"] = c.active_glyph_cp;
+        if (c.active_glyph != 0)
+            jc["active_glyph"] = c.active_glyph;
+        // Legacy note: older session.json versions stored `active_glyph_cp` (Unicode scalar,
+        // including legacy embedded PUA). We still *read* it as a fallback, but we no longer write it.
         if (!c.active_glyph_utf8.empty())
             jc["active_glyph_utf8"] = c.active_glyph_utf8;
         canvases.push_back(std::move(jc));
@@ -352,6 +354,9 @@ static void FromJson(const json& j, SessionState& out)
         if (ui.contains("character_palette_settings_open") && ui["character_palette_settings_open"].is_boolean())
             out.character_palette_settings_open = ui["character_palette_settings_open"].get<bool>();
 
+        // NOTE: ANSI import settings are no longer persisted. Import is intended to be automatic
+        // (file-driven via SAUCE where possible; otherwise reasonable defaults).
+
         if (ui.contains("xterm_color_picker") && ui["xterm_color_picker"].is_object())
         {
             const json& xcp = ui["xterm_color_picker"];
@@ -497,6 +502,8 @@ static void FromJson(const json& j, SessionState& out)
                 if (jc.contains("scroll_y") && jc["scroll_y"].is_number()) oc.scroll_y = jc["scroll_y"].get<float>();
                 if (jc.contains("canvas_bg_white") && jc["canvas_bg_white"].is_boolean())
                     oc.canvas_bg_white = jc["canvas_bg_white"].get<bool>();
+                if (jc.contains("active_glyph") && (jc["active_glyph"].is_number_unsigned() || jc["active_glyph"].is_number_integer()))
+                    oc.active_glyph = jc["active_glyph"].get<std::uint32_t>();
                 if (jc.contains("active_glyph_cp") && (jc["active_glyph_cp"].is_number_unsigned() || jc["active_glyph_cp"].is_number_integer()))
                     oc.active_glyph_cp = jc["active_glyph_cp"].get<std::uint32_t>();
                 if (jc.contains("active_glyph_utf8") && jc["active_glyph_utf8"].is_string())

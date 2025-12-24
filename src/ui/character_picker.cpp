@@ -756,7 +756,14 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
                              SessionState* session, bool apply_placement_this_frame)
 {
     EnsureBlocksLoaded();
-    RebuildAvailablePlanes(ImGui::GetFont());
+    // Unicode picker is Unicode-only: always render with the UI font (Unscii / ImGui default),
+    // not whatever font happens to be pushed by other UI.
+    ImFont* ui_font = ImGui::GetIO().FontDefault ? ImGui::GetIO().FontDefault : ImGui::GetFont();
+    const bool font_pushed = (ui_font != nullptr);
+    if (font_pushed)
+        ImGui::PushFont(ui_font);
+
+    RebuildAvailablePlanes(ui_font);
 
     if (session)
         ApplyImGuiWindowPlacement(*session, window_title, apply_placement_this_frame);
@@ -770,6 +777,8 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
             CaptureImGuiWindowPlacement(*session, window_title);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
+        if (font_pushed)
+            ImGui::PopFont();
         return (p_open == nullptr) ? true : *p_open;
     }
     if (session)
@@ -786,6 +795,8 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
 
     ImGui::End();
     PopImGuiWindowChromeAlpha(alpha_pushed);
+    if (font_pushed)
+        ImGui::PopFont();
     return (p_open == nullptr) ? true : *p_open;
 }
 

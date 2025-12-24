@@ -181,6 +181,36 @@ bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_c
     return true;
 }
 
+bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg) const
+{
+    out_glyph = phos::glyph::MakeUnicodeScalar(U' ');
+    out_fg = kUnsetIndex16;
+    out_bg = kUnsetIndex16;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_glyph = c.glyph;
+    out_fg = c.fg;
+    out_bg = c.bg;
+    return true;
+}
+
+bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const
+{
+    out_glyph = phos::glyph::MakeUnicodeScalar(U' ');
+    out_fg = kUnsetIndex16;
+    out_bg = kUnsetIndex16;
+    out_attrs = 0;
+    if (row < 0 || col < 0 || col >= m_columns || row >= m_rows)
+        return false;
+    CompositeCell c = GetCompositeCell(row, col);
+    out_glyph = c.glyph;
+    out_fg = c.fg;
+    out_bg = c.bg;
+    out_attrs = c.attrs;
+    return true;
+}
+
 // ---- end inlined from canvas_core.inc ----
 
 

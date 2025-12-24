@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "core/canvas.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -334,17 +335,10 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     EnsureLoaded();
     EnsureNonEmpty();
 
-    // Embedded font: picker cp may be a PUA codepoint (U+E000 + glyph_index). Treat it as a selection.
-    if (source_ == Source::EmbeddedFont)
-    {
-        if (cp >= (uint32_t)AnsiCanvas::kEmbeddedGlyphBase)
-        {
-            const uint32_t idx = cp - (uint32_t)AnsiCanvas::kEmbeddedGlyphBase;
-            selected_cell_ = (int)idx;
-            request_focus_selected_ = true;
-        }
+    // Embedded source is index-based and read-only; the Unicode picker is Unicode-scalar based.
+    // Do not attempt to interpret picker codepoints as embedded glyph indices here.
+    if (source_ == Source::EmbeddedFont || source_ == Source::BitmapFontIndices)
         return;
-    }
 
     if (cp == 0)
         return;
@@ -359,20 +353,44 @@ void CharacterPalette::OnPickerSelectedCodePoint(uint32_t cp)
     request_focus_selected_ = true;
 }
 
-void CharacterPalette::SyncSelectionFromActiveGlyph(uint32_t cp, const std::string& utf8, AnsiCanvas* active_canvas)
+void CharacterPalette::SyncSelectionFromActiveGlyph(phos::GlyphId glyph, const std::string& utf8, AnsiCanvas* active_canvas)
 {
     EnsureLoaded();
     EnsureNonEmpty();
     active_canvas_ = active_canvas;
 
-    // Embedded font source: select by glyph index if cp is PUA.
+    // Embedded font source: select by glyph index if `glyph` is an EmbeddedIndex token
+    // (or a legacy embedded-PUA Unicode scalar) and an embedded font exists.
     if (source_ == Source::EmbeddedFont)
     {
-        if (cp >= (uint32_t)AnsiCanvas::kEmbeddedGlyphBase)
+        if (active_canvas_ && active_canvas_->HasEmbeddedFont() && active_canvas_->GetEmbeddedFont())
+            if (auto idx = phos::glyph::TryGetEmbeddedIndex(glyph, active_canvas_->GetEmbeddedFont()))
+            {
+                selected_cell_ = (int)*idx;
+                request_focus_selected_ = true;
+            }
+        return;
+    }
+
+    // Bitmap indices source: select by bitmap glyph index if `glyph` is a BitmapIndex token.
+    // Otherwise, best-effort map the glyph's Unicode representative into the active canvas font.
+    if (source_ == Source::BitmapFontIndices)
+    {
+        if (phos::glyph::GetKind(glyph) == phos::glyph::Kind::BitmapIndex)
         {
-            const uint32_t idx = cp - (uint32_t)AnsiCanvas::kEmbeddedGlyphBase;
-            selected_cell_ = (int)idx;
+            selected_cell_ = (int)phos::glyph::BitmapIndexValue(glyph);
             request_focus_selected_ = true;
+            return;
+        }
+        if (active_canvas_)
+        {
+            const char32_t rep = phos::glyph::ToUnicodeRepresentative(glyph);
+            std::uint16_t gi = 0;
+            if (fonts::UnicodeToGlyphIndex(active_canvas_->GetFontId(), rep, gi))
+            {
+                selected_cell_ = (int)gi;
+                request_focus_selected_ = true;
+            }
         }
         return;
     }
@@ -394,7 +412,8 @@ void CharacterPalette::SyncSelectionFromActiveGlyph(uint32_t cp, const std::stri
         }
     }
 
-    if (auto idx = FindGlyphIndexByFirstCp(cp))
+    const uint32_t rep_cp = (uint32_t)phos::glyph::ToUnicodeRepresentative(glyph);
+    if (auto idx = FindGlyphIndexByFirstCp(rep_cp))
     {
         selected_cell_ = *idx;
         request_focus_selected_ = true;
@@ -427,7 +446,7 @@ void CharacterPalette::CollectCandidateCodepoints(std::vector<uint32_t>& out, co
 {
     out.clear();
 
-    // Embedded font source: return one PUA codepoint per glyph index.
+    // Embedded font source: return a best-effort Unicode representative per glyph index.
     if (source_ == Source::EmbeddedFont)
     {
         if (!active_canvas || !active_canvas->HasEmbeddedFont() || !active_canvas->GetEmbeddedFont())
@@ -435,7 +454,16 @@ void CharacterPalette::CollectCandidateCodepoints(std::vector<uint32_t>& out, co
         const int n = std::clamp(active_canvas->GetEmbeddedFont()->glyph_count, 0, 2048);
         out.reserve((size_t)n);
         for (int i = 0; i < n; ++i)
-            out.push_back((uint32_t)AnsiCanvas::kEmbeddedGlyphBase + (uint32_t)i);
+            out.push_back((uint32_t)phos::glyph::ToUnicodeRepresentative(phos::glyph::MakeEmbeddedIndex((std::uint16_t)i)));
+        return;
+    }
+
+    // Bitmap indices source: return deterministic Unicode representatives for each bitmap index.
+    if (source_ == Source::BitmapFontIndices)
+    {
+        out.reserve(256);
+        for (int i = 0; i < 256; ++i)
+            out.push_back((uint32_t)phos::glyph::ToUnicodeRepresentative(phos::glyph::MakeBitmapIndex((std::uint16_t)i)));
         return;
     }
 
@@ -447,6 +475,45 @@ void CharacterPalette::CollectCandidateCodepoints(std::vector<uint32_t>& out, co
     out.reserve(glyphs.size());
     for (const auto& g : glyphs)
         out.push_back(g.first_cp);
+}
+
+void CharacterPalette::CollectCandidateGlyphIds(std::vector<phos::GlyphId>& out, const AnsiCanvas* active_canvas) const
+{
+    out.clear();
+
+    // Embedded font source: return one EmbeddedIndex token per glyph index.
+    if (source_ == Source::EmbeddedFont)
+    {
+        if (!active_canvas || !active_canvas->HasEmbeddedFont() || !active_canvas->GetEmbeddedFont())
+            return;
+        const int n = std::clamp(active_canvas->GetEmbeddedFont()->glyph_count, 0, 2048);
+        out.reserve((size_t)n);
+        for (int i = 0; i < n; ++i)
+            out.push_back(phos::glyph::MakeEmbeddedIndex((std::uint16_t)i));
+        return;
+    }
+
+    // Bitmap indices source: return one BitmapIndex token per bitmap glyph index.
+    if (source_ == Source::BitmapFontIndices)
+    {
+        out.reserve(256);
+        for (int i = 0; i < 256; ++i)
+            out.push_back(phos::glyph::MakeBitmapIndex((std::uint16_t)i));
+        return;
+    }
+
+    // JSON palettes: return UnicodeScalar GlyphIds for the first codepoint of each glyph.
+    if (palettes_.empty())
+        return;
+    const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
+    const auto& glyphs = palettes_[pi].glyphs;
+    out.reserve(glyphs.size());
+    for (const auto& g : glyphs)
+    {
+        if (g.first_cp == 0)
+            continue;
+        out.push_back(phos::glyph::MakeUnicodeScalar((char32_t)g.first_cp));
+    }
 }
 
 bool CharacterPalette::Render(const char* window_title, bool* p_open,
@@ -558,15 +625,20 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         ImGui::TextUnformatted("Source");
         ImGui::SameLine();
 
-        const char* items[] = { "JSON Palettes", "Embedded Font (active canvas)" };
+        const char* items[] = { "JSON Palettes", "Embedded Font (active canvas)", "Bitmap Indices (0..255)" };
         int src = (int)source_;
-        if (!has_embedded)
+        if (!has_embedded && src == (int)Source::EmbeddedFont)
             src = (int)Source::JsonFile;
 
         ImGui::SetNextItemWidth(240.0f);
         if (ImGui::Combo("##palette_source", &src, items, IM_ARRAYSIZE(items)))
         {
-            source_ = (src == (int)Source::EmbeddedFont && has_embedded) ? Source::EmbeddedFont : Source::JsonFile;
+            if (src == (int)Source::EmbeddedFont && has_embedded)
+                source_ = Source::EmbeddedFont;
+            else if (src == (int)Source::BitmapFontIndices)
+                source_ = Source::BitmapFontIndices;
+            else
+                source_ = Source::JsonFile;
             selected_cell_ = 0;
             request_focus_selected_ = true;
         }
@@ -579,19 +651,24 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         ImGui::TextUnformatted("Embedded palette is generated and read-only.");
         ImGui::Separator();
     }
+    if (source_ == Source::BitmapFontIndices)
+    {
+        ImGui::TextUnformatted("Bitmap index palette is generated and read-only.");
+        ImGui::Separator();
+    }
 
     // File row
     ImGui::TextUnformatted("File");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
+    ImGui::BeginDisabled(source_ != Source::JsonFile);
     ImGui::InputText("##palette_file", &file_path_);
     ImGui::EndDisabled();
 
     if (!last_error_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
 
-    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
+    ImGui::BeginDisabled(source_ != Source::JsonFile);
     if (ImGui::Button("Reload"))
         request_reload_ = true;
     ImGui::SameLine();
@@ -604,7 +681,7 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
     // Picker integration (side panel removed, keep a single toggle here).
     ImGui::TextUnformatted("Picker");
     ImGui::SameLine();
-    ImGui::BeginDisabled(source_ == Source::EmbeddedFont);
+    ImGui::BeginDisabled(source_ != Source::JsonFile);
     ImGui::Checkbox("Picker edits palette (replace selected cell)", &picker_replaces_selected_cell_);
     ImGui::EndDisabled();
 
@@ -617,6 +694,11 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
     if (source_ == Source::EmbeddedFont)
     {
         ImGui::TextUnformatted("(embedded)");
+        return;
+    }
+    if (source_ == Source::BitmapFontIndices)
+    {
+        ImGui::TextUnformatted("(bitmap indices)");
         return;
     }
 
@@ -745,6 +827,10 @@ void CharacterPalette::RenderGrid()
     {
         total_items = std::clamp(active_canvas_->GetEmbeddedFont()->glyph_count, 0, 2048);
     }
+    else if (source_ == Source::BitmapFontIndices)
+    {
+        total_items = 256;
+    }
     else
     {
         source_ = Source::JsonFile;
@@ -862,6 +948,12 @@ void CharacterPalette::RenderGrid()
                 user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
                 user_selected_utf8_.clear();
             }
+            else if (source_ == Source::BitmapFontIndices)
+            {
+                user_selection_changed_ = true;
+                user_selected_glyph_ = GlyphToken::BitmapIndex((uint32_t)idx);
+                user_selected_utf8_.clear();
+            }
             else if (glyphs_ptr)
             {
                 const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
@@ -885,6 +977,12 @@ void CharacterPalette::RenderGrid()
                 user_selected_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
                 user_selected_utf8_.clear();
             }
+            else if (source_ == Source::BitmapFontIndices)
+            {
+                user_selection_changed_ = true;
+                user_selected_glyph_ = GlyphToken::BitmapIndex((uint32_t)idx);
+                user_selected_utf8_.clear();
+            }
             else if (glyphs_ptr)
             {
                 const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
@@ -902,6 +1000,11 @@ void CharacterPalette::RenderGrid()
             {
                 user_double_clicked_ = true;
                 user_double_clicked_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+            }
+            else if (source_ == Source::BitmapFontIndices)
+            {
+                user_double_clicked_ = true;
+                user_double_clicked_glyph_ = GlyphToken::BitmapIndex((uint32_t)idx);
             }
             else if (glyphs_ptr)
             {
@@ -934,20 +1037,27 @@ void CharacterPalette::RenderGrid()
         }
 
         // Glyph preview:
-        // - Embedded: render glyph index using the active canvas embedded font.
-        // - JSON: render using the same rules as the canvas (bitmap font mapping if needed).
-        char32_t cp_to_draw = U' ';
+        // - Embedded: render glyph index using the active canvas embedded font (GlyphId token).
+        // - Bitmap indices: render glyph index directly (GlyphId token).
+        // - JSON: render the first codepoint (GlyphId UnicodeScalar).
+        phos::GlyphId glyph_to_draw = phos::glyph::MakeUnicodeScalar(U' ');
         const char* tooltip_utf8 = nullptr;
         std::string tmp;
         if (source_ == Source::EmbeddedFont && has_embedded)
         {
-            cp_to_draw = (char32_t)(AnsiCanvas::kEmbeddedGlyphBase + (char32_t)idx);
+            glyph_to_draw = phos::glyph::MakeEmbeddedIndex((std::uint16_t)idx);
+            tmp = "IDX " + std::to_string(idx);
+            tooltip_utf8 = tmp.c_str();
+        }
+        else if (source_ == Source::BitmapFontIndices)
+        {
+            glyph_to_draw = phos::glyph::MakeBitmapIndex((std::uint16_t)idx);
             tmp = "IDX " + std::to_string(idx);
             tooltip_utf8 = tmp.c_str();
         }
         else if (glyphs_ptr)
         {
-            cp_to_draw = (char32_t)(*glyphs_ptr)[(size_t)idx].first_cp;
+            glyph_to_draw = phos::glyph::MakeUnicodeScalar((char32_t)(*glyphs_ptr)[(size_t)idx].first_cp);
             tooltip_utf8 = (*glyphs_ptr)[(size_t)idx].utf8.empty() ? "(empty)" : (*glyphs_ptr)[(size_t)idx].utf8.c_str();
         }
 
@@ -962,7 +1072,7 @@ void CharacterPalette::RenderGrid()
         dh = std::clamp(dh, 1.0f, cell);
         const ImVec2 p(p0.x + (cell - dw) * 0.5f,
                        p0.y + (cell - dh) * 0.5f);
-        DrawGlyphPreview(dl, p, dw, dh, cp_to_draw, active_canvas_, (std::uint32_t)col_text);
+        DrawGlyphPreview(dl, p, dw, dh, glyph_to_draw, active_canvas_, (std::uint32_t)col_text);
 
         if (hovered)
         {
@@ -970,6 +1080,12 @@ void CharacterPalette::RenderGrid()
             if (source_ == Source::EmbeddedFont && has_embedded)
             {
                 ImGui::Text("IDX %d", idx);
+            }
+            else if (source_ == Source::BitmapFontIndices)
+            {
+                ImGui::Text("IDX %d", idx);
+                const char32_t rep = phos::glyph::ToUnicodeRepresentative(phos::glyph::MakeBitmapIndex((std::uint16_t)idx));
+                ImGui::Text("%s", CodePointHex((uint32_t)rep).c_str());
             }
             else if (glyphs_ptr)
             {

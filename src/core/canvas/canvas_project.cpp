@@ -107,10 +107,11 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 9;
+    out.version = 11;
     out.palette_ref = m_palette_ref;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
+    out.embedded_font = m_embedded_font;
     out.current = to_project_snapshot(MakeSnapshot());
     out.undo_limit = m_undo_limit;
 
@@ -322,6 +323,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     m_sauce = state.sauce;
     m_palette_ref = state.palette_ref;
     m_colour_palette_title = state.colour_palette_title;
+    m_embedded_font = state.embedded_font;
 
     ApplySnapshot(current_internal);
 

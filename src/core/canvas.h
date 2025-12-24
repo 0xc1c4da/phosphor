@@ -16,6 +16,8 @@
 
 #include "core/color_index.h"
 #include "core/fonts.h"
+#include "core/glyph_id.h"
+#include "core/glyph_legacy.h"
 #include "core/layer_blend_mode.h"
 #include "core/palette/palette.h"
 
@@ -33,6 +35,9 @@ public:
     // Convention in this codebase:
     //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
     using Color32 = std::uint32_t;
+
+    // Glyph stored in canvas cell planes (opaque token; may represent Unicode or indexed glyphs).
+    using GlyphId = phos::GlyphId;
 
     // Indexed-color storage (Phase B): colors are stored as palette indices in the canvas's active palette.
     // Unset is represented by phos::color::kUnsetIndex.
@@ -65,10 +70,12 @@ public:
     // Some formats (notably XBin) can embed a raw 1bpp bitmap font table where the on-disk
     // character byte is a glyph *index* (0..255 or 0..511), not a Unicode codepoint.
     //
-    // To represent this in our Unicode canvas, we map glyph indices into the Private Use Area:
+    // Legacy compatibility note:
+    // Historically, embedded glyph indices were encoded into the Unicode Private Use Area:
     //   U+E000 + glyph_index
-    // and store the font bitmap alongside the canvas so rendering can be faithful.
-    static constexpr char32_t kEmbeddedGlyphBase = (char32_t)0xE000;
+    // This is still accepted as an input/interop representation in a few places, but internal
+    // storage is now `GlyphId` tokens (see core/glyph_id.h).
+    static constexpr char32_t kEmbeddedGlyphBase = phos::glyph::kLegacyEmbeddedPuaBase;
 
     struct EmbeddedBitmapFont
     {
@@ -182,13 +189,30 @@ public:
     // - Persisted by session.json (per open canvas)
     // - NOT included in ProjectState (.phos) and NOT tracked by undo/redo
     //
-    // Note: `active_glyph_utf8` may be empty (hosts can derive UTF-8 from cp).
-    std::uint32_t GetActiveGlyphCodePoint() const { return m_active_glyph_cp; }
-    const std::string& GetActiveGlyphUtf8() const { return m_active_glyph_utf8; }
-    void SetActiveGlyph(std::uint32_t cp, std::string utf8)
+    // Note: `active_glyph_utf8` may be empty (hosts can derive UTF-8 from glyph/cp representative).
+    GlyphId GetActiveGlyph() const { return m_active_glyph; }
+    // Best-effort Unicode representative for the active glyph (for legacy/UI convenience).
+    std::uint32_t GetActiveGlyphCodePoint() const
     {
-        m_active_glyph_cp = cp;
+        if (phos::glyph::IsUnicodeScalar(m_active_glyph))
+            return (std::uint32_t)phos::glyph::ToUnicodeScalar(m_active_glyph);
+        const phos::glyph::Kind k = phos::glyph::GetKind(m_active_glyph);
+        if (k == phos::glyph::Kind::BitmapIndex)
+            return (std::uint32_t)fonts::Cp437ByteToUnicode((std::uint8_t)phos::glyph::BitmapIndexValue(m_active_glyph));
+        if (k == phos::glyph::Kind::EmbeddedIndex)
+            return (std::uint32_t)fonts::Cp437ByteToUnicode((std::uint8_t)(phos::glyph::EmbeddedIndexValue(m_active_glyph) & 0xFFu));
+        return (std::uint32_t)U'?';
+    }
+    const std::string& GetActiveGlyphUtf8() const { return m_active_glyph_utf8; }
+    void SetActiveGlyph(GlyphId glyph, std::string utf8)
+    {
+        m_active_glyph = glyph;
         m_active_glyph_utf8 = std::move(utf8);
+    }
+    // Legacy convenience: set a Unicode-scalar active glyph (note: NOT token-aware).
+    void SetActiveGlyphCodePoint(std::uint32_t cp, std::string utf8)
+    {
+        SetActiveGlyph(phos::glyph::MakeUnicodeScalar((char32_t)cp), std::move(utf8));
     }
 
     // Set the fixed number of columns in the grid.
@@ -273,6 +297,11 @@ public:
     // Unset is returned as kUnsetIndex16 (preserves fg/bg unset semantics).
     bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
     bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const;
+
+    // GlyphId-native composite sampling (Option B): returns the stored glyph token losslessly.
+    // `out_cp` style representatives remain available via the existing APIs above.
+    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
+    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const;
 
     // ---------------------------------------------------------------------
     // Content revision (for minimaps/caches)
@@ -376,7 +405,9 @@ public:
         // Canvas-space (C) and layer-local (L) relate by: C = L + offset.
         int                   offset_x = 0;
         int                   offset_y = 0;
-        std::vector<char32_t> cells; // size == rows * columns
+        // Stored glyph plane (lossless token; may be Unicode or indexed glyph id).
+        // Serialized as uint32 values in .phos.
+        std::vector<GlyphId>  cells; // size == rows * columns
         std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
         std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
@@ -399,7 +430,11 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 9;
+        int                     version = 11;
+
+        // Optional embedded bitmap font payload (used by formats like XBin).
+        // When present, EmbeddedIndex GlyphIds are meaningful and can be rendered/exported losslessly.
+        std::optional<EmbeddedBitmapFont> embedded_font;
 
         // Core palette identity for this canvas (LUT/index-centric pipeline).
         // Default is xterm256 to preserve current behavior.
@@ -482,7 +517,9 @@ public:
                 int page_rows = 64; // must match encoder/decoder; stored for forward safety
                 int row_count = 0;  // number of rows captured in this page (<= page_rows)
                 // Stored per-cell, row-major, length = row_count * columns.
-                std::vector<char32_t> cells;
+                // Stored glyph plane (lossless token; may be Unicode or indexed glyph id).
+                // Serialized as uint32 values in .phos.
+                std::vector<GlyphId> cells;
                 std::vector<ColorIndex16> fg;
                 std::vector<ColorIndex16> bg;
                 std::vector<Attrs>    attrs;
@@ -637,6 +674,18 @@ public:
                                         std::optional<ColorIndex16> fg,
                                         std::optional<ColorIndex16> bg,
                                         std::optional<Attrs> attrs);
+
+    // GlyphId-native variants (lossless token surface).
+    // These are intended for tool/script writers that want to preserve bitmap/embedded glyph identity.
+    bool     SetLayerGlyphIndicesPartial(int layer_index,
+                                         int row,
+                                         int col,
+                                         GlyphId glyph,
+                                         std::optional<ColorIndex16> fg,
+                                         std::optional<ColorIndex16> bg,
+                                         std::optional<Attrs> attrs);
+    GlyphId  GetLayerGlyph(int layer_index, int row, int col) const;
+
     char32_t GetLayerCell(int layer_index, int row, int col) const;
     // Index-native: returns false if invalid/out of bounds. Outputs palette indices in the canvas's active palette.
     bool     GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
@@ -745,7 +794,8 @@ public:
         int w = 0;
         int h = 0;
         // Stored per-cell, row-major, length = w*h.
-        std::vector<char32_t> cp;
+        // NOTE: this is GlyphId (token) storage; do not assume Unicode semantics.
+        std::vector<GlyphId>  cp;
         std::vector<ColorIndex16> fg; // kUnsetIndex16 = unset
         std::vector<ColorIndex16> bg; // kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // 0 = none
@@ -914,7 +964,7 @@ private:
         std::uint8_t          blend_alpha = 255;
         int                   offset_x = 0;
         int                   offset_y = 0;
-        std::vector<char32_t> cells; // size == rows * columns
+        std::vector<GlyphId>  cells; // size == rows * columns (GlyphId tokens)
         std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
         std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
@@ -969,7 +1019,7 @@ private:
             int page = 0;
             int page_rows = 64;
             int row_count = 0; // <= page_rows
-            std::vector<char32_t> cells;
+            std::vector<GlyphId>  cells;
             std::vector<ColorIndex16> fg;
             std::vector<ColorIndex16> bg;
             std::vector<Attrs>    attrs;
@@ -1000,8 +1050,8 @@ private:
     std::string m_file_path;
 
     // Per-canvas active glyph selection (see SetActiveGlyph()).
-    std::uint32_t m_active_glyph_cp = (std::uint32_t)U' ';
-    std::string   m_active_glyph_utf8 = " ";
+    GlyphId      m_active_glyph = phos::glyph::MakeUnicodeScalar(U' ');
+    std::string  m_active_glyph_utf8 = " ";
 
     std::vector<Layer> m_layers;
     int                m_active_layer = 0;
@@ -1057,7 +1107,7 @@ private:
     std::string m_colour_palette_title;
     phos::color::PaletteRef m_palette_ref;
 
-    // Optional embedded bitmap font (not currently serialized into .phos; supplied by some importers like XBin).
+    // Optional embedded bitmap font payload (persisted via ProjectState).
     std::optional<EmbeddedBitmapFont> m_embedded_font;
 
     bool m_request_open_sauce_editor = false;
@@ -1104,7 +1154,7 @@ private:
 
     struct ClipCell
     {
-        char32_t cp = U' ';
+        GlyphId  cp = phos::glyph::MakeUnicodeScalar(U' ');
         ColorIndex16 fg = kUnsetIndex16;
         ColorIndex16 bg = kUnsetIndex16;
         Attrs    attrs = 0;
@@ -1178,6 +1228,7 @@ private:
 
     struct CompositeCell
     {
+        GlyphId  glyph = phos::glyph::MakeUnicodeScalar(U' ');
         char32_t cp = U' ';
         ColorIndex16 fg = kUnsetIndex16; // index in active palette, or unset
         ColorIndex16 bg = kUnsetIndex16; // index in active palette, or unset

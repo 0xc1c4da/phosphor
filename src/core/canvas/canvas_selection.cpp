@@ -25,7 +25,7 @@ struct GlobalClipboard
     int w = 0;
     int h = 0;
     // Stored per-cell (same dimensions): glyph + fg + bg. 0 colors mean "unset".
-    std::vector<char32_t> cp;
+    std::vector<AnsiCanvas::GlyphId> cp;
     std::vector<AnsiCanvas::ColorIndex16> fg;
     std::vector<AnsiCanvas::ColorIndex16> bg;
     std::vector<AnsiCanvas::Attrs> attrs;
@@ -33,6 +33,11 @@ struct GlobalClipboard
 
 // Shared across all canvases (translation-unit global).
 static GlobalClipboard g_clipboard;
+
+static inline AnsiCanvas::GlyphId BlankGlyph()
+{
+    return phos::glyph::MakeUnicodeScalar(U' ');
+}
 } // namespace
 
 // ---- inlined from canvas_selection.inc ----
@@ -158,7 +163,7 @@ bool AnsiCanvas::CopySelectionToClipboard(int layer_index)
     const size_t n = (size_t)w * (size_t)h;
     g_clipboard.w = w;
     g_clipboard.h = h;
-    g_clipboard.cp.assign(n, U' ');
+    g_clipboard.cp.assign(n, BlankGlyph());
     g_clipboard.fg.assign(n, kUnsetIndex16);
     g_clipboard.bg.assign(n, kUnsetIndex16);
     g_clipboard.attrs.assign(n, 0);
@@ -210,7 +215,7 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
     const size_t n = (size_t)w * (size_t)h;
     g_clipboard.w = w;
     g_clipboard.h = h;
-    g_clipboard.cp.assign(n, U' ');
+    g_clipboard.cp.assign(n, BlankGlyph());
     g_clipboard.fg.assign(n, kUnsetIndex16);
     g_clipboard.bg.assign(n, kUnsetIndex16);
     g_clipboard.attrs.assign(n, 0);
@@ -227,7 +232,8 @@ bool AnsiCanvas::CopySelectionToClipboardComposite()
                 continue;
 
             const CompositeCell c = GetCompositeCell(y, x);
-            g_clipboard.cp[out] = c.cp;
+            // Composite copy is intentionally lossy: store a Unicode representative in the clipboard glyph plane.
+            g_clipboard.cp[out] = phos::glyph::MakeUnicodeScalar(c.cp);
             g_clipboard.fg[out] = c.fg;
             g_clipboard.bg[out] = c.bg;
             g_clipboard.attrs[out] = c.attrs;
@@ -290,7 +296,7 @@ bool AnsiCanvas::CaptureBrushFromSelection(Brush& out, int layer_index)
     const size_t n = (size_t)w * (size_t)h;
     out.w = w;
     out.h = h;
-    out.cp.assign(n, U' ');
+    out.cp.assign(n, BlankGlyph());
     out.fg.assign(n, kUnsetIndex16);
     out.bg.assign(n, kUnsetIndex16);
     out.attrs.assign(n, 0);
@@ -341,7 +347,7 @@ bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
     const size_t n = (size_t)w * (size_t)h;
     out.w = w;
     out.h = h;
-    out.cp.assign(n, U' ');
+    out.cp.assign(n, BlankGlyph());
     out.fg.assign(n, kUnsetIndex16);
     out.bg.assign(n, kUnsetIndex16);
     out.attrs.assign(n, 0);
@@ -357,7 +363,10 @@ bool AnsiCanvas::CaptureBrushFromSelectionComposite(Brush& out)
                 continue;
 
             const CompositeCell c = GetCompositeCell(y, x);
-            out.cp[out_idx] = c.cp;
+            // Composite capture flattens layers ("what you see" after visibility/blend/transparency),
+            // but should remain glyph-token safe: store the composited GlyphId directly.
+            // (CompositeCell::cp is only a best-effort Unicode representative and may lose token identity.)
+            out.cp[out_idx] = c.glyph;
             out.fg[out_idx] = c.fg;
             out.bg[out_idx] = c.bg;
             out.attrs[out_idx] = c.attrs;
@@ -408,12 +417,12 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
 
             // If row is beyond current document, the old cell is implicitly transparent.
             const bool in_bounds = (lr < m_rows);
-            const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
             const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
             const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-            const char32_t new_cp = U' ';
+            const GlyphId  new_cp = BlankGlyph();
             const ColorIndex16 new_fg = kUnsetIndex16;
             const ColorIndex16 new_bg = kUnsetIndex16;
             const Attrs    new_attrs = 0;
@@ -498,8 +507,8 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
             if (s >= g_clipboard.cp.size())
                 continue;
 
-            const char32_t cp = g_clipboard.cp[s];
-            if (transparent_spaces && cp == U' ')
+            const GlyphId cp = g_clipboard.cp[s];
+            if (transparent_spaces && phos::glyph::IsBlank((phos::GlyphId)cp))
                 continue;
 
             int lr = 0, lc = 0;
@@ -508,12 +517,12 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
             const size_t dst = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
             const bool in_bounds = (lr < m_rows);
-            const char32_t old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : U' ';
+            const GlyphId  old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : BlankGlyph();
             const ColorIndex16 old_fg = (in_bounds && dst < layer.fg.size()) ? layer.fg[dst] : kUnsetIndex16;
             const ColorIndex16 old_bg = (in_bounds && dst < layer.bg.size()) ? layer.bg[dst] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && dst < layer.attrs.size()) ? layer.attrs[dst] : 0;
 
-            char32_t new_cp = old_cp;
+            GlyphId  new_cp = old_cp;
             ColorIndex16 new_fg = old_fg;
             ColorIndex16 new_bg = old_bg;
             Attrs    new_attrs = old_attrs;
@@ -647,11 +656,11 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
                 const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
                 const bool in_bounds = (lr < m_rows);
-                const char32_t old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : U' ';
+                const GlyphId  old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : BlankGlyph();
                 const ColorIndex16 old_fg = (in_bounds && idx < mut.fg.size()) ? mut.fg[idx] : kUnsetIndex16;
                 const ColorIndex16 old_bg = (in_bounds && idx < mut.bg.size()) ? mut.bg[idx] : kUnsetIndex16;
                 const Attrs    old_attrs = (in_bounds && idx < mut.attrs.size()) ? mut.attrs[idx] : 0;
-                const char32_t new_cp = U' ';
+                const GlyphId  new_cp = BlankGlyph();
                 const ColorIndex16 new_fg = kUnsetIndex16;
                 const ColorIndex16 new_bg = kUnsetIndex16;
                 const Attrs    new_attrs = 0;
@@ -744,12 +753,12 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
             const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
 
             const bool in_bounds = (lr < m_rows);
-            const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
             const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
             const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-            const char32_t new_cp = src.cp;
+            const GlyphId  new_cp = src.cp;
             const ColorIndex16 new_fg = src.fg;
             const ColorIndex16 new_bg = src.bg;
             const Attrs    new_attrs = src.attrs;
@@ -830,12 +839,12 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
                     const ClipCell& src = m_move.cells[(size_t)j * (size_t)w + (size_t)i];
 
                     const bool in_bounds = (lr < m_rows);
-                    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+                    const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
                     const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
                     const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
                     const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-                    const char32_t new_cp = src.cp;
+                    const GlyphId  new_cp = src.cp;
                     const ColorIndex16 new_fg = src.fg;
                     const ColorIndex16 new_bg = src.bg;
                     const Attrs    new_attrs = src.attrs;

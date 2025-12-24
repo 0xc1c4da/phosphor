@@ -3,6 +3,7 @@
 #include "core/canvas.h"
 #include "core/color_system.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 
@@ -95,17 +97,35 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
 
     const fonts::FontId font_id = canvas.GetFontId();
     const fonts::FontInfo& finfo = fonts::Get(font_id);
-    const bool bitmap_font = (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+    const AnsiCanvas::EmbeddedBitmapFont* ef = canvas.GetEmbeddedFont();
+    const bool embedded_font_ok =
+        (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
+         ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
+    const bool bitmap_font =
+        embedded_font_ok ||
+        (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
 
     // Glyph ink cache (per process). Key includes font id.
     static std::unordered_map<std::uint64_t, Ink2x2> s_ink_cache;
-    auto glyph_ink2x2 = [&](char32_t cp) -> Ink2x2
+    auto glyph_ink2x2 = [&](phos::GlyphId glyph) -> Ink2x2
     {
         Ink2x2 out{};
-        if (cp == U' ')
+        if (phos::glyph::IsBlank((phos::GlyphId)glyph))
             return out;
 
-        const std::uint64_t key = ((std::uint64_t)finfo.id << 32) | (std::uint32_t)cp;
+        // Cache key: include embedded-font identity when present so thumbnails don't cross-contaminate
+        // between different canvases' embedded fonts.
+        std::uint64_t key_hi = 0;
+        if (embedded_font_ok)
+        {
+            const std::uint64_t ef_tag = (std::uint64_t)((uintptr_t)ef >> 4); // drop alignment zeros
+            key_hi = (0x80000000ull | (ef_tag & 0x7FFFFFFFull));
+        }
+        else
+        {
+            key_hi = (std::uint64_t)finfo.id;
+        }
+        const std::uint64_t key = (key_hi << 32) | (std::uint32_t)glyph;
         if (auto it = s_ink_cache.find(key); it != s_ink_cache.end())
             return it->second;
 
@@ -117,17 +137,32 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
             return out;
         }
 
-        std::uint8_t glyph = 0;
-        if (!fonts::UnicodeToCp437Byte(cp, glyph))
-        {
-            std::uint8_t q = 0;
-            glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
-        }
+        const phos::glyph::BitmapGlyphRef gr =
+            phos::glyph::ResolveBitmapGlyph(finfo, embedded_font_ok ? ef : nullptr, (phos::GlyphId)glyph);
+        const std::uint16_t glyph_index = gr.glyph_index;
 
-        const int w = finfo.cell_w;
-        const int h = finfo.cell_h;
+        int w = finfo.cell_w;
+        int h = finfo.cell_h;
+        bool vga_dup = finfo.vga_9col_dup;
+        if (embedded_font_ok)
+        {
+            w = ef->cell_w;
+            h = ef->cell_h;
+            vga_dup = ef->vga_9col_dup;
+        }
         const int mid_x = w / 2;
         const int mid_y = h / 2;
+
+        auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
+        {
+            if (embedded_font_ok && gr.use_embedded)
+            {
+                if (gi >= (std::uint16_t)ef->glyph_count) return 0;
+                if (yy < 0 || yy >= ef->cell_h) return 0;
+                return ef->bitmap[(size_t)gi * (size_t)ef->cell_h + (size_t)yy];
+            }
+            return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
+        };
 
         std::uint64_t sum00 = 0, cnt00 = 0;
         std::uint64_t sum10 = 0, cnt10 = 0;
@@ -136,13 +171,13 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
 
         for (int yy = 0; yy < h; ++yy)
         {
-            const std::uint8_t bits = fonts::BitmapGlyphRowBits(finfo.id, glyph, yy);
+            const std::uint8_t bits = glyph_row_bits(glyph_index, yy);
             for (int xx = 0; xx < w; ++xx)
             {
                 bool on = false;
                 if (xx < 8)
                     on = (bits & (std::uint8_t)(0x80u >> xx)) != 0;
-                else if (xx == 8 && finfo.vga_9col_dup && finfo.cell_w == 9 && glyph >= 192 && glyph <= 223)
+                else if (xx == 8 && vga_dup && w == 9 && glyph_index >= 192 && glyph_index <= 223)
                     on = (bits & 0x01u) != 0;
 
                 const std::uint64_t a = on ? 255u : 0u;
@@ -214,7 +249,7 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
             const int src_col = std::clamp((int)std::floor(fx), 0, cols - 1);
             const float lx = std::clamp(fx - (float)src_col, 0.0f, 1.0f);
 
-            char32_t cp = canvas.GetLayerCell(layer_index, src_row, src_col);
+            const AnsiCanvas::GlyphId glyph = canvas.GetLayerGlyph(layer_index, src_row, src_col);
             AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::ColorIndex16 bi = AnsiCanvas::kUnsetIndex16;
             (void)canvas.GetLayerCellIndices(layer_index, src_row, src_col, fi, bi);
@@ -226,14 +261,14 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
             const AnsiCanvas::Color32 fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
             const AnsiCanvas::Color32 bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
 
-            if (bg == 0 && cp == U' ')
+            if (bg == 0 && phos::glyph::IsBlank((phos::GlyphId)glyph))
                 continue;
 
             const ImU32 bg_col = (bg != 0) ? (ImU32)bg : IM_COL32(0, 0, 0, 0); // transparent
             const ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
 
             // Approximate glyph coverage (0..1) and blend fg over bg.
-            const Ink2x2 ink = glyph_ink2x2(cp);
+            const Ink2x2 ink = glyph_ink2x2((phos::GlyphId)glyph);
             const bool right = (lx >= 0.5f);
             const bool bot   = (ly >= 0.5f);
             float t = 0.0f;

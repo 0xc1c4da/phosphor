@@ -85,10 +85,14 @@ struct SessionState
         bool canvas_bg_white = false;
 
         // Per-canvas "active glyph" (what tools draw with by default).
-        // - `active_glyph_cp` is the canvas codepoint (Unicode scalar), including PUA for embedded fonts.
+        // - `active_glyph` is a GlyphId token (lossless; may exceed Unicode range).
         // - `active_glyph_utf8` is the UTF-8 string used by tools (may be multi-codepoint).
-        //   If empty, the host should fall back to encoding `active_glyph_cp`.
-        std::uint32_t active_glyph_cp = 0; // 0 means "unset" (host should treat as space)
+        //   If empty, the host should fall back to encoding a best-effort representative.
+        //
+        // Backward compatibility: older session.json versions stored `active_glyph_cp`
+        // (Unicode scalar, including legacy embedded PUA). We still parse it as a fallback.
+        std::uint32_t active_glyph = 0; // 0 means "unset" (host should treat as space)
+        std::uint32_t active_glyph_cp = 0; // back-compat fallback (read-only; no longer written)
         std::string   active_glyph_utf8;
     };
 
@@ -223,6 +227,10 @@ struct SessionState
 
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;
+
+    // Default ANSI import settings (used by IoManager when importing .ans/.nfo/.diz).
+    // No longer persisted: ANSI import is intended to be automatic (file-driven via SAUCE where available).
+
     // Most recently opened/saved files (absolute paths or URI-like strings).
     // Used by File -> Recent.
     std::vector<std::string> recent_files;

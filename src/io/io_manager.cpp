@@ -10,6 +10,7 @@
 #include "io/image_loader.h"
 #include "io/project_file.h"
 #include "io/sdl_file_dialog_queue.h"
+#include "io/session/session_state.h"
 
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
@@ -320,9 +321,10 @@ void IoManager::RenderFileMenu(SDL_Window* window,
     (void)cb;
 }
 
-bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
+bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const SessionState* session)
 {
     m_last_error.clear();
+    (void)session;
 
     auto is_uri = [](const std::string& s) -> bool
     {
@@ -404,7 +406,8 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
         }
         AnsiCanvas imported;
         std::string ierr;
-        if (formats::ansi::ImportFileToCanvas(path, imported, ierr))
+        formats::ansi::ImportOptions opt;
+        if (formats::ansi::ImportFileToCanvas(path, imported, ierr, opt))
         {
             imported.SetFilePath(path);
             imported.MarkSaved();
@@ -549,8 +552,12 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb)
     return true;
 }
 
-void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb)
+void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
+                                   AnsiCanvas* focused_canvas,
+                                   const Callbacks& cb,
+                                   const SessionState* session)
 {
+    (void)session;
     // Ignore dialogs not owned by IoManager.
     if (r.tag != kDialog_SaveProject &&
         r.tag != kDialog_LoadFile &&
@@ -725,7 +732,8 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* foc
                 }
                 AnsiCanvas imported;
                 std::string ierr;
-                if (formats::ansi::ImportFileToCanvas(chosen_path, imported, ierr))
+                formats::ansi::ImportOptions opt;
+                if (formats::ansi::ImportFileToCanvas(chosen_path, imported, ierr, opt))
                 {
                     imported.SetFilePath(chosen_path);
                     imported.MarkSaved();

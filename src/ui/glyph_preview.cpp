@@ -4,6 +4,7 @@
 
 #include "core/canvas.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 
 #include <algorithm>
 #include <cmath>
@@ -104,7 +105,7 @@ void DrawGlyphPreview(ImDrawList* dl,
                       const ImVec2& p0,
                       float cell_w,
                       float cell_h,
-                      char32_t cp,
+                      phos::GlyphId glyph,
                       const AnsiCanvas* canvas,
                       std::uint32_t fg_col)
 {
@@ -113,10 +114,15 @@ void DrawGlyphPreview(ImDrawList* dl,
     if (cell_w <= 0.0f || cell_h <= 0.0f)
         return;
 
+    if (phos::glyph::IsBlank(glyph))
+        return;
+
+    const char32_t cp_rep = phos::glyph::ToUnicodeRepresentative(glyph);
+
     // No canvas -> just draw text with the UI font.
     if (!canvas)
     {
-        const std::string s = EncodeCodePointUtf8(cp);
+        const std::string s = EncodeCodePointUtf8(cp_rep);
         if (!s.empty())
         {
             ImFont* font = ImGui::GetFont();
@@ -126,7 +132,7 @@ void DrawGlyphPreview(ImDrawList* dl,
             // Prefer tight glyph bounds for optical centering (esp. emoji + symbols).
             ImVec2 bmin, bmax;
             float adv = 0.0f;
-            bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+            bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp_rep, bmin, bmax, adv);
             const float max_dim = cell * 0.92f;
             if (have_bounds)
             {
@@ -142,7 +148,7 @@ void DrawGlyphPreview(ImDrawList* dl,
                 if (ts.y > 1.0f && ts.y > max_dim) font_px *= (max_dim / ts.y);
             }
 
-            have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+            have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp_rep, bmin, bmax, adv);
             if (have_bounds)
             {
                 const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
@@ -176,7 +182,7 @@ void DrawGlyphPreview(ImDrawList* dl,
 
     if (!bitmap_font)
     {
-        const std::string s = EncodeCodePointUtf8(cp);
+        const std::string s = EncodeCodePointUtf8(cp_rep);
         if (s.empty())
             return;
 
@@ -187,7 +193,7 @@ void DrawGlyphPreview(ImDrawList* dl,
 
         ImVec2 bmin, bmax;
         float adv = 0.0f;
-        bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+        bool have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp_rep, bmin, bmax, adv);
         if (have_bounds)
         {
             const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
@@ -201,7 +207,7 @@ void DrawGlyphPreview(ImDrawList* dl,
             if (ts.y > 1.0f && ts.y > max_dim) font_px *= (max_dim / ts.y);
         }
 
-        have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp, bmin, bmax, adv);
+        have_bounds = CalcTightGlyphBounds(font, font_px, (unsigned int)cp_rep, bmin, bmax, adv);
         if (have_bounds)
         {
             const ImVec2 bsz(bmax.x - bmin.x, bmax.y - bmin.y);
@@ -236,40 +242,16 @@ void DrawGlyphPreview(ImDrawList* dl,
             int glyph_cell_h = finfo.cell_h;
             bool vga_dup = finfo.vga_9col_dup;
 
-            std::uint16_t glyph_index = 0;
             if (embedded_font_ok)
             {
                 glyph_cell_w = ef->cell_w;
                 glyph_cell_h = ef->cell_h;
                 vga_dup = ef->vga_9col_dup;
-
-                if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
-                    cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-                {
-                    glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
-                }
-                else
-                {
-                    std::uint8_t b = 0;
-                    if (fonts::UnicodeToCp437Byte(cp, b))
-                        glyph_index = (std::uint16_t)b;
-                    else
-                        glyph_index = (std::uint16_t)'?';
-                }
-            }
-            else
-            {
-                std::uint8_t b = 0;
-                if (!fonts::UnicodeToCp437Byte(cp, b))
-                {
-                    std::uint8_t q = 0;
-                    b = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
-                }
-                glyph_index = (std::uint16_t)b;
             }
             (void)glyph_cell_w;
             (void)glyph_cell_h;
             (void)vga_dup;
+            const std::uint16_t glyph_index = phos::glyph::ResolveBitmapGlyph(finfo, ef, glyph).glyph_index;
 
             const int gi = (int)glyph_index;
             if (gi >= 0 && gi < atlas.glyph_count)
@@ -307,37 +289,13 @@ void DrawGlyphPreview(ImDrawList* dl,
     int glyph_cell_h = finfo.cell_h;
     bool vga_dup = finfo.vga_9col_dup;
 
-    std::uint16_t glyph_index = 0;
     if (embedded_font_ok)
     {
         glyph_cell_w = ef->cell_w;
         glyph_cell_h = ef->cell_h;
         vga_dup = ef->vga_9col_dup;
-
-        if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
-            cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-        {
-            glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
-        }
-        else
-        {
-            std::uint8_t b = 0;
-            if (fonts::UnicodeToCp437Byte(cp, b))
-                glyph_index = (std::uint16_t)b;
-            else
-                glyph_index = (std::uint16_t)'?';
-        }
     }
-    else
-    {
-        std::uint8_t b = 0;
-        if (!fonts::UnicodeToCp437Byte(cp, b))
-        {
-            std::uint8_t q = 0;
-            b = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
-        }
-        glyph_index = (std::uint16_t)b;
-    }
+    const std::uint16_t glyph_index = phos::glyph::ResolveBitmapGlyph(finfo, ef, glyph).glyph_index;
 
     auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
     {

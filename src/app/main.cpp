@@ -29,6 +29,8 @@
 
 #include "core/embedded_assets.h"
 #include "core/color_system.h"
+#include "core/glyph_id.h"
+#include "core/glyph_resolve.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
 
@@ -178,8 +180,10 @@ int main(int, char**)
     // We persist/restore window placements ourselves via SessionState (session.json).
     io.IniFilename = nullptr;
 
-    // Load Unscii as the default font (mono, great for UTF‑8 art).
-    io.Fonts->AddFontFromFileTTF(PhosphorAssetPath("unscii-16-full.ttf").c_str(), 16.0f);
+    // Load Unscii as the default UI font (mono, great for UTF‑8 art).
+    // Keep an explicit handle so Unicode-only widgets can force a known-good Unicode font.
+    if (ImFont* unscii = io.Fonts->AddFontFromFileTTF(PhosphorAssetPath("unscii-16-full.ttf").c_str(), 16.0f))
+        io.FontDefault = unscii;
 
     // Setup Dear ImGui style (theme + HiDPI scaling).
     if (session_state.ui_theme.empty())
@@ -275,6 +279,7 @@ int main(int, char**)
     // Current brush glyph for tools (from picker/palette selection).
     std::uint32_t tool_brush_cp = character_picker.SelectedCodePoint();
     std::string tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+    std::uint32_t tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)tool_brush_cp);
     // Current attribute selection for tools (bitmask of AnsiCanvas::Attr_*). 0 = none.
     std::uint32_t tool_attrs_mask = 0;
 
@@ -463,7 +468,8 @@ int main(int, char**)
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         if (ui_active_canvas)
         {
-            tool_brush_cp = ui_active_canvas->GetActiveGlyphCodePoint();
+            tool_brush_glyph = (std::uint32_t)ui_active_canvas->GetActiveGlyph();
+            tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
             if (tool_brush_cp == 0)
                 tool_brush_cp = (std::uint32_t)U' ';
             tool_brush_utf8 = ui_active_canvas->GetActiveGlyphUtf8();
@@ -471,7 +477,7 @@ int main(int, char**)
                 tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
 
             character_picker.RestoreSelectedCodePoint(tool_brush_cp);
-            character_palette.SyncSelectionFromActiveGlyph(tool_brush_cp, tool_brush_utf8, ui_active_canvas);
+            character_palette.SyncSelectionFromActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8, ui_active_canvas);
         }
     }
 
@@ -514,6 +520,7 @@ int main(int, char**)
     st.ui.sixteen_browser = &sixteen_browser;
     st.ui.brush_palette_window = &brush_palette;
 
+    st.tools.tool_brush_glyph = &tool_brush_glyph;
     st.tools.tool_brush_cp = &tool_brush_cp;
     st.tools.tool_brush_utf8 = &tool_brush_utf8;
     st.tools.tool_attrs_mask = &tool_attrs_mask;

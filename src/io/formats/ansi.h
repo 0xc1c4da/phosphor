@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/canvas.h"
+#include "core/encodings.h"
 #include "io/formats/sauce.h"
 
 #include <cstdint>
@@ -75,13 +76,40 @@ struct ImportOptions
     WrapPolicy wrap_policy = WrapPolicy::LibAnsiLoveEager;
 
     // Text decoding:
-    // - If true (default), importer prefers CP437 but will auto-switch to UTF-8 when the
-    //   byte stream strongly resembles valid UTF-8 and contains no ANSI escape sequences.
+    // - If true (default), importer prefers 8-bit byte mode (classic scene ANSI) but may
+    //   auto-switch to UTF-8 when the *text payload bytes* (ANSI sequences stripped) strongly
+    //   resemble valid UTF-8, or when an explicit UTF-8 BOM is present.
     // - If false, importer always decodes text as UTF-8.
     //
-    // Rationale: classic .ANS files are typically CP437, but this editor also keeps UTF-8
-    // demo art (e.g. `test.ans`) that should render as Unicode.
+    // SAUCE-first policy:
+    // - If SAUCE declares a known font, we respect it when deciding UTF-8 vs 8-bit:
+    //   - ImGuiAtlas fonts (e.g. Unscii) imply UTF-8.
+    //   - Bitmap fonts imply 8-bit byte semantics (UTF-8 BOM still overrides).
+    //
+    // Rationale: classic .ANS files are typically byte-indexed; modern terminal ANSI may be UTF-8.
     bool cp437 = true;
+
+    // When decoding ANSI "text bytes" as an 8-bit encoding (i.e. cp437==true and UTF-8 auto-detect
+    // does not trigger), interpret bytes using this encoding table.
+    //
+    // Note: this affects *byte<->Unicode* mapping when we choose to decode bytes to Unicode.
+    // If glyph_bytes_policy==StoreAsBitmapIndex, we preserve the original byte identity in
+    // canvas cells as BitmapIndex tokens (lossless) and this encoding only affects best-effort
+    // Unicode representatives at UI/text boundaries.
+    phos::encodings::EncodingId byte_encoding = phos::encodings::EncodingId::Cp437;
+
+    // Policy for how "text payload bytes" are stored in the canvas when importing an ANSI stream
+    // in 8-bit byte mode.
+    enum class GlyphBytesPolicy
+    {
+        // Preserve current behavior: decode bytes -> UnicodeScalar glyphs (potentially lossy).
+        DecodeToUnicode = 0,
+        // ANSI-art-friendly: store bytes as BitmapIndex glyph tokens (lossless index identity).
+        StoreAsBitmapIndex,
+    };
+    // Default: lossless. Classic ANSI art is fundamentally byte-indexed; storing BitmapIndex preserves identity
+    // and still renders correctly (representative Unicode is derived where needed).
+    GlyphBytesPolicy glyph_bytes_policy = GlyphBytesPolicy::StoreAsBitmapIndex;
 };
 
 // Import ANSI/UTF-8 byte stream into a new AnsiCanvas.
@@ -130,11 +158,15 @@ struct ExportOptions
     // Text encoding of glyph bytes.
     enum class TextEncoding
     {
-        Cp437 = 0,  // classic scene ANSI (8-bit bytes)
+        Cp437 = 0,  // 8-bit byte stream (classic scene ANSI); see `byte_encoding`
         Utf8,       // modern terminal output
         Utf8Bom,    // UTF-8 with BOM (Icy-style "unicode indicator")
     };
     TextEncoding text_encoding = TextEncoding::Utf8;
+
+    // When text_encoding==Cp437 (8-bit byte stream), choose which encoding table is used for
+    // UnicodeScalar -> byte mapping (and for best-effort fallbacks).
+    phos::encodings::EncodingId byte_encoding = phos::encodings::EncodingId::Cp437;
 
     // Newline policy (row separation).
     enum class Newline

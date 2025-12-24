@@ -57,6 +57,11 @@ local function fill(ctx, layer, sx, sy, shalfy)
 
   local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
+  local brush_glyph_id = ctx.glyphId
+  local brush_arg = brush
+  if type(brush_glyph_id) == "number" and brush_glyph_id >= 0x80000000 then
+    brush_arg = brush_glyph_id
+  end
 
   -- ---------------------------------------------------------------------------
   -- Half-block helpers (▀/▄/█ + fg/bg) in half-row space.
@@ -322,12 +327,12 @@ local function fill(ctx, layer, sx, sy, shalfy)
       layer:set(x, y, ch, fg, bg)
     elseif mode == "char" then
       if fg == nil and bg == nil then
-        layer:set(x, y, brush)
+        layer:set(x, y, brush_arg)
       else
-        layer:set(x, y, brush, fg, bg)
+        layer:set(x, y, brush_arg, fg, bg)
       end
     else -- both
-      layer:set(x, y, brush, fg, bg)
+      layer:set(x, y, brush_arg, fg, bg)
     end
   end
 

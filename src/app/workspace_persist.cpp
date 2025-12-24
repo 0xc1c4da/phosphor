@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "ansl/ansl_native.h"
+#include "core/glyph_resolve.h"
 #include "io/image_loader.h"
 #include "io/session/open_canvas_cache.h"
 #include "io/session/open_canvas_codec.h"
@@ -119,13 +120,16 @@ void RestoreWorkspaceFromSession(const SessionState& session_state,
 
         // Per-canvas active glyph selection (tools brush).
         {
-            std::uint32_t cp = oc.active_glyph_cp;
-            if (cp == 0)
-                cp = (std::uint32_t)U' ';
+            phos::GlyphId glyph = (phos::GlyphId)oc.active_glyph;
+            if (glyph == 0)
+            {
+                const std::uint32_t cp_fallback = (oc.active_glyph_cp != 0) ? oc.active_glyph_cp : (std::uint32_t)U' ';
+                glyph = phos::glyph::MakeUnicodeScalar((char32_t)cp_fallback);
+            }
             std::string utf8 = oc.active_glyph_utf8;
             if (utf8.empty())
-                utf8 = ansl::utf8::encode((char32_t)cp);
-            cw->canvas.SetActiveGlyph(cp, std::move(utf8));
+                utf8 = ansl::utf8::encode(phos::glyph::ToUnicodeRepresentative(glyph));
+            cw->canvas.SetActiveGlyph(glyph, std::move(utf8));
         }
 
         // Prefer cache-backed restore (fast session.json parse, project loaded lazily).
@@ -308,7 +312,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
         oc.file_path = cw.canvas.GetFilePath();
         oc.zoom = cw.canvas.GetZoom();
         oc.canvas_bg_white = cw.canvas.IsCanvasBackgroundWhite();
-        oc.active_glyph_cp = cw.canvas.GetActiveGlyphCodePoint();
+        oc.active_glyph = (std::uint32_t)cw.canvas.GetActiveGlyph();
         oc.active_glyph_utf8 = cw.canvas.GetActiveGlyphUtf8();
         const auto& vs = cw.canvas.GetLastViewState();
         if (vs.valid)

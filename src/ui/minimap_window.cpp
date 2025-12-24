@@ -162,10 +162,10 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                 const float x1 = x0 + cell_pw;
                 const int src_col = std::clamp((int)std::floor(((gx + 0.5f) * (float)vs.columns) / (float)grid_w), 0, vs.columns - 1);
 
-                char32_t cp = U' ';
+                AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
                 AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
-                canvas->GetCompositeCellPublicIndices(src_row, src_col, cp, fg, bg);
+                canvas->GetCompositeCellPublicGlyphIndices(src_row, src_col, glyph, fg, bg);
 
                 // Convert indices to packed ImGui colors via the active palette.
                 auto& cs = phos::color::GetColorSystem();
@@ -181,7 +181,7 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                 ImU32 col = paper;
                 if (bg != AnsiCanvas::kUnsetIndex16)
                     col = idx_to_u32(bg);
-                else if (cp != U' ')
+                else if (!phos::glyph::IsBlank((phos::GlyphId)glyph))
                     col = (fg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(fg) : default_fg;
 
                 dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), col);

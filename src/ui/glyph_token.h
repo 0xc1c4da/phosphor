@@ -2,21 +2,20 @@
 
 #include <cstdint>
 
-#include "core/canvas.h"
+#include "core/glyph_id.h"
 
 // A "glyph selection" token used by UI components.
 //
 // We need to represent both:
 // - Unicode codepoints (normal UTF-8 editing flow)
+// - Bitmap font glyph indices (0..255), where the glyph is addressed by index.
 // - Embedded-font glyph indices (XBIN), where the glyph is addressed by index.
-//
-// Embedded glyph indices are represented on the canvas as Private Use Area codepoints:
-//   U+E000 + glyph_index
 struct GlyphToken
 {
     enum class Kind : std::uint8_t
     {
         UnicodeCodePoint = 0,
+        BitmapGlyphIndex,
         EmbeddedGlyphIndex,
     };
 
@@ -39,6 +38,14 @@ struct GlyphToken
         return t;
     }
 
+    static GlyphToken BitmapIndex(uint32_t glyph_index)
+    {
+        GlyphToken t;
+        t.kind = Kind::BitmapGlyphIndex;
+        t.value = glyph_index;
+        return t;
+    }
+
     bool IsValid() const
     {
         if (kind == Kind::UnicodeCodePoint)
@@ -48,15 +55,17 @@ struct GlyphToken
     }
 
     bool IsUnicode() const { return kind == Kind::UnicodeCodePoint; }
+    bool IsBitmapIndex() const { return kind == Kind::BitmapGlyphIndex; }
+    bool IsEmbeddedIndex() const { return kind == Kind::EmbeddedGlyphIndex; }
 
-    // Convert to the codepoint stored on the canvas.
-    // - Unicode stays Unicode
-    // - Embedded index becomes a PUA codepoint: U+E000 + index
-    char32_t ToCanvasCodePoint() const
+    // Convert to the GlyphId token stored on the canvas (lossless).
+    phos::GlyphId ToGlyphId() const
     {
         if (kind == Kind::EmbeddedGlyphIndex)
-            return (char32_t)(AnsiCanvas::kEmbeddedGlyphBase + (char32_t)value);
-        return (char32_t)value;
+            return phos::glyph::MakeEmbeddedIndex((std::uint16_t)value);
+        if (kind == Kind::BitmapGlyphIndex)
+            return phos::glyph::MakeBitmapIndex((std::uint16_t)value);
+        return phos::glyph::MakeUnicodeScalar((char32_t)value);
     }
 };
 

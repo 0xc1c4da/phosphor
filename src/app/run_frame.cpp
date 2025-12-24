@@ -29,6 +29,7 @@
 
 #include "core/fonts.h"
 #include "core/color_system.h"
+#include "core/glyph_resolve.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 
@@ -217,6 +218,7 @@ void RunFrame(AppState& st)
             xterm_selected_palette = 0;
     }
 
+    std::uint32_t& tool_brush_glyph = *st.tools.tool_brush_glyph;
     std::uint32_t& tool_brush_cp = *st.tools.tool_brush_cp;
     std::string& tool_brush_utf8 = *st.tools.tool_brush_utf8;
     std::uint32_t& tool_attrs_mask = *st.tools.tool_attrs_mask;
@@ -476,7 +478,8 @@ void RunFrame(AppState& st)
             s_prev_active_canvas_id = cur_id;
             if (active_canvas)
             {
-                tool_brush_cp = active_canvas->GetActiveGlyphCodePoint();
+                tool_brush_glyph = (std::uint32_t)active_canvas->GetActiveGlyph();
+                tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
                 if (tool_brush_cp == 0)
                     tool_brush_cp = (std::uint32_t)U' ';
                 tool_brush_utf8 = active_canvas->GetActiveGlyphUtf8();
@@ -484,7 +487,7 @@ void RunFrame(AppState& st)
                     tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
 
                 character_picker.RestoreSelectedCodePoint(tool_brush_cp);
-                character_palette.SyncSelectionFromActiveGlyph(tool_brush_cp, tool_brush_utf8, active_canvas);
+                character_palette.SyncSelectionFromActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8, active_canvas);
                 character_sets.OnExternalSelectedCodePoint(tool_brush_cp);
             }
         }
@@ -569,7 +572,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetColumns(80);
         canvas_window->canvas.EnsureRowsPublic(25);
         canvas_window->canvas.MarkSaved();
-        canvas_window->canvas.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+        canvas_window->canvas.SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
 
         last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
@@ -587,7 +590,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
         canvas_window->canvas.MarkSaved();
-        canvas_window->canvas.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+        canvas_window->canvas.SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
         last_active_canvas_id = canvas_window->id;
         canvases.push_back(std::move(canvas_window));
     };
@@ -753,7 +756,7 @@ void RunFrame(AppState& st)
         {
             if (export_dialog.HandleDialogResult(r, io_manager, active_canvas))
                 continue;
-            io_manager.HandleDialogResult(r, active_canvas, io_cbs);
+            io_manager.HandleDialogResult(r, active_canvas, io_cbs, &session_state);
         }
     }
 
@@ -928,10 +931,11 @@ void RunFrame(AppState& st)
         {
             character_palette.OnPickerSelectedCodePoint(cp);
             character_sets.OnExternalSelectedCodePoint(cp);
+            tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)cp);
             tool_brush_cp = cp;
             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
             if (active_canvas)
-                active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+                active_canvas->SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
         }
     }
 
@@ -955,22 +959,30 @@ void RunFrame(AppState& st)
                 const uint32_t cp = g.value;
                 character_picker.JumpToCodePoint(cp);
                 character_sets.OnExternalSelectedCodePoint(cp);
+                tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)cp);
                 tool_brush_cp = cp;
                 // Use the palette's stored UTF-8 string directly (supports multi-codepoint glyphs,
                 // and avoids any encode/decode mismatch).
                 tool_brush_utf8 = (!utf8.empty()) ? utf8 : ansl::utf8::encode((char32_t)tool_brush_cp);
                 if (active_canvas)
-                    active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+                    active_canvas->SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
+            }
+            else if (g.IsBitmapIndex())
+            {
+                tool_brush_glyph = (std::uint32_t)phos::glyph::MakeBitmapIndex((std::uint16_t)g.value);
+                tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+                if (active_canvas)
+                    active_canvas->SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
             }
             else
             {
-                // Embedded glyph index: stored on the canvas as PUA (U+E000 + index).
-                const uint32_t cp = (uint32_t)g.ToCanvasCodePoint();
-                character_sets.OnExternalSelectedCodePoint(cp);
-                tool_brush_cp = cp;
+                // Embedded glyph index: stored as a GlyphId token (lossless).
+                tool_brush_glyph = (std::uint32_t)phos::glyph::MakeEmbeddedIndex((std::uint16_t)g.value);
+                tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
                 tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
                 if (active_canvas)
-                    active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+                    active_canvas->SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
             }
         }
     }
@@ -991,22 +1003,23 @@ void RunFrame(AppState& st)
         {
             character_picker.JumpToCodePoint(cp);
             character_palette.OnPickerSelectedCodePoint(cp);
+            tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)cp);
             tool_brush_cp = cp;
             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
             if (active_canvas)
-                active_canvas->SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+                active_canvas->SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
         }
     }
 
     namespace fs = std::filesystem;
 
-    // Centralized "insert a codepoint at the caret" helper (shared by picker/palette + character sets + hotkeys).
+    // Centralized "insert a glyph at the caret" helper (shared by picker/palette + character sets + hotkeys).
     // Some callers want "typewriter" caret advance; others (Character Sets) want a stationary caret.
-    auto insert_cp_into_canvas = [&](AnsiCanvas* dst, uint32_t cp, bool advance_caret)
+    auto insert_glyph_into_canvas = [&](AnsiCanvas* dst, phos::GlyphId glyph, bool advance_caret)
     {
         if (!dst)
             return;
-        if (cp == 0)
+        if (glyph == 0)
             return;
 
         // Respect current editor FG/BG selection (xterm-256 picker).
@@ -1042,7 +1055,13 @@ void RunFrame(AppState& st)
         dst->PushUndoSnapshot();
 
         const int layer_index = dst->GetActiveLayerIndex();
-        dst->SetLayerCellIndices(layer_index, caret_y, caret_x, (char32_t)cp, fg_idx, bg_idx);
+        (void)dst->SetLayerGlyphIndicesPartial(layer_index,
+                                              caret_y,
+                                              caret_x,
+                                              (AnsiCanvas::GlyphId)glyph,
+                                              fg_idx,
+                                              bg_idx,
+                                              std::nullopt);
 
         if (advance_caret)
         {
@@ -1057,6 +1076,11 @@ void RunFrame(AppState& st)
             }
             dst->SetCaretCell(nx, ny);
         }
+    };
+
+    auto insert_cp_into_canvas = [&](AnsiCanvas* dst, uint32_t cp, bool advance_caret)
+    {
+        insert_glyph_into_canvas(dst, phos::glyph::MakeUnicodeScalar((char32_t)cp), advance_caret);
     };
 
     // Hotkeys for character sets:
@@ -1097,7 +1121,7 @@ void RunFrame(AppState& st)
         {
             GlyphToken g;
             if (character_palette.TakeUserDoubleClicked(g))
-                insert_cp_into_canvas(active_canvas, (uint32_t)g.ToCanvasCodePoint(), /*advance_caret=*/true);
+                insert_glyph_into_canvas(active_canvas, g.ToGlyphId(), /*advance_caret=*/true);
         }
     }
 
@@ -1753,6 +1777,7 @@ void RunFrame(AppState& st)
             AnslFrameContext ctx;
             std::vector<int> allowed_indices;
             std::vector<std::uint32_t> glyph_candidates;
+            std::vector<phos::GlyphId> glyph_id_candidates;
             std::vector<ToolCommand> commands;
             ToolCommandSink cmd_sink;
             cmd_sink.allow_tool_commands = true;
@@ -1783,9 +1808,11 @@ void RunFrame(AppState& st)
             ctx.palette_builtin = (std::uint32_t)c.GetPaletteRef().builtin;
             ctx.glyph_utf8 = tool_brush_utf8;
             ctx.glyph_cp = (int)tool_brush_cp;
+            ctx.glyph_id = (std::uint32_t)tool_brush_glyph;
             ctx.attrs = tool_attrs_mask;
             ctx.allowed_indices = nullptr;
             ctx.glyph_candidates = nullptr;
+            ctx.glyph_id_candidates = nullptr;
             ctx.allow_caret_writeback = true;
             // Multi-cell brush stamp (optional; provided by the canvas).
             AnslFrameContext::BrushStamp stamp;
@@ -1794,7 +1821,8 @@ void RunFrame(AppState& st)
             {
                 stamp.w = b->w;
                 stamp.h = b->h;
-                stamp.cp = b->cp.data();
+                stamp.glyph = (const std::uint32_t*)b->cp.data();
+                stamp.cp = nullptr; // legacy (best-effort); scripts should prefer cell.glyph
                 // Index-native (Phase B): expose indices directly in the canvas palette space.
                 stamp.fg = b->fg.data();
                 stamp.bg = b->bg.data();
@@ -1857,6 +1885,10 @@ void RunFrame(AppState& st)
             character_palette.CollectCandidateCodepoints(glyph_candidates, &c);
             if (!glyph_candidates.empty())
                 ctx.glyph_candidates = &glyph_candidates;
+
+            character_palette.CollectCandidateGlyphIds(glyph_id_candidates, &c);
+            if (!glyph_id_candidates.empty())
+                ctx.glyph_id_candidates = &glyph_id_candidates;
 
             int cx = 0, cy = 0, half_y = 0, px = 0, py = 0, phalf_y = 0;
             bool l = false, r = false, pl = false, pr = false;
@@ -2174,13 +2206,27 @@ void RunFrame(AppState& st)
                     {
                         if (cmd.brush_cp > 0)
                         {
-                            const uint32_t cp = cmd.brush_cp;
-                            character_picker.JumpToCodePoint(cp);
-                            tool_brush_cp = cp;
+                            const uint32_t v = cmd.brush_cp;
+                            // Tool commands can pass either:
+                            // - a Unicode scalar (<= 0x10FFFF), or
+                            // - a GlyphId token (>= 0x80000000).
+                            if (v >= 0x80000000u)
+                                tool_brush_glyph = v;
+                            else
+                                tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)v);
+
+                            tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
                             tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
-                            character_palette.OnPickerSelectedCodePoint(cp);
-                            character_sets.OnExternalSelectedCodePoint(cp);
-                            c.SetActiveGlyph(tool_brush_cp, tool_brush_utf8);
+
+                            // Only synchronize Unicode-focused UI widgets when this is a Unicode scalar.
+                            if (v < 0x80000000u)
+                            {
+                                character_picker.JumpToCodePoint(v);
+                                character_palette.OnPickerSelectedCodePoint(v);
+                                character_sets.OnExternalSelectedCodePoint(v);
+                            }
+
+                            c.SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
                         }
                     } break;
                     case ToolCommand::Type::PaletteSet:

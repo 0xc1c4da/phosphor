@@ -4,6 +4,8 @@
 #include <string_view>
 #include <vector>
 
+#include "core/encodings.h"
+
 // Core font registry + glyph lookup.
 //
 // This is the single source of truth for fonts supported by Phosphor's canvas rendering.
@@ -126,6 +128,10 @@ const FontInfo& Get(FontId id);
 bool TryFromSauceName(std::string_view tinfos, FontId& out_id);
 FontId FromSauceName(std::string_view tinfos);
 std::string_view ToSauceName(FontId id);
+
+// Encoding semantics for a bitmap font's 0..255 glyph table.
+// Used for UnicodeScalar <-> byte mapping at boundaries (import/export, Unicode -> bitmap glyph lookup).
+phos::encodings::EncodingId EncodingForFont(FontId id);
 
 // CP437 helpers (used by bitmap fonts).
 char32_t Cp437ByteToUnicode(std::uint8_t b);

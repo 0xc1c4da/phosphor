@@ -1,14 +1,15 @@
 #include "io/formats/xbin.h"
 
 #include "core/color_system.h"
+#include "core/encodings.h"
+#include "core/glyph_id.h"
+#include "core/glyph_resolve.h"
 #include "io/formats/sauce.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <fstream>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace formats
@@ -30,43 +31,6 @@ const std::vector<std::string_view>& ExportExtensions()
 namespace
 {
 static constexpr std::uint8_t kXbinMagic[4] = {'X', 'B', 'I', 'N'};
-
-// CP437 mapping table (0..255) -> Unicode codepoints.
-// Keep in sync with formats::ansi CP437 table (duplicated intentionally to keep formats independent).
-static constexpr char32_t kCp437[256] = {
-    U'\u0000', U'\u263A', U'\u263B', U'\u2665', U'\u2666', U'\u2663', U'\u2660', U'\u2022',
-    U'\u25D8', U'\u25CB', U'\u25D9', U'\u2642', U'\u2640', U'\u266A', U'\u266B', U'\u263C',
-    U'\u25BA', U'\u25C4', U'\u2195', U'\u203C', U'\u00B6', U'\u00A7', U'\u25AC', U'\u21A8',
-    U'\u2191', U'\u2193', U'\u2192', U'\u2190', U'\u221F', U'\u2194', U'\u25B2', U'\u25BC',
-    U' ',      U'!',      U'"',      U'#',      U'$',      U'%',      U'&',      U'\'',
-    U'(',      U')',      U'*',      U'+',      U',',      U'-',      U'.',      U'/',
-    U'0',      U'1',      U'2',      U'3',      U'4',      U'5',      U'6',      U'7',
-    U'8',      U'9',      U':',      U';',      U'<',      U'=',      U'>',      U'?',
-    U'@',      U'A',      U'B',      U'C',      U'D',      U'E',      U'F',      U'G',
-    U'H',      U'I',      U'J',      U'K',      U'L',      U'M',      U'N',      U'O',
-    U'P',      U'Q',      U'R',      U'S',      U'T',      U'U',      U'V',      U'W',
-    U'X',      U'Y',      U'Z',      U'[',      U'\\',     U']',      U'^',      U'_',
-    U'`',      U'a',      U'b',      U'c',      U'd',      U'e',      U'f',      U'g',
-    U'h',      U'i',      U'j',      U'k',      U'l',      U'm',      U'n',      U'o',
-    U'p',      U'q',      U'r',      U's',      U't',      U'u',      U'v',      U'w',
-    U'x',      U'y',      U'z',      U'{',      U'|',      U'}',      U'~',      U'\u2302',
-    U'\u00C7', U'\u00FC', U'\u00E9', U'\u00E2', U'\u00E4', U'\u00E0', U'\u00E5', U'\u00E7',
-    U'\u00EA', U'\u00EB', U'\u00E8', U'\u00EF', U'\u00EE', U'\u00EC', U'\u00C4', U'\u00C5',
-    U'\u00C9', U'\u00E6', U'\u00C6', U'\u00F4', U'\u00F6', U'\u00F2', U'\u00FB', U'\u00F9',
-    U'\u00FF', U'\u00D6', U'\u00DC', U'\u00A2', U'\u00A3', U'\u00A5', U'\u20A7', U'\u0192',
-    U'\u00E1', U'\u00ED', U'\u00F3', U'\u00FA', U'\u00F1', U'\u00D1', U'\u00AA', U'\u00BA',
-    U'\u00BF', U'\u2310', U'\u00AC', U'\u00BD', U'\u00BC', U'\u00A1', U'\u00AB', U'\u00BB',
-    U'\u2591', U'\u2592', U'\u2593', U'\u2502', U'\u2524', U'\u2561', U'\u2562', U'\u2556',
-    U'\u2555', U'\u2563', U'\u2551', U'\u2557', U'\u255D', U'\u255C', U'\u255B', U'\u2510',
-    U'\u2514', U'\u2534', U'\u252C', U'\u251C', U'\u2500', U'\u253C', U'\u255E', U'\u255F',
-    U'\u255A', U'\u2554', U'\u2569', U'\u2566', U'\u2560', U'\u2550', U'\u256C', U'\u2567',
-    U'\u2568', U'\u2564', U'\u2565', U'\u2559', U'\u2558', U'\u2552', U'\u2553', U'\u256B',
-    U'\u256A', U'\u2518', U'\u250C', U'\u2588', U'\u2584', U'\u258C', U'\u2590', U'\u2580',
-    U'\u03B1', U'\u00DF', U'\u0393', U'\u03C0', U'\u03A3', U'\u03C3', U'\u00B5', U'\u03C4',
-    U'\u03A6', U'\u0398', U'\u03A9', U'\u03B4', U'\u221E', U'\u03C6', U'\u03B5', U'\u2229',
-    U'\u2261', U'\u00B1', U'\u2265', U'\u2264', U'\u2320', U'\u2321', U'\u00F7', U'\u2248',
-    U'\u00B0', U'\u2219', U'\u00B7', U'\u221A', U'\u207F', U'\u00B2', U'\u25A0', U'\u00A0',
-};
 
 static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
 {
@@ -326,16 +290,9 @@ static bool DecodeCompressedRow(const std::vector<std::uint8_t>& payload,
 
 static std::uint8_t UnicodeToCp437Byte(char32_t cp)
 {
-    static const std::unordered_map<char32_t, std::uint8_t> map = []() {
-        std::unordered_map<char32_t, std::uint8_t> m;
-        m.reserve(256);
-        for (size_t i = 0; i < 256; ++i)
-            m.emplace(kCp437[i], (std::uint8_t)i);
-        return m;
-    }();
-
-    auto it = map.find(cp);
-    return (it == map.end()) ? (std::uint8_t)'?' : it->second;
+    std::uint8_t b = (std::uint8_t)'?';
+    (void)phos::encodings::UnicodeToByte(phos::encodings::EncodingId::Cp437, cp, b);
+    return b;
 }
 
 static std::uint8_t ToVga6(std::uint8_t v8)
@@ -521,20 +478,20 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int cols = (int)hdr.width;
     const int rows = (int)hdr.height;
 
-    std::vector<char32_t> cells((size_t)cols * (size_t)rows, U' ');
+    std::vector<AnsiCanvas::GlyphId> glyphs((size_t)cols * (size_t)rows, phos::glyph::MakeUnicodeScalar(U' '));
     std::vector<AnsiCanvas::ColorIndex16> fg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
     std::vector<AnsiCanvas::ColorIndex16> bg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
 
     const int embedded_glyph_count = hdr.mode_512 ? 512 : 256;
     const bool use_embedded_font = hdr.has_font && !embedded_font_bitmap.empty();
 
-    auto decode_cp = [&](std::uint8_t b) -> char32_t {
+    auto decode_unicode_scalar = [&](std::uint8_t b) -> char32_t {
         if (options.decode_cp437)
         {
             // Treat NUL as space (common "blank" convention).
             if (b == 0)
                 return U' ';
-            return kCp437[b];
+            return phos::encodings::ByteToUnicode(phos::encodings::EncodingId::Cp437, b);
         }
         if (b < 0x80)
             return (char32_t)b;
@@ -586,11 +543,22 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     gi = (std::uint16_t)((std::uint16_t)c + 256u);
                 if (gi >= (std::uint16_t)embedded_glyph_count)
                     gi = 0;
-                cells[idx] = AnsiCanvas::kEmbeddedGlyphBase + (char32_t)gi;
+                glyphs[idx] = phos::glyph::MakeEmbeddedIndex(gi);
             }
             else
             {
-                cells[idx] = decode_cp(c);
+                if (options.decode_cp437)
+                {
+                    // In non-embedded mode, preserve glyph identity by storing the byte as a BitmapIndex token.
+                    // This matches XBin's native representation and avoids lossy Unicode->index remapping later.
+                    const std::uint16_t bi = (c == 0) ? (std::uint16_t)32u : (std::uint16_t)c;
+                    glyphs[idx] = phos::glyph::MakeBitmapIndex(bi);
+                }
+                else
+                {
+                    // Non-CP437 decode: preserve old behavior (Unicode-only; bytes >=0x80 become U+FFFD).
+                    glyphs[idx] = phos::glyph::MakeUnicodeScalar(decode_unicode_scalar(c));
+                }
             }
             fg[idx] = (AnsiCanvas::ColorIndex16)fg_idx;
             bg[idx] = (AnsiCanvas::ColorIndex16)bg_idx;
@@ -640,7 +608,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers.resize(1);
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
-    st.current.layers[0].cells = std::move(cells);
+    st.current.layers[0].cells = std::move(glyphs);
     st.current.layers[0].fg = std::move(fg);
     st.current.layers[0].bg = std::move(bg);
     // Track palette identity on the canvas (XBin palettes are always 16-color).
@@ -861,18 +829,18 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     {
         for (int x = 0; x < cols; ++x)
         {
-            char32_t cp = U' ';
+            phos::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
             AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
 
             if (options.source == ExportOptions::Source::Composite)
             {
-                (void)canvas.GetCompositeCellPublicIndices(y, x, cp, fg, bg);
+                (void)canvas.GetCompositeCellPublicGlyphIndices(y, x, glyph, fg, bg);
             }
             else
             {
                 const int li = canvas.GetActiveLayerIndex();
-                cp = canvas.GetLayerCell(li, y, x);
+                glyph = (phos::GlyphId)canvas.GetLayerGlyph(li, y, x);
                 (void)canvas.GetLayerCellIndices(li, y, x, fg, bg);
             }
 
@@ -884,10 +852,29 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             bg_i = std::clamp(bg_i, 0, 15);
 
             const size_t idx = (size_t)y * (size_t)cols + (size_t)x;
-            if (embedded_font && cp >= AnsiCanvas::kEmbeddedGlyphBase && cp < (AnsiCanvas::kEmbeddedGlyphBase + 256))
-                ch[idx] = (std::uint8_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
+            const phos::glyph::Kind k = phos::glyph::GetKind(glyph);
+            const char32_t rep_cp = phos::glyph::ToUnicodeRepresentative(glyph);
+
+            if (embedded_font)
+            {
+                // Prefer a real embedded index (token or legacy PUA) if available.
+                if (auto ei = phos::glyph::TryGetEmbeddedIndex(glyph, ef))
+                    ch[idx] = (std::uint8_t)std::clamp((int)*ei, 0, 255);
+                else if (k == phos::glyph::Kind::BitmapIndex)
+                    ch[idx] = (std::uint8_t)std::clamp((int)phos::glyph::BitmapIndexValue(glyph), 0, 255);
+                else
+                    ch[idx] = UnicodeToCp437Byte(rep_cp);
+            }
             else
-                ch[idx] = UnicodeToCp437Byte(cp);
+            {
+                // Non-embedded export: preserve direct indices when present.
+                if (k == phos::glyph::Kind::BitmapIndex)
+                    ch[idx] = (std::uint8_t)std::clamp((int)phos::glyph::BitmapIndexValue(glyph), 0, 255);
+                else if (k == phos::glyph::Kind::EmbeddedIndex)
+                    ch[idx] = (std::uint8_t)std::clamp((int)phos::glyph::EmbeddedIndexValue(glyph), 0, 255);
+                else
+                    ch[idx] = UnicodeToCp437Byte(rep_cp);
+            }
 
             // Encode attribute.
             std::uint8_t attr = 0;

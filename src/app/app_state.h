@@ -82,6 +82,9 @@ struct AppState
         AnslScriptEngine* ansl_engine = nullptr;
         AnslScriptEngine* tool_engine = nullptr;
 
+        // Current brush glyph for tools (GlyphId token; may exceed Unicode range).
+        std::uint32_t* tool_brush_glyph = nullptr;
+        // Best-effort Unicode representative (legacy/UI convenience).
         std::uint32_t* tool_brush_cp = nullptr;
         std::string* tool_brush_utf8 = nullptr;
         // Current attribute bitmask used by tools (e.g. bold/underline). 0 = none.

@@ -1,6 +1,7 @@
 #include "core/deform/glyph_mask_cache.h"
 
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 
 #include "imgui.h"
 
@@ -102,7 +103,7 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
                                             int cell_w_px,
                                             int cell_h_px,
                                             int scale,
-                                            char32_t cp,
+                                            AnsiCanvas::GlyphId glyph,
                                             std::string& err)
 {
     err.clear();
@@ -115,7 +116,7 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
     key.cell_w_px = cell_w_px;
     key.cell_h_px = cell_h_px;
     key.scale = scale;
-    key.cp = (std::uint32_t)cp;
+    key.glyph = (std::uint32_t)glyph;
 
     auto it = cache_.find(key);
     if (it != cache_.end())
@@ -169,6 +170,7 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
             baked = const_cast<ImFont*>(font)->GetFontBaked(bake_size);
         }
 
+        const char32_t cp = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
         const ImFontGlyph* g = baked ? baked->FindGlyphNoFallback((ImWchar)cp) : nullptr;
         if (!g)
         {
@@ -218,36 +220,14 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
     int glyph_cell_w = finfo.cell_w;
     int glyph_cell_h = finfo.cell_h;
     bool vga_dup = finfo.vga_9col_dup;
-    std::uint16_t glyph_index = 0;
 
     if (embedded_font)
     {
         glyph_cell_w = ef->cell_w;
         glyph_cell_h = ef->cell_h;
         vga_dup = ef->vga_9col_dup;
-
-        if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
-            cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-        {
-            glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
-        }
-        else
-        {
-            std::uint16_t gi = 0;
-            if (fonts::UnicodeToGlyphIndex(finfo.id, cp, gi))
-                glyph_index = gi;
-            else
-                glyph_index = (std::uint16_t)'?';
-        }
     }
-    else
-    {
-        if (!fonts::UnicodeToGlyphIndex(finfo.id, cp, glyph_index))
-        {
-            if (!fonts::UnicodeToGlyphIndex(finfo.id, U'?', glyph_index))
-                glyph_index = (std::uint16_t)' ';
-        }
-    }
+    const std::uint16_t glyph_index = phos::glyph::ResolveBitmapGlyph(finfo, ef, (phos::GlyphId)glyph).glyph_index;
 
     auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
     {
@@ -260,7 +240,7 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
         return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
     };
 
-    const std::uint8_t glyph = (std::uint8_t)(glyph_index & 0xFFu);
+    const std::uint8_t glyph8 = (std::uint8_t)(glyph_index & 0xFFu);
 
     // IMPORTANT: match canvas_rasterizer integer scaling behavior.
     const int px_w = std::max(1, (cell_w_px * scale) / std::max(1, glyph_cell_w));
@@ -270,7 +250,7 @@ GlyphMaskCache::Mask GlyphMaskCache::GetMask(const AnsiCanvas& canvas,
     {
         if (x < 8)
             return (bits & (std::uint8_t)(0x80u >> x)) != 0;
-        if (x == 8 && vga_dup && glyph_cell_w == 9 && glyph >= 192 && glyph <= 223)
+        if (x == 8 && vga_dup && glyph_cell_w == 9 && glyph8 >= 192 && glyph8 <= 223)
             return (bits & 0x01u) != 0;
         return false;
     };

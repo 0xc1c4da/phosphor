@@ -3,6 +3,7 @@
 #include "core/color_system.h"
 #include "core/canvas.h"
 #include "core/deform/deform_engine.h"
+#include "core/glyph_resolve.h"
 #include "core/xterm256_palette.h"
 #include "fonts/textmode_font_registry.h"
 
@@ -226,6 +227,28 @@ static char32_t LuaCharArg(lua_State* L, int idx)
     return DecodeFirstUtf8Codepoint(s, len);
 }
 
+static AnsiCanvas::GlyphId LuaGlyphArg(lua_State* L, int idx)
+{
+    // IMPORTANT:
+    // Match LuaCharArg's "do not coerce numeric-looking strings" behavior (LuaJIT quirk).
+    if (lua_type(L, idx) == LUA_TNUMBER)
+    {
+        lua_Integer v = lua_tointeger(L, idx);
+        if (v < 0) v = 0;
+        // Numbers in token space are treated as GlyphId directly (lossless scripting surface).
+        if ((std::uint64_t)v >= (std::uint64_t)phos::glyph::kTokenBit)
+            return (AnsiCanvas::GlyphId)(std::uint32_t)v;
+        // Otherwise interpret as a Unicode scalar codepoint.
+        return phos::glyph::MakeUnicodeScalar((char32_t)v);
+    }
+
+    size_t len = 0;
+    const char* s = lua_tolstring(L, idx, &len);
+    if (!s)
+        return phos::glyph::MakeUnicodeScalar(U' ');
+    return phos::glyph::MakeUnicodeScalar(DecodeFirstUtf8Codepoint(s, len));
+}
+
 static int LuaArrayLen(lua_State* L, int idx)
 {
 #if defined(LUA_VERSION_NUM) && LUA_VERSION_NUM >= 502
@@ -429,16 +452,46 @@ static int l_ansl_deform_apply_dab(lua_State* L)
     }
     lua_pop(L, 1); // palette
 
-    // glyphCandidates: args.glyphCandidates = { cp, ... } (codepoints)
+    // glyphCandidates / glyphIdCandidates (optional explicit candidate list)
     args.glyph_set.kind = deform::GlyphSetKind::ExplicitList;
     args.glyph_set.explicit_codepoints.clear();
+    args.glyph_set.explicit_glyph_ids.clear();
+
+    // glyphIdCandidates: args.glyphIdCandidates = { glyphId, ... } (GlyphId tokens; preferred).
+    lua_getfield(L, 3, "glyphIdCandidates");
+    if (!lua_istable(L, -1))
+    {
+        lua_pop(L, 1);
+        lua_getfield(L, 3, "glyph_id_candidates"); // alt name
+    }
+    if (lua_istable(L, -1))
+    {
+        const int n = LuaArrayLen(L, -1);
+        args.glyph_set.explicit_glyph_ids.reserve((size_t)n);
+        for (int i = 1; i <= n; ++i)
+        {
+            lua_rawgeti(L, -1, i);
+            if (lua_isnumber(L, -1))
+            {
+                lua_Integer v = lua_tointeger(L, -1);
+                if (v > 0 && v <= (lua_Integer)0xFFFFFFFFu)
+                    args.glyph_set.explicit_glyph_ids.push_back((AnsiCanvas::GlyphId)(std::uint32_t)v);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1); // glyphIdCandidates / glyph_id_candidates / non-table
+
+    const bool have_glyph_id_candidates = !args.glyph_set.explicit_glyph_ids.empty();
+
+    // glyphCandidates: args.glyphCandidates = { cp, ... } (codepoints; legacy)
     lua_getfield(L, 3, "glyphCandidates");
     if (!lua_istable(L, -1))
     {
         lua_pop(L, 1);
         lua_getfield(L, 3, "glyph_candidates"); // alt name
     }
-    if (lua_istable(L, -1))
+    if (!have_glyph_id_candidates && lua_istable(L, -1))
     {
         const int n = LuaArrayLen(L, -1);
         args.glyph_set.explicit_codepoints.reserve((size_t)n);
@@ -821,7 +874,7 @@ static int l_layer_set(lua_State* L)
 
     const int x = (int)luaL_checkinteger(L, 2);
     const int y = (int)luaL_checkinteger(L, 3);
-    const char32_t cp = LuaCharArg(L, 4);
+    const AnsiCanvas::GlyphId glyph = LuaGlyphArg(L, 4);
 
     // Optional fg/bg: palette indices in the canvas's active palette index space.
     //
@@ -876,7 +929,7 @@ static int l_layer_set(lua_State* L)
     }
 
     // Fast preserve-friendly write: avoid GetLayerCellIndices()+SetLayerCellIndices double-pass per cell.
-    (void)b->canvas->SetLayerCellIndicesPartial(b->layer_index, y, x, cp, fg, bg, attrs);
+    (void)b->canvas->SetLayerGlyphIndicesPartial(b->layer_index, y, x, glyph, fg, bg, attrs);
     return 0;
 }
 
@@ -888,7 +941,8 @@ static int l_layer_get(lua_State* L)
 
     const int x = (int)luaL_checkinteger(L, 2);
     const int y = (int)luaL_checkinteger(L, 3);
-    const char32_t cp = b->canvas->GetLayerCell(b->layer_index, y, x);
+    const AnsiCanvas::GlyphId glyph = b->canvas->GetLayerGlyph(b->layer_index, y, x);
+    const char32_t cp = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
     const std::string s = EncodeCodepointUtf8(cp);
     lua_pushlstring(L, s.data(), s.size());
 
@@ -911,7 +965,9 @@ static int l_layer_get(lua_State* L)
     AnsiCanvas::Attrs a = 0;
     (void)b->canvas->GetLayerCellAttrs(b->layer_index, y, x, a);
     lua_pushinteger(L, (lua_Integer)a);
-    return 5;
+    // Also return glyphId token (lossless additive API).
+    lua_pushinteger(L, (lua_Integer)glyph);
+    return 6;
 }
 
 static int l_layer_clear(lua_State* L)
@@ -2276,6 +2332,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_setfield(L, -2, "glyph");
     lua_pushinteger(L, (lua_Integer)frame_ctx.glyph_cp);
     lua_setfield(L, -2, "glyphCp");
+    lua_pushinteger(L, (lua_Integer)frame_ctx.glyph_id);
+    lua_setfield(L, -2, "glyphId");
 
     // Multi-cell brush stamp: ctx.brush = { w, h, cells = { {ch, fg, bg, attrs}, ... } }
     // We reuse the table each frame: clear previous cells and repopulate.
@@ -2285,7 +2343,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         int bw = 0, bh = 0;
         size_t new_total = 0;
         if (frame_ctx.brush && frame_ctx.brush->w > 0 && frame_ctx.brush->h > 0 &&
-            frame_ctx.brush->cp && frame_ctx.brush->fg && frame_ctx.brush->bg && frame_ctx.brush->attrs)
+            (frame_ctx.brush->glyph || frame_ctx.brush->cp) &&
+            frame_ctx.brush->fg && frame_ctx.brush->bg && frame_ctx.brush->attrs)
         {
             bw = frame_ctx.brush->w;
             bh = frame_ctx.brush->h;
@@ -2312,7 +2371,16 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                 {
                     lua_newtable(L); // cell
 
-                    const std::string ch = EncodeCodepointUtf8(frame_ctx.brush->cp[i]);
+                    // Glyph token (lossless) + best-effort UTF-8 representative.
+                    const phos::GlyphId glyph = frame_ctx.brush->glyph
+                                                    ? (phos::GlyphId)frame_ctx.brush->glyph[i]
+                                                    : phos::glyph::MakeUnicodeScalar(frame_ctx.brush->cp ? frame_ctx.brush->cp[i] : U' ');
+                    const char32_t rep_cp = frame_ctx.brush->cp ? frame_ctx.brush->cp[i] : phos::glyph::ToUnicodeRepresentative(glyph);
+
+                    lua_pushinteger(L, (lua_Integer)glyph);
+                    lua_setfield(L, -2, "glyph");
+
+                    const std::string ch = EncodeCodepointUtf8(rep_cp);
                     lua_pushlstring(L, ch.data(), ch.size());
                     lua_setfield(L, -2, "ch");
                     // Index-native: expose palette indices in the active canvas palette index space (nil = unset),
@@ -2579,6 +2647,31 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         }
     }
     lua_pop(L, 1); // glyphCandidates
+
+    // Candidate glyph ids: expose as ctx.glyphIdCandidates = { glyphId, ... } (lossless).
+    // We reuse the table to avoid churn: clear previous entries then write new ones.
+    lua_getfield(L, -1, "glyphIdCandidates");
+    if (lua_istable(L, -1))
+    {
+        const int old_n = LuaArrayLen(L, -1);
+        int out_i = 1;
+        if (frame_ctx.glyph_id_candidates)
+        {
+            for (std::uint32_t gid : *frame_ctx.glyph_id_candidates)
+            {
+                if (gid == 0)
+                    continue;
+                lua_pushinteger(L, (lua_Integer)gid);
+                lua_rawseti(L, -2, out_i++);
+            }
+        }
+        for (int i = out_i; i <= old_n; ++i)
+        {
+            lua_pushnil(L);
+            lua_rawseti(L, -2, i);
+        }
+    }
+    lua_pop(L, 1); // glyphIdCandidates
 
     // layer userdata
     PushLayerObject(L, &canvas, layer_index);

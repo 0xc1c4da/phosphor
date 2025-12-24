@@ -2,6 +2,7 @@
 
 #include "core/color_blend.h"
 #include "core/color_system.h"
+#include "core/glyph_resolve.h"
 #include "core/key_bindings.h"
 
 #include "imgui_internal.h"
@@ -52,6 +53,23 @@ static inline phos::color::Rgb8 PaletteRgbClamped(const phos::color::Palette* p,
     if (!p || p->rgb.empty())
         return phos::color::Rgb8{};
     return p->rgb[(size_t)i];
+}
+
+static inline AnsiCanvas::GlyphId BlankGlyph()
+{
+    return phos::glyph::MakeUnicodeScalar(U' ');
+}
+
+static inline char32_t GlyphIdToUnicodeRepresentative(AnsiCanvas::GlyphId g)
+{
+    // Representative "best-effort Unicode" view of the glyph:
+    // - UnicodeScalar: return scalar as-is
+    // - BitmapIndex/EmbeddedIndex: deterministic Unicode representative (CP437 policy)
+    //
+    // Important: we intentionally do NOT emit legacy embedded PUA (U+E000 + idx) here anymore.
+    // PUA remains accepted as an input compatibility representation (see core/glyph_resolve.h),
+    // but internal "representative cp" views should be non-PUA.
+    return phos::glyph::ToUnicodeRepresentative((phos::GlyphId)g);
 }
 } // namespace
 
@@ -155,7 +173,7 @@ int AnsiCanvas::AddLayer(const std::string& name)
     layer.blend_mode = phos::LayerBlendMode::Normal;
     layer.blend_alpha = 255;
     const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
-    layer.cells.assign(count, U' ');
+    layer.cells.assign(count, BlankGlyph());
     layer.fg.assign(count, kUnsetIndex16);
     layer.bg.assign(count, kUnsetIndex16);
     layer.attrs.assign(count, 0);
@@ -431,12 +449,12 @@ void AnsiCanvas::SetColumns(int columns)
 
     for (Layer& layer : m_layers)
     {
-        std::vector<char32_t> new_cells;
+        std::vector<GlyphId> new_cells;
         std::vector<ColorIndex16> new_fg;
         std::vector<ColorIndex16> new_bg;
         std::vector<Attrs>    new_attrs;
 
-        new_cells.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), U' ');
+        new_cells.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), BlankGlyph());
         new_fg.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), kUnsetIndex16);
         new_bg.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), kUnsetIndex16);
         new_attrs.assign(static_cast<size_t>(old_rows) * static_cast<size_t>(m_columns), 0);
@@ -523,7 +541,7 @@ void AnsiCanvas::SetRows(int rows)
     const size_t need = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
     for (Layer& layer : m_layers)
     {
-        layer.cells.resize(need, U' ');
+        layer.cells.resize(need, BlankGlyph());
         layer.fg.resize(need, kUnsetIndex16);
         layer.bg.resize(need, kUnsetIndex16);
         layer.attrs.resize(need, 0);
@@ -592,7 +610,7 @@ bool AnsiCanvas::LoadFromFile(const std::string& path)
     for (Layer& layer : m_layers)
     {
         const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
-        layer.cells.assign(count, U' ');
+        layer.cells.assign(count, BlankGlyph());
         layer.fg.assign(count, kUnsetIndex16);
         layer.bg.assign(count, kUnsetIndex16);
         layer.attrs.assign(count, 0);
@@ -674,7 +692,7 @@ void AnsiCanvas::EnsureDocument()
         base.name = "Base";
         base.visible = true;
         const size_t count = static_cast<size_t>(m_rows) * static_cast<size_t>(m_columns);
-        base.cells.assign(count, U' ');
+        base.cells.assign(count, BlankGlyph());
         base.fg.assign(count, kUnsetIndex16);
         base.bg.assign(count, kUnsetIndex16);
         base.attrs.assign(count, 0);
@@ -689,7 +707,7 @@ void AnsiCanvas::EnsureDocument()
     {
         if (layer.cells.size() != need)
         {
-            layer.cells.resize(need, U' ');
+            layer.cells.resize(need, BlankGlyph());
             changed = true;
         }
         if (layer.fg.size() != need)
@@ -766,7 +784,7 @@ void AnsiCanvas::EnsureRows(int rows_needed)
         reserve_with_slack(layer.fg);
         reserve_with_slack(layer.bg);
         reserve_with_slack(layer.attrs);
-        layer.cells.resize(need, U' ');
+        layer.cells.resize(need, BlankGlyph());
         layer.fg.resize(need, kUnsetIndex16);
         layer.bg.resize(need, kUnsetIndex16);
         layer.attrs.resize(need, 0);
@@ -897,10 +915,11 @@ AnsiCanvas::CompositeCell AnsiCanvas::GetCompositeCell(int row, int col) const
             const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
             if (idx >= layer.cells.size())
                 continue;
-            const char32_t cp = layer.cells[idx];
-            if (cp == U' ')
+            const GlyphId g = layer.cells[idx];
+            if (phos::glyph::IsBlank((phos::GlyphId)g))
                 continue;
-            out.cp = cp;
+            out.glyph = g;
+            out.cp = GlyphIdToUnicodeRepresentative(g);
             out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
             out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
             break;
@@ -1016,14 +1035,15 @@ bg_done:
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         if (idx >= layer.cells.size())
             continue;
-        const char32_t cp = layer.cells[idx];
-        if (cp == U' ')
+        const GlyphId g = layer.cells[idx];
+        if (phos::glyph::IsBlank((phos::GlyphId)g))
             continue;
 
-        if (out.cp == U' ')
+        if (phos::glyph::IsBlank((phos::GlyphId)out.glyph))
         {
             // First (topmost) glyph: choose glyph/attrs from here.
-            out.cp = cp;
+            out.glyph = g;
+            out.cp = GlyphIdToUnicodeRepresentative(g);
             out.fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
             out.attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
             glyph_blend_mode = layer.blend_mode;
@@ -1040,7 +1060,7 @@ bg_done:
     }
 
     // ---- Foreground blend: blend chosen glyph fg against underlying fg (if present) else bg ----
-    if (out.cp != U' ')
+    if (!phos::glyph::IsBlank((phos::GlyphId)out.glyph))
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = ResolveActivePaletteId();
@@ -1139,12 +1159,12 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
         // Determine old cell value without growing the document unless we will mutate.
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = old_fg;
         const ColorIndex16 new_bg = old_bg;
         const Attrs    new_attrs = old_attrs;
@@ -1163,7 +1183,7 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp)
             EnsureRows(lr + 1);
         const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
         if (widx < layer.cells.size())
-            layer.cells[widx] = cp;
+            layer.cells[widx] = new_cp;
         if (widx < layer.attrs.size())
             layer.attrs[widx] = new_attrs;
     };
@@ -1200,12 +1220,12 @@ void AnsiCanvas::SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color3
         Layer& layer = m_layers[(size_t)m_active_layer];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = QuantizeColor32ToIndex(fg);
         const ColorIndex16 new_bg = QuantizeColor32ToIndex(bg);
         const Attrs    new_attrs = old_attrs;
@@ -1266,7 +1286,7 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
         Layer& layer = m_layers[(size_t)m_active_layer];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
@@ -1329,12 +1349,12 @@ bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
         Layer& layer = m_layers[(size_t)layer_index];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = old_fg;
         const ColorIndex16 new_bg = old_bg;
         const Attrs    new_attrs = old_attrs;
@@ -1393,12 +1413,12 @@ bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t
         Layer& layer = m_layers[(size_t)layer_index];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = fg;
         const ColorIndex16 new_bg = bg;
         const Attrs    new_attrs = old_attrs;
@@ -1461,12 +1481,12 @@ bool AnsiCanvas::SetLayerCellIndices(int layer_index, int row, int col, char32_t
         Layer& layer = m_layers[(size_t)layer_index];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = fg;
         const ColorIndex16 new_bg = bg;
         const Attrs    new_attrs = attrs;
@@ -1535,12 +1555,12 @@ bool AnsiCanvas::SetLayerCellIndicesPartial(int layer_index,
         Layer& layer = m_layers[(size_t)layer_index];
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = fg.has_value() ? *fg : old_fg;
         const ColorIndex16 new_bg = bg.has_value() ? *bg : old_bg;
         const Attrs    new_attrs = attrs.has_value() ? *attrs : old_attrs;
@@ -1586,6 +1606,103 @@ bool AnsiCanvas::SetLayerCellIndicesPartial(int layer_index,
     return ok_primary;
 }
 
+bool AnsiCanvas::SetLayerGlyphIndicesPartial(int layer_index,
+                                            int row,
+                                            int col,
+                                            GlyphId glyph,
+                                            std::optional<ColorIndex16> fg,
+                                            std::optional<ColorIndex16> bg,
+                                            std::optional<Attrs> attrs)
+{
+    EnsureDocument();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    if (row < 0) row = 0;
+    if (col < 0) col = 0;
+    if (col >= m_columns) col = m_columns - 1;
+
+    auto write_one = [&](int write_col) -> bool
+    {
+        if (!ToolWriteAllowed(row, write_col))
+            return true; // clipped -> treat as no-op success
+        int lr = 0, lc = 0;
+        if (!CanvasToLayerLocalForWrite(layer_index, row, write_col, lr, lc))
+            return false;
+
+        Layer& layer = m_layers[(size_t)layer_index];
+        const bool in_bounds = (lr < m_rows);
+        const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+        const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+        const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+        const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+        const GlyphId new_cp = glyph;
+        const ColorIndex16 new_fg = fg.has_value() ? *fg : old_fg;
+        const ColorIndex16 new_bg = bg.has_value() ? *bg : old_bg;
+        const Attrs    new_attrs = attrs.has_value() ? *attrs : old_attrs;
+
+        if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                          old_cp, old_fg, old_bg, old_attrs,
+                                          new_cp, new_fg, new_bg, new_attrs))
+            return false;
+        if (in_bounds &&
+            old_cp == new_cp &&
+            old_fg == new_fg &&
+            old_bg == new_bg &&
+            old_attrs == new_attrs)
+            return true;
+
+        PrepareUndoForMutation();
+        EnsureUndoCaptureIsPatch();
+        CaptureUndoPageIfNeeded(layer_index, lr);
+        if (lr >= m_rows)
+            EnsureRows(lr + 1);
+        const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+        if (widx < layer.cells.size())
+            layer.cells[widx] = new_cp;
+        if (widx < layer.fg.size())
+            layer.fg[widx] = new_fg;
+        if (widx < layer.bg.size())
+            layer.bg[widx] = new_bg;
+        if (widx < layer.attrs.size())
+            layer.attrs[widx] = new_attrs;
+        return true;
+    };
+
+    const bool ok_primary = write_one(col);
+
+    const bool mirror = m_mirror_mode && m_tool_running && m_columns > 1;
+    if (mirror)
+    {
+        const int mirror_col = (m_columns - 1) - col;
+        if (mirror_col != col)
+            (void)write_one(mirror_col);
+    }
+
+    return ok_primary;
+}
+
+AnsiCanvas::GlyphId AnsiCanvas::GetLayerGlyph(int layer_index, int row, int col) const
+{
+    if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
+        return BlankGlyph();
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return BlankGlyph();
+    if (row < 0 || row >= m_rows || col < 0 || col >= m_columns)
+        return BlankGlyph();
+
+    int lr = 0, lc = 0;
+    if (!CanvasToLayerLocalForRead(layer_index, row, col, lr, lc))
+        return BlankGlyph();
+    const Layer& layer = m_layers[(size_t)layer_index];
+    const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+    if (idx >= layer.cells.size())
+        return BlankGlyph();
+    return layer.cells[idx];
+}
+
 char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
 {
     if (m_columns <= 0 || m_rows <= 0 || m_layers.empty())
@@ -1602,7 +1719,7 @@ char32_t AnsiCanvas::GetLayerCell(int layer_index, int row, int col) const
     const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
     if (idx >= layer.cells.size())
         return U' ';
-    return layer.cells[idx];
+    return GlyphIdToUnicodeRepresentative(layer.cells[idx]);
 }
 
 bool AnsiCanvas::GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const
@@ -1666,7 +1783,7 @@ void AnsiCanvas::ClearLayerCellStyleInternal(int layer_index, int row, int col)
     const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
 
     const bool in_bounds = (lr < m_rows);
-    const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+    const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
     const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
     const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
     const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
@@ -1712,7 +1829,7 @@ bool AnsiCanvas::ClearLayerCellStyle(int layer_index, int row, int col)
             return false;
         const bool in_bounds = (lr < m_rows);
         const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
-        const char32_t old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : U' ';
+        const GlyphId old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
         const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
@@ -1787,12 +1904,12 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
                 if (idx >= layer.cells.size())
                     continue;
 
-                const char32_t old_cp = layer.cells[idx];
+                const GlyphId old_cp = layer.cells[idx];
                 const ColorIndex16 old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
                 const ColorIndex16 old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
                 const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-                const char32_t new_cp = cp;
+                const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
                 const ColorIndex16 new_fg = kUnsetIndex16;
                 const ColorIndex16 new_bg = kUnsetIndex16;
                 const Attrs    new_attrs = 0;
@@ -1818,12 +1935,12 @@ bool AnsiCanvas::ClearLayer(int layer_index, char32_t cp)
     const size_t n = layer.cells.size();
     for (size_t idx = 0; idx < n; ++idx)
     {
-        const char32_t old_cp = layer.cells[idx];
+        const GlyphId old_cp = layer.cells[idx];
         const ColorIndex16 old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp;
+        const GlyphId new_cp = phos::glyph::MakeUnicodeScalar(cp);
         const ColorIndex16 new_fg = kUnsetIndex16;
         const ColorIndex16 new_bg = kUnsetIndex16;
         const Attrs    new_attrs = 0;
@@ -1888,12 +2005,12 @@ bool AnsiCanvas::FillLayer(int layer_index,
                 if (idx >= layer.cells.size())
                     continue;
 
-                const char32_t old_cp = layer.cells[idx];
+                const GlyphId old_cp = layer.cells[idx];
                 const ColorIndex16 old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
                 const ColorIndex16 old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
                 const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-                const char32_t new_cp = cp.has_value() ? *cp : old_cp;
+                const GlyphId new_cp = cp.has_value() ? phos::glyph::MakeUnicodeScalar(*cp) : old_cp;
                 const ColorIndex16 new_fg = fg.has_value() ? QuantizeColor32ToIndex(*fg) : old_fg;
                 const ColorIndex16 new_bg = bg.has_value() ? QuantizeColor32ToIndex(*bg) : old_bg;
                 const Attrs    new_attrs = old_attrs;
@@ -1918,12 +2035,12 @@ bool AnsiCanvas::FillLayer(int layer_index,
     const size_t n = layer.cells.size();
     for (size_t idx = 0; idx < n; ++idx)
     {
-        const char32_t old_cp = layer.cells[idx];
+        const GlyphId old_cp = layer.cells[idx];
         const ColorIndex16 old_fg = (idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
         const ColorIndex16 old_bg = (idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
         const Attrs    old_attrs = (idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
-        const char32_t new_cp = cp.has_value() ? *cp : old_cp;
+        const GlyphId new_cp = cp.has_value() ? phos::glyph::MakeUnicodeScalar(*cp) : old_cp;
         const ColorIndex16 new_fg = fg.has_value() ? QuantizeColor32ToIndex(*fg) : old_fg;
         const ColorIndex16 new_bg = bg.has_value() ? QuantizeColor32ToIndex(*bg) : old_bg;
         const Attrs    new_attrs = old_attrs;

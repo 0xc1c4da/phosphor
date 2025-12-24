@@ -31,6 +31,7 @@ SOURCES  = \
            src/core/canvas/canvas_layers.cpp \
            src/core/canvas/canvas_render.cpp \
            src/core/canvas/canvas_project.cpp \
+           src/core/encodings.cpp \
            src/core/fonts.cpp \
            src/fonts/textmode_font.cpp \
            src/fonts/textmode_font_registry.cpp \

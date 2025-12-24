@@ -1,5 +1,6 @@
 #include "core/canvas/canvas_internal.h"
 
+#include "core/glyph_resolve.h"
 #include "core/key_bindings.h"
 
 #include "imgui_internal.h"
@@ -209,6 +210,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
         (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
     const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
+    (void)bitmap_font; // may be unused depending on build configuration
 
     // Optional: use a GPU glyph atlas for bitmap fonts (preferred over per-rect rendering).
     BitmapGlyphAtlasView atlas{};
@@ -354,8 +356,9 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 }
             }
 
-            const char32_t cp = cell.cp;
-            if (cp == U' ' || !blink_on)
+            const GlyphId glyph = cell.glyph;
+            const char32_t cp_rep = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
+            if (phos::glyph::IsBlank((phos::GlyphId)glyph) || !blink_on)
             {
                 // Space glyphs draw nothing unless bg (handled above) or underline/strike (handled above).
                 // Blinking "off" suppresses glyph rendering (but background remains).
@@ -365,7 +368,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             if (!bitmap_font)
             {
                 char buf[5] = {0, 0, 0, 0, 0};
-                EncodeUtf8(cp, buf);
+                EncodeUtf8(cp_rep, buf);
                 const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                 const bool italic = (a & Attr_Italic) != 0;
                 const bool bold = (a & Attr_Bold) != 0;
@@ -378,7 +381,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                     const ImVec2 p(cell_min.x + dx, cell_min.y);
                     if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
                                                             p, cell_min, cell_max,
-                                                            text_col, cp)))
+                                                            text_col, cp_rep)))
                     {
                         draw_list->AddText(font, font_size, p, text_col, buf, nullptr);
                     }
@@ -393,44 +396,21 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             else
             {
                 // Bitmap path:
-                // - If an embedded font is present, interpret U+E000.. as glyph indices.
-                // - Otherwise map Unicode -> CP437 glyph index (0..255) in the selected bitmap font.
+                // - GlyphId tokens are resolved directly (BitmapIndex/EmbeddedIndex).
+                // - Legacy embedded PUA (U+E000..) is handled centrally (phos::glyph::TryGetEmbeddedIndex).
                 int glyph_cell_w = finfo.cell_w;
                 int glyph_cell_h = finfo.cell_h;
                 bool vga_dup = finfo.vga_9col_dup;
 
-                std::uint16_t glyph_index = 0;
                 if (embedded_font)
                 {
                     glyph_cell_w = ef->cell_w;
                     glyph_cell_h = ef->cell_h;
                     vga_dup = ef->vga_9col_dup;
+                }
 
-                    if (cp >= kEmbeddedGlyphBase && cp < (kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-                    {
-                        glyph_index = (std::uint16_t)(cp - kEmbeddedGlyphBase);
-                    }
-                    else
-                    {
-                        // Best-effort: if the embedded font is CP437-ordered, map Unicode to CP437.
-                        std::uint8_t b = 0;
-                        if (fonts::UnicodeToCp437Byte(cp, b))
-                            glyph_index = (std::uint16_t)b;
-                        else
-                            glyph_index = (std::uint16_t)'?';
-                    }
-                }
-                else
-                {
-                    std::uint8_t glyph = 0;
-                    if (!fonts::UnicodeToCp437Byte(cp, glyph))
-                    {
-                        // Fallbacks: prefer '?' if representable, otherwise space.
-                        std::uint8_t q = 0;
-                        glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
-                    }
-                    glyph_index = (std::uint16_t)glyph;
-                }
+                const phos::glyph::BitmapGlyphRef gr = phos::glyph::ResolveBitmapGlyph(finfo, ef, (phos::GlyphId)glyph);
+                const std::uint16_t glyph_index = gr.glyph_index;
 
                 auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
                 {
@@ -444,7 +424,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 };
 
                 const bool bold = (a & Attr_Bold) != 0;
-                const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp);
+                const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp_rep);
 
                 if (atlas_ok)
                 {
@@ -618,7 +598,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             // Dominant "inside" surface for the outline:
             // - if the cell has a glyph, assume ink can touch the border (handles U+2588 correctly)
             // - otherwise, it's the background plane (bg or paper)
-            const ImU32 inside = (cell.cp != U' ') ? fg_col : bg_plane;
+            const ImU32 inside = (!phos::glyph::IsBlank((phos::GlyphId)cell.glyph)) ? fg_col : bg_plane;
             ImU32 outline_raw = invert_rgb_keep_a(inside);
 
             // If inversion is too close to either surface, fall back to black/white to maximize contrast.
@@ -791,13 +771,15 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     }
                 }
 
-                if (c.cp == U' ' || !blink_on)
+                const GlyphId glyph = c.cp;
+                const char32_t cp_rep = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
+                if (phos::glyph::IsBlank((phos::GlyphId)glyph) || !blink_on)
                     continue;
 
                 if (!bitmap_font)
                 {
                     char buf[5] = {0, 0, 0, 0, 0};
-                    EncodeUtf8(c.cp, buf);
+                    EncodeUtf8(cp_rep, buf);
                     const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                     const bool italic = (a & Attr_Italic) != 0;
                     const bool bold = (a & Attr_Bold) != 0;
@@ -810,7 +792,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                         const ImVec2 p(cell_min.x + dx, cell_min.y);
                         if (!(italic && RenderItalicGlyphClipped(draw_list, font, font_size,
                                                                 p, cell_min, cell_max,
-                                                                text_col, c.cp)))
+                                                                text_col, cp_rep)))
                         {
                             draw_list->AddText(font, font_size, p, text_col, buf, nullptr);
                         }
@@ -828,33 +810,15 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                         int glyph_cell_h = finfo.cell_h;
                         bool vga_dup = finfo.vga_9col_dup;
 
-                        std::uint16_t glyph_index = 0;
                         if (embedded_font)
                         {
                             glyph_cell_w = ef->cell_w;
                             glyph_cell_h = ef->cell_h;
                             vga_dup = ef->vga_9col_dup;
-                            if (c.cp >= kEmbeddedGlyphBase && c.cp < (kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-                                glyph_index = (std::uint16_t)(c.cp - kEmbeddedGlyphBase);
-                            else
-                            {
-                                std::uint8_t b = 0;
-                                if (fonts::UnicodeToCp437Byte(c.cp, b))
-                                    glyph_index = (std::uint16_t)b;
-                                else
-                                    glyph_index = (std::uint16_t)'?';
-                            }
                         }
-                        else
-                        {
-                            std::uint8_t glyph = 0;
-                            if (!fonts::UnicodeToCp437Byte(c.cp, glyph))
-                            {
-                                std::uint8_t q = 0;
-                                glyph = (fonts::UnicodeToCp437Byte(U'?', q)) ? q : (std::uint8_t)' ';
-                            }
-                            glyph_index = (std::uint16_t)glyph;
-                        }
+
+                        const phos::glyph::BitmapGlyphRef gr = phos::glyph::ResolveBitmapGlyph(finfo, ef, (phos::GlyphId)glyph);
+                        const std::uint16_t glyph_index = gr.glyph_index;
 
                         auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
                         {
@@ -868,7 +832,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                         };
 
                         const bool bold = (a & Attr_Bold) != 0;
-                        const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(c.cp);
+                        const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp_rep);
 
                         if (atlas_ok)
                         {
@@ -1032,7 +996,6 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const bool embedded_font =
         (ef && ef->cell_w > 0 && ef->cell_h > 0 && ef->glyph_count > 0 &&
          ef->bitmap.size() >= (size_t)ef->glyph_count * (size_t)ef->cell_h);
-    const bool bitmap_font = embedded_font || (finfo.kind == fonts::Kind::Bitmap1bpp && finfo.bitmap && finfo.cell_w > 0 && finfo.cell_h > 0);
     float cell_w = 0.0f;
     float cell_h = 0.0f;
     if (embedded_font)

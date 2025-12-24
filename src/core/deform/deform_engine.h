@@ -41,7 +41,11 @@ enum class GlyphSetKind : std::uint8_t
 struct GlyphSet
 {
     GlyphSetKind kind = GlyphSetKind::BasicBlocks;
-    std::vector<char32_t> explicit_codepoints; // used when kind == ExplicitList
+    // Used when kind == ExplicitList:
+    // - explicit_glyph_ids: preferred lossless GlyphId tokens (may be UnicodeScalar or token-space)
+    // - explicit_codepoints: legacy Unicode-only list
+    std::vector<AnsiCanvas::GlyphId> explicit_glyph_ids;
+    std::vector<char32_t> explicit_codepoints;
 };
 
 struct ApplyDabArgs

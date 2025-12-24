@@ -1,6 +1,7 @@
 #include "io/session/project_state_json.h"
 
 #include "core/color_system.h"
+#include "core/glyph_legacy.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -40,6 +41,67 @@ static bool LowerHexToBytes(std::string_view hex, std::span<std::uint8_t> out)
         if (hi < 0 || lo < 0)
             return false;
         out[i] = (std::uint8_t)((hi << 4) | lo);
+    }
+    return true;
+}
+
+static json EmbeddedBitmapFontToJson(const AnsiCanvas::EmbeddedBitmapFont& f)
+{
+    json jf;
+    jf["cell_w"] = f.cell_w;
+    jf["cell_h"] = f.cell_h;
+    jf["glyph_count"] = f.glyph_count;
+    jf["vga_9col_dup"] = f.vga_9col_dup;
+    jf["bitmap_hex"] = BytesToLowerHex(f.bitmap);
+    return jf;
+}
+
+static bool EmbeddedBitmapFontFromJson(const json& jf, AnsiCanvas::EmbeddedBitmapFont& out, std::string& err)
+{
+    err.clear();
+    out = AnsiCanvas::EmbeddedBitmapFont{};
+    if (!jf.is_object())
+    {
+        err = "embedded_font is not an object.";
+        return false;
+    }
+    if (jf.contains("cell_w") && jf["cell_w"].is_number_integer())
+        out.cell_w = jf["cell_w"].get<int>();
+    if (jf.contains("cell_h") && jf["cell_h"].is_number_integer())
+        out.cell_h = jf["cell_h"].get<int>();
+    if (jf.contains("glyph_count") && jf["glyph_count"].is_number_integer())
+        out.glyph_count = jf["glyph_count"].get<int>();
+    if (jf.contains("vga_9col_dup") && jf["vga_9col_dup"].is_boolean())
+        out.vga_9col_dup = jf["vga_9col_dup"].get<bool>();
+
+    if (!jf.contains("bitmap_hex") || !jf["bitmap_hex"].is_string())
+    {
+        err = "embedded_font missing 'bitmap_hex'.";
+        return false;
+    }
+    const std::string hex = jf["bitmap_hex"].get<std::string>();
+
+    if (out.cell_h <= 0 || out.cell_h > 64)
+    {
+        err = "embedded_font.cell_h is out of range.";
+        return false;
+    }
+    if (out.glyph_count <= 0 || out.glyph_count > 4096)
+    {
+        err = "embedded_font.glyph_count is out of range.";
+        return false;
+    }
+    const std::size_t expected = (std::size_t)out.glyph_count * (std::size_t)out.cell_h;
+    if (hex.size() != expected * 2)
+    {
+        err = "embedded_font.bitmap_hex has unexpected length.";
+        return false;
+    }
+    out.bitmap.resize(expected);
+    if (!LowerHexToBytes(hex, out.bitmap))
+    {
+        err = "embedded_font.bitmap_hex is not valid hex.";
+        return false;
     }
     return true;
 }
@@ -305,10 +367,10 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
     jl["offset_x"] = l.offset_x;
     jl["offset_y"] = l.offset_y;
 
-    // Store glyphs as uint32 codepoints to keep CBOR compact and unambiguous.
+    // Store glyphs as uint32 GlyphId tokens to keep CBOR compact and unambiguous.
     json cells = json::array();
-    for (char32_t cp : l.cells)
-        cells.push_back(static_cast<std::uint32_t>(cp));
+    for (AnsiCanvas::GlyphId g : l.cells)
+        cells.push_back(static_cast<std::uint32_t>(g));
     jl["cells"] = std::move(cells);
 
     jl["fg"] = l.fg;
@@ -320,6 +382,7 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
 static bool ProjectLayerFromJson(const json& jl,
                                  AnsiCanvas::ProjectLayer& out,
                                  const phos::color::PaletteRef& palette_ref,
+                                 int embedded_glyph_count_for_migration,
                                  int project_version,
                                  std::string& err)
 {
@@ -381,6 +444,7 @@ static bool ProjectLayerFromJson(const json& jl,
     const json& cells = jl["cells"];
     out.cells.clear();
     out.cells.reserve(cells.size());
+    const bool can_migrate_legacy_embedded = (embedded_glyph_count_for_migration > 0);
     for (const auto& v : cells)
     {
         if (!v.is_number_unsigned() && !v.is_number_integer())
@@ -388,9 +452,9 @@ static bool ProjectLayerFromJson(const json& jl,
             err = "Layer 'cells' contains a non-integer value.";
             return false;
         }
-        std::uint32_t cp = 0;
+        std::uint32_t u = 0;
         if (v.is_number_unsigned())
-            cp = v.get<std::uint32_t>();
+            u = v.get<std::uint32_t>();
         else
         {
             const std::int64_t si = v.get<std::int64_t>();
@@ -399,9 +463,31 @@ static bool ProjectLayerFromJson(const json& jl,
                 err = "Layer 'cells' contains a negative codepoint.";
                 return false;
             }
-            cp = static_cast<std::uint32_t>(si);
+            u = static_cast<std::uint32_t>(si);
         }
-        out.cells.push_back(static_cast<char32_t>(cp));
+        // Migration:
+        // - v<=9 stored Unicode/PUA codepoints (char32_t) in this field.
+        // - v>=10 stores GlyphId tokens (u32).
+        // Additionally: if an older file contains token-bit values (>=0x80000000),
+        // treat them as GlyphId for forward compatibility with hybrid branches.
+        if (project_version >= 10 || (u & phos::glyph::kTokenBit))
+            out.cells.push_back((AnsiCanvas::GlyphId)u);
+        else
+        {
+            const char32_t cp = (char32_t)u;
+            // Deterministic migration when an embedded font payload exists:
+            // Legacy embedded glyph indices were stored as PUA codepoints (U+E000 + index).
+            if (can_migrate_legacy_embedded)
+            {
+                if (auto idx = phos::glyph::TryDecodeLegacyEmbeddedPuaCodePoint(
+                        cp, (std::uint32_t)embedded_glyph_count_for_migration))
+                {
+                    out.cells.push_back(phos::glyph::MakeEmbeddedIndex(*idx));
+                    continue;
+                }
+            }
+            out.cells.push_back(phos::glyph::MakeUnicodeScalar(cp));
+        }
     }
 
     out.fg.clear();
@@ -444,6 +530,7 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
 static bool ProjectSnapshotFromJson(const json& js,
                                     AnsiCanvas::ProjectSnapshot& out,
                                     const phos::color::PaletteRef& palette_ref,
+                                    int embedded_glyph_count_for_migration,
                                     int project_version,
                                     std::string& err)
 {
@@ -493,7 +580,7 @@ static bool ProjectSnapshotFromJson(const json& js,
     for (const auto& jl : js["layers"])
     {
         AnsiCanvas::ProjectLayer pl;
-        if (!ProjectLayerFromJson(jl, pl, out.palette_ref, project_version, err))
+        if (!ProjectLayerFromJson(jl, pl, out.palette_ref, embedded_glyph_count_for_migration, project_version, err))
             return false;
         out.layers.push_back(std::move(pl));
     }
@@ -541,10 +628,10 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
             jp["page_rows"] = pg.page_rows;
             jp["row_count"] = pg.row_count;
 
-            // Store glyphs as uint32 codepoints to keep CBOR compact and unambiguous.
+            // Store glyphs as uint32 GlyphId tokens to keep CBOR compact and unambiguous.
             json cells = json::array();
-            for (char32_t cp : pg.cells)
-                cells.push_back(static_cast<std::uint32_t>(cp));
+            for (AnsiCanvas::GlyphId g : pg.cells)
+                cells.push_back(static_cast<std::uint32_t>(g));
             jp["cells"] = std::move(cells);
             jp["fg"] = pg.fg;
             jp["bg"] = pg.bg;
@@ -564,6 +651,7 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
 static bool UndoEntryFromJson(const json& je,
                               AnsiCanvas::ProjectState::ProjectUndoEntry& out,
                               const phos::color::PaletteRef& palette_ref,
+                              int embedded_glyph_count_for_migration,
                               int project_version,
                               std::string& err)
 {
@@ -674,6 +762,7 @@ static bool UndoEntryFromJson(const json& je,
                 }
                 pg.cells.clear();
                 pg.cells.reserve(jp["cells"].size());
+                const bool can_migrate_legacy_embedded = (embedded_glyph_count_for_migration > 0);
                 for (const auto& v : jp["cells"])
                 {
                     if (!v.is_number_unsigned() && !v.is_number_integer())
@@ -681,9 +770,9 @@ static bool UndoEntryFromJson(const json& je,
                         err = "Undo patch page 'cells' contains a non-integer value.";
                         return false;
                     }
-                    std::uint32_t cp = 0;
+                    std::uint32_t u = 0;
                     if (v.is_number_unsigned())
-                        cp = v.get<std::uint32_t>();
+                        u = v.get<std::uint32_t>();
                     else
                     {
                         const std::int64_t si = v.get<std::int64_t>();
@@ -692,9 +781,24 @@ static bool UndoEntryFromJson(const json& je,
                             err = "Undo patch page 'cells' contains a negative codepoint.";
                             return false;
                         }
-                        cp = static_cast<std::uint32_t>(si);
+                        u = static_cast<std::uint32_t>(si);
                     }
-                    pg.cells.push_back(static_cast<char32_t>(cp));
+                    if (project_version >= 10 || (u & phos::glyph::kTokenBit))
+                        pg.cells.push_back((AnsiCanvas::GlyphId)u);
+                    else
+                    {
+                        const char32_t cp = (char32_t)u;
+                        if (can_migrate_legacy_embedded)
+                        {
+                            if (auto idx = phos::glyph::TryDecodeLegacyEmbeddedPuaCodePoint(
+                                    cp, (std::uint32_t)embedded_glyph_count_for_migration))
+                            {
+                                pg.cells.push_back(phos::glyph::MakeEmbeddedIndex(*idx));
+                                continue;
+                            }
+                        }
+                        pg.cells.push_back(phos::glyph::MakeUnicodeScalar(cp));
+                    }
                 }
                 if (jp.contains("fg") && jp["fg"].is_array())
                 {
@@ -720,7 +824,7 @@ static bool UndoEntryFromJson(const json& je,
         err = "Undo snapshot entry missing 'snapshot'.";
         return false;
     }
-    return ProjectSnapshotFromJson(je["snapshot"], out.snapshot, palette_ref, project_version, err);
+    return ProjectSnapshotFromJson(je["snapshot"], out.snapshot, palette_ref, embedded_glyph_count_for_migration, project_version, err);
 }
 
 json ToJson(const AnsiCanvas::ProjectState& st)
@@ -734,6 +838,8 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     if (!st.colour_palette_title.empty())
         j["colour_palette_title"] = st.colour_palette_title;
     j["sauce"] = SauceMetaToJson(st.sauce);
+    if (st.embedded_font.has_value())
+        j["embedded_font"] = EmbeddedBitmapFontToJson(*st.embedded_font);
     j["current"] = ProjectSnapshotToJson(st.current);
 
     json undo = json::array();
@@ -783,6 +889,19 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     if (j.contains("sauce"))
         SauceMetaFromJson(j["sauce"], out.sauce);
 
+    // Optional embedded bitmap font payload.
+    if (j.contains("embedded_font"))
+    {
+        AnsiCanvas::EmbeddedBitmapFont f;
+        std::string ferr;
+        if (!EmbeddedBitmapFontFromJson(j["embedded_font"], f, ferr))
+        {
+            err = ferr;
+            return false;
+        }
+        out.embedded_font = std::move(f);
+    }
+
     // Optional UI colour palette identity.
     if (j.contains("colour_palette_title") && j["colour_palette_title"].is_string())
         out.colour_palette_title = j["colour_palette_title"].get<std::string>();
@@ -806,7 +925,9 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
         err = "Project missing 'current' snapshot.";
         return false;
     }
-    if (!ProjectSnapshotFromJson(j["current"], out.current, out.palette_ref, out.version, err))
+    const int embedded_glyph_count_for_migration =
+        (out.embedded_font.has_value() ? std::max(0, out.embedded_font->glyph_count) : 0);
+    if (!ProjectSnapshotFromJson(j["current"], out.current, out.palette_ref, embedded_glyph_count_for_migration, out.version, err))
         return false;
 
     out.undo.clear();
@@ -821,14 +942,14 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
-                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, out.version, err))
+                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, embedded_glyph_count_for_migration, out.version, err))
                     return false;
                 out.undo.push_back(std::move(e));
                 continue;
             }
 
             AnsiCanvas::ProjectState::ProjectUndoEntry e;
-            if (!UndoEntryFromJson(s, e, out.palette_ref, out.version, err))
+            if (!UndoEntryFromJson(s, e, out.palette_ref, embedded_glyph_count_for_migration, out.version, err))
                 return false;
             out.undo.push_back(std::move(e));
         }
@@ -843,14 +964,14 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             {
                 AnsiCanvas::ProjectState::ProjectUndoEntry e;
                 e.kind = AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot;
-                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, out.version, err))
+                if (!ProjectSnapshotFromJson(s, e.snapshot, out.palette_ref, embedded_glyph_count_for_migration, out.version, err))
                     return false;
                 out.redo.push_back(std::move(e));
                 continue;
             }
 
             AnsiCanvas::ProjectState::ProjectUndoEntry e;
-            if (!UndoEntryFromJson(s, e, out.palette_ref, out.version, err))
+            if (!UndoEntryFromJson(s, e, out.palette_ref, embedded_glyph_count_for_migration, out.version, err))
                 return false;
             out.redo.push_back(std::move(e));
         }

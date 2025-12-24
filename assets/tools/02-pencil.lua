@@ -50,6 +50,14 @@ local function current_brush(ctx)
   return b
 end
 
+local function current_brush_arg(ctx)
+  local gid = ctx and ctx.glyphId or nil
+  if type(gid) == "number" and gid >= 0x80000000 then
+    return gid
+  end
+  return current_brush(ctx)
+end
+
 local function paint(ctx, layer, x, y, half_y_override)
   if not ctx or not layer then return end
   local p = ctx.params or {}
@@ -178,8 +186,8 @@ local function paint(ctx, layer, x, y, half_y_override)
       ch = layer:get(px, py)
       if type(ch) ~= "string" or #ch == 0 then ch = " " end
     else
-      ch = current_brush(ctx)
-      if type(ch) ~= "string" or #ch == 0 then ch = " " end
+      ch = current_brush_arg(ctx)
+      if type(ch) == "string" and #ch == 0 then ch = " " end
     end
 
     if fg == nil and bg == nil then
@@ -506,7 +514,7 @@ function render(ctx, layer)
           attrs = math.floor(attrs)
           if attrs < 0 then attrs = 0 end
 
-          local brush = current_brush(ctx)
+          local brush = current_brush_arg(ctx)
 
           -- Match icy-draw-style swap behavior for "char-ish" stamping.
           local secondary = cursor.right == true

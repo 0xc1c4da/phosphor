@@ -2,6 +2,7 @@
 
 #include "core/color_system.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 #include "io/formats/sauce.h"
@@ -47,43 +48,6 @@ static constexpr std::uint8_t CR  = '\r';
 static constexpr std::uint8_t TAB = '\t';
 static constexpr std::uint8_t SUB = 26;
 static constexpr std::uint8_t ESC = 27;
-
-// CP437 mapping table (0..255) -> Unicode codepoints.
-// Source: standard IBM Code Page 437 mapping.
-static constexpr char32_t kCp437[256] = {
-    U'\u0000', U'\u263A', U'\u263B', U'\u2665', U'\u2666', U'\u2663', U'\u2660', U'\u2022',
-    U'\u25D8', U'\u25CB', U'\u25D9', U'\u2642', U'\u2640', U'\u266A', U'\u266B', U'\u263C',
-    U'\u25BA', U'\u25C4', U'\u2195', U'\u203C', U'\u00B6', U'\u00A7', U'\u25AC', U'\u21A8',
-    U'\u2191', U'\u2193', U'\u2192', U'\u2190', U'\u221F', U'\u2194', U'\u25B2', U'\u25BC',
-    U' ',      U'!',      U'"',      U'#',      U'$',      U'%',      U'&',      U'\'',
-    U'(',      U')',      U'*',      U'+',      U',',      U'-',      U'.',      U'/',
-    U'0',      U'1',      U'2',      U'3',      U'4',      U'5',      U'6',      U'7',
-    U'8',      U'9',      U':',      U';',      U'<',      U'=',      U'>',      U'?',
-    U'@',      U'A',      U'B',      U'C',      U'D',      U'E',      U'F',      U'G',
-    U'H',      U'I',      U'J',      U'K',      U'L',      U'M',      U'N',      U'O',
-    U'P',      U'Q',      U'R',      U'S',      U'T',      U'U',      U'V',      U'W',
-    U'X',      U'Y',      U'Z',      U'[',      U'\\',     U']',      U'^',      U'_',
-    U'`',      U'a',      U'b',      U'c',      U'd',      U'e',      U'f',      U'g',
-    U'h',      U'i',      U'j',      U'k',      U'l',      U'm',      U'n',      U'o',
-    U'p',      U'q',      U'r',      U's',      U't',      U'u',      U'v',      U'w',
-    U'x',      U'y',      U'z',      U'{',      U'|',      U'}',      U'~',      U'\u2302',
-    U'\u00C7', U'\u00FC', U'\u00E9', U'\u00E2', U'\u00E4', U'\u00E0', U'\u00E5', U'\u00E7',
-    U'\u00EA', U'\u00EB', U'\u00E8', U'\u00EF', U'\u00EE', U'\u00EC', U'\u00C4', U'\u00C5',
-    U'\u00C9', U'\u00E6', U'\u00C6', U'\u00F4', U'\u00F6', U'\u00F2', U'\u00FB', U'\u00F9',
-    U'\u00FF', U'\u00D6', U'\u00DC', U'\u00A2', U'\u00A3', U'\u00A5', U'\u20A7', U'\u0192',
-    U'\u00E1', U'\u00ED', U'\u00F3', U'\u00FA', U'\u00F1', U'\u00D1', U'\u00AA', U'\u00BA',
-    U'\u00BF', U'\u2310', U'\u00AC', U'\u00BD', U'\u00BC', U'\u00A1', U'\u00AB', U'\u00BB',
-    U'\u2591', U'\u2592', U'\u2593', U'\u2502', U'\u2524', U'\u2561', U'\u2562', U'\u2556',
-    U'\u2555', U'\u2563', U'\u2551', U'\u2557', U'\u255D', U'\u255C', U'\u255B', U'\u2510',
-    U'\u2514', U'\u2534', U'\u252C', U'\u251C', U'\u2500', U'\u253C', U'\u255E', U'\u255F',
-    U'\u255A', U'\u2554', U'\u2569', U'\u2566', U'\u2560', U'\u2550', U'\u256C', U'\u2567',
-    U'\u2568', U'\u2564', U'\u2565', U'\u2559', U'\u2558', U'\u2552', U'\u2553', U'\u256B',
-    U'\u256A', U'\u2518', U'\u250C', U'\u2588', U'\u2584', U'\u258C', U'\u2590', U'\u2580',
-    U'\u03B1', U'\u00DF', U'\u0393', U'\u03C0', U'\u03A3', U'\u03C3', U'\u00B5', U'\u03C4',
-    U'\u03A6', U'\u0398', U'\u03A9', U'\u03B4', U'\u221E', U'\u03C6', U'\u03B5', U'\u2229',
-    U'\u2261', U'\u00B1', U'\u2265', U'\u2264', U'\u2320', U'\u2321', U'\u00F7', U'\u2248',
-    U'\u00B0', U'\u2219', U'\u00B7', U'\u221A', U'\u207F', U'\u00B2', U'\u25A0', U'\u00A0',
-};
 
 static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
 {
@@ -350,20 +314,12 @@ static void Utf8Append(char32_t cp, std::vector<std::uint8_t>& out)
     out.push_back((std::uint8_t)(0x80 | (cp & 0x3F)));
 }
 
-static std::uint8_t UnicodeToCp437Byte(char32_t cp)
+static std::uint8_t UnicodeToByteOrFallback(phos::encodings::EncodingId enc, char32_t cp, std::uint8_t fallback)
 {
-    // Build a reverse mapping from our local kCp437 table.
-    // Note: this matches the mapping used by the importer.
-    static const std::unordered_map<char32_t, std::uint8_t> map = []() {
-        std::unordered_map<char32_t, std::uint8_t> m;
-        m.reserve(256);
-        for (size_t i = 0; i < 256; ++i)
-            m.emplace(kCp437[i], (std::uint8_t)i);
-        return m;
-    }();
-
-    auto it = map.find(cp);
-    return (it == map.end()) ? (std::uint8_t)'?' : it->second;
+    std::uint8_t b = fallback;
+    if (phos::encodings::UnicodeToByte(enc, cp, b))
+        return b;
+    return fallback;
 }
 
 static void EmitCsi(std::vector<std::uint8_t>& out, std::string_view body, char final_byte)
@@ -390,9 +346,11 @@ static int Digits10(int v)
     return 7;
 }
 
-static bool IsBlankish(char32_t cp)
+static bool IsBlankish(phos::GlyphId g)
 {
-    return cp == U' ' || cp == U'\0' || cp == (char32_t)0xFF;
+    if (g == 0)
+        return true;
+    return phos::glyph::IsBlank(g);
 }
 
 static AnsiCanvas::Color32 DefaultFgForExport(const ExportOptions& opt)
@@ -411,7 +369,8 @@ static AnsiCanvas::Color32 DefaultBgForExport(const ExportOptions& opt)
 
 struct ExportCell
 {
-    char32_t cp = U' ';
+    phos::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
+    char32_t      cp = U' '; // Unicode representative (used for UTF-8 output / fallbacks)
 
     // Index-native channels (Phase B): palette indices in the canvas's active palette.
     // Unset is represented as kUnsetIndex16.
@@ -428,21 +387,21 @@ struct ExportCell
 
 static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int row, int col, ExportCell& out)
 {
-    char32_t cp = U' ';
+    phos::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
     AnsiCanvas::ColorIndex16 fg_idx = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::ColorIndex16 bg_idx = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::Attrs attrs = 0;
 
     if (opt.source == ExportOptions::Source::Composite)
     {
-        // Index-native sampling (Phase B).
-        if (!canvas.GetCompositeCellPublicIndices(row, col, cp, fg_idx, bg_idx, attrs))
+        // GlyphId-native sampling (lossless token surface).
+        if (!canvas.GetCompositeCellPublicGlyphIndices(row, col, glyph, fg_idx, bg_idx, attrs))
             return false;
     }
     else
     {
         const int layer = canvas.GetActiveLayerIndex();
-        cp = canvas.GetLayerCell(layer, row, col);
+        glyph = canvas.GetLayerGlyph(layer, row, col);
         (void)canvas.GetLayerCellIndices(layer, row, col, fg_idx, bg_idx);
         (void)canvas.GetLayerCellAttrs(layer, row, col, attrs);
     }
@@ -463,7 +422,8 @@ static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int r
             bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg_idx});
     }
 
-    out.cp = cp;
+    out.glyph = glyph;
+    out.cp = phos::glyph::ToUnicodeRepresentative(glyph);
     out.fg_idx = fg_idx;
     out.bg_idx = bg_idx;
     out.fg = fg;
@@ -662,7 +622,9 @@ static std::vector<std::uint8_t> ExtractTextBytesIgnoringAnsi(const std::vector<
 
 static bool ShouldDecodeAsUtf8(const ImportOptions& options,
                                const std::vector<std::uint8_t>& bytes,
-                               size_t parse_len)
+                               size_t parse_len,
+                               const sauce::Parsed* sauce_parsed,
+                               const fonts::FontId* sauce_font)
 {
     // Auto-detect UTF-8 ANSI art vs classic CP437 ANSI art.
     //
@@ -673,6 +635,44 @@ static bool ShouldDecodeAsUtf8(const ImportOptions& options,
         return true; // caller forced UTF-8
 
     const auto text_bytes = ExtractTextBytesIgnoringAnsi(bytes, parse_len);
+    // Strong explicit signal: UTF-8 BOM in the text payload.
+    if (text_bytes.size() >= 3 &&
+        text_bytes[0] == 0xEFu && text_bytes[1] == 0xBBu && text_bytes[2] == 0xBFu)
+    {
+        return true;
+    }
+
+    // SAUCE hint: `data_type` describes the *kind of payload* (stream vs binary screen dump vs XBin),
+    // not the character encoding, but it is still a strong signal for whether UTF-8 makes sense.
+    //
+    // - BinaryText (raw char/attr pairs) is inherently 8-bit.
+    // - XBin should be routed to the XBin importer; if it reaches here, avoid treating it as UTF-8.
+    if (sauce_parsed && sauce_parsed->record.present)
+    {
+        const std::uint8_t dt = sauce_parsed->record.data_type;
+        if (dt == (std::uint8_t)sauce::DataType::BinaryText ||
+            dt == (std::uint8_t)sauce::DataType::XBin)
+        {
+            return false;
+        }
+    }
+
+    // SAUCE-first policy:
+    // If the file declares a known font, respect it for text decoding decisions.
+    //
+    // - ImGuiAtlas fonts (e.g. Unscii) imply Unicode/UTF-8 text payload semantics.
+    // - Bitmap fonts imply classic 8-bit byte semantics; do not auto-switch to UTF-8
+    //   on heuristic signal alone (BOM remains an override).
+    (void)sauce_parsed;
+    if (sauce_font)
+    {
+        const fonts::FontInfo& finfo = fonts::Get(*sauce_font);
+        if (finfo.kind == fonts::Kind::ImGuiAtlas)
+            return true;
+        if (finfo.kind == fonts::Kind::Bitmap1bpp)
+            return false;
+    }
+
     return LooksLikeUtf8Text(text_bytes);
 }
 
@@ -824,7 +824,6 @@ static inline void ApplyDefaults(const ImportOptions& opt, Pen& pen)
 
 static inline char32_t DecodeTextCp(const ImportOptions& opt, const std::vector<std::uint8_t>& bytes, size_t& i)
 {
-    (void)opt;
     const std::uint8_t b = bytes[i];
     i += 1;
     // Many ANSI art tools emit NUL bytes for "blank"; treat as space.
@@ -832,7 +831,7 @@ static inline char32_t DecodeTextCp(const ImportOptions& opt, const std::vector<
     // "control glyphs" into modern Unicode fonts.
     if (b < 0x20u)
         return U' ';
-    return kCp437[b];
+    return phos::encodings::ByteToUnicode(opt.byte_encoding, b);
 }
 
 static inline bool DecodeTextUtf8(const ImportOptions& opt, const std::vector<std::uint8_t>& bytes, size_t& i, char32_t& out_cp)
@@ -938,7 +937,11 @@ static int MaxExplicitColumn1BasedFromCsi(const std::vector<std::uint8_t>& bytes
     return max_col_1;
 }
 
-static int MaxColumnUsedWithNewlines(const std::vector<std::uint8_t>& bytes, size_t parse_len, const ImportOptions& options)
+static int MaxColumnUsedWithNewlines(const std::vector<std::uint8_t>& bytes,
+                                     size_t parse_len,
+                                     const ImportOptions& options,
+                                     const sauce::Parsed* sauce_parsed,
+                                     const fonts::FontId* sauce_font)
 {
     // Conservative width inference for newline-delimited content:
     // simulate cursor positioning + printing without wrapping (i.e. "infinite width"),
@@ -958,7 +961,7 @@ static int MaxColumnUsedWithNewlines(const std::vector<std::uint8_t>& bytes, siz
     // Use same text decoding mode decision as the importer, because UTF-8 may consume
     // multiple bytes per displayed column.
     bool decode_cp437 = options.cp437;
-    if (ShouldDecodeAsUtf8(options, bytes, parse_len))
+    if (ShouldDecodeAsUtf8(options, bytes, parse_len, sauce_parsed, sauce_font))
         decode_cp437 = false;
 
     enum class State { Text, Sequence, End };
@@ -1124,6 +1127,14 @@ static int DetermineAutoColumns(const std::vector<std::uint8_t>& bytes,
                                 const sauce::Parsed& sp,
                                 const ImportOptions& options)
 {
+    std::optional<fonts::FontId> sauce_font;
+    if (sp.record.present)
+    {
+        fonts::FontId fid;
+        if (fonts::TryFromSauceName(sp.record.tinfos, fid))
+            sauce_font = fid;
+    }
+
     int sauce_cols = 0;
     int sauce_rows = 0;
     GetSauceDimensions(sp, sauce_cols, sauce_rows);
@@ -1148,7 +1159,7 @@ static int DetermineAutoColumns(const std::vector<std::uint8_t>& bytes,
     }
     if (has_newlines)
     {
-        const int max_col0 = MaxColumnUsedWithNewlines(bytes, parse_len, options);
+        const int max_col0 = MaxColumnUsedWithNewlines(bytes, parse_len, options, &sp, sauce_font ? &(*sauce_font) : nullptr);
         const int cols = (max_col0 >= 0) ? (max_col0 + 1) : 1;
         return NormalizeInferredColumns(cols);
     }
@@ -1183,14 +1194,29 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     (void)sauce::ParseFromBytes(bytes, sp, serr, true /* SAUCE fields are spec'd as CP437 */);
     const size_t parse_len = sp.record.present ? std::min(sp.payload_size, bytes.size()) : bytes.size();
 
-    int columns = 80;
-    if (options.columns > 0)
+    // Automatic import policy (no UI / no persisted knobs):
+    // If SAUCE declares a known font (tinfos), use that to pick the byte encoding table for 8-bit mode.
+    // This lets the file itself inform byte->Unicode semantics when we need them.
+    ImportOptions opt = options;
+    std::optional<fonts::FontId> sauce_font;
+    if (sp.record.present)
     {
-        columns = ClampColumns(options.columns);
+        fonts::FontId fid;
+        if (fonts::TryFromSauceName(sp.record.tinfos, fid))
+        {
+            opt.byte_encoding = fonts::EncodingForFont(fid);
+            sauce_font = fid;
+        }
+    }
+
+    int columns = 80;
+    if (opt.columns > 0)
+    {
+        columns = ClampColumns(opt.columns);
     }
     else
     {
-        columns = ClampColumns(DetermineAutoColumns(bytes, parse_len, sp, options));
+        columns = ClampColumns(DetermineAutoColumns(bytes, parse_len, sp, opt));
     }
     if (bytes.empty())
     {
@@ -1208,17 +1234,22 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     int saved_col = 0;
 
     Pen pen;
-    ApplyDefaults(options, pen);
+    ApplyDefaults(opt, pen);
     bool saw_xterm256 = false;
     bool saw_truecolor = false;
 
     // Auto-detect UTF-8 ANSI art vs classic CP437 ANSI art.
-    bool decode_cp437 = options.cp437;
-    if (ShouldDecodeAsUtf8(options, bytes, parse_len))
+    bool decode_cp437 = opt.cp437;
+    if (ShouldDecodeAsUtf8(opt, bytes, parse_len, &sp, sauce_font ? &(*sauce_font) : nullptr))
         decode_cp437 = false;
 
     // We build a single layer (Base).
-    std::vector<char32_t> cells;
+    const phos::GlyphId blank_glyph =
+        (decode_cp437 && opt.glyph_bytes_policy == ImportOptions::GlyphBytesPolicy::StoreAsBitmapIndex)
+            ? phos::glyph::MakeBitmapIndex((std::uint16_t)' ')
+            : phos::glyph::MakeUnicodeScalar(U' ');
+
+    std::vector<phos::GlyphId> glyph_plane;
     std::vector<AnsiCanvas::Color32> fg32;
     std::vector<AnsiCanvas::Color32> bg32;
     std::vector<AnsiCanvas::Attrs> attrs;
@@ -1227,9 +1258,9 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     {
         if (rows_needed < 1) rows_needed = 1;
         const size_t need = (size_t)rows_needed * (size_t)columns;
-        if (cells.size() < need)
+        if (glyph_plane.size() < need)
         {
-            cells.resize(need, U' ');
+            glyph_plane.resize(need, blank_glyph);
             fg32.resize(need, 0);
             bg32.resize(need, pen.bg); // default background
             attrs.resize(need, 0);
@@ -1246,7 +1277,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         return (size_t)r * (size_t)columns + (size_t)c;
     };
 
-    auto put = [&](char32_t cp)
+    auto put_glyph = [&](phos::GlyphId g)
     {
         if (col == columns)
         {
@@ -1261,7 +1292,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         ensure_rows(row + 1);
         const size_t at = idx_of(row, col);
 
-        cells[at] = cp;
+        glyph_plane[at] = g;
         fg32[at] = pen.fg;
         bg32[at] = pen.bg;
 
@@ -1301,7 +1332,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     while (i < parse_len && state != State::End)
     {
-        if (options.wrap_policy == ImportOptions::WrapPolicy::LibAnsiLoveEager)
+        if (opt.wrap_policy == ImportOptions::WrapPolicy::LibAnsiLoveEager)
         {
             // libansilove wraps before processing the next character.
             //
@@ -1338,7 +1369,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     const int tab_w = 8;
                     const int next = ((col / tab_w) + 1) * tab_w;
                     while (col < std::min(next, columns))
-                        put(U' ');
+                        put_glyph(blank_glyph);
                     i += 1;
                     break;
                 }
@@ -1360,21 +1391,38 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                 default:
                 {
                     // Normal text.
-                    char32_t cp = U'\0';
                     if (decode_cp437)
-                        cp = DecodeTextCp(options, bytes, i);
+                    {
+                        const std::uint8_t raw = bytes[i];
+                        // DecodeTextCp consumes one byte and applies our historical "control bytes => space" policy.
+                        const char32_t cp = DecodeTextCp(opt, bytes, i);
+
+                        // Byte-mode import can either decode to Unicode scalars (legacy) or preserve byte identity
+                        // as BitmapIndex glyph tokens (lossless index workflows).
+                        if (opt.glyph_bytes_policy == ImportOptions::GlyphBytesPolicy::StoreAsBitmapIndex)
+                        {
+                            const std::uint8_t b = (raw < 0x20u) ? (std::uint8_t)' ' : raw;
+                            put_glyph(phos::glyph::MakeBitmapIndex((std::uint16_t)b));
+                        }
+                        else
+                        {
+                            put_glyph(phos::glyph::MakeUnicodeScalar(cp));
+                        }
+                    }
                     else
-                        DecodeTextUtf8(options, bytes, i, cp);
+                    {
+                        char32_t cp = U'\0';
+                        DecodeTextUtf8(opt, bytes, i, cp);
 
-                    // Skip a leading UTF-8 BOM if present (common in some modern ANSI exports).
-                    // Treat it as a zero-width marker rather than a printable glyph.
-                    if (!decode_cp437 && row == 0 && col == 0 && cp == (char32_t)0xFEFF)
-                        break;
+                        // Skip a leading UTF-8 BOM if present (common in some modern ANSI exports).
+                        // Treat it as a zero-width marker rather than a printable glyph.
+                        if (row == 0 && col == 0 && cp == (char32_t)0xFEFF)
+                            break;
 
-                    // For CP437, bytes 0x01..0x1F are valid glyphs (☺☻♥…).
-                    // For UTF-8, treat ASCII control codes as non-printing.
-                    if (decode_cp437 || cp >= 0x20)
-                        put(cp);
+                        // For UTF-8, treat ASCII control codes as non-printing.
+                        if (cp >= 0x20)
+                            put_glyph(phos::glyph::MakeUnicodeScalar(cp));
+                    }
                     break;
                 }
             }
@@ -1473,7 +1521,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     saved_col = 0;
                     rowMax = 0;
                     colMax = 0;
-                    cells.assign((size_t)columns, U' ');
+                    glyph_plane.assign((size_t)columns, blank_glyph);
                     fg32.assign((size_t)columns, 0);
                     bg32.assign((size_t)columns, pen.bg);
                     attrs.assign((size_t)columns, 0);
@@ -1758,7 +1806,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     ensure_rows(out_rows);
 
     AnsiCanvas::ProjectState st;
-    st.version = 6;
+    // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
+    st.version = 11;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = out_cols;
     st.current.rows = out_rows;
@@ -1821,7 +1870,9 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             bg[i2] = idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)idx.v;
         }
 
-        st.current.layers[0].cells = std::move(cells);
+        std::vector<AnsiCanvas::GlyphId> glyphs;
+        glyphs = std::move(glyph_plane);
+        st.current.layers[0].cells = std::move(glyphs);
         st.current.layers[0].fg = std::move(fg);
         st.current.layers[0].bg = std::move(bg);
     }
@@ -2460,7 +2511,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                     continue;
 
                 const bool bg_defaultish = bg_defaultish_for_cell(c);
-                const bool interesting = !IsBlankish(c.cp) || !bg_defaultish || (c.attrs != 0);
+                const bool interesting = !IsBlankish(c.glyph) || !bg_defaultish || (c.attrs != 0);
                 if (interesting)
                 {
                     x_end = x;
@@ -2479,7 +2530,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             if (options.compress && options.use_cursor_forward)
             {
                 const bool bg_defaultish = bg_defaultish_for_cell(c);
-                if (c.cp == U' ' && bg_defaultish && c.attrs == 0)
+                if (phos::glyph::IsBlank(c.glyph) && bg_defaultish && c.attrs == 0)
                 {
                     int run = 1;
                     while (x + run <= x_end)
@@ -2487,7 +2538,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                         ExportCell n;
                         (void)SampleCell(canvas, options, y, x + run, n);
                         const bool n_bg_defaultish = bg_defaultish_for_cell(n);
-                        if (n.cp != U' ' || !n_bg_defaultish || n.attrs != 0)
+                        if (!phos::glyph::IsBlank(n.glyph) || !n_bg_defaultish || n.attrs != 0)
                             break;
                         run++;
                     }
@@ -2525,7 +2576,23 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             // Emit glyph bytes.
             if (options.text_encoding == ExportOptions::TextEncoding::Cp437)
             {
-                const std::uint8_t b = UnicodeToCp437Byte(c.cp);
+                std::uint8_t b = (std::uint8_t)'?';
+                const phos::glyph::Kind k = phos::glyph::GetKind(c.glyph);
+                if (k == phos::glyph::Kind::BitmapIndex)
+                {
+                    const std::uint16_t idx = phos::glyph::BitmapIndexValue(c.glyph);
+                    b = (idx <= 0xFFu) ? (std::uint8_t)idx : (std::uint8_t)'?';
+                }
+                else if (k == phos::glyph::Kind::EmbeddedIndex)
+                {
+                    const std::uint16_t idx = phos::glyph::EmbeddedIndexValue(c.glyph);
+                    b = (idx <= 0xFFu) ? (std::uint8_t)idx : (std::uint8_t)'?';
+                }
+                else
+                {
+                    // UnicodeScalar (or defensive fallback): map using the selected byte encoding.
+                    b = UnicodeToByteOrFallback(options.byte_encoding, c.cp, (std::uint8_t)'?');
+                }
                 out_bytes.push_back(b);
             }
             else

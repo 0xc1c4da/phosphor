@@ -1,12 +1,13 @@
 #include "io/formats/sauce.h"
 
+#include "core/encodings.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <cstdio>
-#include <unordered_map>
 
 namespace sauce
 {
@@ -32,60 +33,6 @@ static constexpr size_t OFF_TINFO4    = 102; // 2
 static constexpr size_t OFF_COMMENTS  = 104; // 1
 static constexpr size_t OFF_TFLAGS    = 105; // 1
 static constexpr size_t OFF_TINFOS    = 106; // 22 (ZString)
-
-static constexpr std::array<char32_t, 256> kCp437ToUnicode = []() constexpr {
-    // Standard IBM CP437 mapping.
-    std::array<char32_t, 256> t{};
-    t[0] = U'\u0000'; t[1] = U'\u263A'; t[2] = U'\u263B'; t[3] = U'\u2665'; t[4] = U'\u2666'; t[5] = U'\u2663'; t[6] = U'\u2660'; t[7] = U'\u2022';
-    t[8] = U'\u25D8'; t[9] = U'\u25CB'; t[10] = U'\u25D9'; t[11] = U'\u2642'; t[12] = U'\u2640'; t[13] = U'\u266A'; t[14] = U'\u266B'; t[15] = U'\u263C';
-    t[16] = U'\u25BA'; t[17] = U'\u25C4'; t[18] = U'\u2195'; t[19] = U'\u203C'; t[20] = U'\u00B6'; t[21] = U'\u00A7'; t[22] = U'\u25AC'; t[23] = U'\u21A8';
-    t[24] = U'\u2191'; t[25] = U'\u2193'; t[26] = U'\u2192'; t[27] = U'\u2190'; t[28] = U'\u221F'; t[29] = U'\u2194'; t[30] = U'\u25B2'; t[31] = U'\u25BC';
-    t[32] = U' '; t[33] = U'!'; t[34] = U'"'; t[35] = U'#'; t[36] = U'$'; t[37] = U'%'; t[38] = U'&'; t[39] = U'\'';
-    t[40] = U'('; t[41] = U')'; t[42] = U'*'; t[43] = U'+'; t[44] = U','; t[45] = U'-'; t[46] = U'.'; t[47] = U'/';
-    t[48] = U'0'; t[49] = U'1'; t[50] = U'2'; t[51] = U'3'; t[52] = U'4'; t[53] = U'5'; t[54] = U'6'; t[55] = U'7';
-    t[56] = U'8'; t[57] = U'9'; t[58] = U':'; t[59] = U';'; t[60] = U'<'; t[61] = U'='; t[62] = U'>'; t[63] = U'?';
-    t[64] = U'@'; t[65] = U'A'; t[66] = U'B'; t[67] = U'C'; t[68] = U'D'; t[69] = U'E'; t[70] = U'F'; t[71] = U'G';
-    t[72] = U'H'; t[73] = U'I'; t[74] = U'J'; t[75] = U'K'; t[76] = U'L'; t[77] = U'M'; t[78] = U'N'; t[79] = U'O';
-    t[80] = U'P'; t[81] = U'Q'; t[82] = U'R'; t[83] = U'S'; t[84] = U'T'; t[85] = U'U'; t[86] = U'V'; t[87] = U'W';
-    t[88] = U'X'; t[89] = U'Y'; t[90] = U'Z'; t[91] = U'['; t[92] = U'\\'; t[93] = U']'; t[94] = U'^'; t[95] = U'_';
-    t[96] = U'`'; t[97] = U'a'; t[98] = U'b'; t[99] = U'c'; t[100] = U'd'; t[101] = U'e'; t[102] = U'f'; t[103] = U'g';
-    t[104] = U'h'; t[105] = U'i'; t[106] = U'j'; t[107] = U'k'; t[108] = U'l'; t[109] = U'm'; t[110] = U'n'; t[111] = U'o';
-    t[112] = U'p'; t[113] = U'q'; t[114] = U'r'; t[115] = U's'; t[116] = U't'; t[117] = U'u'; t[118] = U'v'; t[119] = U'w';
-    t[120] = U'x'; t[121] = U'y'; t[122] = U'z'; t[123] = U'{'; t[124] = U'|'; t[125] = U'}'; t[126] = U'~'; t[127] = U'\u2302';
-    t[128] = U'\u00C7'; t[129] = U'\u00FC'; t[130] = U'\u00E9'; t[131] = U'\u00E2'; t[132] = U'\u00E4'; t[133] = U'\u00E0'; t[134] = U'\u00E5'; t[135] = U'\u00E7';
-    t[136] = U'\u00EA'; t[137] = U'\u00EB'; t[138] = U'\u00E8'; t[139] = U'\u00EF'; t[140] = U'\u00EE'; t[141] = U'\u00EC'; t[142] = U'\u00C4'; t[143] = U'\u00C5';
-    t[144] = U'\u00C9'; t[145] = U'\u00E6'; t[146] = U'\u00C6'; t[147] = U'\u00F4'; t[148] = U'\u00F6'; t[149] = U'\u00F2'; t[150] = U'\u00FB'; t[151] = U'\u00F9';
-    t[152] = U'\u00FF'; t[153] = U'\u00D6'; t[154] = U'\u00DC'; t[155] = U'\u00A2'; t[156] = U'\u00A3'; t[157] = U'\u00A5'; t[158] = U'\u20A7'; t[159] = U'\u0192';
-    t[160] = U'\u00E1'; t[161] = U'\u00ED'; t[162] = U'\u00F3'; t[163] = U'\u00FA'; t[164] = U'\u00F1'; t[165] = U'\u00D1'; t[166] = U'\u00AA'; t[167] = U'\u00BA';
-    t[168] = U'\u00BF'; t[169] = U'\u2310'; t[170] = U'\u00AC'; t[171] = U'\u00BD'; t[172] = U'\u00BC'; t[173] = U'\u00A1'; t[174] = U'\u00AB'; t[175] = U'\u00BB';
-    t[176] = U'\u2591'; t[177] = U'\u2592'; t[178] = U'\u2593'; t[179] = U'\u2502'; t[180] = U'\u2524'; t[181] = U'\u2561'; t[182] = U'\u2562'; t[183] = U'\u2556';
-    t[184] = U'\u2555'; t[185] = U'\u2563'; t[186] = U'\u2551'; t[187] = U'\u2557'; t[188] = U'\u255D'; t[189] = U'\u255C'; t[190] = U'\u255B'; t[191] = U'\u2510';
-    t[192] = U'\u2514'; t[193] = U'\u2534'; t[194] = U'\u252C'; t[195] = U'\u251C'; t[196] = U'\u2500'; t[197] = U'\u253C'; t[198] = U'\u255E'; t[199] = U'\u255F';
-    t[200] = U'\u255A'; t[201] = U'\u2554'; t[202] = U'\u2569'; t[203] = U'\u2566'; t[204] = U'\u2560'; t[205] = U'\u2550'; t[206] = U'\u256C'; t[207] = U'\u2567';
-    t[208] = U'\u2568'; t[209] = U'\u2564'; t[210] = U'\u2565'; t[211] = U'\u2559'; t[212] = U'\u2558'; t[213] = U'\u2552'; t[214] = U'\u2553'; t[215] = U'\u256B';
-    t[216] = U'\u256A'; t[217] = U'\u2518'; t[218] = U'\u250C'; t[219] = U'\u2588'; t[220] = U'\u2584'; t[221] = U'\u258C'; t[222] = U'\u2590'; t[223] = U'\u2580';
-    t[224] = U'\u03B1'; t[225] = U'\u00DF'; t[226] = U'\u0393'; t[227] = U'\u03C0'; t[228] = U'\u03A3'; t[229] = U'\u03C3'; t[230] = U'\u00B5'; t[231] = U'\u03C4';
-    t[232] = U'\u03A6'; t[233] = U'\u0398'; t[234] = U'\u03A9'; t[235] = U'\u03B4'; t[236] = U'\u221E'; t[237] = U'\u03C6'; t[238] = U'\u03B5'; t[239] = U'\u2229';
-    t[240] = U'\u2261'; t[241] = U'\u00B1'; t[242] = U'\u2265'; t[243] = U'\u2264'; t[244] = U'\u2320'; t[245] = U'\u2321'; t[246] = U'\u00F7'; t[247] = U'\u2248';
-    t[248] = U'\u00B0'; t[249] = U'\u2219'; t[250] = U'\u00B7'; t[251] = U'\u221A'; t[252] = U'\u207F'; t[253] = U'\u00B2'; t[254] = U'\u25A0'; t[255] = U'\u00A0';
-    return t;
-}();
-
-static std::unordered_map<char32_t, std::uint8_t> BuildUnicodeToCp437()
-{
-    std::unordered_map<char32_t, std::uint8_t> m;
-    m.reserve(256);
-    for (size_t i = 0; i < 256; ++i)
-        m.emplace(kCp437ToUnicode[i], (std::uint8_t)i);
-    return m;
-}
-
-static std::uint8_t UnicodeToCp437Byte(char32_t cp)
-{
-    static const std::unordered_map<char32_t, std::uint8_t> map = BuildUnicodeToCp437();
-    auto it = map.find(cp);
-    return (it == map.end()) ? (std::uint8_t)'?' : it->second;
-}
 
 static void Utf8Append(char32_t cp, std::string& out)
 {
@@ -129,7 +76,7 @@ static std::string DecodeFixedCharField(const std::uint8_t* p, size_t n, bool de
     {
         const std::uint8_t b = p[i];
         if (decode_cp437)
-            Utf8Append(kCp437ToUnicode[b], out);
+            Utf8Append(phos::encodings::ByteToUnicode(phos::encodings::EncodingId::Cp437, b), out);
         else
             out.push_back((char)b);
     }
@@ -149,13 +96,13 @@ static std::uint32_t ReadU32LE(const std::uint8_t* p)
            ((std::uint32_t)p[3] << 24);
 }
 
-static void WriteU16LE(std::uint8_t* p, std::uint16_t v)
+[[maybe_unused]] static void WriteU16LE(std::uint8_t* p, std::uint16_t v)
 {
     p[0] = (std::uint8_t)(v & 0xFF);
     p[1] = (std::uint8_t)((v >> 8) & 0xFF);
 }
 
-static void WriteU32LE(std::uint8_t* p, std::uint32_t v)
+[[maybe_unused]] static void WriteU32LE(std::uint8_t* p, std::uint32_t v)
 {
     p[0] = (std::uint8_t)((v >> 0) & 0xFF);
     p[1] = (std::uint8_t)((v >> 8) & 0xFF);
@@ -438,7 +385,11 @@ std::vector<std::uint8_t> EncodeCharField(std::string_view s, size_t width, bool
         }
 
         if (encode_cp437)
-            out[o++] = UnicodeToCp437Byte(cp);
+        {
+            std::uint8_t b = (std::uint8_t)'?';
+            (void)phos::encodings::UnicodeToByte(phos::encodings::EncodingId::Cp437, cp, b);
+            out[o++] = b;
+        }
         else
             out[o++] = (cp <= 0x7F) ? (std::uint8_t)cp : (std::uint8_t)'?';
     }

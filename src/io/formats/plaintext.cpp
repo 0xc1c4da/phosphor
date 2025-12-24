@@ -278,6 +278,11 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     const int out_rows = std::max(1, rowMax + 1);
 
+    std::vector<AnsiCanvas::GlyphId> glyphs;
+    glyphs.reserve(cells.size());
+    for (char32_t cp : cells)
+        glyphs.push_back(phos::glyph::MakeUnicodeScalar(cp));
+
     AnsiCanvas::ProjectState st;
     st.version = 6;
     st.undo_limit = 0; // unlimited by default
@@ -290,7 +295,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers.resize(1);
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
-    st.current.layers[0].cells = std::move(cells);
+    st.current.layers[0].cells = std::move(glyphs);
     st.current.layers[0].fg.assign((size_t)out_rows * (size_t)columns, 0);
     st.current.layers[0].bg.assign((size_t)out_rows * (size_t)columns, 0);
 

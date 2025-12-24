@@ -68,11 +68,14 @@ public:
                         const ShortcutProvider& shortcut_for_action = {});
 
     // Handle a completed SDL file dialog (polled from SdlFileDialogQueue).
-    void HandleDialogResult(const SdlFileDialogResult& r, AnsiCanvas* focused_canvas, const Callbacks& cb);
+    void HandleDialogResult(const SdlFileDialogResult& r,
+                            AnsiCanvas* focused_canvas,
+                            const Callbacks& cb,
+                            const SessionState* session = nullptr);
 
     // Open a path directly (used by File -> Recent).
     // Returns true if the path was handled (successfully opened OR failed with an error message).
-    bool OpenPath(const std::string& path, const Callbacks& cb);
+    bool OpenPath(const std::string& path, const Callbacks& cb, const SessionState* session = nullptr);
 
     // Optional UI helpers (ImGui) to show last status / error.
     void RenderStatusWindows(SessionState* session = nullptr, bool apply_placement_this_frame = false);

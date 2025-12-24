@@ -57,32 +57,36 @@ local function should_skip_cell(cell, transparent_spaces)
   return not has_style
 end
 
-local function apply_cell(layer, x, y, ch, fg, bg, attrs, mode)
+local function apply_cell(layer, x, y, glyph_or_ch, fg, bg, attrs, mode)
   if mode == "char" then
     -- Glyph only: preserves existing style in the host.
-    layer:set(x, y, ch)
+    layer:set(x, y, glyph_or_ch)
     return
   end
 
   if mode == "color" then
     -- Color only: preserve glyph; write fg/bg/attrs by reusing the existing glyph.
-    local cur_ch = layer:get(x, y)
+    local cur_ch, _, _, _, _, cur_glyph = layer:get(x, y)
     if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
+    local keep = cur_ch
+    if type(cur_glyph) == "number" then
+      keep = math.floor(cur_glyph)
+    end
     if type(attrs) == "number" then
-      layer:set(x, y, cur_ch, fg, bg, attrs)
+      layer:set(x, y, keep, fg, bg, attrs)
     else
-      layer:set(x, y, cur_ch, fg, bg)
+      layer:set(x, y, keep, fg, bg)
     end
     return
   end
 
   -- mode == "both": write glyph + style.
   if type(attrs) == "number" then
-    layer:set(x, y, ch, fg, bg, attrs)
+    layer:set(x, y, glyph_or_ch, fg, bg, attrs)
   elseif type(fg) == "number" or type(bg) == "number" then
-    layer:set(x, y, ch, fg, bg)
+    layer:set(x, y, glyph_or_ch, fg, bg)
   else
-    layer:set(x, y, ch)
+    layer:set(x, y, glyph_or_ch)
   end
 end
 
@@ -151,6 +155,7 @@ local function stamp(ctx, layer, cx, cy)
           local px = ox + x
           local py = oy + y
           if px >= 0 and px < cols and py >= 0 then
+            local glyph = (type(cell) == "table") and cell.glyph or nil
             local ch = (type(cell) == "table") and cell.ch or nil
             if type(ch) ~= "string" or #ch == 0 then ch = " " end
             -- Colors are indices in the active canvas palette (or nil).
@@ -159,7 +164,11 @@ local function stamp(ctx, layer, cx, cy)
             local bg = pick_color(ctx, cell, "bg", bgSource, useBg)
             local attrs = (type(cell) == "table" and type(cell.attrs) == "number") and math.floor(cell.attrs) or nil
             if attrs ~= nil and attrs < 0 then attrs = 0 end
-            apply_cell(layer, px, py, ch, fg, bg, attrs, mode)
+            local arg = ch
+            if type(glyph) == "number" then
+              arg = math.floor(glyph)
+            end
+            apply_cell(layer, px, py, arg, fg, bg, attrs, mode)
           end
         end
       end

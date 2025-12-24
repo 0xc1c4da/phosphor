@@ -3,11 +3,13 @@
 #include "imgui.h"
 
 #include "ansl/ansl_native.h"
+#include "core/glyph_resolve.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 #include "io/session/imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "ui/imgui_window_chrome.h"
+#include "ui/glyph_preview.h"
 
 #include <nlohmann/json.hpp>
 
@@ -60,9 +62,43 @@ static std::string DefaultBrushName(int idx)
     return std::string(buf);
 }
 
-static std::string EncodeUtf8(char32_t cp)
+static inline AnsiCanvas::GlyphId LegacyStoredValueToGlyphId(std::uint32_t v,
+                                                            const AnsiCanvas* active_canvas)
 {
-    return ansl::utf8::encode(cp);
+    // If the token bit is set, treat this as a GlyphId token (lossless).
+    if (v & phos::glyph::kTokenBit)
+        return (AnsiCanvas::GlyphId)v;
+
+    // Otherwise this was historically stored as a Unicode codepoint (including legacy embedded PUA).
+    const char32_t cp = (char32_t)v;
+
+    // Opportunistic migration: if an embedded font is present and the codepoint is a legacy embedded
+    // PUA value in range, upgrade it to an explicit EmbeddedIndex token. This avoids persisting
+    // PUA as an internal representation going forward (but still keeps older files loadable).
+    if (active_canvas)
+    {
+        const AnsiCanvas::EmbeddedBitmapFont* ef = active_canvas->GetEmbeddedFont();
+        if (phos::glyph::EmbeddedFontUsable(ef))
+        {
+            if (auto idx = phos::glyph::TryDecodeLegacyEmbeddedPuaCodePoint(cp, (std::uint32_t)ef->glyph_count))
+                return (AnsiCanvas::GlyphId)phos::glyph::MakeEmbeddedIndex(*idx);
+        }
+    }
+
+    return (AnsiCanvas::GlyphId)phos::glyph::MakeUnicodeScalar(cp);
+}
+
+static inline char32_t GlyphIdToUnicodeRepresentativeCodePoint(phos::GlyphId g)
+{
+    // A best-effort Unicode representative for UI/back-compat/debug fields:
+    // - UnicodeScalar: return directly
+    // - Token glyphs (BitmapIndex/EmbeddedIndex/other): return deterministic Unicode representative (CP437 policy)
+    //
+    // Note: this intentionally does NOT emit legacy embedded PUA anymore. PUA remains accepted on load
+    // (migration path), but new saves should avoid reintroducing PUA as an interchange.
+    if (phos::glyph::IsUnicodeScalar(g))
+        return phos::glyph::ToUnicodeScalar(g);
+    return phos::glyph::ToUnicodeRepresentative(g);
 }
 
 static bool IsValidBrush(const AnsiCanvas::Brush& b)
@@ -105,7 +141,8 @@ void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session, Ansi
         b.attrs.resize(n);
         for (size_t i = 0; i < n; ++i)
         {
-            b.cp[i] = (char32_t)se.cp[i];
+            const std::uint32_t v = se.cp[i];
+            b.cp[i] = LegacyStoredValueToGlyphId(v, active_canvas);
             b.fg[i] = LegacyColor32ToIndex16(se.fg[i], active_canvas);
             b.bg[i] = LegacyColor32ToIndex16(se.bg[i], active_canvas);
             b.attrs[i] = (AnsiCanvas::Attrs)se.attrs[i];
@@ -207,11 +244,17 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, AnsiCanvas* active_canva
             return out.size() == n;
         };
 
-        std::vector<std::uint32_t> cp;
+        std::vector<std::uint32_t> stored_glyph_or_cp;
         std::vector<std::uint32_t> fg;
         std::vector<std::uint32_t> bg;
         std::vector<std::uint32_t> attrs;
-        if (!read_u32_array("cp", cp) ||
+
+        // Schema handling:
+        // - v1/v2: "cp" contains stored Unicode codepoints (and, in hybrid builds, may contain GlyphId tokens).
+        // - v3+: "glyph" contains stored GlyphIds (lossless). "cp" is optional legacy/back-compat.
+        const bool have_glyph = read_u32_array("glyph", stored_glyph_or_cp);
+        const bool have_cp = read_u32_array("cp", stored_glyph_or_cp);
+        if (!(have_glyph || have_cp) ||
             !read_u32_array("fg", fg) ||
             !read_u32_array("bg", bg) ||
             !read_u32_array("attrs", attrs))
@@ -266,7 +309,8 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, AnsiCanvas* active_canva
         b.attrs.resize(n);
         for (size_t i = 0; i < n; ++i)
         {
-            b.cp[i] = (char32_t)cp[i];
+            const std::uint32_t v = stored_glyph_or_cp[i];
+            b.cp[i] = LegacyStoredValueToGlyphId(v, active_canvas);
             if (fg_bg_are_indices)
             {
                 b.fg[i] = ClampIndex16(fg[i]);
@@ -305,8 +349,11 @@ bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
     }
 
     json j;
-    // v2: fg/bg are stored as palette indices (ColorIndex16), not packed Color32.
-    j["schema_version"] = 2;
+    // v3:
+    // - fg/bg are palette indices (ColorIndex16), not packed Color32.
+    // - glyph[] stores GlyphId tokens (lossless).
+    // - cp[] stores a best-effort Unicode representative for back-compat/debugging.
+    j["schema_version"] = 3;
     j["selected"] = selected_;
 
     json brushes = json::array();
@@ -322,17 +369,21 @@ bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
         item["w"] = b.w;
         item["h"] = b.h;
 
-        json cp = json::array();
+        json glyph = json::array();
+        json cp = json::array(); // back-compat/debug (best-effort Unicode representative)
         json fg = json::array();
         json bg = json::array();
         json attrs = json::array();
         for (size_t i = 0; i < n; ++i)
         {
-            cp.push_back((std::uint32_t)b.cp[i]);
+            const phos::GlyphId g = (phos::GlyphId)b.cp[i];
+            glyph.push_back((std::uint32_t)g);
+            cp.push_back((std::uint32_t)GlyphIdToUnicodeRepresentativeCodePoint(g));
             fg.push_back((std::uint32_t)b.fg[i]);
             bg.push_back((std::uint32_t)b.bg[i]);
             attrs.push_back((std::uint32_t)b.attrs[i]);
         }
+        item["glyph"] = std::move(glyph);
         item["cp"] = std::move(cp);
         item["fg"] = std::move(fg);
         item["bg"] = std::move(bg);
@@ -567,19 +618,13 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
                     if (bg_idx != AnsiCanvas::kUnsetIndex16)
                         dl->AddRectFilled(cmin, cmax, bg_col);
 
-                    const char32_t cp = b.cp[idx];
-                    if (cp == U' ' && bg_idx == AnsiCanvas::kUnsetIndex16)
+                    const AnsiCanvas::GlyphId glyph = b.cp[idx];
+                    if (phos::glyph::IsBlank((phos::GlyphId)glyph) && bg_idx == AnsiCanvas::kUnsetIndex16)
                         continue;
 
                     const AnsiCanvas::ColorIndex16 fg_idx = b.fg[idx];
                     const ImU32 fg = (fg_idx != AnsiCanvas::kUnsetIndex16) ? Index16ToImU32(fg_idx, active_canvas) : default_fg;
-                    const std::string ch = EncodeUtf8(cp);
-
-                    // Center glyph in the cell.
-                    const ImVec2 ts = ImGui::CalcTextSize(ch.c_str(), ch.c_str() + ch.size());
-                    const ImVec2 tp(cmin.x + (cell - ts.x) * 0.5f,
-                                    cmin.y + (cell - ts.y) * 0.5f);
-                    dl->AddText(tp, fg, ch.c_str(), ch.c_str() + ch.size());
+                    DrawGlyphPreview(dl, cmin, cell, cell, (phos::GlyphId)glyph, active_canvas, (std::uint32_t)fg);
                 }
         }
 

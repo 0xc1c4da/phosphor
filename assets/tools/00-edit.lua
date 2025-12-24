@@ -58,6 +58,13 @@ function render(ctx, layer)
   -- Current brush glyph selection (from character picker/palette).
   local brush = ctx.glyph
   if type(brush) ~= "string" or #brush == 0 then brush = " " end
+  -- If the host provides a GlyphId token for the active glyph, prefer it when it's a token
+  -- (>= 0x80000000). This preserves bitmap/embedded glyph identity.
+  local brush_glyph_id = ctx.glyphId
+  local brush_arg = brush
+  if type(brush_glyph_id) == "number" and brush_glyph_id >= 0x80000000 then
+    brush_arg = brush_glyph_id
+  end
 
   -- Normalize caret.
   caret.x = clamp(tonumber(caret.x) or 0, 0, cols - 1)
@@ -122,9 +129,9 @@ function render(ctx, layer)
   if keys.enter then
     -- Insert the currently selected brush glyph (character palette / picker selection).
     if fg == nil and bg == nil and attrs == 0 then
-      layer:set(caret.x, caret.y, brush)
+      layer:set(caret.x, caret.y, brush_arg)
     else
-      layer:set(caret.x, caret.y, brush, fg, bg, attrs)
+      layer:set(caret.x, caret.y, brush_arg, fg, bg, attrs)
     end
     caret.x = caret.x + 1
     if caret.x >= cols then

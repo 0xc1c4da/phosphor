@@ -275,7 +275,7 @@ void RenderMainMenuBar(SDL_Window* window,
                         label += " (missing)";
 
                     if (ImGui::MenuItem(label.c_str(), nullptr, false, exists || is_uri))
-                        io_manager.OpenPath(p, io_callbacks);
+                        io_manager.OpenPath(p, io_callbacks, &session_state);
                 }
             }
 
@@ -349,7 +349,7 @@ void RenderMainMenuBar(SDL_Window* window,
                         label += " (missing)";
 
                     if (ImGui::MenuItem(label.c_str(), nullptr, false, exists))
-                        io_manager.OpenPath(path, io_callbacks);
+                        io_manager.OpenPath(path, io_callbacks, &session_state);
                 }
             }
 

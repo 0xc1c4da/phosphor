@@ -2,6 +2,7 @@
 
 #include "core/color_system.h"
 #include "core/fonts.h"
+#include "core/glyph_resolve.h"
 
 #include "imgui.h"
 
@@ -309,11 +310,11 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
     {
         for (int col = r.x; col < r.x + r.w; ++col)
         {
-            char32_t cp = U' ';
+            AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
             AnsiCanvas::Color32 fg = 0;
             AnsiCanvas::Color32 bg = 0;
             AnsiCanvas::Attrs attrs = 0;
-            (void)get_cell(row, col, cp, fg, bg, attrs);
+            (void)get_cell(row, col, glyph, fg, bg, attrs);
 
             ImU32 fg_col = (fg != 0) ? (ImU32)fg : default_fg;
 
@@ -433,11 +434,12 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
                 }
             }
 
-            if (cp == U' ')
+            if (phos::glyph::IsBlank((phos::GlyphId)glyph))
                 continue;
 
             if (!bitmap_font)
             {
+                const char32_t cp = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
                 const ImFontGlyph* g = baked ? baked->FindGlyphNoFallback((ImWchar)cp) : nullptr;
                 if (!g)
                     continue;
@@ -495,36 +497,15 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
                 int glyph_cell_h = finfo.cell_h;
                 bool vga_dup = finfo.vga_9col_dup;
 
-                std::uint16_t glyph_index = 0;
                 if (embedded_font)
                 {
                     glyph_cell_w = ef->cell_w;
                     glyph_cell_h = ef->cell_h;
                     vga_dup = ef->vga_9col_dup;
+                }
 
-                    if (cp >= AnsiCanvas::kEmbeddedGlyphBase &&
-                        cp < (AnsiCanvas::kEmbeddedGlyphBase + (char32_t)ef->glyph_count))
-                    {
-                        glyph_index = (std::uint16_t)(cp - AnsiCanvas::kEmbeddedGlyphBase);
-                    }
-                    else
-                    {
-                        // Best-effort: treat as CP437-ordered.
-                        std::uint16_t gi = 0;
-                        if (fonts::UnicodeToGlyphIndex(finfo.id, cp, gi))
-                            glyph_index = gi;
-                        else
-                            glyph_index = (std::uint16_t)'?';
-                    }
-                }
-                else
-                {
-                    if (!fonts::UnicodeToGlyphIndex(finfo.id, cp, glyph_index))
-                    {
-                        if (!fonts::UnicodeToGlyphIndex(finfo.id, U'?', glyph_index))
-                            glyph_index = (std::uint16_t)' ';
-                    }
-                }
+                const phos::glyph::BitmapGlyphRef gr = phos::glyph::ResolveBitmapGlyph(finfo, ef, (phos::GlyphId)glyph);
+                const std::uint16_t glyph_index = gr.glyph_index;
 
                 auto glyph_row_bits = [&](std::uint16_t gi, int yy) -> std::uint8_t
                 {
@@ -617,10 +598,10 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
                                   AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                                   AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
-                                  if (!canvas.GetCompositeCellPublicIndices(row, col, out_cp, fg, bg, out_attrs))
+                                  if (!canvas.GetCompositeCellPublicGlyphIndices(row, col, out_glyph, fg, bg, out_attrs))
                                       return false;
                                   out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
                                                                            : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
@@ -661,10 +642,10 @@ bool RasterizeCompositeRegionToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
                                   AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                                   AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
-                                  if (!canvas.GetCompositeCellPublicIndices(row, col, out_cp, fg, bg, out_attrs))
+                                  if (!canvas.GetCompositeCellPublicGlyphIndices(row, col, out_glyph, fg, bg, out_attrs))
                                       return false;
                                   out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
                                                                            : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
@@ -704,13 +685,17 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, char32_t& out_cp, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
-                                  out_cp = canvas.GetLayerCell(layer_index, row, col);
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  // IMPORTANT: layer-only rasterization must sample stored GlyphIds directly
+                                  // to avoid collapsing BitmapIndex/EmbeddedIndex tokens to Unicode representatives.
+                                  out_glyph = canvas.GetLayerGlyph(layer_index, row, col);
                                   AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
                                   AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
                                   (void)canvas.GetLayerCellIndices(layer_index, row, col, fg, bg);
-                                  out_fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
-                                  out_bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
+                                  out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
+                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
+                                  out_bg = (bg == AnsiCanvas::kUnsetIndex16) ? 0
+                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
                                   (void)canvas.GetLayerCellAttrs(layer_index, row, col, out_attrs);
                                   return true;
                               });

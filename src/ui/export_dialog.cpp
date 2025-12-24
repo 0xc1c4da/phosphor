@@ -218,10 +218,66 @@ void ExportDialog::Render(const char* title,
 
             // Encoding / newline
             {
-                const char* items[] = { "CP437", "UTF-8", "UTF-8 (BOM)" };
+                const char* items[] = { "8-bit (codepage bytes)", "UTF-8", "UTF-8 (BOM)" };
                 int v = (int)ansi_opt_.text_encoding;
                 if (ImGui::Combo("Text Encoding", &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.text_encoding = (formats::ansi::ExportOptions::TextEncoding)v;
+            }
+            if (ansi_opt_.text_encoding == formats::ansi::ExportOptions::TextEncoding::Cp437)
+            {
+                // EncodingId selector (applies only to 8-bit byte export).
+                struct Item
+                {
+                    phos::encodings::EncodingId id;
+                    const char*                 name;
+                };
+                static constexpr Item kItems[] = {
+                    {phos::encodings::EncodingId::Cp437, "CP437 (IBM PC OEM)"},
+                    {phos::encodings::EncodingId::Cp775, "CP775"},
+                    {phos::encodings::EncodingId::Cp737, "CP737"},
+                    {phos::encodings::EncodingId::Cp850, "CP850"},
+                    {phos::encodings::EncodingId::Cp852, "CP852"},
+                    {phos::encodings::EncodingId::Cp855, "CP855"},
+                    {phos::encodings::EncodingId::Cp857, "CP857"},
+                    {phos::encodings::EncodingId::Cp860, "CP860"},
+                    {phos::encodings::EncodingId::Cp861, "CP861"},
+                    {phos::encodings::EncodingId::Cp862, "CP862"},
+                    {phos::encodings::EncodingId::Cp863, "CP863"},
+                    {phos::encodings::EncodingId::Cp865, "CP865"},
+                    {phos::encodings::EncodingId::Cp866, "CP866"},
+                    {phos::encodings::EncodingId::Cp869, "CP869"},
+                    {phos::encodings::EncodingId::AmigaLatin1, "Amiga Latin-1 (Topaz 0x7F house)"},
+                    {phos::encodings::EncodingId::AmigaIso8859_15, "Amiga ISO-8859-15 (Topaz 0x7F house)"},
+                    {phos::encodings::EncodingId::AmigaIso8859_2, "Amiga ISO-8859-2 (Topaz 0x7F house)"},
+                    {phos::encodings::EncodingId::Amiga1251, "Amiga-1251"},
+                };
+
+                const char* preview = "CP437 (IBM PC OEM)";
+                int current_idx = 0;
+                for (int ii = 0; ii < (int)IM_ARRAYSIZE(kItems); ++ii)
+                {
+                    if (kItems[ii].id == ansi_opt_.byte_encoding)
+                    {
+                        preview = kItems[ii].name;
+                        current_idx = ii;
+                        break;
+                    }
+                }
+
+                if (ImGui::BeginCombo("Byte Encoding", preview))
+                {
+                    for (int ii = 0; ii < (int)IM_ARRAYSIZE(kItems); ++ii)
+                    {
+                        const bool selected = (ii == current_idx);
+                        if (ImGui::Selectable(kItems[ii].name, selected))
+                            ansi_opt_.byte_encoding = kItems[ii].id;
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                HelpMarker("Used when exporting an 8-bit ANSI byte stream. BitmapIndex glyph tokens export losslessly as their byte value when possible.");
             }
             {
                 const char* items[] = { "CRLF (scene-friendly)", "LF (terminal-friendly)" };

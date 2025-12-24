@@ -186,6 +186,8 @@ struct AnslFrameContext
     std::string_view glyph_utf8;
     // Optional glyph codepoint (Unicode scalar). 0 means "unknown".
     int glyph_cp = 0;
+    // Optional glyph token (GlyphId; lossless). 0 means "unknown/unset".
+    std::uint32_t glyph_id = 0;
 
     // Optional multi-cell brush stamp (a rectangular block of cells).
     // This is separate from the single-cell glyph selection above:
@@ -196,9 +198,11 @@ struct AnslFrameContext
         int w = 0;
         int h = 0;
         // Arrays are row-major, length = w*h.
-        // - cp: Unicode codepoints (space means transparent by convention)
+        // - glyph: GlyphId tokens (lossless; may exceed Unicode range)
+        // - cp: best-effort Unicode representative (legacy; may be null)
         // - fg/bg: palette indices in ctx.palette (kUnsetIndex16 = unset)
         // - attrs: attribute bitmask, 0 = none
+        const std::uint32_t*  glyph = nullptr;
         const char32_t*      cp = nullptr;
         const std::uint16_t* fg = nullptr;
         const std::uint16_t* bg = nullptr;
@@ -218,6 +222,17 @@ struct AnslFrameContext
     //
     // Host owns the vector; valid only for the duration of RunFrame().
     const std::vector<std::uint32_t>* glyph_candidates = nullptr;
+
+    // Optional glyph candidate list provided by the host (GlyphId tokens; lossless).
+    // Values may be:
+    // - Unicode scalar values (0..0x10FFFF), or
+    // - token-space GlyphIds (>= 0x80000000).
+    //
+    // This is the preferred candidate list for token-aware tools. Existing tools can continue
+    // using `glyph_candidates` (codepoints) for backward compatibility.
+    //
+    // Host owns the vector; valid only for the duration of RunFrame().
+    const std::vector<std::uint32_t>* glyph_id_candidates = nullptr;
 
     // If true, host will read ctx.caret.{x,y} back after the script and apply it to the canvas.
     bool allow_caret_writeback = false;

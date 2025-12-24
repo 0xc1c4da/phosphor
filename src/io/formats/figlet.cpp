@@ -154,7 +154,10 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers.resize(1);
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
-    st.current.layers[0].cells = bmp.cp;
+    st.current.layers[0].cells.clear();
+    st.current.layers[0].cells.reserve(bmp.cp.size());
+    for (char32_t cp : bmp.cp)
+        st.current.layers[0].cells.push_back(phos::glyph::MakeUnicodeScalar(cp));
 
     // Palette identity + indexed colors (Phase B).
     const phos::color::BuiltinPalette builtin = ChooseBuiltinPaletteForBitmap(bmp);

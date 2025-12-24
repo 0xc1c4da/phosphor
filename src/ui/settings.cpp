@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "core/color_system.h"
+#include "core/encodings.h"
 #include "core/paths.h"
 #include "core/key_bindings.h"
 #include "io/session/imgui_persistence.h"

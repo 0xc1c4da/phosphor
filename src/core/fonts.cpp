@@ -1,5 +1,8 @@
 #include "core/fonts.h"
 
+#include "core/encodings.h"
+#include "core/encodings_tables_generated.h"
+
 #include <algorithm>
 #include <unordered_map>
 
@@ -35,50 +38,13 @@ namespace fonts
 {
 namespace
 {
-// CP437 mapping table (0..255) -> Unicode codepoints.
-// Kept in core/fonts as part of the "font authority" layer (bitmap fonts are CP437-ordered).
-static constexpr char32_t kCp437[256] = {
-    U'\u0000', U'\u263A', U'\u263B', U'\u2665', U'\u2666', U'\u2663', U'\u2660', U'\u2022',
-    U'\u25D8', U'\u25CB', U'\u25D9', U'\u2642', U'\u2640', U'\u266A', U'\u266B', U'\u263C',
-    U'\u25BA', U'\u25C4', U'\u2195', U'\u203C', U'\u00B6', U'\u00A7', U'\u25AC', U'\u21A8',
-    U'\u2191', U'\u2193', U'\u2192', U'\u2190', U'\u221F', U'\u2194', U'\u25B2', U'\u25BC',
-    U' ',      U'!',      U'"',      U'#',      U'$',      U'%',      U'&',      U'\'',
-    U'(',      U')',      U'*',      U'+',      U',',      U'-',      U'.',      U'/',
-    U'0',      U'1',      U'2',      U'3',      U'4',      U'5',      U'6',      U'7',
-    U'8',      U'9',      U':',      U';',      U'<',      U'=',      U'>',      U'?',
-    U'@',      U'A',      U'B',      U'C',      U'D',      U'E',      U'F',      U'G',
-    U'H',      U'I',      U'J',      U'K',      U'L',      U'M',      U'N',      U'O',
-    U'P',      U'Q',      U'R',      U'S',      U'T',      U'U',      U'V',      U'W',
-    U'X',      U'Y',      U'Z',      U'[',      U'\\',     U']',      U'^',      U'_',
-    U'`',      U'a',      U'b',      U'c',      U'd',      U'e',      U'f',      U'g',
-    U'h',      U'i',      U'j',      U'k',      U'l',      U'm',      U'n',      U'o',
-    U'p',      U'q',      U'r',      U's',      U't',      U'u',      U'v',      U'w',
-    U'x',      U'y',      U'z',      U'{',      U'|',      U'}',      U'~',      U'\u2302',
-    U'\u00C7', U'\u00FC', U'\u00E9', U'\u00E2', U'\u00E4', U'\u00E0', U'\u00E5', U'\u00E7',
-    U'\u00EA', U'\u00EB', U'\u00E8', U'\u00EF', U'\u00EE', U'\u00EC', U'\u00C4', U'\u00C5',
-    U'\u00C9', U'\u00E6', U'\u00C6', U'\u00F4', U'\u00F6', U'\u00F2', U'\u00FB', U'\u00F9',
-    U'\u00FF', U'\u00D6', U'\u00DC', U'\u00A2', U'\u00A3', U'\u00A5', U'\u20A7', U'\u0192',
-    U'\u00E1', U'\u00ED', U'\u00F3', U'\u00FA', U'\u00F1', U'\u00D1', U'\u00AA', U'\u00BA',
-    U'\u00BF', U'\u2310', U'\u00AC', U'\u00BD', U'\u00BC', U'\u00A1', U'\u00AB', U'\u00BB',
-    U'\u2591', U'\u2592', U'\u2593', U'\u2502', U'\u2524', U'\u2561', U'\u2562', U'\u2556',
-    U'\u2555', U'\u2563', U'\u2551', U'\u2557', U'\u255D', U'\u255C', U'\u255B', U'\u2510',
-    U'\u2514', U'\u2534', U'\u252C', U'\u251C', U'\u2500', U'\u253C', U'\u255E', U'\u255F',
-    U'\u255A', U'\u2554', U'\u2569', U'\u2566', U'\u2560', U'\u2550', U'\u256C', U'\u2567',
-    U'\u2568', U'\u2564', U'\u2565', U'\u2559', U'\u2558', U'\u2552', U'\u2553', U'\u256B',
-    U'\u256A', U'\u2518', U'\u250C', U'\u2588', U'\u2584', U'\u258C', U'\u2590', U'\u2580',
-    U'\u03B1', U'\u00DF', U'\u0393', U'\u03C0', U'\u03A3', U'\u03C3', U'\u00B5', U'\u03C4',
-    U'\u03A6', U'\u0398', U'\u03A9', U'\u03B4', U'\u221E', U'\u03C6', U'\u03B5', U'\u2229',
-    U'\u2261', U'\u00B1', U'\u2265', U'\u2264', U'\u2320', U'\u2321', U'\u00F7', U'\u2248',
-    U'\u00B0', U'\u2219', U'\u00B7', U'\u221A', U'\u207F', U'\u00B2', U'\u25A0', U'\u00A0',
-};
-
 static const std::unordered_map<char32_t, std::uint8_t>& Cp437ReverseMap()
 {
     static const std::unordered_map<char32_t, std::uint8_t> map = []() {
         std::unordered_map<char32_t, std::uint8_t> m;
         m.reserve(256);
         for (std::uint32_t i = 0; i < 256; ++i)
-            m.emplace(kCp437[i], (std::uint8_t)i);
+            m.emplace(phos::encodings::kCp437[i], (std::uint8_t)i);
         return m;
     }();
     return map;
@@ -149,10 +115,46 @@ static const std::vector<FontInfo>& BuildRegistry()
     return v;
 }
 
-static bool IsCp437BitmapFont(FontId id)
+static phos::encodings::EncodingId EncodingForFontInternal(FontId id)
 {
-    const FontInfo& f = Get(id);
-    return f.kind == Kind::Bitmap1bpp && f.bitmap != nullptr;
+    using phos::encodings::EncodingId;
+    switch (id)
+    {
+        case FontId::Font_PC_80x25: return EncodingId::Cp437;
+        case FontId::Font_PC_80x50: return EncodingId::Cp437;
+
+        case FontId::Font_PC_Latin1: return EncodingId::Cp850;
+        case FontId::Font_PC_Latin2: return EncodingId::Cp852;
+        case FontId::Font_PC_Cyrillic: return EncodingId::Cp855;
+        case FontId::Font_PC_Russian: return EncodingId::Cp866;
+        case FontId::Font_PC_Greek: return EncodingId::Cp737;
+        case FontId::Font_PC_Greek869: return EncodingId::Cp869;
+        case FontId::Font_PC_Turkish: return EncodingId::Cp857;
+        case FontId::Font_PC_Hebrew: return EncodingId::Cp862;
+        case FontId::Font_PC_Icelandic: return EncodingId::Cp861;
+        case FontId::Font_PC_Nordic: return EncodingId::Cp865;
+        case FontId::Font_PC_Portuguese: return EncodingId::Cp860;
+        case FontId::Font_PC_FrenchCanadian: return EncodingId::Cp863;
+        case FontId::Font_PC_Baltic: return EncodingId::Cp775;
+
+        // Best-effort defaults for other 256-glyph bitmap tables.
+        case FontId::Font_Terminus: return EncodingId::Cp437;
+        case FontId::Font_Spleen: return EncodingId::Cp437;
+
+        case FontId::Font_Amiga_Topaz500:
+        case FontId::Font_Amiga_Topaz500Plus:
+        case FontId::Font_Amiga_Topaz1200:
+        case FontId::Font_Amiga_Topaz1200Plus:
+        case FontId::Font_Amiga_PotNoodle:
+        case FontId::Font_Amiga_Microknight:
+        case FontId::Font_Amiga_MicroknightPlus:
+        case FontId::Font_Amiga_Mosoul:
+            return EncodingId::AmigaLatin1;
+
+        case FontId::Unscii:
+        default:
+            return EncodingId::Cp437;
+    }
 }
 } // namespace
 
@@ -387,9 +389,14 @@ std::string_view ToSauceName(FontId id)
     return (f.sauce_name && *f.sauce_name) ? std::string_view(f.sauce_name) : std::string_view();
 }
 
+phos::encodings::EncodingId EncodingForFont(FontId id)
+{
+    return EncodingForFontInternal(id);
+}
+
 char32_t Cp437ByteToUnicode(std::uint8_t b)
 {
-    return kCp437[b];
+    return phos::encodings::kCp437[b];
 }
 
 bool UnicodeToCp437Byte(char32_t cp, std::uint8_t& out_b)
@@ -414,12 +421,13 @@ bool UnicodeToGlyphIndex(FontId font, char32_t cp, std::uint16_t& out_glyph)
         return false;
     }
 
-    if (IsCp437BitmapFont(font))
+    if (f.kind == Kind::Bitmap1bpp && f.bitmap != nullptr)
     {
+        const phos::encodings::EncodingId enc = EncodingForFontInternal(font);
         std::uint8_t b = 0;
-        if (!UnicodeToCp437Byte(cp, b))
+        if (!phos::encodings::UnicodeToByte(enc, cp, b))
             return false;
-        out_glyph = (std::uint16_t)b;
+        out_glyph = (std::uint16_t)b; // 0..255
         return true;
     }
 

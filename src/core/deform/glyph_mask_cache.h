@@ -21,7 +21,7 @@ public:
         std::vector<std::uint8_t> a; // length w*h
     };
 
-    // Returns a mask for `cp` at the given `cell_w_px` x `cell_h_px` pixel resolution.
+    // Returns a mask for `glyph` at the given `cell_w_px` x `cell_h_px` pixel resolution.
     // The mask generation matches `canvas_rasterizer` glyph placement and bitmap font rules.
     //
     // On failure/unavailable glyph, returns an empty/zero mask (w/h still set, data filled with 0).
@@ -29,7 +29,7 @@ public:
                  int cell_w_px,
                  int cell_h_px,
                  int scale,
-                 char32_t cp,
+                 AnsiCanvas::GlyphId glyph,
                  std::string& err);
 
     void Clear() { cache_.clear(); }
@@ -41,7 +41,7 @@ private:
         int cell_w_px = 0;
         int cell_h_px = 0;
         int scale = 1;
-        std::uint32_t cp = 0;
+        std::uint32_t glyph = 0;
 
         bool operator==(const Key& o) const
         {
@@ -49,7 +49,7 @@ private:
                    cell_w_px == o.cell_w_px &&
                    cell_h_px == o.cell_h_px &&
                    scale == o.scale &&
-                   cp == o.cp;
+                   glyph == o.glyph;
         }
     };
 
@@ -62,7 +62,7 @@ private:
             x ^= (std::uint64_t)(std::uint32_t)k.cell_w_px + 0x9e3779b97f4a7c15ull + (x << 6) + (x >> 2);
             x ^= (std::uint64_t)(std::uint32_t)k.cell_h_px + 0x9e3779b97f4a7c15ull + (x << 6) + (x >> 2);
             x ^= (std::uint64_t)(std::uint32_t)k.scale + 0x9e3779b97f4a7c15ull + (x << 6) + (x >> 2);
-            x ^= (std::uint64_t)k.cp + 0x9e3779b97f4a7c15ull + (x << 6) + (x >> 2);
+            x ^= (std::uint64_t)k.glyph + 0x9e3779b97f4a7c15ull + (x << 6) + (x >> 2);
             return (std::size_t)x;
         }
     };
