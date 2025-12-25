@@ -523,6 +523,17 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
     EnsureLoaded();
     active_canvas_ = active_canvas;
 
+    // Auto-default to embedded source when the active canvas has an embedded font.
+    // This prevents the "empty grid" UX on XBin canvases where Unicode glyphs are not meaningful
+    // under an embedded bitmap font, and matches the common expectation when editing XBin art.
+    if (source_ == Source::JsonFile && active_canvas_ &&
+        active_canvas_->HasEmbeddedFont() && phos::glyph::EmbeddedFontUsable(active_canvas_->GetEmbeddedFont()))
+    {
+        source_ = Source::EmbeddedFont;
+        selected_cell_ = 0;
+        request_focus_selected_ = true;
+    }
+
     // Initialize the collapsible settings state from persisted session once.
     if (session && !settings_open_init_from_session_)
     {

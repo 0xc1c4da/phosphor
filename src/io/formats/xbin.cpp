@@ -762,9 +762,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             const size_t idx = (size_t)y * (size_t)cols + (size_t)x;
             if (use_embedded_font)
             {
-                std::uint16_t gi = (std::uint16_t)c;
+                // XBin convention: NUL bytes are commonly used as "blank". Our GlyphId blank semantics
+                // for indexed glyphs treat index 32 as the transparent/space glyph (see core/glyph_id.h),
+                // so normalize 0 -> 32 even when an embedded font is present.
+                const std::uint16_t base = (c == 0) ? (std::uint16_t)32u : (std::uint16_t)c;
+                std::uint16_t gi = base;
                 if (hdr.mode_512 && (a & 0x08u))
-                    gi = (std::uint16_t)((std::uint16_t)c + 256u);
+                    gi = (std::uint16_t)(base + 256u);
                 if (gi >= (std::uint16_t)embedded_glyph_count)
                     gi = 0;
                 glyphs[idx] = phos::glyph::MakeEmbeddedIndex(gi);
@@ -836,6 +840,19 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].cells = std::move(glyphs);
     st.current.layers[0].fg = std::move(fg);
     st.current.layers[0].bg = std::move(bg);
+
+    // Persist embedded font payload (if present) as part of ProjectState so downstream
+    // snapshot/undo/restore flows keep it attached.
+    if (use_embedded_font)
+    {
+        AnsiCanvas::EmbeddedBitmapFont ef;
+        ef.cell_w = 8;
+        ef.cell_h = (int)hdr.font_height;
+        ef.glyph_count = embedded_glyph_count;
+        ef.vga_9col_dup = false;
+        ef.bitmap = embedded_font_bitmap; // copy into ProjectState (we still move it onto canvas below)
+        st.embedded_font = std::move(ef);
+    }
     // Track palette identity on the canvas (XBin palettes are always 16-color).
     {
         auto& cs = phos::color::GetColorSystem();
@@ -937,16 +954,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         return false;
     }
 
-    if (use_embedded_font)
-    {
-        AnsiCanvas::EmbeddedBitmapFont ef;
-        ef.cell_w = 8;
-        ef.cell_h = (int)hdr.font_height;
-        ef.glyph_count = embedded_glyph_count;
-        ef.vga_9col_dup = false;
-        ef.bitmap = std::move(embedded_font_bitmap);
-        canvas.SetEmbeddedFont(std::move(ef));
-    }
+    // Embedded font is now attached via ProjectState.embedded_font above.
     out_canvas = std::move(canvas);
     return true;
 }

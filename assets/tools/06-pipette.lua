@@ -65,9 +65,12 @@ local function sample_at(ctx, layer, x, y)
   if type(mode) ~= "string" then mode = "composite" end
 
   local ch, fg, bg, cp
+  local attrs, gid
   local canvas = ctx.canvas
   if canvas and canvas.getCell then
-    ch, fg, bg, cp = canvas:getCell(x, y, mode)
+    -- canvas:getCell returns:
+    --   (utf8, fg, bg, cp, attrs, glyphId)
+    ch, fg, bg, cp, attrs, gid = canvas:getCell(x, y, mode)
   else
     -- Fallback: layer sample only (older hosts).
     ch, fg, bg, cp = layer:get(x, y)
@@ -89,8 +92,15 @@ local function sample_at(ctx, layer, x, y)
     pickChar = false
   end
 
-  if pickChar and type(cp) == "number" then
-    emit(ctx, { type = "brush.set", cp = to_int(cp, 0) })
+  -- Prefer lossless glyphId when available (supports embedded/bitmap glyph indices).
+  -- Host interprets values >= 0x80000000 as GlyphId tokens.
+  if pickChar then
+    local v = nil
+    if type(gid) == "number" then v = gid
+    elseif type(cp) == "number" then v = cp end
+    if type(v) == "number" then
+      emit(ctx, { type = "brush.set", cp = to_int(v, 0) })
+    end
   end
 
   local pal = { type = "palette.set" }

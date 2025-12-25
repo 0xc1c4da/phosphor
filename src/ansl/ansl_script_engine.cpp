@@ -578,6 +578,7 @@ static int l_canvas_getCell(lua_State* L)
         layer = (int)luaL_checkinteger(L, 5);
 
     const bool want_layer = (mode == "layer" || mode == "Layer");
+    AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
     char32_t cp = U' ';
     AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
@@ -586,19 +587,25 @@ static int l_canvas_getCell(lua_State* L)
     if (want_layer || layer != -9999)
     {
         const int li = (layer == -9999) ? b->canvas->GetActiveLayerIndex() : layer;
-        cp = b->canvas->GetLayerCell(li, y, x);
+        glyph = b->canvas->GetLayerGlyph(li, y, x);
+        cp = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
         (void)b->canvas->GetLayerCellIndices(li, y, x, fg, bg);
         (void)b->canvas->GetLayerCellAttrs(li, y, x, attrs);
     }
     else
     {
         // Composite is bounded and returns false if out-of-range.
-        if (!b->canvas->GetCompositeCellPublicIndices(y, x, cp, fg, bg, attrs))
+        if (!b->canvas->GetCompositeCellPublicGlyphIndices(y, x, glyph, fg, bg, attrs))
         {
+            glyph = phos::glyph::MakeUnicodeScalar(U' ');
             cp = U' ';
             fg = AnsiCanvas::kUnsetIndex16;
             bg = AnsiCanvas::kUnsetIndex16;
             attrs = 0;
+        }
+        else
+        {
+            cp = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
         }
     }
 
@@ -614,7 +621,9 @@ static int l_canvas_getCell(lua_State* L)
     lua_pushinteger(L, (lua_Integer)cp);
     // Also return attrs bitmask as an integer (safe additive API; enables pipette to respect reverse video).
     lua_pushinteger(L, (lua_Integer)attrs);
-    return 5;
+    // Also return the stored glyph token (GlyphId) as an integer (lossless; embedded/bitmap indices).
+    lua_pushinteger(L, (lua_Integer)(std::uint32_t)glyph);
+    return 6;
 }
 
 static int l_canvas_setSelection(lua_State* L)

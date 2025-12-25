@@ -2216,7 +2216,9 @@ void RunFrame(AppState& st)
                                 tool_brush_glyph = (std::uint32_t)phos::glyph::MakeUnicodeScalar((char32_t)v);
 
                             tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
-                            tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+                            // Avoid propagating U+0000 into UTF-8 (tools/ImGui strings expect non-NUL).
+                            const char32_t rep_cp = (tool_brush_cp == 0) ? U' ' : (char32_t)tool_brush_cp;
+                            tool_brush_utf8 = ansl::utf8::encode(rep_cp);
 
                             // Only synchronize Unicode-focused UI widgets when this is a Unicode scalar.
                             if (v < 0x80000000u)
@@ -2227,6 +2229,11 @@ void RunFrame(AppState& st)
                             }
 
                             c.SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
+
+                            // Always synchronize Character Palette selection from the active glyph token
+                            // (supports EmbeddedIndex/BitmapIndex tokens produced by tools like Pipette).
+                            character_palette.SyncSelectionFromActiveGlyph((phos::GlyphId)tool_brush_glyph,
+                                                                           tool_brush_utf8, &c);
                         }
                     } break;
                     case ToolCommand::Type::PaletteSet:
