@@ -1322,6 +1322,15 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     Pen pen;
     ApplyDefaults(opt, pen);
+    // IMPORTANT:
+    // When importing, we often need to "grow" the backing arrays ahead of actual writes
+    // (e.g. first glyph on a later row). If we initialize new cells with the *current* pen
+    // background, then a temporary background color can accidentally "paint" entire untouched
+    // rows/regions (observed as spurious colored bars). libansilove effectively leaves
+    // untouched cells at the default background (it only records written cells).
+    //
+    // So we use a stable default background fill derived from the initial/default pen state.
+    const AnsiCanvas::Color32 default_bg_fill = pen.bg;
     bool saw_xterm256 = false;
     bool saw_truecolor = false;
 
@@ -1349,7 +1358,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         {
             glyph_plane.resize(need, blank_glyph);
             fg32.resize(need, 0);
-            bg32.resize(need, pen.bg); // default background
+            bg32.resize(need, default_bg_fill); // stable default background for untouched cells
             attrs.resize(need, 0);
         }
     };
@@ -1610,7 +1619,10 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     colMax = 0;
                     glyph_plane.assign((size_t)columns, blank_glyph);
                     fg32.assign((size_t)columns, 0);
-                    bg32.assign((size_t)columns, pen.bg);
+                    // Match libansilove behavior: clearing discards previously written cells,
+                    // and the remaining "blank" screen should not be implicitly painted with
+                    // whatever the current pen background happens to be.
+                    bg32.assign((size_t)columns, default_bg_fill);
                     attrs.assign((size_t)columns, 0);
                 }
             }
@@ -1897,6 +1909,37 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int out_rows = std::max(1, rowMax + 1);
     const int out_cols = columns; // fixed
     ensure_rows(out_rows);
+
+#ifndef NDEBUG
+    // Debug-only invariant:
+    // We should never end up with "unwritten" cells (fg32==0, default blank glyph, no attrs)
+    // having a non-default background. That pattern is a strong indicator that allocation/growth
+    // accidentally painted blank cells (e.g. spurious horizontal color bars).
+    for (int r = 0; r < out_rows; ++r)
+    {
+        bool bad = false;
+        for (int c = 0; c < out_cols; ++c)
+        {
+            const size_t at = (size_t)r * (size_t)out_cols + (size_t)c;
+            if (at >= fg32.size() || at >= bg32.size() || at >= glyph_plane.size() || at >= attrs.size())
+                break;
+
+            const bool unwritten = (fg32[at] == 0) && (attrs[at] == 0) && (glyph_plane[at] == blank_glyph);
+            if (unwritten && bg32[at] != default_bg_fill)
+            {
+                bad = true;
+                break;
+            }
+        }
+        if (bad)
+        {
+            std::fprintf(stderr,
+                         "[ansi-import][debug] suspicious painted blanks on row %d (bg != default on unwritten cells)\n",
+                         r);
+            break; // one warning is enough
+        }
+    }
+#endif
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
