@@ -59,6 +59,17 @@ public:
         Attr_Strikethrough = 1u << 6, // SGR 9  (reset: 29)
     };
 
+    // Project-level policy for interpreting the Attr_Bold bit.
+    //
+    // - AnsiBright: classic ANSI art / libansilove convention: SGR 1 selects bright foreground (ANSI16 intensity).
+    //               No typographic bold should be applied to bitmap fonts.
+    // - Typographic: modern terminal convention: SGR 1 is a typographic effect (heavier glyph), independent of colors.
+    enum class BoldSemantics : std::uint8_t
+    {
+        AnsiBright = 0,
+        Typographic = 1,
+    };
+
     enum class ZoomSnapMode : std::uint8_t
     {
         IntegerScale = 1, // always snap to integer N×
@@ -430,7 +441,12 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 11;
+        int                     version = 12;
+
+        // Persisted bold policy:
+        // 0 = AnsiBright, 1 = Typographic.
+        // (Stored as int for schema stability across compilation units.)
+        int                     bold_semantics = 0;
 
         // Optional embedded bitmap font payload (used by formats like XBin).
         // When present, EmbeddedIndex GlyphIds are meaningful and can be rendered/exported losslessly.
@@ -563,6 +579,15 @@ public:
     const std::string& GetColourPaletteTitle() const { return m_colour_palette_title; }
     void SetColourPaletteTitle(const std::string& title) { m_colour_palette_title = title; }
     void ClearColourPaletteTitle() { m_colour_palette_title.clear(); }
+
+    BoldSemantics GetBoldSemantics() const { return m_bold_semantics; }
+    void SetBoldSemantics(BoldSemantics s)
+    {
+        if (m_bold_semantics == s)
+            return;
+        m_bold_semantics = s;
+        TouchContent();
+    }
 
     // Core palette identity (used by LUT/index pipelines; not yet enforced on stored Color32 cells).
     const phos::color::PaletteRef& GetPaletteRef() const { return m_palette_ref; }
@@ -1102,6 +1127,9 @@ private:
 
     // Optional SAUCE metadata associated with this canvas (persisted).
     ProjectState::SauceMeta m_sauce;
+
+    // Bold semantics policy (persisted via ProjectState, not undoable).
+    BoldSemantics m_bold_semantics = BoldSemantics::AnsiBright;
 
     // Optional UI colour palette title (persisted via ProjectState).
     std::string m_colour_palette_title;

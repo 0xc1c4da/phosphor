@@ -503,10 +503,20 @@ void RunFrame(AppState& st)
             cptr->canvas.SetUndoLimit(session_state.undo_limit);
     }
 
+    // Session -> canvas enum mapping (defensive).
+    // Historical note: some older session files used 0 for an "auto" mode; treat that as PixelAligned.
+    auto session_zoom_snap_mode = [&]() -> AnsiCanvas::ZoomSnapMode
+    {
+        int v = session_state.zoom_snap_mode;
+        if (v == 0)
+            v = 2;
+        v = std::clamp(v, 1, 2);
+        return (AnsiCanvas::ZoomSnapMode)v;
+    };
+
     // Apply global zoom snapping preference to all open canvases.
     {
-        const int mode_i = std::clamp(session_state.zoom_snap_mode, 0, 2);
-        const AnsiCanvas::ZoomSnapMode mode = (AnsiCanvas::ZoomSnapMode)mode_i;
+        const AnsiCanvas::ZoomSnapMode mode = session_zoom_snap_mode();
         for (auto& cptr : canvases)
         {
             if (!cptr || !cptr->open)
@@ -532,6 +542,7 @@ void RunFrame(AppState& st)
         }
         cw.restore_pending = false;
         cw.canvas.SetUndoLimit(session_state.undo_limit);
+        cw.canvas.SetZoomSnapMode(session_zoom_snap_mode());
         // Restored cached projects should be "clean" until the user edits.
         cw.canvas.MarkSaved();
     };
@@ -567,6 +578,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
         canvas_window->canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
+        canvas_window->canvas.SetZoomSnapMode(session_zoom_snap_mode());
 
         // Create a new blank canvas with a single base layer.
         canvas_window->canvas.SetColumns(80);
@@ -589,6 +601,7 @@ void RunFrame(AppState& st)
         canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
         canvas_window->canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
+        canvas_window->canvas.SetZoomSnapMode(session_zoom_snap_mode());
         canvas_window->canvas.MarkSaved();
         canvas_window->canvas.SetActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8);
         last_active_canvas_id = canvas_window->id;
@@ -2706,6 +2719,7 @@ void RunFrame(AppState& st)
             canvas_window->canvas = std::move(imported);
             canvas_window->canvas.SetKeyBindingsEngine(&keybinds);
             canvas_window->canvas.SetUndoLimit(session_state.undo_limit);
+            canvas_window->canvas.SetZoomSnapMode(session_zoom_snap_mode());
             canvas_window->canvas.MarkSaved();
             last_active_canvas_id = canvas_window->id;
             canvases.push_back(std::move(canvas_window));

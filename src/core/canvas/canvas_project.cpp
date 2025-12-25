@@ -107,7 +107,8 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 11;
+    out.version = 12;
+    out.bold_semantics = (int)m_bold_semantics;
     out.palette_ref = m_palette_ref;
     out.colour_palette_title = m_colour_palette_title;
     out.sauce = m_sauce;
@@ -324,6 +325,26 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     m_palette_ref = state.palette_ref;
     m_colour_palette_title = state.colour_palette_title;
     m_embedded_font = state.embedded_font;
+
+    // Bold semantics migration:
+    // - v12+ persists `bold_semantics`
+    // - v11 and earlier default deterministically based on palette identity (classic VGA16 -> AnsiBright)
+    {
+        BoldSemantics sem = BoldSemantics::AnsiBright;
+        if (state.version >= 12)
+        {
+            sem = (state.bold_semantics == (int)BoldSemantics::Typographic) ? BoldSemantics::Typographic
+                                                                            : BoldSemantics::AnsiBright;
+        }
+        else
+        {
+            if (state.palette_ref.is_builtin && state.palette_ref.builtin == phos::color::BuiltinPalette::Vga16)
+                sem = BoldSemantics::AnsiBright;
+            else
+                sem = BoldSemantics::Typographic;
+        }
+        m_bold_semantics = sem;
+    }
 
     ApplySnapshot(current_internal);
 

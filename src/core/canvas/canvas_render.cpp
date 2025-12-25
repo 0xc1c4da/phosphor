@@ -353,9 +353,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
             if ((a & Attr_Dim) != 0)
                 fg_col = adjust_intensity(fg_col, 0.60f);
-            ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
-            if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
-                fg_col = adjust_intensity(fg_col, 1.25f);
+            if (GetBoldSemantics() == BoldSemantics::AnsiBright)
+                ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
 
             // Background fill:
             // - normally, only fill when bg is explicitly set
@@ -401,7 +400,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                 EncodeUtf8(cp_rep, buf);
                 const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                 const bool italic = (a & Attr_Italic) != 0;
-                const bool bold = (a & Attr_Bold) != 0;
+                const bool bold = (GetBoldSemantics() == BoldSemantics::Typographic) && ((a & Attr_Bold) != 0);
 
                 // Clip text to cell: required for synthetic bold/italic to avoid bleeding.
                 draw_list->PushClipRect(cell_min, cell_max, true);
@@ -453,7 +452,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
                     return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
                 };
 
-                const bool bold = (a & Attr_Bold) != 0;
+                const bool bold = (GetBoldSemantics() == BoldSemantics::Typographic) && ((a & Attr_Bold) != 0);
                 const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp_rep);
 
                 if (atlas_ok)
@@ -608,9 +607,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
             if ((a & Attr_Dim) != 0)
                 fg_col = adjust_intensity(fg_col, 0.60f);
-            ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
-            if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
-                fg_col = adjust_intensity(fg_col, 1.25f);
+            if (GetBoldSemantics() == BoldSemantics::AnsiBright)
+                ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
 
             const bool bg_fills = (cell.bg != kUnsetIndex16) || reverse_attr;
             const ImU32 bg_plane = bg_fills ? bg_col : paper_bg;
@@ -776,9 +774,8 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 };
                 if ((a & Attr_Dim) != 0)
                     fg_col = adjust_intensity(fg_col, 0.60f);
-                ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
-                if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
-                    fg_col = adjust_intensity(fg_col, 1.25f);
+                if (GetBoldSemantics() == BoldSemantics::AnsiBright)
+                    ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
 
                 if (c.bg != kUnsetIndex16 || reverse)
                     draw_list->AddRectFilled(cell_min, cell_max, ApplyCurrentStyleAlpha(bg_col));
@@ -814,7 +811,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                     EncodeUtf8(cp_rep, buf);
                     const ImU32 text_col = ApplyCurrentStyleAlpha(fg_col);
                     const bool italic = (a & Attr_Italic) != 0;
-                    const bool bold = (a & Attr_Bold) != 0;
+                    const bool bold = (GetBoldSemantics() == BoldSemantics::Typographic) && ((a & Attr_Bold) != 0);
                     const float bold_dx = std::max(1.0f, std::floor(cell_w / 8.0f));
 
                     draw_list->PushClipRect(cell_min, cell_max, true);
@@ -863,7 +860,7 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                             return fonts::BitmapGlyphRowBits(finfo.id, gi, yy);
                         };
 
-                        const bool bold = (a & Attr_Bold) != 0;
+                        const bool bold = (GetBoldSemantics() == BoldSemantics::Typographic) && ((a & Attr_Bold) != 0);
                         const bool italic = ((a & Attr_Italic) != 0) && IsAsciiItalicCandidate(cp_rep);
 
                         if (atlas_ok)

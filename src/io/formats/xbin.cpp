@@ -826,7 +826,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 11;
+    st.version = 12;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = cols;
     st.current.rows = rows;
@@ -917,6 +917,12 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         st.current.palette_ref = st.palette_ref;
         st.current.colour_palette_title = st.colour_palette_title;
     }
+
+    // Default bold semantics for XBin:
+    // XBin is a classic bitmap-font workflow; treat bold as ANSI intensity by default.
+    st.bold_semantics = (st.palette_ref.is_builtin && st.palette_ref.builtin == phos::color::BuiltinPalette::Vga16)
+                            ? (int)AnsiCanvas::BoldSemantics::AnsiBright
+                            : (int)AnsiCanvas::BoldSemantics::Typographic;
 
     // Preserve SAUCE metadata (if present), else populate a minimal XBin-ish record.
     if (sp.record.present)

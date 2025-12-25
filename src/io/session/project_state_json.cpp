@@ -832,6 +832,7 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     json j;
     j["magic"] = "utf8-art-editor";
     j["version"] = st.version;
+    j["bold_semantics"] = st.bold_semantics;
     j["undo_limit"] = st.undo_limit;
     // Core palette identity.
     j["palette_ref"] = PaletteRefToJson(st.palette_ref);
@@ -876,6 +877,8 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     out = AnsiCanvas::ProjectState{};
     if (j.contains("version") && j["version"].is_number_integer())
         out.version = j["version"].get<int>();
+    if (j.contains("bold_semantics") && j["bold_semantics"].is_number_integer())
+        out.bold_semantics = j["bold_semantics"].get<int>();
     if (j.contains("undo_limit") && j["undo_limit"].is_number_unsigned())
         out.undo_limit = j["undo_limit"].get<size_t>();
     else if (j.contains("undo_limit") && j["undo_limit"].is_number_integer())

@@ -1951,7 +1951,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 11;
+    st.version = 12;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = out_cols;
     st.current.rows = out_rows;
@@ -1995,6 +1995,12 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             (saw_xterm256 || saw_truecolor) ? phos::color::BuiltinPalette::Xterm256 : phos::color::BuiltinPalette::Vga16;
         st.palette_ref.is_builtin = true;
         st.palette_ref.builtin = builtin;
+        // Bold semantics default:
+        // - VGA16 (classic ANSI art): SGR1/Attr_Bold is intensity/bright fg (libansilove semantics)
+        // - xterm256/truecolor: SGR1 is typographic emphasis (colors are explicit)
+        st.bold_semantics = (builtin == phos::color::BuiltinPalette::Vga16)
+                                ? (int)AnsiCanvas::BoldSemantics::AnsiBright
+                                : (int)AnsiCanvas::BoldSemantics::Typographic;
         // IMPORTANT: Set both the project-level metadata and the active snapshot palette_ref.
         // SetProjectState() applies the snapshot palette_ref for rendering.
         st.current.palette_ref = st.palette_ref;

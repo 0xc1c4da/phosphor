@@ -255,9 +255,13 @@ void SettingsWindow::RenderTab_General()
             "Pixel-aligned cell width",
         };
         ImGui::SetNextItemWidth(280.0f);
-        if (ImGui::Combo("Zoom snapping", &mode, items, IM_ARRAYSIZE(items)))
+
+        // ImGui combo indices are 0-based, but we persist 1/2 to match AnsiCanvas::ZoomSnapMode.
+        int mode_idx = mode - 1;
+        if (ImGui::Combo("Zoom snapping", &mode_idx, items, IM_ARRAYSIZE(items)))
         {
-            session_->zoom_snap_mode = std::clamp(mode, 1, 2);
+            mode_idx = std::clamp(mode_idx, 0, (int)IM_ARRAYSIZE(items) - 1);
+            session_->zoom_snap_mode = mode_idx + 1;
         }
         ImGui::TextDisabled(
             "Integer: always snap to integer zoom steps.\n"
