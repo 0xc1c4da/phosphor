@@ -4,9 +4,13 @@
 #include "core/encodings.h"
 #include "core/glyph_id.h"
 #include "core/glyph_resolve.h"
+#include "core/paths.h"
 #include "io/formats/sauce.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -32,10 +36,59 @@ namespace
 {
 static constexpr std::uint8_t kXbinMagic[4] = {'X', 'B', 'I', 'N'};
 
+// XBIN attributes use IBM PC textmode attribute order (not ANSI/SGR order).
+// Our built-in VGA16 palette is in ANSI/SGR order (see core/palette/palette.cpp).
+// Remap indices at import so XBIN colors render correctly under the ANSI-ordered palette.
+static constexpr std::uint8_t kIbmToAnsi16[16] = {
+    0,  // 0 black -> 0 black
+    4,  // 1 blue -> 4 blue
+    2,  // 2 green -> 2 green
+    6,  // 3 cyan -> 6 cyan
+    1,  // 4 red -> 1 red
+    5,  // 5 magenta -> 5 magenta
+    3,  // 6 brown/yellow -> 3 yellow/brown
+    7,  // 7 light gray -> 7 light gray
+    8,  // 8 dark gray -> 8 dark gray
+    12, // 9 light blue -> 12 bright blue
+    10, // 10 light green -> 10 bright green
+    14, // 11 light cyan -> 14 bright cyan
+    9,  // 12 light red -> 9 bright red
+    13, // 13 light magenta -> 13 bright magenta
+    11, // 14 yellow -> 11 bright yellow
+    15, // 15 white -> 15 bright white
+};
+
+static constexpr std::uint8_t kAnsiToIbm16[16] = {
+    0,  // 0 black
+    4,  // 1 red
+    2,  // 2 green
+    6,  // 3 yellow/brown
+    1,  // 4 blue
+    5,  // 5 magenta
+    3,  // 6 cyan
+    7,  // 7 light gray
+    8,  // 8 dark gray
+    12, // 9 bright red
+    10, // 10 bright green
+    14, // 11 bright yellow
+    9,  // 12 bright blue
+    13, // 13 bright magenta
+    11, // 14 bright cyan
+    15, // 15 bright white
+};
+
 static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
 {
     // Dear ImGui IM_COL32 is ABGR.
     return 0xFF000000u | ((std::uint32_t)b << 16) | ((std::uint32_t)g << 8) | (std::uint32_t)r;
+}
+
+static inline void UnpackImGuiCol32(AnsiCanvas::Color32 c, std::uint8_t& out_r, std::uint8_t& out_g, std::uint8_t& out_b)
+{
+    // Dear ImGui IM_COL32 is ABGR.
+    out_r = (std::uint8_t)(c & 0xFFu);
+    out_g = (std::uint8_t)((c >> 8) & 0xFFu);
+    out_b = (std::uint8_t)((c >> 16) & 0xFFu);
 }
 
 static inline std::uint16_t ReadU16LE(const std::vector<std::uint8_t>& b, size_t off)
@@ -170,6 +223,18 @@ static bool ReadPalette(const std::vector<std::uint8_t>& payload,
     }
     io_off += 48;
     return true;
+}
+
+static void ReorderPaletteIbmToAnsi(std::array<AnsiCanvas::Color32, 16>& io_pal32)
+{
+    // io_pal32 currently contains entries in IBM order (as stored in XBIN palette chunk).
+    // Convert to ANSI/SGR order to match our palette index semantics.
+    std::array<AnsiCanvas::Color32, 16> tmp = io_pal32;
+    for (int ibm = 0; ibm < 16; ++ibm)
+    {
+        const int ansi = (int)kIbmToAnsi16[(size_t)ibm];
+        io_pal32[(size_t)ansi] = tmp[(size_t)ibm];
+    }
 }
 
 static bool ReadFont(const std::vector<std::uint8_t>& payload,
@@ -319,12 +384,163 @@ static void WritePaletteChunk(std::vector<std::uint8_t>& out, phos::color::Palet
 static void BuildDefaultPalette32(std::array<AnsiCanvas::Color32, 16>& out_pal32)
 {
     auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    // XBin readers assume a classic VGA16 palette when no palette chunk is present.
+    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
     const phos::color::Palette* p = cs.Palettes().Get(pal16);
     if (!p || p->rgb.size() < 16)
         return;
     for (int i = 0; i < 16; ++i)
         out_pal32[i] = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal16, phos::color::ColorIndex{(std::uint16_t)i});
+}
+
+struct PaletteDef32
+{
+    std::string title;
+    std::vector<AnsiCanvas::Color32> colors;
+};
+
+static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
+{
+    std::string s = hex;
+    if (!s.empty() && s[0] == '#')
+        s.erase(0, 1);
+    if (s.size() != 6 && s.size() != 8)
+        return false;
+
+    auto to_u8 = [](const std::string& sub) -> std::uint8_t
+    {
+        return (std::uint8_t)std::strtoul(sub.c_str(), nullptr, 16);
+    };
+
+    const std::uint8_t r = to_u8(s.substr(0, 2));
+    const std::uint8_t g = to_u8(s.substr(2, 2));
+    const std::uint8_t b = to_u8(s.substr(4, 2));
+    std::uint8_t a = 255;
+    if (s.size() == 8)
+        a = to_u8(s.substr(6, 2));
+
+    // Packed colors follow ImGui's IM_COL32 (ABGR).
+    out = ((AnsiCanvas::Color32)a << 24) | ((AnsiCanvas::Color32)b << 16) | ((AnsiCanvas::Color32)g << 8) | (AnsiCanvas::Color32)r;
+    return true;
+}
+
+static bool LoadPalettesFromJson32(const std::string& path,
+                                  std::vector<PaletteDef32>& out,
+                                  std::string& err)
+{
+    using nlohmann::json;
+    err.clear();
+    out.clear();
+
+    std::ifstream f(path);
+    if (!f)
+    {
+        err = std::string("Failed to open ") + path;
+        return false;
+    }
+
+    json j;
+    try
+    {
+        f >> j;
+    }
+    catch (const std::exception& e)
+    {
+        err = e.what();
+        return false;
+    }
+
+    if (!j.is_array())
+    {
+        err = "Expected top-level JSON array in color-palettes.json";
+        return false;
+    }
+
+    for (const auto& item : j)
+    {
+        if (!item.is_object())
+            continue;
+
+        PaletteDef32 def;
+        if (auto it = item.find("title"); it != item.end() && it->is_string())
+            def.title = it->get<std::string>();
+        else
+            continue;
+
+        if (auto it = item.find("colors"); it != item.end() && it->is_array())
+        {
+            for (const auto& c : *it)
+            {
+                if (!c.is_string())
+                    continue;
+                AnsiCanvas::Color32 col = 0;
+                if (HexToColor32(c.get<std::string>(), col))
+                    def.colors.push_back(col);
+            }
+        }
+
+        if (!def.colors.empty())
+            out.push_back(std::move(def));
+    }
+
+    if (out.empty())
+    {
+        err = "No valid palettes found in color-palettes.json";
+        return false;
+    }
+    return true;
+}
+
+static std::string InferPaletteTitleFromPalette16(const std::array<AnsiCanvas::Color32, 16>& pal32,
+                                                 const std::vector<PaletteDef32>& palettes)
+{
+    if (palettes.empty())
+        return {};
+
+    auto dist2_rgb = [](AnsiCanvas::Color32 a, AnsiCanvas::Color32 b) -> std::uint32_t
+    {
+        std::uint8_t ar, ag, ab;
+        std::uint8_t br, bg, bb;
+        UnpackImGuiCol32(a, ar, ag, ab);
+        UnpackImGuiCol32(b, br, bg, bb);
+        const int dr = (int)ar - (int)br;
+        const int dg = (int)ag - (int)bg;
+        const int db = (int)ab - (int)bb;
+        return (std::uint32_t)(dr * dr + dg * dg + db * db);
+    };
+
+    std::uint64_t best = ~0ull;
+    std::string best_title;
+    for (const auto& p : palettes)
+    {
+        if (p.colors.size() < 16)
+            continue;
+        std::uint64_t s = 0;
+        for (int i = 0; i < 16; ++i)
+            s += dist2_rgb(pal32[(size_t)i], p.colors[(size_t)i]);
+        if (s < best)
+        {
+            best = s;
+            best_title = p.title;
+            if (best == 0)
+                break;
+        }
+    }
+    return best_title;
+}
+
+static bool PaletteEquals16(const std::vector<phos::color::Rgb8>& a, const phos::color::Palette* b)
+{
+    if (!b || b->rgb.size() != 16 || a.size() != 16)
+        return false;
+    for (int i = 0; i < 16; ++i)
+    {
+        if (a[(size_t)i].r != b->rgb[(size_t)i].r ||
+            a[(size_t)i].g != b->rgb[(size_t)i].g ||
+            a[(size_t)i].b != b->rgb[(size_t)i].b)
+            return false;
+    }
+    return true;
 }
 
 static void EncodeRowRle(const std::uint8_t* ch, const std::uint8_t* at, int width, std::vector<std::uint8_t>& out)
@@ -467,6 +683,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     {
         if (!ReadPalette(payload, off, pal32, err))
             return false;
+        // Palette chunk is stored in IBM order; normalize to ANSI/SGR order for our pipeline.
+        ReorderPaletteIbmToAnsi(pal32);
     }
     std::vector<std::uint8_t> embedded_font_bitmap;
     if (hdr.has_font)
@@ -512,28 +730,34 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
             int fg_idx = 0;
             int bg_idx = 0;
+            int raw_fg = 0;
+            int raw_bg = 0;
             if (hdr.mode_512)
             {
                 // In 512-char mode, bit3 selects font page; foreground is only 0..7.
-                fg_idx = (int)(a & 0x07u);
+                raw_fg = (int)(a & 0x07u);
             }
             else
             {
-                fg_idx = (int)(a & 0x0Fu);
+                raw_fg = (int)(a & 0x0Fu);
             }
 
             if (hdr.nonblink)
             {
-                bg_idx = (int)((a >> 4) & 0x0Fu);
+                raw_bg = (int)((a >> 4) & 0x0Fu);
             }
             else
             {
                 // Blink mode: background only 0..7, bit7 is blink.
-                bg_idx = (int)((a >> 4) & 0x07u);
+                raw_bg = (int)((a >> 4) & 0x07u);
             }
 
-            fg_idx = std::clamp(fg_idx, 0, 15);
-            bg_idx = std::clamp(bg_idx, 0, 15);
+            raw_fg = std::clamp(raw_fg, 0, 15);
+            raw_bg = std::clamp(raw_bg, 0, 15);
+
+            // Remap IBM attribute indices -> ANSI/SGR palette indices.
+            fg_idx = (int)kIbmToAnsi16[(size_t)raw_fg];
+            bg_idx = (int)kIbmToAnsi16[(size_t)raw_bg];
 
             const size_t idx = (size_t)y * (size_t)cols + (size_t)x;
             if (use_embedded_font)
@@ -597,7 +821,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     }
 
     AnsiCanvas::ProjectState st;
-    st.version = 2;
+    // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
+    st.version = 11;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = cols;
     st.current.rows = rows;
@@ -613,25 +838,67 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].bg = std::move(bg);
     // Track palette identity on the canvas (XBin palettes are always 16-color).
     {
-        if (hdr.has_palette)
+        auto& cs = phos::color::GetColorSystem();
+
+        // Build RGB24 list from the decoded palette chunk (or default VGA16 if absent).
+        std::vector<phos::color::Rgb8> rgb;
+        rgb.reserve(16);
+        for (int i = 0; i < 16; ++i)
         {
-            auto& cs = phos::color::GetColorSystem();
-            std::array<phos::color::Rgb8, 16> rgb{};
-            for (int i = 0; i < 16; ++i)
-            {
-                std::uint8_t r = 0, g = 0, b = 0;
-                (void)phos::color::ColorOps::UnpackImGuiAbgr((std::uint32_t)pal32[(size_t)i], r, g, b);
-                rgb[(size_t)i] = phos::color::Rgb8{r, g, b};
-            }
-            (void)cs.Palettes().RegisterDynamic("XBin Palette", rgb);
-            st.palette_ref.is_builtin = false;
-            st.palette_ref.uid = phos::color::ComputePaletteUid(rgb);
+            std::uint8_t r = 0, g = 0, b = 0;
+            UnpackImGuiCol32(pal32[(size_t)i], r, g, b);
+            rgb.push_back(phos::color::Rgb8{r, g, b});
         }
-        else
+
+        // Prefer builtins when the palette matches exactly (better UX + smaller identity).
+        const phos::color::Palette* vga = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16));
+        const phos::color::Palette* x16 = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16));
+        if (PaletteEquals16(rgb, vga))
+        {
+            st.palette_ref.is_builtin = true;
+            st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+            st.colour_palette_title = "VGA 16";
+        }
+        else if (PaletteEquals16(rgb, x16))
         {
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm16;
+            st.colour_palette_title = "xterm 16";
         }
+        else if (hdr.has_palette)
+        {
+            // No exact builtin match: register as a dynamic palette.
+            std::vector<PaletteDef32> pals;
+            std::string perr;
+            const std::string pal_path = PhosphorAssetPath("color-palettes.json");
+            const bool loaded = LoadPalettesFromJson32(pal_path, pals, perr);
+            const std::string inferred = loaded ? InferPaletteTitleFromPalette16(pal32, pals) : std::string{};
+            const std::string title = inferred.empty() ? "XBin Palette" : inferred;
+
+            const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic(title, rgb);
+            if (const phos::color::Palette* p = cs.Palettes().Get(pid))
+            {
+                st.palette_ref = p->ref;
+                st.colour_palette_title = title;
+            }
+            else
+            {
+                st.palette_ref.is_builtin = true;
+                st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+                st.colour_palette_title = "VGA 16";
+            }
+        }
+        else
+        {
+            // No palette chunk => default VGA16.
+            st.palette_ref.is_builtin = true;
+            st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+            st.colour_palette_title = "VGA 16";
+        }
+
+        // IMPORTANT: snapshot fields drive rendering; keep them in sync.
+        st.current.palette_ref = st.palette_ref;
+        st.current.colour_palette_title = st.colour_palette_title;
     }
 
     // Preserve SAUCE metadata (if present), else populate a minimal XBin-ish record.
@@ -730,7 +997,15 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     phos::color::PaletteInstanceId dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
     if (options.include_palette)
     {
-        if (options.target_palette == ExportOptions::TargetPalette::CanvasIf16)
+        if (options.target_palette == ExportOptions::TargetPalette::Vga16)
+        {
+            dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+        }
+        else if (options.target_palette == ExportOptions::TargetPalette::Xterm16)
+        {
+            dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+        }
+        else if (options.target_palette == ExportOptions::TargetPalette::CanvasIf16)
         {
             const phos::color::Palette* p = cs.Palettes().Get(src_pal);
             if (p && p->rgb.size() == 16)
@@ -757,7 +1032,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     else
     {
         // No palette chunk => readers assume default palette; encode with xterm16.
-        dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+        dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
     }
 
     const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_pal, qpol);

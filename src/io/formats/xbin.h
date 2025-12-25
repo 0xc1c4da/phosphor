@@ -69,16 +69,17 @@ struct ExportOptions
 
     // Target 16-color palette used to encode fg/bg indices.
     // Note: if include_palette=false, consumers will assume the default (xterm16) palette,
-    // so export will force Xterm16 for encoding regardless of this setting.
+    // so export will force the default VGA16 palette for encoding regardless of this setting.
     enum class TargetPalette : std::uint8_t
     {
-        Xterm16 = 0,
+        Vga16 = 0,
+        Xterm16,
         // Use the canvas palette if (and only if) it is 16-color; otherwise fall back to Xterm16.
         CanvasIf16,
         // Use an explicit 16-color palette (builtin or dynamic uid).
         Explicit,
     };
-    TargetPalette target_palette = TargetPalette::Xterm16;
+    TargetPalette target_palette = TargetPalette::Vga16;
     phos::color::PaletteRef explicit_palette_ref = []{
         phos::color::PaletteRef r;
         r.is_builtin = true;

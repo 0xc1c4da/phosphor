@@ -1851,6 +1851,10 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             (saw_xterm256 || saw_truecolor) ? phos::color::BuiltinPalette::Xterm256 : phos::color::BuiltinPalette::Vga16;
         st.palette_ref.is_builtin = true;
         st.palette_ref.builtin = builtin;
+        // IMPORTANT: Set both the project-level metadata and the active snapshot palette_ref.
+        // SetProjectState() applies the snapshot palette_ref for rendering.
+        st.current.palette_ref = st.palette_ref;
+        st.current.colour_palette_title = st.colour_palette_title;
 
         const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
         const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();

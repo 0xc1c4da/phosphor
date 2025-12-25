@@ -4,6 +4,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include "io/formats/ansi.h"
+#include "io/formats/xbin.h"
 #include "io/http_client.h"
 #include "io/image_loader.h"
 #include "io/session/imgui_persistence.h"
@@ -586,7 +587,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             const bool is_image =
                 (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "bmp");
             const bool is_textish =
-                (ext == "ans" || ext == "asc" || ext == "txt" || ext == "nfo" || ext == "diz");
+                (ext == "ans" || ext == "asc" || ext == "txt" || ext == "nfo" || ext == "diz" || ext == "xb");
 
             if (is_image)
             {
@@ -623,7 +624,11 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
 
                 AnsiCanvas imported;
                 std::string ierr;
-                if (!formats::ansi::ImportBytesToCanvas(dr.bytes, imported, ierr))
+                const bool ok =
+                    (ext == "xb")
+                        ? formats::xbin::ImportBytesToCanvas(dr.bytes, imported, ierr)
+                        : formats::ansi::ImportBytesToCanvas(dr.bytes, imported, ierr);
+                if (!ok)
                 {
                     m_last_error = ierr;
                     continue;
