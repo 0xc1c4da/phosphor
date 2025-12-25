@@ -192,6 +192,81 @@ static bool LoadPalettesFromJson32(const std::string& path,
     return true;
 }
 
+static bool SauceWantsIceColors(const sauce::Parsed& sp, bool& out_ice)
+{
+    if (!sp.record.present)
+        return false;
+    if (sp.record.data_type != (std::uint8_t)sauce::DataType::Character)
+        return false;
+
+    // SAUCE ANSiFlags are stored in TFlags for Character/ANSi-like payloads.
+    // Spec: references/sauce-spec.md ("B: Non-blink mode (iCE Color)")
+    //
+    // This flag is meaningful for:
+    // - Character / ANSi (FileType=1)
+    // - Character / ANSiMation (FileType=2)
+    // - Often also used by PCBoard/Avatar/etc, but we keep this conservative.
+    if (!(sp.record.file_type == 1 || sp.record.file_type == 2))
+        return false;
+
+    const bool non_blink_ice = (sp.record.tflags & 0x01u) != 0;
+    out_ice = non_blink_ice;
+    return true;
+}
+
+static bool ContainsSgr90_100(const std::vector<std::uint8_t>& bytes, size_t n)
+{
+    // Conservative scan for CSI ... m sequences containing 90-97 or 100-107.
+    // We keep this small and robust: it doesn't try to fully validate CSI grammar.
+    n = std::min(n, bytes.size());
+    for (size_t i = 0; i + 3 < n; ++i)
+    {
+        if (bytes[i] != ESC || bytes[i + 1] != (std::uint8_t)'[')
+            continue;
+
+        // Parse up to a reasonable bound to avoid pathological scans.
+        int cur = -1;
+        size_t j = i + 2;
+        size_t steps = 0;
+        for (; j < n && steps++ < 64; ++j)
+        {
+            const std::uint8_t c = bytes[j];
+            if (c >= (std::uint8_t)'0' && c <= (std::uint8_t)'9')
+            {
+                const int d = (int)(c - (std::uint8_t)'0');
+                cur = (cur < 0) ? d : (cur * 10 + d);
+                continue;
+            }
+
+            auto commit = [&]() -> bool {
+                if (cur < 0)
+                    return false;
+                if ((cur >= 90 && cur <= 97) || (cur >= 100 && cur <= 107))
+                    return true;
+                return false;
+            };
+
+            if (c == (std::uint8_t)';')
+            {
+                if (commit())
+                    return true;
+                cur = -1;
+                continue;
+            }
+            if (c == (std::uint8_t)'m')
+            {
+                if (commit())
+                    return true;
+                break; // end of SGR
+            }
+
+            // Not a digit/;/'m' => bail this CSI (other command).
+            break;
+        }
+    }
+    return false;
+}
+
 static std::string InferPaletteTitleFromHistogram(const std::unordered_map<AnsiCanvas::Color32, std::uint32_t>& hist,
                                                   const std::vector<PaletteDef32>& palettes)
 {
@@ -1209,6 +1284,18 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         }
     }
 
+    // Market-robust defaults (no import UI):
+    // 1) Honor SAUCE ANSiFlags "Non-blink mode (iCE Color)" when present.
+    // 2) If the stream explicitly uses SGR 90-97 / 100-107, enable support for those codes.
+    {
+        bool sauce_ice = false;
+        if (SauceWantsIceColors(sp, sauce_ice))
+            opt.icecolors = sauce_ice;
+
+        if (ContainsSgr90_100(bytes, parse_len))
+            opt.enable_sgr90_100 = true;
+    }
+
     int columns = 80;
     if (opt.columns > 0)
     {
@@ -1678,10 +1765,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     }
                     else if (code >= 90 && code <= 97)
                     {
-                        pen.fg_mode = Mode::Palette16;
-                        pen.fg_idx = (code - 90) + 8;
-                        pen.fg = ColorFromAnsi16(pen.fg_idx);
-                        pen.fg_bright_from_bold = false;
+                        if (options.enable_sgr90_100)
+                        {
+                            pen.fg_mode = Mode::Palette16;
+                            pen.fg_idx = (code - 90) + 8;
+                            pen.fg = ColorFromAnsi16(pen.fg_idx);
+                            pen.fg_bright_from_bold = false;
+                        }
                     }
                     else if (code >= 40 && code <= 47)
                     {
@@ -1700,10 +1790,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     }
                     else if (code >= 100 && code <= 107)
                     {
-                        pen.bg_mode = Mode::Palette16;
-                        pen.bg_idx = (code - 100) + 8;
-                        pen.bg = ColorFromAnsi16(pen.bg_idx);
-                        pen.bg_bright_from_ice = false;
+                        if (options.enable_sgr90_100)
+                        {
+                            pen.bg_mode = Mode::Palette16;
+                            pen.bg_idx = (code - 100) + 8;
+                            pen.bg = ColorFromAnsi16(pen.bg_idx);
+                            pen.bg_bright_from_ice = false;
+                        }
                     }
                     else if (code == 38 || code == 48)
                     {

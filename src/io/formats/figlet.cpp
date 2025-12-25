@@ -163,6 +163,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const phos::color::BuiltinPalette builtin = ChooseBuiltinPaletteForBitmap(bmp);
     st.palette_ref.is_builtin = true;
     st.palette_ref.builtin = builtin;
+    // IMPORTANT: snapshot fields drive rendering; keep them in sync.
+    st.current.palette_ref = st.palette_ref;
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);

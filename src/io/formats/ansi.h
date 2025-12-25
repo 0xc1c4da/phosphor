@@ -50,6 +50,15 @@ struct ImportOptions
     // matching common ANSI art conventions.
     bool icecolors = true;
 
+    // If true, interpret SGR 90-97 / 100-107 as "bright" 16-color codes.
+    //
+    // IMPORTANT:
+    // - libansilove ignores these codes (it uses classic 30-37/40-47 + bold/blink conventions).
+    // - Many scene ANSI files expect libansilove-like behavior; enabling these can change rendering.
+    //
+    // Default: false (match libansilove).
+    bool enable_sgr90_100 = false;
+
     // Default colors used when the file resets attributes (SGR 0 / 39 / 49).
     // These are stored as actual packed colors (not xterm indices).
     AnsiCanvas::Color32 default_fg = 0; // if 0, importer will use ANSI light gray

@@ -279,6 +279,8 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
 
     const ImU32 paper = canvas.IsCanvasBackgroundWhite() ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
     const ImU32 default_fg = canvas.IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+    const bool active_palette_is_vga16 =
+        (canvas.GetPaletteRef().is_builtin && canvas.GetPaletteRef().builtin == phos::color::BuiltinPalette::Vga16);
 
     auto set_px = [&](int x, int y, ImU32 c)
     {
@@ -397,7 +399,35 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
             if ((attrs & AnsiCanvas::Attr_Dim) != 0)
                 fg_col = apply_mul(fg_col, 0.60f);
             if ((attrs & AnsiCanvas::Attr_Bold) != 0)
-                fg_col = apply_mul(fg_col, 1.25f);
+            {
+                if (active_palette_is_vga16)
+                {
+                    // ANSI/VGA16 convention: SGR 1 selects the bright palette entry, not a multiplier.
+                    // Map only if the effective foreground is one of VGA16 indices 0..7.
+                    static const ImU32 vga16[16] = {
+                        IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
+                        IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
+                        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
+                        IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
+                        IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
+                        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
+                    };
+                    for (int ii = 0; ii < 8; ++ii)
+                    {
+                        if (fg_col == vga16[ii])
+                        {
+                            fg_col = vga16[ii + 8];
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    fg_col = apply_mul(fg_col, 1.25f);
+                }
+            }
 
             const int out_col = col - r.x;
             const int out_row = row - r.y;

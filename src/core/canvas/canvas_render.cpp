@@ -74,6 +74,34 @@ static bool RenderItalicGlyphClipped(ImDrawList* draw_list,
     }
     return true;
 }
+
+static inline void ApplyVga16BoldAsBright(ImU32& fg_col, bool active_palette_is_vga16, AnsiCanvas::Attrs a)
+{
+    // ANSI/VGA16 convention: SGR 1 (bold) selects the "bright" 8..15 foreground, not a multiplier.
+    // Apply only when the active palette is the canonical VGA16, to match libansilove and avoid
+    // double-brightening of already-bright palette entries.
+    if (!active_palette_is_vga16 || (a & AnsiCanvas::Attr_Bold) == 0)
+        return;
+
+    static const ImU32 vga16[16] = {
+        IM_COL32(0x00, 0x00, 0x00, 0xFF), IM_COL32(0xAA, 0x00, 0x00, 0xFF),
+        IM_COL32(0x00, 0xAA, 0x00, 0xFF), IM_COL32(0xAA, 0x55, 0x00, 0xFF),
+        IM_COL32(0x00, 0x00, 0xAA, 0xFF), IM_COL32(0xAA, 0x00, 0xAA, 0xFF),
+        IM_COL32(0x00, 0xAA, 0xAA, 0xFF), IM_COL32(0xAA, 0xAA, 0xAA, 0xFF),
+        IM_COL32(0x55, 0x55, 0x55, 0xFF), IM_COL32(0xFF, 0x55, 0x55, 0xFF),
+        IM_COL32(0x55, 0xFF, 0x55, 0xFF), IM_COL32(0xFF, 0xFF, 0x55, 0xFF),
+        IM_COL32(0x55, 0x55, 0xFF, 0xFF), IM_COL32(0xFF, 0x55, 0xFF, 0xFF),
+        IM_COL32(0x55, 0xFF, 0xFF, 0xFF), IM_COL32(0xFF, 0xFF, 0xFF, 0xFF),
+    };
+    for (int i = 0; i < 8; ++i)
+    {
+        if (fg_col == vga16[i])
+        {
+            fg_col = vga16[i + 8];
+            return;
+        }
+    }
+}
 } // namespace
 
 // ---- inlined from canvas_render.inc ----
@@ -271,6 +299,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
     const bool active_palette_is_vga16 =
         (m_palette_ref.is_builtin && m_palette_ref.builtin == phos::color::BuiltinPalette::Vga16);
 
+
     // For bitmap/atlas rendering, avoid incremental float accumulation (x += cell_w) and
     // independently-rounded endpoints. Compute cell rects from (row,col) so adjacent cells
     // share identical edges after snapping (prevents 1px cracks between quads).
@@ -324,7 +353,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
             if ((a & Attr_Dim) != 0)
                 fg_col = adjust_intensity(fg_col, 0.60f);
-            if ((a & Attr_Bold) != 0)
+            ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
+            if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
                 fg_col = adjust_intensity(fg_col, 1.25f);
 
             // Background fill:
@@ -578,7 +608,8 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
             }
             if ((a & Attr_Dim) != 0)
                 fg_col = adjust_intensity(fg_col, 0.60f);
-            if ((a & Attr_Bold) != 0)
+            ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
+            if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
                 fg_col = adjust_intensity(fg_col, 1.25f);
 
             const bool bg_fills = (cell.bg != kUnsetIndex16) || reverse_attr;
@@ -745,7 +776,8 @@ void AnsiCanvas::DrawSelectionOverlay(ImDrawList* draw_list,
                 };
                 if ((a & Attr_Dim) != 0)
                     fg_col = adjust_intensity(fg_col, 0.60f);
-                if ((a & Attr_Bold) != 0)
+                ApplyVga16BoldAsBright(fg_col, active_palette_is_vga16, a);
+                if (!active_palette_is_vga16 && (a & Attr_Bold) != 0)
                     fg_col = adjust_intensity(fg_col, 1.25f);
 
                 if (c.bg != kUnsetIndex16 || reverse)
