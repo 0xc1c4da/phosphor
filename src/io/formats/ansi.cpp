@@ -928,16 +928,13 @@ static inline bool IsValidColumns(int cols)
 static inline int NormalizeInferredColumns(int cols)
 {
     // Preserve long-standing UX expectations: don't auto-infer widths below 80 unless the
-    // user explicitly forces it. For wider art, snap up to common terminal widths.
+    // user explicitly forces it.
+    //
+    // IMPORTANT: do NOT "snap up" to 100/132/etc here. For ANSI art import, the exact
+    // column width is semantically significant (wrapping changes the artwork).
     cols = ClampColumns(cols);
     if (cols <= 80)
         return 80;
-    if (cols <= 100)
-        return 100;
-    if (cols <= 132)
-        return 132;
-    if (cols <= 160)
-        return 160;
     return cols;
 }
 
@@ -1214,7 +1211,7 @@ static int DetermineAutoColumns(const std::vector<std::uint8_t>& bytes,
     int sauce_rows = 0;
     GetSauceDimensions(sp, sauce_cols, sauce_rows);
     if (IsValidColumns(sauce_cols))
-        return NormalizeInferredColumns(sauce_cols);
+        return ClampColumns(sauce_cols); // SAUCE is an explicit width; preserve exact columns.
 
     // Strong signal: explicit cursor positioning to a column.
     const int max_col_1 = MaxExplicitColumn1BasedFromCsi(bytes, parse_len);
@@ -1906,8 +1903,19 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         }
     }
 
-    const int out_rows = std::max(1, rowMax + 1);
+    int out_rows = std::max(1, rowMax + 1);
     const int out_cols = columns; // fixed
+
+    // If SAUCE declares a height, treat it as a minimum canvas height.
+    // This preserves bottom padding for screen-sized artworks where the last rows may be blank/unwritten.
+    {
+        int sauce_cols = 0;
+        int sauce_rows = 0;
+        GetSauceDimensions(sp, sauce_cols, sauce_rows);
+        if (sauce_rows > out_rows && sauce_rows <= 4096)
+            out_rows = sauce_rows;
+    }
+
     ensure_rows(out_rows);
 
 #ifndef NDEBUG
