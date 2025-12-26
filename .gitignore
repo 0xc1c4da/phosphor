@@ -12,3 +12,5 @@ phosphor-tui
 *.png
 *.phos
 !dist/**
+i18n_validate
+palette_validate
