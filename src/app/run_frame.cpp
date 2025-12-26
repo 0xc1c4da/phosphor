@@ -1712,8 +1712,64 @@ void RunFrame(AppState& st)
             ImGui::SetNextWindowSize(desired, ImGuiCond_Appearing);
         }
 
-        ApplyImGuiWindowPlacement(session_state, persist_key.c_str(),
-                                  has_saved && should_apply_placement(persist_key.c_str()));
+        // IMPORTANT:
+        // `persist_key` is intentionally stable per-document for file-backed canvases.
+        // Multiple simultaneous windows can share the same `persist_key`, so we must NOT
+        // gate placement application by `persist_key` (otherwise subsequent windows get no
+        // initial placement and may spawn tiny at (0,0)).
+        //
+        // Instead, gate placement application by the per-window instance id (`canvas_window_id`)
+        // while still *reading* placement from `persist_key`.
+        const bool apply_canvas_placement_this_frame =
+            has_saved && should_apply_placement(canvas_window_id.c_str());
+        ApplyImGuiWindowPlacement(session_state, persist_key.c_str(), apply_canvas_placement_this_frame);
+
+        // If multiple windows are open for the same file-backed canvas (shared persist_key),
+        // nudge additional instances so they don't perfectly overlap.
+        //
+        // - The lowest id window for a given persist_key gets the exact saved placement.
+        // - Higher id windows are offset by a small deterministic cascade.
+        if (apply_canvas_placement_this_frame)
+        {
+            int same_doc_rank = 0; // number of open same-doc windows with smaller ids
+            for (const auto& other_ptr : canvases)
+            {
+                if (!other_ptr || !other_ptr->open)
+                    continue;
+                const CanvasWindow& other = *other_ptr;
+                if (other.id == canvas.id)
+                    continue;
+
+                std::string other_path;
+                if (other.canvas.HasFilePath())
+                    other_path = other.canvas.GetFilePath();
+                else if (!other.restore_phos_cache_rel.empty())
+                    other_path = PhosphorCachePath(other.restore_phos_cache_rel);
+                else
+                    other_path = PhosphorCachePath("session_canvases/canvas_" + std::to_string(other.id) + ".phos");
+
+                const std::string other_doc_id = sanitize_imgui_id(other_path);
+                const std::string other_window_id = "canvas:" + other_doc_id + "#" + std::to_string(other.id);
+                const bool other_is_session_canvas =
+                    (!session_canvas_dir.empty() && other_path.rfind(session_canvas_dir, 0) == 0);
+                const std::string other_persist_key =
+                    (!other_is_session_canvas ? ("canvas:" + other_doc_id) : other_window_id);
+
+                if (other_persist_key == persist_key && other.id < canvas.id)
+                    ++same_doc_rank;
+            }
+
+            if (same_doc_rank > 0)
+            {
+                const float offset = 18.0f * (float)(same_doc_rank % 10);
+                const ImGuiWindowPlacement& p = it->second;
+                ImGui::SetNextWindowPos(ImVec2(p.x + offset, p.y + offset), ImGuiCond_Always);
+            }
+        }
+
+        // Canvas windows should never be allowed to collapse to near-zero size due to transient
+        // ImGui sizing quirks or bad persisted state. Keep a conservative minimum.
+        ImGui::SetNextWindowSizeConstraints(ImVec2(200.0f, 150.0f), ImVec2(FLT_MAX, FLT_MAX));
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, title.c_str());
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, title.c_str());

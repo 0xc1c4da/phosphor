@@ -99,18 +99,6 @@ If you have the repo cloned locally:
 nix run .#phosphor
 ```
 
-## Utilities
-
-### Convert `.ans` to LLM-friendly `.txt`
-
-This repo includes a helper to convert ANSI files (`.ans`) into a plain-text file containing a Python-style bytes literal using only `\xHH` escapes:
-
-```bash
-python3 scripts/ans_to_bxesc.py /path/to/dir --recursive
-```
-
-By default it writes `<basename>.txt` next to each `.ans`. Use `--output-dir` to mirror the directory tree into a separate location.
-
 ## Building from source
 
 This repo builds a native binary called `phosphor`.

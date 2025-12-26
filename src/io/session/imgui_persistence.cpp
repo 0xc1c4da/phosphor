@@ -51,15 +51,31 @@ void CaptureImGuiWindowPlacement(SessionState& session, const char* window_name)
         return;
 
     ImGuiWindowPlacement& p = session.imgui_windows[window_name];
-    p.valid = true;
-
     const ImVec2 pos = ImGui::GetWindowPos();
     const ImVec2 sz  = ImGui::GetWindowSize();
+
+    const bool collapsed = ImGui::IsWindowCollapsed();
+
+    // Guard against transient / invalid sizes (common on the first Begin() of a newly-created window,
+    // and can also happen during certain docking/layout transitions). If we persist these, future
+    // restores can spawn windows tiny at (0,0).
+    //
+    // - If collapsed, allow small sizes (title bar height); we restore collapsed state separately.
+    // - If not collapsed, ignore implausibly small sizes to avoid poisoning the session state.
+    if (!collapsed)
+    {
+        constexpr float kMinW = 64.0f;
+        constexpr float kMinH = 64.0f;
+        if (sz.x < kMinW || sz.y < kMinH)
+            return;
+    }
+
+    p.valid = true;
     p.x = pos.x;
     p.y = pos.y;
     p.w = sz.x;
     p.h = sz.y;
-    p.collapsed = ImGui::IsWindowCollapsed();
+    p.collapsed = collapsed;
 }
 
 
