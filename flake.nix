@@ -23,8 +23,11 @@
         };
 
         simplep2p = pkgs.callPackage ./nix/simplep2p.nix { };
+        automerge-c = pkgs.callPackage ./nix/automerge-c.nix { };
 
-        baseVersion = pkgs.lib.strings.removeSuffix "\n" (builtins.readFile ./VERSION);
+        # VERSION should be a clean SemVer string, but trim defensively to avoid
+        # accidental whitespace splitting `makeFlags` (Make treats extra tokens as targets).
+        baseVersion = pkgs.lib.strings.trim (builtins.readFile ./VERSION);
 
         # Deterministic build identifier for reproducible builds:
         # - Prefer git revision when available in flake metadata.
@@ -67,6 +70,9 @@
           md4c
           libblake3
           libsixel
+          secp256k1
+          simplep2p
+          automerge-c
         ];
 
         phosphor = pkgs.stdenv.mkDerivation {
@@ -118,13 +124,13 @@
           pkg-config
           gcc
           python3
-          simplep2p
         ] ++ phosphorBuildInputs;
       in
       {
         packages = {
           phosphor = phosphor;
           simplep2p = simplep2p;
+          automerge-c = automerge-c;
           default = phosphor;
         };
 
