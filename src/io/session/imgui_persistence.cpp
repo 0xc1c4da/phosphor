@@ -38,10 +38,44 @@ void ApplyImGuiWindowPlacement(const SessionState& session, const char* window_n
 
     const ImGuiWindowPlacement& p = it->second;
 
+    // Clamp persisted placement to the current main viewport work rect so bad/stale session.json
+    // data (e.g. from different monitor layouts, DPI changes, or earlier unstable window IDs)
+    // can't spawn windows off-screen or effectively invisible.
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    const ImVec2 work_pos  = vp ? vp->WorkPos  : ImVec2(0, 0);
+    const ImVec2 work_size = vp ? vp->WorkSize : ImVec2(1280, 720);
+    const float margin = 20.0f;
+
+    auto clampf = [](float v, float lo, float hi) -> float {
+        if (v < lo) return lo;
+        if (v > hi) return hi;
+        return v;
+    };
+
+    // Size: keep within viewport bounds (and keep a sane minimum).
+    float w = p.w;
+    float h = p.h;
+    const float min_w = 200.0f;
+    const float min_h = 150.0f;
+    const float max_w = std::max(min_w, work_size.x - margin);
+    const float max_h = std::max(min_h, work_size.y - margin);
+    w = clampf(w, min_w, max_w);
+    h = clampf(h, min_h, max_h);
+
+    // Position: ensure at least part of the window stays inside the work rect.
+    float x = p.x;
+    float y = p.y;
+    const float min_x = work_pos.x - (w - margin);
+    const float min_y = work_pos.y - (h - margin);
+    const float max_x = work_pos.x + work_size.x - margin;
+    const float max_y = work_pos.y + work_size.y - margin;
+    x = clampf(x, min_x, max_x);
+    y = clampf(y, min_y, max_y);
+
     // Only apply on the designated frame (typically first frame) so we don't
     // fight user interaction.
-    ImGui::SetNextWindowPos(ImVec2(p.x, p.y), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(p.w, p.h), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
     ImGui::SetNextWindowCollapsed(p.collapsed, ImGuiCond_Always);
 }
 
