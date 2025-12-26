@@ -126,8 +126,8 @@
       "category": "File",
       "description": "Open the Settings window.",
       "bindings": [
-        { "enabled": true, "chord": "Ctrl+,", "context": "global", "platform": "any" },
-        { "enabled": true, "chord": "Cmd+,", "context": "global", "platform": "macos" }
+        { "enabled": true, "chord": "Ctrl+Esc", "context": "global", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+Esc", "context": "global", "platform": "macos" }
       ]
     },
 
@@ -1221,7 +1221,7 @@
       "category": "Character Set",
       "description": "Select previous character set. TODO(wire).",
       "bindings": [
-        { "enabled": false, "chord": "Ctrl+,", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Ctrl+,", "context": "editor", "platform": "any" }
       ]
     },
     {
@@ -1230,7 +1230,7 @@
       "category": "Character Set",
       "description": "Select next character set. TODO(wire).",
       "bindings": [
-        { "enabled": false, "chord": "Ctrl+.", "context": "editor", "platform": "any" }
+        { "enabled": true, "chord": "Ctrl+.", "context": "editor", "platform": "any" }
       ]
     },
     {

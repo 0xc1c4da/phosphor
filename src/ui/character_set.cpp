@@ -364,6 +364,19 @@ bool CharacterSetWindow::SetActiveSetIndex(int idx)
     return true;
 }
 
+void CharacterSetWindow::CycleActiveSet(int delta)
+{
+    EnsureLoaded();
+    EnsureNonEmpty();
+    const int n = (int)sets_.size();
+    if (n <= 0)
+        return;
+    int idx = active_set_index_;
+    // Wrap in both directions.
+    idx = ((idx + delta) % n + n) % n;
+    SetActiveSetIndex(idx);
+}
+
 uint32_t CharacterSetWindow::GetSlotCodePoint(int slot_index_0_based) const
 {
     if (sets_.empty())
@@ -450,10 +463,10 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
         active_set_index_ = std::clamp(active_set_index_, 0, set_count - 1);
 
     if (ImGui::ArrowButton("##prev_set", ImGuiDir_Left) && set_count > 0)
-        SetActiveSetIndex(active_set_index_ - 1);
+        CycleActiveSet(-1);
     ImGui::SameLine();
     if (ImGui::ArrowButton("##next_set", ImGuiDir_Right) && set_count > 0)
-        SetActiveSetIndex(active_set_index_ + 1);
+        CycleActiveSet(1);
     ImGui::SameLine();
 
     // Combo with "Set N"
@@ -684,10 +697,43 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
 
     // Title-bar ⋮ settings popup (in addition to the in-window collapsing header).
     {
-        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
         const bool has_close = (p_open != nullptr);
         const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
-        if (RenderImGuiWindowChromeTitleBarButton("##charset_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+
+        // Title bar controls: [<] [>] [⋮]
+        const int set_count = (int)sets_.size();
+        if (RenderImGuiWindowChromeTitleBarButton("##charset_prev_set", "<", has_close, has_collapse,
+                                                  /*out_rect_min=*/nullptr, /*out_rect_max=*/nullptr,
+                                                  /*button_index_from_right=*/2))
+        {
+            if (set_count > 0)
+                CycleActiveSet(-1);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted("Previous set");
+            ImGui::EndTooltip();
+        }
+
+        if (RenderImGuiWindowChromeTitleBarButton("##charset_next_set", ">", has_close, has_collapse,
+                                                  /*out_rect_min=*/nullptr, /*out_rect_max=*/nullptr,
+                                                  /*button_index_from_right=*/1))
+        {
+            if (set_count > 0)
+                CycleActiveSet(1);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted("Next set");
+            ImGui::EndTooltip();
+        }
+
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        if (RenderImGuiWindowChromeTitleBarButton("##charset_kebab", "\xE2\x8B\xAE", has_close, has_collapse,
+                                                  &kebab_min, &kebab_max,
+                                                  /*button_index_from_right=*/0))
             ImGui::OpenPopup("##charset_settings");
 
         if (ImGui::IsPopupOpen("##charset_settings"))
@@ -735,9 +781,9 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         if (io.MouseWheel != 0.0f && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
         {
             if (io.MouseWheel > 0.0f)
-                SetActiveSetIndex(active_set_index_ + 1);
+                CycleActiveSet(1);
             else
-                SetActiveSetIndex(active_set_index_ - 1);
+                CycleActiveSet(-1);
         }
     }
 

@@ -849,8 +849,8 @@ std::vector<Action> DefaultActions()
             .id="app.settings.open", .title="Settings…", .category="File",
             .description="Open the Settings window.",
             .bindings={
-                {.enabled=true, .chord="Ctrl+,", .context="global", .platform="any"},
-                {.enabled=true, .chord="Cmd+,", .context="global", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+Esc", .context="global", .platform="any"},
+                {.enabled=true, .chord="Cmd+Esc", .context="global", .platform="macos"},
             }
         },
 
@@ -1534,17 +1534,16 @@ std::vector<Action> DefaultActions()
         // NOTE: We intentionally do NOT bind Ctrl+1..9/0 for character-set insertion.
         // Those chords are reserved for editor/view shortcuts (notably Ctrl+0 = Reset Zoom).
 
-        // TODO(wire): Character-set navigation (Moebius) is useful when multiple sets exist.
-        // This currently conflicts with some global UI toggles (Ctrl+/), so keep disabled by default.
+        // Character-set navigation (Moebius) is useful when multiple sets exist.
         {
             .id="charset.prev_set", .title="Previous Character Set", .category="Character Set",
             .description="Select previous character set. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Ctrl+,", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+,", .context="editor", .platform="any"} }
         },
         {
             .id="charset.next_set", .title="Next Character Set", .category="Character Set",
             .description="Select next character set. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Ctrl+.", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+.", .context="editor", .platform="any"} }
         },
         {
             .id="charset.default_set", .title="Default Character Set", .category="Character Set",

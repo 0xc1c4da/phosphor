@@ -33,7 +33,8 @@ bool RenderImGuiWindowChromeTitleBarButton(const char* id,
                                           bool has_close_button,
                                           bool has_collapse_button,
                                           ImVec2* out_rect_min = nullptr,
-                                          ImVec2* out_rect_max = nullptr);
+                                          ImVec2* out_rect_max = nullptr,
+                                          int button_index_from_right = 0);
 
 // Applies the pinned z-order behavior (front/back) for the current window.
 void ApplyImGuiWindowChromeZOrder(const SessionState* session, const char* window_name);

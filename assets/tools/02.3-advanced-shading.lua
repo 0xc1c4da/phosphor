@@ -1,7 +1,7 @@
 settings = {
   id = "02.3-advanced-shading",
   icon = "🌓",
-  label = "Advanced Shading",
+  label = "Advanced Shading (Experimental)",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
@@ -143,6 +143,166 @@ settings = {
       inline = true,
       tooltip = "Classic ANSI rule: color 08 is special—often great as a flat fill, often ugly as a blended intermediate. If off: CPS forbids 08 inside fg/bg mixes except safe pairs (03↔08 and 07↔08). Turn on only if you know you want 08 blends.",
     },
+
+    -- Advanced tuning knobs (derived from the CPS spec).
+    compatShadedThreshold = {
+      type = "float",
+      label = "Compat threshold",
+      ui = "slider",
+      section = "Advanced",
+      order = 40,
+      min = 0.0,
+      max = 1.0,
+      step = 0.01,
+      default = 0.75,
+      width = 180,
+      tooltip = "Shaded-together cutoff (Rule 7 scope + transition reasoning). Higher = more conservative about treating two colors as a valid shading pair.",
+    },
+    brightThreshold = {
+      type = "float",
+      label = "Bright threshold",
+      ui = "slider",
+      section = "Advanced",
+      order = 41,
+      min = 0.0,
+      max = 1.0,
+      step = 0.01,
+      default = 0.65,
+      width = 180,
+      tooltip = "Luminance cutoff used for Rule 7 'bright next to bright' detection. Lower catches more pairs; higher is less aggressive.",
+    },
+    rule7WhiteException = {
+      type = "bool",
+      label = "Rule 7: allow white",
+      ui = "toggle",
+      section = "Advanced",
+      order = 42,
+      default = true,
+      inline = true,
+      tooltip = "Rule 7 allows a 'maybe white' exception. If on: bright-bright adjacency is not penalized when either side is near-white.",
+    },
+    rule7WhiteThreshold = {
+      type = "float",
+      label = "White cutoff",
+      ui = "slider",
+      section = "Advanced",
+      order = 43,
+      min = 0.0,
+      max = 1.0,
+      step = 0.01,
+      default = 0.92,
+      width = 180,
+      tooltip = "What counts as 'white' for the Rule 7 exception (only used when Rule 7: allow white is on).",
+    },
+
+    thinThicknessMin = {
+      type = "int",
+      label = "Thin thickness",
+      ui = "slider",
+      section = "Advanced",
+      order = 50,
+      min = 1,
+      max = 8,
+      step = 1,
+      default = 2,
+      inline = true,
+      tooltip = "Thin-feature gating based on region thickness (distance to boundary). Lower shades thinner details; higher protects thin details from clutter.",
+    },
+    thinDetailMin = {
+      type = "float",
+      label = "Thin detail",
+      ui = "slider",
+      section = "Advanced",
+      order = 51,
+      min = 0.0,
+      max = 1.0,
+      step = 0.01,
+      default = 0.50,
+      width = 180,
+      tooltip = "Thin-feature gating based on per-cell detail budget D(c). If D(c) < this, textures/extremes are vetoed and transition width is clamped.",
+    },
+
+    maxStraightHighlightRun = {
+      type = "int",
+      label = "Max highlight run",
+      ui = "slider",
+      section = "Advanced",
+      order = 60,
+      min = 2,
+      max = 12,
+      step = 1,
+      default = 3,
+      inline = true,
+      tooltip = "Halaster rule: veto straight highlight runs longer than this (applies to halshade border/sparkle/swirl).",
+    },
+
+    maxDensityDetailRatio = {
+      type = "float",
+      label = "Density detail cap",
+      ui = "slider",
+      section = "Advanced",
+      order = 70,
+      min = 0.0,
+      max = 0.60,
+      step = 0.01,
+      default = 0.15,
+      width = 180,
+      tooltip = "Halshade: cap how much ░▒▓ can appear in a local window (Halaster: density is detail work).",
+    },
+    densityWindow = {
+      type = "int",
+      label = "Density window",
+      ui = "segmented",
+      section = "Advanced",
+      order = 71,
+      min = 5,
+      max = 15,
+      step = 1,
+      default = 8,
+      inline = true,
+      tooltip = "Halshade density cap window size (square). Larger windows enforce a smoother global cap; smaller windows allow more local density clusters.",
+    },
+
+    chromaMinCount = {
+      type = "int",
+      label = "Chroma minCount",
+      ui = "slider",
+      section = "Advanced",
+      order = 80,
+      min = 1,
+      max = 30,
+      step = 1,
+      default = 6,
+      inline = true,
+      tooltip = "Plus/Chroma: palette-local random shade only picks colors that appear at least this many times in the local window.",
+    },
+    chromaRadius = {
+      type = "int",
+      label = "Chroma radius",
+      ui = "slider",
+      section = "Advanced",
+      order = 81,
+      min = 1,
+      max = 12,
+      step = 1,
+      default = 4,
+      inline = true,
+      tooltip = "Plus/Chroma: radius of the local histogram window (radius=4 means 9×9). Larger = more global reuse; smaller = stricter locality.",
+    },
+
+    bgBlendWidth = {
+      type = "int",
+      label = "BG blend width",
+      ui = "slider",
+      section = "Advanced",
+      order = 90,
+      min = 1,
+      max = 8,
+      step = 1,
+      default = 3,
+      inline = true,
+      tooltip = "bg_blend: how far (in cells) outside the silhouette to feather into the background.",
+    },
   },
 }
 
@@ -276,10 +436,38 @@ end
 -- -------------------------------------------------------------------------
 local lum_cache = {} -- key idx -> Y in [0,1]
 local rgb_cache = {} -- idx -> {r,g,b}
+local last_palette_id = nil
+
+-- Clear caches when active palette changes (indices are in the *active palette*).
+local function maybe_reset_palette_caches()
+  -- Best-effort: palette id is stored in Lua registry by the host.
+  local dbg = rawget(_G, "debug")
+  if type(dbg) ~= "table" or type(dbg.getregistry) ~= "function" then
+    return
+  end
+  local ok, reg = pcall(function() return dbg.getregistry() end)
+  if not ok or type(reg) ~= "table" then
+    return
+  end
+  local pid = reg["phosphor.active_palette_instance_id"]
+  if type(pid) ~= "number" then
+    return
+  end
+  if last_palette_id == nil then
+    last_palette_id = pid
+    return
+  end
+  if pid ~= last_palette_id then
+    lum_cache = {}
+    rgb_cache = {}
+    last_palette_id = pid
+  end
+end
 
 local function idx_to_rgb(idx)
   if type(idx) ~= "number" then return 0, 0, 0, false end
   idx = math.floor(idx)
+  maybe_reset_palette_caches()
   local c = rgb_cache[idx]
   if c ~= nil then
     return c[1], c[2], c[3], true
@@ -300,6 +488,7 @@ end
 local function luminance(idx)
   if type(idx) ~= "number" then return 0.0 end
   idx = math.floor(idx)
+  maybe_reset_palette_caches()
   local y = lum_cache[idx]
   if y ~= nil then return y end
   local r, g, b, ok = idx_to_rgb(idx)
@@ -332,6 +521,11 @@ local function rgb_to_hsv(r, g, b)
   local v = mx
   return h, s, v
 end
+
+-- Runtime-tunable threshold for Rule 7 brightness detection.
+local bright_threshold = 0.65
+local rule7_white_exception = true
+local rule7_white_threshold = 0.92
 
 -- Classic ANSI-16 tutorial-derived rules.
 local colorClass16 = {
@@ -392,7 +586,12 @@ end
 
 local function is_bright_idx(idx)
   if type(idx) ~= "number" then return false end
-  return luminance(idx) >= 0.65
+  return luminance(idx) >= (bright_threshold or 0.65)
+end
+
+local function is_whiteish_idx(idx)
+  if type(idx) ~= "number" then return false end
+  return luminance(idx) >= (rule7_white_threshold or 0.92)
 end
 
 local function color_class(idx, is_classic16)
@@ -520,6 +719,7 @@ local function mode_defaults(mode)
     relaxPasses = 1,
 
     thinThicknessMin = 2,
+    thinDetailMin = 0.50,
     t0 = 1, t1 = 3,
     compatShadedThreshold = 0.75,
     maxStraightHighlightRun = 3,
@@ -528,6 +728,13 @@ local function mode_defaults(mode)
     maxDensityDetailRatio = 0.15,
     densityDetailWindowW = 8,
     densityDetailWindowH = 8,
+
+    -- Chroma histogram settings.
+    chromaMinCount = 6,
+    chromaHistRadius = 4,
+
+    -- Background blend width (outside of silhouettes).
+    bgBlendWidth = 3,
 
     -- Weights (from spec defaults; tools can override per mode).
     weights = {
@@ -583,6 +790,7 @@ local function mode_defaults(mode)
     p.weights.pen_overshade = 350
   elseif mode == "bg_blend" then
     p.transitionWidth = 3
+    p.bgBlendWidth = 3
     p.enableTransition = false
     p.enableBgFeather = true
     p.enableHalfEdge = false
@@ -730,6 +938,9 @@ end
 local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, light_dx, light_dy, params, sample_mode)
   -- Analyze a (2r+1)^2 footprint centered at (cx,cy), plus a 1-cell margin for boundary detection.
   local cols = to_int(ctx.cols, 0)
+  local rows = to_int(ctx.rows, 0)
+  local default_bg = nil
+  if type(ctx.bg) == "number" then default_bg = math.floor(ctx.bg) end
   local x0 = cx - r - 1
   local x1 = cx + r + 1
   local y0 = cy - r - 1
@@ -737,7 +948,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
 
   local cell = {} -- key -> {ch, fg, bg, attrs, filled, dom}
   for y = y0, y1 do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = x0, x1 do
         if x >= 0 and x < cols then
           local ch, fg, bg, attrs = sample_cell(ctx, layer, x, y, sample_mode)
@@ -805,7 +1016,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   -- IMPORTANT: include silhouette boundaries (filled region adjacent to empty/background).
   local boundary = {}
   for y = cy - r, cy + r do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = cx - r, cx + r do
         if x >= 0 and x < cols then
           local k = key_xy(x, y)
@@ -832,7 +1043,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   local q = {}
   local qi, qj = 1, 0
   for y = cy - r, cy + r do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = cx - r, cx + r do
         if x >= 0 and x < cols then
           local k = key_xy(x, y)
@@ -875,7 +1086,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   -- This is used for lit-side decisions and half-block continuity.
   local normal = {}
   for y = cy - r, cy + r do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = cx - r, cx + r do
         if x >= 0 and x < cols then
           local k = key_xy(x, y)
@@ -905,7 +1116,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   -- Per-region max interior distance (proxy for thickness of the feature).
   local region_max_dist = {}
   for y = cy - r, cy + r do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = cx - r, cx + r do
         if x >= 0 and x < cols then
           local k = key_xy(x, y)
@@ -925,9 +1136,9 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   local hist = nil
   if params and params.enableChroma then
     hist = {}
-    local hw = 4
+    local hw = clamp(to_int(params.chromaHistRadius, 4), 1, 20)
     for y = cy - r, cy + r do
-      if y >= 0 then
+      if y >= 0 and (rows <= 0 or y < rows) then
         for x = cx - r, cx + r do
           if x >= 0 and x < cols then
             local k = key_xy(x, y)
@@ -969,7 +1180,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
   local T = {}
   local D = {}
   for y = cy - r, cy + r do
-    if y >= 0 then
+    if y >= 0 and (rows <= 0 or y < rows) then
       for x = cx - r, cx + r do
         if x >= 0 and x < cols then
           local k = key_xy(x, y)
@@ -1001,6 +1212,92 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
     end
   end
 
+  -- Outside-of-silhouette boundary + distance (for bg_blend).
+  -- outside_boundary: cells NOT in a filled region but adjacent to one.
+  local outside_boundary = {}
+  local outside_in_dom = {}
+  local outside_dist = {}
+  do
+    for y = cy - r, cy + r do
+      if y >= 0 and (rows <= 0 or y < rows) then
+        for x = cx - r, cx + r do
+          if x >= 0 and x < cols then
+            local k = key_xy(x, y)
+            if region[k] == nil then
+              local nbs = {
+                { x - 1, y }, { x + 1, y }, { x, y - 1 }, { x, y + 1 },
+              }
+              local hit = false
+              for i = 1, #nbs do
+                local nk = key_xy(nbs[i][1], nbs[i][2])
+                local nr = region[nk]
+                if nr ~= nil then
+                  outside_boundary[k] = true
+                  outside_in_dom[k] = region_dom[nr]
+                  hit = true
+                  break
+                end
+              end
+              if not hit then
+                outside_boundary[k] = false
+              end
+            end
+          end
+        end
+      end
+    end
+
+    -- BFS outward in non-region space (multi-source from outside_boundary).
+    local oq = {}
+    local oi, oj = 1, 0
+    for y = cy - r, cy + r do
+      if y >= 0 and (rows <= 0 or y < rows) then
+        for x = cx - r, cx + r do
+          if x >= 0 and x < cols then
+            local k = key_xy(x, y)
+            if region[k] == nil then
+              if outside_boundary[k] then
+                outside_dist[k] = 0
+                oj = oj + 1
+                oq[oj] = { x = x, y = y }
+              else
+                outside_dist[k] = 1e9
+              end
+            end
+          end
+        end
+      end
+    end
+
+    while oi <= oj do
+      local cur = oq[oi]; oi = oi + 1
+      local x, y = cur.x, cur.y
+      local k = key_xy(x, y)
+      local d0 = outside_dist[k] or 1e9
+      local nbs = { { x - 1, y }, { x + 1, y }, { x, y - 1 }, { x, y + 1 } }
+      for i = 1, #nbs do
+        local nx, ny = nbs[i][1], nbs[i][2]
+        if nx >= cx - r and nx <= cx + r and ny >= cy - r and ny <= cy + r then
+          if ny >= 0 and (rows <= 0 or ny < rows) and nx >= 0 and nx < cols then
+            local nk = key_xy(nx, ny)
+            if region[nk] == nil and outside_dist[nk] ~= nil then
+              local nd = outside_dist[nk]
+              if d0 + 1 < nd then
+                outside_dist[nk] = d0 + 1
+                -- propagate "inside color" outward (first-hit is fine for a local feather).
+                if outside_in_dom[nk] == nil then
+                  outside_in_dom[nk] = outside_in_dom[k]
+                end
+                oj = oj + 1
+                oq[oj] = { x = nx, y = ny }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
   return {
     cell = cell,
     region = region,
@@ -1013,6 +1310,10 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
     L = L,
     T = T,
     D = D,
+    outside_boundary = outside_boundary,
+    outside_dist = outside_dist,
+    outside_in_dom = outside_in_dom,
+    default_bg = default_bg,
     x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r,
   }
 end
@@ -1044,6 +1345,14 @@ local function pick_neighbor_other(fields, x, y)
     if nr ~= nil and nr ~= rid then
       local other_dom = fields.region_dom[nr]
       return other_dom, { dx = dx, dy = dy }
+    end
+    -- Silhouette: neighbor is not in a filled region (treat as background side).
+    if nr == nil then
+      local nc = fields.cell[nk]
+      local other_dom = (nc and nc.dom) or fields.default_bg
+      if type(other_dom) == "number" then
+        return other_dom, { dx = dx, dy = dy }
+      end
     end
   end
   return nil, nil
@@ -1140,7 +1449,7 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
   local dist = fields.dist[k] or 1e9
   local rid = fields.region[k]
   local rmax = (rid and fields.region_max_dist and fields.region_max_dist[rid]) or 0
-  local thin_feature = (rmax < (params.thinThicknessMin or 2))
+  local thin_feature = (rmax < (params.thinThicknessMin or 2)) or ((fields.D[k] or 0.0) < (params.thinDetailMin or 0.50))
   local W = params.weights or {}
   local pen = 0.0
 
@@ -1253,8 +1562,20 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
       end
       if type(dom) == "number" and type(ndom) == "number" then
         local shaded = shaded_together(dom, ndom, is_classic16, allow08, params.compatShadedThreshold)
+        -- Transition band exception: if we're right at a boundary, allow deliberate transitions
+        -- without Rule 7 fighting them (spec: Rule 7 is for unshaded adjacency).
+        if not shaded and (dist <= (params.transitionWidth or 1)) and rid ~= nil then
+          local nr = fields.region[nk]
+          if nr == nil or nr ~= rid then
+            shaded = true
+          end
+        end
         if not shaded and is_bright_idx(dom) and is_bright_idx(ndom) then
+          if rule7_white_exception and (is_whiteish_idx(dom) or is_whiteish_idx(ndom)) then
+            -- "except maybe white"
+          else
           pen = pen + (W.pen_rule7_adj or 500)
+          end
         end
       end
     end
@@ -1270,18 +1591,31 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
 
   -- Half-block continuity: veto obvious "rim" inversions.
   if is_half_glyph(w.ch) and type(w.fg) == "number" and type(w.bg) == "number" then
+    -- Use light direction (via fields.L) + outside-facing half to prevent rims:
+    -- - darken: forbid bright outside-facing half when outside is in shadow
+    -- - lighten: forbid dark outside-facing half when outside is lit
+    local n = fields.normal[k] or { 0, 0 }
+    local nx, ny = n[1] or 0, n[2] or 0
+    local nd = math.sqrt(nx * nx + ny * ny)
+    if nd > 1e-6 then
+      nx, ny = nx / nd, ny / nd
+    end
+    -- Which half faces outside? (ink faces in direction of half_ink_side)
     local ix, iy = half_ink_side(w.ch)
-    local ink_facing_light = (ix * (fields.normal[k] and fields.normal[k][1] or 0) + iy * (fields.normal[k] and fields.normal[k][2] or 0)) > 0
+    local ink_faces_outside = (ix * nx + iy * ny) > 0
     local yfg = luminance(w.fg)
     local ybg = luminance(w.bg)
+    local y_out = ink_faces_outside and yfg or ybg
+    local y_in = ink_faces_outside and ybg or yfg
+    local ldir = (fields.L[k] or 0.5) * 2.0 - 1.0 -- normal·lightDir estimate in [-1,1]
     if intent_sign < 0 then
-      -- darken: don't put a brighter ink half on the shadow-facing side.
-      if (not ink_facing_light) and (yfg > ybg + 0.05) then
+      -- Darken: avoid a bright rim on the shadow-facing outside.
+      if ldir < -0.10 and (y_out > y_in + 0.05) then
         return math.huge
       end
     elseif intent_sign > 0 then
-      -- lighten: don't put a darker ink half on the light-facing side.
-      if ink_facing_light and (yfg + 0.05 < ybg) then
+      -- Lighten: avoid a dark rim on the light-facing outside.
+      if ldir > 0.10 and (y_out + 0.05 < y_in) then
         return math.huge
       end
     end
@@ -1490,7 +1824,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
   local bmask = fields.boundary[k] == true
   local rid = fields.region[k]
   local rmax = (rid and fields.region_max_dist and fields.region_max_dist[rid]) or 0
-  local thin_feature = (rmax < (params.thinThicknessMin or 2))
+  local thin_feature = (rmax < (params.thinThicknessMin or 2)) or ((fields.D[k] or 0.0) < (params.thinDetailMin or 0.50))
   allowed_set = allowed_set or build_allowed_set(allowed)
 
   -- Local transition width clamp for hard colors (tutorial: hard colors don't shade well).
@@ -1567,6 +1901,9 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
     if type(other_dom) == "number" then
       local shaded = shaded_together(cur.dom, other_dom, is_classic16, allow08, params.compatShadedThreshold)
       if (not shaded) and is_bright_idx(cur.dom) and is_bright_idx(other_dom) then
+        if rule7_white_exception and (is_whiteish_idx(cur.dom) or is_whiteish_idx(other_dom)) then
+          -- allow the "white exception"
+        else
         -- Prefer a dark separator (default color 0 if allowed).
         local sep = snap_to_allowed(0, allowed, allowed_set) or darkest_allowed(allowed) or cur.dom
         cands[#cands + 1] = { ch = "█", fg = sep, bg = sep, tag = "rule7_sep" }
@@ -1574,6 +1911,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
         local fade = pick_toon_color(allowed, cur.dom, -1, is_classic16)
         if type(fade) == "number" then
           cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = fade, tag = "rule7_fade" }
+        end
         end
       end
     end
@@ -1632,7 +1970,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
   if params.enableChroma and (not thin_feature) then
     local h = (fields.hist and fields.hist[k]) or {}
     -- Allowed = colors that appear locally at least minCount.
-    local minCount = 6
+    local minCount = clamp(to_int(params.chromaMinCount, 6), 1, 9999)
     local pool = {}
     for col, cnt in pairs(h) do
       if cnt >= minCount then
@@ -1649,6 +1987,9 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
 
   if params.enablePnakotic and (not thin_feature) then
     -- Micro-variation: small fg shifts among close compat colors.
+    if type(allowed) ~= "table" or #allowed == 0 then
+      -- Host didn't provide a palette list; skip pnakotic (cannot search neighbors safely).
+    else
     local base = cur.dom
     if type(base) == "number" then
       local bests = {}
@@ -1670,13 +2011,27 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
         cands[#cands + 1] = { fg = pick, tag = "pnakotic" }
       end
     end
+    end
   end
 
-  if params.enableBgFeather and bmask then
-    -- Background blend: weaken boundary contrast on the background side by mixing toward neighbor dom.
-    local other_dom = select(1, pick_neighbor_other(fields, x, y))
-    if type(other_dom) == "number" and type(cur.dom) == "number" then
-      cands[#cands + 1] = { ch = "░", fg = other_dom, bg = cur.dom, tag = "bg_feather" }
+  if params.enableBgFeather then
+    -- Background blend (spec): apply on the OUTSIDE (non-region) cells near silhouettes.
+    local od = fields.outside_dist and fields.outside_dist[k] or nil
+    local in_dom = fields.outside_in_dom and fields.outside_in_dom[k] or nil
+    local wbg = clamp(to_int(params.bgBlendWidth, params.transitionWidth or 3), 1, 32)
+    if rid == nil and type(od) == "number" and od <= wbg and type(in_dom) == "number" then
+      local base_bg = cur.dom
+      if type(base_bg) ~= "number" then base_bg = fields.default_bg end
+      if type(base_bg) == "number" then
+        local g = "░"
+        if od <= 0 then g = "▒"
+        elseif od == 1 then g = "░"
+        else g = " "
+        end
+        if g ~= " " then
+          cands[#cands + 1] = { ch = g, fg = in_dom, bg = base_bg, tag = "bg_feather" }
+        end
+      end
     end
   end
 
@@ -1709,7 +2064,7 @@ local function solve_and_apply(ctx, layer, cx, cy, r, fields, params, allowed, a
   local cand_by = {}
   local order = {}
   for y = fields.y0, fields.y1 do
-    if y >= 0 then
+    if y >= 0 and (to_int(ctx.rows, 0) <= 0 or y < to_int(ctx.rows, 0)) then
       for x = fields.x0, fields.x1 do
         if x >= 0 and x < to_int(ctx.cols, 0) then
           local k = key_xy(x, y)
@@ -1779,7 +2134,7 @@ local function solve_and_apply(ctx, layer, cx, cy, r, fields, params, allowed, a
   local passes = clamp(to_int(ctx.params and ctx.params.relaxPasses, params.relaxPasses), 0, 3)
   for pass = 1, passes do
     for y = fields.y0, fields.y1 do
-      if y >= 0 then
+      if y >= 0 and (to_int(ctx.rows, 0) <= 0 or y < to_int(ctx.rows, 0)) then
         for x = fields.x0, fields.x1 do
           if x >= 0 and x < to_int(ctx.cols, 0) then
             local k = key_xy(x, y)
@@ -1813,7 +2168,7 @@ local function solve_and_apply(ctx, layer, cx, cy, r, fields, params, allowed, a
 
   -- Commit proposed writes to the layer (only if changed).
   for y = fields.y0, fields.y1 do
-    if y >= 0 then
+    if y >= 0 and (to_int(ctx.rows, 0) <= 0 or y < to_int(ctx.rows, 0)) then
       for x = fields.x0, fields.x1 do
         if x >= 0 and x < to_int(ctx.cols, 0) then
           local k = key_xy(x, y)
@@ -1893,11 +2248,29 @@ local function shade_at(ctx, layer, x, y, dx, dy)
   local allow08 = (p.allow08Transition == true)
   local hard_textures = (p.allowHardTextures == true)
 
+  -- Apply runtime-tunable thresholds.
+  bright_threshold = clamp(to_float(p.brightThreshold, bright_threshold or 0.65), 0.0, 1.0)
+  rule7_white_exception = (p.rule7WhiteException ~= false)
+  rule7_white_threshold = clamp(to_float(p.rule7WhiteThreshold, rule7_white_threshold or 0.92), 0.0, 1.0)
+
+  -- Apply advanced per-stroke overrides into the mode defaults.
+  md.compatShadedThreshold = clamp(to_float(p.compatShadedThreshold, md.compatShadedThreshold), 0.0, 1.0)
+  md.thinThicknessMin = clamp(to_int(p.thinThicknessMin, md.thinThicknessMin), 1, 32)
+  md.thinDetailMin = clamp(to_float(p.thinDetailMin, md.thinDetailMin), 0.0, 1.0)
+  md.maxStraightHighlightRun = clamp(to_int(p.maxStraightHighlightRun, md.maxStraightHighlightRun), 2, 999)
+  md.maxDensityDetailRatio = clamp(to_float(p.maxDensityDetailRatio, md.maxDensityDetailRatio), 0.0, 1.0)
+  local dw = clamp(to_int(p.densityWindow, md.densityDetailWindowW), 3, 31)
+  md.densityDetailWindowW = dw
+  md.densityDetailWindowH = dw
+  md.chromaMinCount = clamp(to_int(p.chromaMinCount, md.chromaMinCount), 1, 9999)
+  md.chromaHistRadius = clamp(to_int(p.chromaRadius, md.chromaHistRadius), 1, 32)
+  md.bgBlendWidth = clamp(to_int(p.bgBlendWidth, md.bgBlendWidth), 1, 32)
+
   local fields = analyze_footprint(ctx, layer, x, y, r, dx, dy, light_dx, light_dy, md, "layer")
 
   -- Fill per-cell tone target T(c) from L(c) and stroke strength.
   for yy = fields.y0, fields.y1 do
-    if yy >= 0 then
+    if yy >= 0 and (to_int(ctx.rows, 0) <= 0 or yy < to_int(ctx.rows, 0)) then
       for xx = fields.x0, fields.x1 do
         if xx >= 0 and xx < to_int(ctx.cols, 0) then
           local k = key_xy(xx, yy)

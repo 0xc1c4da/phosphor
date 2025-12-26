@@ -38,6 +38,7 @@ public:
     // Active set + mapping queries (0-based slot index: 0..11 == F1..F12).
     int  GetActiveSetIndex() const { return active_set_index_; }
     bool SetActiveSetIndex(int idx);
+    void CycleActiveSet(int delta); // wraps around (e.g. -1 from 0 -> last)
     int  GetSetCount() const { return (int)sets_.size(); }
     uint32_t GetSlotCodePoint(int slot_index_0_based) const;
     void SelectSlot(int slot_index_0_based);

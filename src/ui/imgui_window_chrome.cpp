@@ -103,7 +103,8 @@ bool RenderImGuiWindowChromeTitleBarButton(const char* id,
                                            bool has_close_button,
                                            bool has_collapse_button,
                                            ImVec2* out_rect_min,
-                                           ImVec2* out_rect_max)
+                                           ImVec2* out_rect_max,
+                                           int button_index_from_right)
 {
     if (!id || !*id || !label_utf8 || !*label_utf8)
         return false;
@@ -132,6 +133,8 @@ bool RenderImGuiWindowChromeTitleBarButton(const char* id,
     float reserve = 0.0f;
     if (has_close_button)
         reserve += button_sz + kTightGap;
+    if (button_index_from_right > 0)
+        reserve += (button_sz + kTightGap) * (float)button_index_from_right;
 
     const ImVec2 pos(title.Max.x - style.FramePadding.x - reserve - button_sz,
                      title.Min.y + (title.GetHeight() - button_sz) * 0.5f);

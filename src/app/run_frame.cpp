@@ -1120,6 +1120,12 @@ void RunFrame(AppState& st)
                     insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
                 }
             }
+
+            // Character set navigation (disabled by default in key-bindings due to chord conflicts).
+            if (keybinds.ActionPressed("charset.prev_set", kctx))
+                character_sets.CycleActiveSet(-1);
+            if (keybinds.ActionPressed("charset.next_set", kctx))
+                character_sets.CycleActiveSet(1);
         }
     }
 
