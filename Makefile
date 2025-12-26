@@ -9,6 +9,43 @@ IMGUI_DIR ?= vendor/imgui
 BUILD_DIR = build
 LDEPNG_DIR ?=
 
+# ---------------------------------------------------------------------------
+# Version string
+# ---------------------------------------------------------------------------
+# Base version is tracked in a top-level VERSION file (SemVer, no leading "v").
+# Local builds prefer `git describe` for a richer string:
+#   v0.7.2-4-g1a2b3c4-dirty  ->  0.7.2-4-g1a2b3c4+dirty
+# Nix builds (flake.nix) pass PHOSPHOR_VERSION_STR explicitly for reproducibility.
+PHOSPHOR_BASE_VERSION := $(strip $(shell cat VERSION 2>/dev/null))
+ifeq ($(PHOSPHOR_BASE_VERSION),)
+PHOSPHOR_BASE_VERSION := 0.0.0
+endif
+
+PHOSPHOR_GIT_DESCRIBE_RAW := $(strip $(shell git describe --tags --match 'v[0-9]*' --dirty --always 2>/dev/null))
+# If git describes a SemVer-ish tag, use it (strip leading 'v').
+# If git falls back to a raw hash (no matching tags), prefix with base version.
+PHOSPHOR_VERSION_STR ?= $(shell \
+  raw='$(PHOSPHOR_GIT_DESCRIBE_RAW)'; \
+  base='$(PHOSPHOR_BASE_VERSION)'; \
+  if [ -z "$$raw" ]; then \
+    printf '%s' "$$base"; \
+  else \
+    raw="$${raw#v}"; \
+    case "$$raw" in \
+      ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-dirty) \
+        if [ "$${raw#*-}" = "dirty" ]; then \
+          h="$${raw%-dirty}"; \
+          printf '%s-g%s+dirty' "$$base" "$$h"; \
+        else \
+          printf '%s-g%s' "$$base" "$$raw"; \
+        fi \
+        ;; \
+      (*) \
+        printf '%s' "$$raw" | sed 's/-dirty$$/+dirty/'; \
+        ;; \
+    esac; \
+  fi)
+
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
@@ -121,6 +158,7 @@ CXXFLAGS += -I$(LDEPNG_DIR)
 endif
 # Enable 32-bit ImWchar in Dear ImGui so Unscii glyphs above U+FFFF render correctly.
 CXXFLAGS += -DIMGUI_USE_WCHAR32
+CXXFLAGS += -DPHOSPHOR_VERSION_STR=\"$(PHOSPHOR_VERSION_STR)\"
 CXXFLAGS += -g -Wall -Wextra -Wformat
 
 # Auto-generate header dependency files so changes to .h trigger rebuilds.
@@ -186,4 +224,33 @@ clean:
 	rm -f $(EXE)
 	rm -f $(FONT_SANITY_EXE)
 	rm -rf $(BUILD_DIR)
+
+# ---------------------------------------------------------------------------
+# Release guardrails
+# ---------------------------------------------------------------------------
+.PHONY: release-check
+release-check:
+	@set -eu; \
+	base="$$(tr -d '\r\n' < VERSION 2>/dev/null || true)"; \
+	if [ -z "$$base" ]; then \
+	  echo "release-check: VERSION file is empty/missing" >&2; \
+	  exit 1; \
+	fi; \
+	# Require a clean tree for a release.
+	if ! git diff --quiet || ! git diff --cached --quiet; then \
+	  echo "release-check: working tree is dirty (commit or stash changes before tagging a release)" >&2; \
+	  exit 1; \
+	fi; \
+	# Require an exact SemVer tag match at HEAD (vX.Y.Z).
+	tag="$$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null || true)"; \
+	if [ -z "$$tag" ]; then \
+	  echo "release-check: HEAD is not exactly tagged (expected something like v$$base)" >&2; \
+	  exit 1; \
+	fi; \
+	if [ "$$tag" != "v$$base" ]; then \
+	  echo "release-check: VERSION ('$$base') does not match tag ('$$tag')" >&2; \
+	  echo "release-check: fix by setting VERSION=$${tag#v} (or retag appropriately)" >&2; \
+	  exit 1; \
+	fi; \
+	echo "release-check: OK (VERSION=$$base tag=$$tag)"
 

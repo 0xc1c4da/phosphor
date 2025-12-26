@@ -16,6 +16,10 @@
 #include <unordered_set>
 #include <string>
 
+#ifndef PHOSPHOR_VERSION_STR
+#define PHOSPHOR_VERSION_STR "0.0.0+unknown"
+#endif
+
 namespace
 {
 static std::string ToLower(std::string s)
@@ -164,7 +168,8 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
         .title = "About",
         .render = []()
         {
-            ImGui::TextUnformatted("Phosphor by 0xc1c4da");
+            ImGui::Text("Phosphor %s", PHOSPHOR_VERSION_STR);
+            ImGui::TextUnformatted("by 0xc1c4da");
             ImGui::Separator();
             ImGui::TextUnformatted("A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font.");
           

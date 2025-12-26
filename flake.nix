@@ -22,6 +22,31 @@
           };
         };
 
+        baseVersion = pkgs.lib.strings.removeSuffix "\n" (builtins.readFile ./VERSION);
+
+        # Deterministic build identifier for reproducible builds:
+        # - Prefer git revision when available in flake metadata.
+        # - Otherwise fall back to the source narHash (always present).
+        shortRev =
+          if self ? sourceInfo && self.sourceInfo ? shortRev && self.sourceInfo.shortRev != null
+          then self.sourceInfo.shortRev
+          else if self ? shortRev && self.shortRev != null
+          then self.shortRev
+          else null;
+        narHash =
+          if self ? sourceInfo && self.sourceInfo ? narHash && self.sourceInfo.narHash != null
+          then self.sourceInfo.narHash
+          else null;
+        narId =
+          if narHash != null
+          then pkgs.lib.strings.removePrefix "sha256-" narHash
+          else "unknown";
+        buildId =
+          if shortRev != null
+          then "g${shortRev}"
+          else "nar${builtins.substring 0 8 narId}";
+        phosphorVersionStr = "${baseVersion}+${buildId}";
+
         phosphorBuildInputs = with pkgs; [
           sdl3
           vulkan-headers
@@ -43,7 +68,7 @@
 
         phosphor = pkgs.stdenv.mkDerivation {
           pname = "phosphor";
-          version = "0.0.0";
+          version = baseVersion;
 
           src = self;
 
@@ -67,6 +92,7 @@
             "CXX=${pkgs.stdenv.cc}/bin/c++"
             "IMGUI_DIR=${imgui}"
             "LDEPNG_DIR=${lodepng}"
+            "PHOSPHOR_VERSION_STR=${phosphorVersionStr}"
           ];
 
           installPhase = ''
