@@ -65,6 +65,7 @@ de_DE {
     top {
       file { "Datei" }
       edit { "Bearbeiten" }
+      canvas { "Leinwand" }
       view { "Ansicht" }
       window { "Fenster" }
     }
@@ -104,6 +105,8 @@ de_DE {
       copy { "Kopieren" }
       cut { "Ausschneiden" }
       paste { "Einfügen" }
+      delete_selection { "Auswahl löschen" }
+      delete_forward_shift { "Löschen (nach links schieben)" }
       select_all { "Alles auswählen" }
       select_none { "Nichts auswählen" }
       mirror_mode { "Spiegelmodus" }

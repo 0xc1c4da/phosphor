@@ -939,7 +939,6 @@ std::vector<Action> DefaultActions()
             .description="Erase selection contents.",
             .bindings={
                 {.enabled=true, .chord="Delete", .context="selection", .platform="any"},
-                {.enabled=true, .chord="Backspace", .context="selection", .platform="any"},
             }
         },
         {
@@ -1111,8 +1110,8 @@ std::vector<Action> DefaultActions()
         // TODO(wire): Forward delete as an editor action (distinct from selection delete).
         {
             .id="editor.delete_forward", .title="Delete (Forward)", .category="Editor",
-            .description="Delete character under caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Delete", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
+            .description="Delete character under caret (shift cells left).",
+            .bindings={ {.enabled=true, .chord="Delete", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
         // TODO(wire): Tab / reverse-tab movement (common in Moebius/Icy Draw).
         {
@@ -1282,7 +1281,6 @@ std::vector<Action> DefaultActions()
         {
             .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
             .bindings={
-                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
                 // Back-compat / alternate chord (useful on some layouts).
                 {.enabled=true, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
@@ -1549,6 +1547,60 @@ std::vector<Action> DefaultActions()
             .id="charset.default_set", .title="Default Character Set", .category="Character Set",
             .description="Select default character set. TODO(wire).",
             .bindings={ {.enabled=false, .chord="Ctrl+/", .context="editor", .platform="any"} }
+        },
+
+        // --- Tool presets (Ctrl+0..9 reserved) ---
+        // These are intentionally reserved for the active tool's parameter presets
+        // (see assets/tool-presets.json and Tool Parameters window).
+        {
+            .id="tool.preset.slot.1", .title="Tool Preset Slot 1", .category="Tools",
+            .description="Apply tool preset slot 1 (the 1st preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+1", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.2", .title="Tool Preset Slot 2", .category="Tools",
+            .description="Apply tool preset slot 2 (the 2nd preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+2", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.3", .title="Tool Preset Slot 3", .category="Tools",
+            .description="Apply tool preset slot 3 (the 3rd preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+3", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.4", .title="Tool Preset Slot 4", .category="Tools",
+            .description="Apply tool preset slot 4 (the 4th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+4", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.5", .title="Tool Preset Slot 5", .category="Tools",
+            .description="Apply tool preset slot 5 (the 5th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+5", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.6", .title="Tool Preset Slot 6", .category="Tools",
+            .description="Apply tool preset slot 6 (the 6th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+6", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.7", .title="Tool Preset Slot 7", .category="Tools",
+            .description="Apply tool preset slot 7 (the 7th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+7", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.8", .title="Tool Preset Slot 8", .category="Tools",
+            .description="Apply tool preset slot 8 (the 8th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+8", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.9", .title="Tool Preset Slot 9", .category="Tools",
+            .description="Apply tool preset slot 9 (the 9th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+9", .context="canvas", .platform="any"} }
+        },
+        {
+            .id="tool.preset.slot.0", .title="Tool Preset Slot 10 (0)", .category="Tools",
+            .description="Apply tool preset slot 10 (the 10th preset for the active tool).",
+            .bindings={ {.enabled=true, .chord="Ctrl+0", .context="canvas", .platform="any"} }
         },
 
         // TODO(wire): Tool mode switching (Moebius). These are intentionally disabled because

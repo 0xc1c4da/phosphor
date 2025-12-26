@@ -742,6 +742,19 @@ public:
     // Caret = the editing caret used by keyboard operations (x=col, y=row).
     void GetCaretCell(int& out_x, int& out_y) const { out_x = m_caret_col; out_y = m_caret_row; }
     void SetCaretCell(int x, int y);
+
+    // ---------------------------------------------------------------------
+    // Editor-style structural cell operations
+    // ---------------------------------------------------------------------
+    // Forward delete at the caret that shifts the remainder of the line left by 1 cell,
+    // filling the last cell with a transparent blank.
+    //
+    // This is intentionally distinct from selection delete:
+    // - Backspace is "clear cell" semantics (tools may implement their own caret movement)
+    // - Delete is "shift-delete" semantics when no selection exists
+    //
+    // Returns true if any cell changed.
+    bool DeleteForwardShift(int layer_index = -1);
     bool HasFocus() const { return m_has_focus; }
     // Forcefully clears focus (used by the app to ensure focus is exclusive across canvases).
     void ClearFocus()

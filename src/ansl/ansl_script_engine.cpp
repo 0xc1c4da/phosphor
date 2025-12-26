@@ -759,6 +759,16 @@ static int l_canvas_deleteSelection(lua_State* L)
     return 1;
 }
 
+static int l_canvas_deleteForwardShift(lua_State* L)
+{
+    CanvasBinding* b = CheckCanvas(L, 1);
+    if (!b || !b->canvas)
+        return luaL_error(L, "Invalid canvas binding");
+    const int layer = LuaOptLayerIndex(L, 2, -1);
+    lua_pushboolean(L, b->canvas->DeleteForwardShift(layer) ? 1 : 0);
+    return 1;
+}
+
 static int l_canvas_pasteClipboard(lua_State* L)
 {
     CanvasBinding* b = CheckCanvas(L, 1);
@@ -1186,6 +1196,7 @@ static void EnsureCanvasMetatable(lua_State* L)
         lua_pushcfunction(L, l_canvas_copySelection);     lua_setfield(L, -2, "copySelection");
         lua_pushcfunction(L, l_canvas_cutSelection);      lua_setfield(L, -2, "cutSelection");
         lua_pushcfunction(L, l_canvas_deleteSelection);   lua_setfield(L, -2, "deleteSelection");
+        lua_pushcfunction(L, l_canvas_deleteForwardShift); lua_setfield(L, -2, "deleteForwardShift");
         lua_pushcfunction(L, l_canvas_pasteClipboard);    lua_setfield(L, -2, "pasteClipboard");
         lua_pushcfunction(L, l_canvas_isMovingSelection); lua_setfield(L, -2, "isMovingSelection");
         lua_pushcfunction(L, l_canvas_beginMoveSelection); lua_setfield(L, -2, "beginMoveSelection");

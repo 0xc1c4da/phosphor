@@ -2,6 +2,7 @@ settings = {
   id = "08-shape",
   icon = "⌺",
   label = "Shape",
+  shortcut = "Ctrl+Alt+G",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

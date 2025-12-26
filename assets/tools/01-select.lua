@@ -2,6 +2,7 @@ settings = {
   id = "01-select",
   icon = "⬚",
   label = "Select",
+  shortcut = "Ctrl+Alt+S",
 
   -- Action routing hints (used by host Action Router).
   -- - When active, this tool handles selection ops + clipboard + selection transforms.

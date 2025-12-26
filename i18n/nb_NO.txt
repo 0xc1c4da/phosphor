@@ -65,6 +65,7 @@ nb_NO {
     top {
       file { "Fil" }
       edit { "Rediger" }
+      canvas { "Lerret" }
       view { "Vis" }
       window { "Vindu" }
     }
@@ -104,6 +105,8 @@ nb_NO {
       copy { "Kopier" }
       cut { "Klipp ut" }
       paste { "Lim inn" }
+      delete_selection { "Slett innholdet i utvalget" }
+      delete_forward_shift { "Slett (skift til venstre)" }
       select_all { "Velg alt" }
       select_none { "Velg ingen" }
       mirror_mode { "Speilmodus" }

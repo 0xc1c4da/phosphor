@@ -1328,6 +1328,127 @@ void AnsiCanvas::ClearActiveCellStyle(int row, int col)
     }
 }
 
+bool AnsiCanvas::DeleteForwardShift(int layer_index)
+{
+    EnsureDocument();
+
+    if (m_columns <= 0 || m_rows <= 0)
+        return false;
+    if (m_caret_row < 0 || m_caret_row >= m_rows)
+        return false;
+
+    const int canvas_row = m_caret_row;
+    int canvas_col = m_caret_col;
+    if (canvas_col < 0) canvas_col = 0;
+    if (canvas_col >= m_columns) canvas_col = m_columns - 1;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    struct PendingWrite
+    {
+        int lr = 0;
+        int lc = 0;
+        GlyphId       old_cp = BlankGlyph();
+        ColourIndex16 old_fg = kUnsetIndex16;
+        ColourIndex16 old_bg = kUnsetIndex16;
+        Attrs         old_attrs = 0;
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+    };
+
+    std::vector<PendingWrite> writes;
+    writes.reserve((size_t)std::max(0, m_columns - canvas_col));
+
+    // Build the write set first so we can keep the operation coherent (especially with transparency lock).
+    for (int dcol = canvas_col; dcol < m_columns; ++dcol)
+    {
+        if (!ToolWriteAllowed(canvas_row, dcol))
+            continue;
+
+        int dlr = 0, dlc = 0;
+        if (!CanvasToLayerLocalForReadFast(canvas_row, dcol, off_x, off_y, m_columns, m_rows, dlr, dlc))
+            continue;
+
+        const size_t didx = (size_t)dlr * (size_t)m_columns + (size_t)dlc;
+        const GlyphId       old_cp = (didx < layer.cells.size()) ? layer.cells[didx] : BlankGlyph();
+        const ColourIndex16 old_fg = (didx < layer.fg.size()) ? layer.fg[didx] : kUnsetIndex16;
+        const ColourIndex16 old_bg = (didx < layer.bg.size()) ? layer.bg[didx] : kUnsetIndex16;
+        const Attrs         old_attrs = (didx < layer.attrs.size()) ? layer.attrs[didx] : 0;
+
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+
+        if (dcol < (m_columns - 1))
+        {
+            const int scol = dcol + 1;
+            int slr = 0, slc = 0;
+            if (CanvasToLayerLocalForReadFast(canvas_row, scol, off_x, off_y, m_columns, m_rows, slr, slc))
+            {
+                const size_t sidx = (size_t)slr * (size_t)m_columns + (size_t)slc;
+                if (sidx < layer.cells.size()) new_cp = layer.cells[sidx];
+                if (sidx < layer.fg.size())    new_fg = layer.fg[sidx];
+                if (sidx < layer.bg.size())    new_bg = layer.bg[sidx];
+                if (sidx < layer.attrs.size()) new_attrs = layer.attrs[sidx];
+            }
+        }
+
+        if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+            continue;
+
+        if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                           old_cp, old_fg, old_bg, old_attrs,
+                                           new_cp, new_fg, new_bg, new_attrs))
+        {
+            // Structural op: avoid partial shifts under transparency lock.
+            return false;
+        }
+
+        PendingWrite w;
+        w.lr = dlr;
+        w.lc = dlc;
+        w.old_cp = old_cp;
+        w.old_fg = old_fg;
+        w.old_bg = old_bg;
+        w.old_attrs = old_attrs;
+        w.new_cp = new_cp;
+        w.new_fg = new_fg;
+        w.new_bg = new_bg;
+        w.new_attrs = new_attrs;
+        writes.push_back(w);
+    }
+
+    if (writes.empty())
+        return false;
+
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+
+    // Capture affected pages (typically just one row).
+    for (const auto& w : writes)
+        CaptureUndoPageIfNeeded(layer_index, w.lr);
+
+    for (const auto& w : writes)
+    {
+        const size_t idx = (size_t)w.lr * (size_t)m_columns + (size_t)w.lc;
+        if (idx < layer.cells.size()) layer.cells[idx] = w.new_cp;
+        if (idx < layer.fg.size())    layer.fg[idx]    = w.new_fg;
+        if (idx < layer.bg.size())    layer.bg[idx]    = w.new_bg;
+        if (idx < layer.attrs.size()) layer.attrs[idx] = w.new_attrs;
+    }
+
+    return true;
+}
+
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 {
     EnsureDocument();

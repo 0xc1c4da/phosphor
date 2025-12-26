@@ -65,6 +65,7 @@ zh_TW {
     top {
       file { "檔案" }
       edit { "編輯" }
+      canvas { "畫布" }
       view { "檢視" }
       window { "視窗" }
     }
@@ -104,6 +105,8 @@ zh_TW {
       copy { "複製" }
       cut { "剪下" }
       paste { "貼上" }
+      delete_selection { "刪除選取內容" }
+      delete_forward_shift { "刪除（向左位移）" }
       select_all { "全選" }
       select_none { "取消全選" }
       mirror_mode { "鏡像模式" }

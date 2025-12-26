@@ -1,7 +1,8 @@
 settings = {
     id = "10-move-layer",
     icon = "✋",
-    label = "Move Layer"
+    label = "Move Layer",
+    shortcut = "Ctrl+Alt+M"
 }
 
 -- Move Layer tool:

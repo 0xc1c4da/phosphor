@@ -2,6 +2,7 @@ settings = {
   id = "09-font",
   icon = "𝔉",
   label = "Font",
+  shortcut = "Ctrl+Alt+T",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

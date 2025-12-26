@@ -65,6 +65,7 @@ root {
     top {
       file { "File" }
       edit { "Edit" }
+      canvas { "Canvas" }
       view { "View" }
       window { "Window" }
     }
@@ -104,6 +105,8 @@ root {
       copy { "Copy" }
       cut { "Cut" }
       paste { "Paste" }
+      delete_selection { "Delete Selection Contents" }
+      delete_forward_shift { "Delete (Shift Left)" }
       select_all { "Select All" }
       select_none { "Select None" }
       mirror_mode { "Mirror Mode" }

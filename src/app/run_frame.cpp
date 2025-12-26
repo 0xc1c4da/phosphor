@@ -111,6 +111,58 @@ static bool ToolFallbackClaimsAction(const ToolSpec& t, std::string_view action_
             return true;
     return false;
 }
+
+static bool ApplyToolPresetDigit(const std::string& tool_id,
+                                 int digit,
+                                 AnslScriptEngine& tool_engine,
+                                 SessionState& session)
+{
+    if (tool_id.empty())
+        return false;
+    if (digit < 0 || digit > 9)
+        return false;
+
+    // Reserve Ctrl+1..9 as first 9 presets; Ctrl+0 as the 10th (common "0 means 10").
+    const int want_index = (digit == 0) ? 9 : (digit - 1);
+    if (want_index < 0)
+        return false;
+
+    const std::string presets_path = PhosphorAssetPath("tool-presets.json");
+    std::vector<tool_params::ToolParamPreset> presets;
+    std::unordered_map<std::string, std::string> selected_by_tool;
+    std::string err;
+    if (!tool_params::LoadToolParamPresetsFromFile(presets_path.c_str(), presets, selected_by_tool, err))
+    {
+        return false;
+    }
+
+    // Collect presets for this tool in file order.
+    std::vector<int> idxs;
+    idxs.reserve(presets.size());
+    for (int i = 0; i < (int)presets.size(); ++i)
+    {
+        if (presets[(size_t)i].tool_id == tool_id)
+            idxs.push_back(i);
+    }
+    if (want_index >= (int)idxs.size())
+        return false;
+
+    const int gi = idxs[(size_t)want_index];
+    if (gi < 0 || gi >= (int)presets.size())
+        return false;
+    const auto& p = presets[(size_t)gi];
+
+    // Apply and persist selection.
+    selected_by_tool[tool_id] = p.title;
+    tool_params::ApplyToolParams(p.values, tool_engine);
+    tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
+    if (!tool_params::SaveToolParamPresetsToFile(presets_path.c_str(), presets, selected_by_tool, err))
+    {
+        return false;
+    }
+
+    return true;
+}
 } // namespace
 
 void RunFrame(AppState& st)
@@ -1173,6 +1225,38 @@ void RunFrame(AppState& st)
                 character_sets.CycleActiveSet(-1);
             if (keybinds.ActionPressed("charset.next_set", kctx))
                 character_sets.CycleActiveSet(1);
+
+            // Tool activation via keybindings: tools register `tool.activate.<tool_id>` actions
+            // from Lua `settings.shortcut(s)`.
+            for (const ToolSpec& t : tool_palette.GetTools())
+            {
+                if (t.id.empty())
+                    continue;
+                const std::string action_id = "tool.activate." + t.id;
+                if (!keybinds.ActionPressed(action_id, kctx))
+                    continue;
+
+                // Match ToolCommand::ToolActivate behavior: persist params for old tool, switch, restore.
+                tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+                activate_tool_by_id(t.id);
+                if (tool_compile_error.empty())
+                {
+                    s_compiled_tool_id = active_tool_id();
+                    tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                    if (const ToolSpec* at = tool_palette.GetActiveTool())
+                        session_state.active_tool_path = at->path;
+                }
+                break; // only switch once per frame
+            }
+
+            // Tool preset slots: reserve Ctrl+0..9 and apply the Nth preset for the active tool.
+            for (int d = 0; d <= 9; ++d)
+            {
+                const std::string id = "tool.preset.slot." + std::to_string(d);
+                if (!keybinds.ActionPressed(id, kctx))
+                    continue;
+                (void)ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state);
+            }
         }
     }
 
@@ -1543,7 +1627,7 @@ void RunFrame(AppState& st)
         const char* name = "Tool Palette";
         const bool tool_palette_changed =
             tool_palette.Render(name, &show_tool_palette_window,
-                                &session_state, should_apply_placement(name));
+                                &session_state, should_apply_placement(name), &keybinds);
         (void)tool_palette_changed;
 
         if (tool_palette.TakeReloadRequested())
@@ -2300,10 +2384,18 @@ void RunFrame(AppState& st)
 
                 if (request_switch_to_select_tool)
                 {
-                    (void)tool_palette.SetActiveToolById("select");
+                    tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+                    activate_tool_by_id("01-select");
+                    if (tool_compile_error.empty())
+                    {
+                        s_compiled_tool_id = active_tool_id();
+                        tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+                        if (const ToolSpec* at = tool_palette.GetActiveTool())
+                            session_state.active_tool_path = at->path;
+                    }
                 }
-
-                if (active_tool_id() == "select")
+ 
+                if (active_tool_id() == "01-select")
                 {
                     auto push_if_pressed = [&](std::string_view id) {
                         if (keybinds.ActionPressed(id, kctx))

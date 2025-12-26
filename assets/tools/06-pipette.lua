@@ -2,6 +2,7 @@ settings = {
   id = "06-pipette",
   icon = "⟇",
   label = "Pipette",
+  shortcut = "Ctrl+Alt+I",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

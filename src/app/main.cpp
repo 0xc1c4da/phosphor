@@ -449,7 +449,7 @@ int main(int argc, char** argv)
             activate_tool_by_id(tool_stack.back());
             return;
         }
-        activate_tool_by_id("edit");
+        activate_tool_by_id("00-edit");
     };
 
     ImageToChafaDialog image_to_chafa_dialog;

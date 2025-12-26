@@ -59,7 +59,11 @@ public:
     bool LoadFromDirectory(const std::string& tools_dir, std::string& error);
 
     // Renders the palette as an ImGui window. Returns true if the active tool changed.
-    bool Render(const char* title, bool* p_open, SessionState* session = nullptr, bool apply_placement_this_frame = false);
+    bool Render(const char* title,
+                bool* p_open,
+                SessionState* session = nullptr,
+                bool apply_placement_this_frame = false,
+                const kb::KeyBindingsEngine* keybinds = nullptr);
 
     int GetActiveToolIndex() const { return active_index_; }
     const ToolSpec* GetActiveTool() const;

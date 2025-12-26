@@ -103,6 +103,8 @@ private:
     bool                  capture_active_ = false;
     size_t                capture_action_idx_ = 0;
     size_t                capture_binding_idx_ = 0;
+    std::string           capture_error_;
+    std::string           chord_error_;
 };
 
 

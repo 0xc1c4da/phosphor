@@ -162,6 +162,30 @@ static std::string BuildChordString(const ImGuiIO& io, ImGuiKey key)
     out += key_name.empty() ? "Unknown" : key_name;
     return out;
 }
+
+static bool IsToolPresetSlotActionId(std::string_view action_id)
+{
+    return action_id.rfind("tool.preset.slot.", 0) == 0;
+}
+
+static bool IsReservedToolPresetChord(const std::string& chord)
+{
+    if (chord.empty())
+        return false;
+    kb::ParsedChord pc;
+    std::string err;
+    if (!kb::ParseChordString(chord, pc, err))
+        return false;
+
+    // Reserve exact Ctrl+[0-9] (no Shift/Alt/Super). (Ctrl+Alt+0 etc remains available.)
+    if (!pc.mods.ctrl || pc.mods.shift || pc.mods.alt || pc.mods.super)
+        return false;
+
+    const int k = (int)pc.key;
+    const int k0 = (int)ImGuiKey_0;
+    const int k9 = (int)ImGuiKey_9;
+    return (k >= k0 && k <= k9);
+}
 } // namespace
 
 SettingsWindow::SettingsWindow()
@@ -762,6 +786,8 @@ void SettingsWindow::RenderTab_KeyBindings()
                                ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGuiIO& io = ImGui::GetIO();
+        if (ImGui::IsWindowAppearing())
+            capture_error_.clear();
 
         ImGui::TextUnformatted(PHOS_TR("settings_window.key_bindings_tab.record_prompt").c_str());
         ImGui::TextDisabled("%s", PHOS_TR("settings_window.key_bindings_tab.record_modifiers_included").c_str());
@@ -809,11 +835,34 @@ void SettingsWindow::RenderTab_KeyBindings()
                 if (IsModifierKey(key))
                     continue;
 
+                const std::string chord = BuildChordString(io, key);
+                auto& actions = keybinds_->ActionsMutable();
+                const bool have_target =
+                    (capture_action_idx_ < actions.size());
+                const std::string_view target_action_id =
+                    have_target ? std::string_view(actions[capture_action_idx_].id) : std::string_view();
+
+                if (IsReservedToolPresetChord(chord) && !IsToolPresetSlotActionId(target_action_id))
+                {
+                    capture_error_ =
+                        "Ctrl+[0-9] is reserved for Tool Preset Slots. Choose a different chord, or bind this to a tool.preset.slot.* action.";
+                    // Keep the modal open; don't commit.
+                    commit = false;
+                    close = false;
+                    break;
+                }
+
                 commit = true;
-                committed_chord = BuildChordString(io, key);
+                committed_chord = chord;
                 close = true;
                 break;
             }
+        }
+
+        if (!capture_error_.empty())
+        {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", capture_error_.c_str());
         }
 
         if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
@@ -1278,10 +1327,25 @@ void SettingsWindow::RenderTab_KeyBindings()
                 // chord
                 // Chord input was too wide; keep it compact so inline buttons are always visible.
                 ImGui::SetNextItemWidth(160.0f);
+                const std::string prev_chord = b.chord;
                 if (ImGui::InputTextWithHint("##chord",
                                              PHOS_TR("settings_window.key_bindings_tab.chord_hint").c_str(),
                                              &b.chord))
-                    keybinds_->MarkDirty();
+                {
+                    if (IsReservedToolPresetChord(b.chord) && !IsToolPresetSlotActionId(a.id))
+                    {
+                        b.chord = prev_chord;
+                        chord_error_ =
+                            "Ctrl+[0-9] is reserved for Tool Preset Slots (tool.preset.slot.*).";
+                    }
+                    else
+                    {
+                        chord_error_.clear();
+                        keybinds_->MarkDirty();
+                    }
+                }
+                if (!chord_error_.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("%s", chord_error_.c_str());
 
                 // Inline controls on the same row as chord input.
                 ImGui::SameLine();

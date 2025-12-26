@@ -65,6 +65,7 @@ fr_FR {
     top {
       file { "Fichier" }
       edit { "Édition" }
+      canvas { "Toile" }
       view { "Affichage" }
       window { "Fenêtre" }
     }
@@ -104,6 +105,8 @@ fr_FR {
       copy { "Copier" }
       cut { "Couper" }
       paste { "Coller" }
+      delete_selection { "Supprimer le contenu de la sélection" }
+      delete_forward_shift { "Supprimer (décaler à gauche)" }
       select_all { "Tout sélectionner" }
       select_none { "Ne rien sélectionner" }
       mirror_mode { "Mode miroir" }

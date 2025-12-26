@@ -226,6 +226,7 @@ void RenderMainMenuBar(SDL_Window* window,
     // Localized visible labels + stable ImGui IDs (stable across language changes).
     const std::string m_file = PHOS_TR("menu.top.file") + "###menu_file";
     const std::string m_edit = PHOS_TR("menu.top.edit") + "###menu_edit";
+    const std::string m_canvas = PHOS_TR("menu.top.canvas") + "###menu_canvas";
     const std::string m_view = PHOS_TR("menu.top.view") + "###menu_view";
     const std::string m_window = PHOS_TR("menu.top.window") + "###menu_window";
 
@@ -425,12 +426,17 @@ void RenderMainMenuBar(SDL_Window* window,
         const bool can_select_none = (active_canvas != nullptr) && active_canvas->HasSelection();
         const bool can_copy_cut = (active_canvas != nullptr) && active_canvas->HasSelection();
         const bool can_paste = (active_canvas != nullptr);
+        const bool can_delete_selection = (active_canvas != nullptr) && active_canvas->HasSelection();
+        // Forward delete is ambiguous when a selection exists; keep menu semantics explicit.
+        const bool can_delete_forward = (active_canvas != nullptr) && !active_canvas->HasSelection();
 
         const std::string sc_undo = ShortcutForAction(keybinds, "edit.undo", "editor");
         const std::string sc_redo = ShortcutForAction(keybinds, "edit.redo", "editor");
         const std::string sc_copy = ShortcutForAction(keybinds, "edit.copy", "editor");
         const std::string sc_cut = ShortcutForAction(keybinds, "edit.cut", "editor");
         const std::string sc_paste = ShortcutForAction(keybinds, "edit.paste", "editor");
+        const std::string sc_delete_selection = ShortcutForAction(keybinds, "selection.delete", "selection");
+        const std::string sc_delete_forward = ShortcutForAction(keybinds, "editor.delete_forward", "editor");
         const std::string sc_select_all = ShortcutForAction(keybinds, "edit.select_all", "editor");
         const std::string sc_select_none = ShortcutForAction(keybinds, "selection.clear_or_cancel", "selection");
         const std::string sc_mirror = ShortcutForAction(keybinds, "editor.mirror_mode_toggle", "editor");
@@ -440,6 +446,8 @@ void RenderMainMenuBar(SDL_Window* window,
         const std::string mi_copy = PHOS_TR("menu.edit.copy");
         const std::string mi_cut = PHOS_TR("menu.edit.cut");
         const std::string mi_paste = PHOS_TR("menu.edit.paste");
+        const std::string mi_delete_selection = PHOS_TR("menu.edit.delete_selection");
+        const std::string mi_delete_forward = PHOS_TR("menu.edit.delete_forward_shift");
         const std::string mi_select_all = PHOS_TR("menu.edit.select_all");
         const std::string mi_select_none = PHOS_TR("menu.edit.select_none");
         const std::string mi_mirror = PHOS_TR("menu.edit.mirror_mode");
@@ -469,6 +477,25 @@ void RenderMainMenuBar(SDL_Window* window,
         }
 
         ImGui::Separator();
+        if (ImGui::MenuItem(mi_delete_selection.c_str(),
+                            sc_delete_selection.empty() ? nullptr : sc_delete_selection.c_str(),
+                            false,
+                            can_delete_selection))
+        {
+            // If a floating move is in progress, commit it before destructive operations.
+            if (active_canvas->IsMovingSelection())
+                (void)active_canvas->CommitMoveSelection();
+            (void)active_canvas->DeleteSelection();
+        }
+        if (ImGui::MenuItem(mi_delete_forward.c_str(),
+                            sc_delete_forward.empty() ? nullptr : sc_delete_forward.c_str(),
+                            false,
+                            can_delete_forward))
+        {
+            (void)active_canvas->DeleteForwardShift();
+        }
+
+        ImGui::Separator();
         if (ImGui::MenuItem(mi_select_all.c_str(), sc_select_all.empty() ? nullptr : sc_select_all.c_str(), false, can_select_all))
             active_canvas->SelectAll();
         if (ImGui::MenuItem(mi_select_none.c_str(), sc_select_none.empty() ? nullptr : sc_select_none.c_str(), false, can_select_none))
@@ -479,6 +506,39 @@ void RenderMainMenuBar(SDL_Window* window,
             bool mirror = (active_canvas != nullptr) ? active_canvas->IsMirrorModeEnabled() : false;
             if (ImGui::MenuItem(mi_mirror.c_str(), sc_mirror.empty() ? nullptr : sc_mirror.c_str(), &mirror, active_canvas != nullptr))
                 active_canvas->SetMirrorModeEnabled(mirror);
+        }
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu(m_canvas.c_str()))
+    {
+        // Minimal Canvas menu: only implemented operations (no dead items).
+        const bool can_delete_selection = (active_canvas != nullptr) && active_canvas->HasSelection();
+        const bool can_delete_forward = (active_canvas != nullptr) && !active_canvas->HasSelection();
+
+        const std::string sc_delete_selection = ShortcutForAction(keybinds, "selection.delete", "selection");
+        const std::string sc_delete_forward = ShortcutForAction(keybinds, "editor.delete_forward", "editor");
+
+        // Reuse Edit menu translations for now (these are still canvas-affecting ops).
+        const std::string mi_delete_selection = PHOS_TR("menu.edit.delete_selection");
+        const std::string mi_delete_forward = PHOS_TR("menu.edit.delete_forward_shift");
+
+        if (ImGui::MenuItem(mi_delete_selection.c_str(),
+                            sc_delete_selection.empty() ? nullptr : sc_delete_selection.c_str(),
+                            false,
+                            can_delete_selection))
+        {
+            if (active_canvas->IsMovingSelection())
+                (void)active_canvas->CommitMoveSelection();
+            (void)active_canvas->DeleteSelection();
+        }
+        if (ImGui::MenuItem(mi_delete_forward.c_str(),
+                            sc_delete_forward.empty() ? nullptr : sc_delete_forward.c_str(),
+                            false,
+                            can_delete_forward))
+        {
+            (void)active_canvas->DeleteForwardShift();
         }
 
         ImGui::EndMenu();

@@ -65,6 +65,7 @@ sv_SE {
     top {
       file { "Fil" }
       edit { "Redigera" }
+      canvas { "Duk" }
       view { "Visa" }
       window { "Fönster" }
     }
@@ -104,6 +105,8 @@ sv_SE {
       copy { "Kopiera" }
       cut { "Klipp ut" }
       paste { "Klistra in" }
+      delete_selection { "Radera markerat innehåll" }
+      delete_forward_shift { "Radera (skifta åt vänster)" }
       select_all { "Markera allt" }
       select_none { "Markera inget" }
       mirror_mode { "Spegel-läge" }

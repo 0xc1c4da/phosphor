@@ -1,7 +1,8 @@
 settings = {
     id = "03-shifter",
     icon = "⇌",
-    label = "Shifter"
+    label = "Shifter",
+    shortcut = "Ctrl+Alt+R"
 }
 
 -- Shifter tool (inspired by Moebius / IcyDraw):

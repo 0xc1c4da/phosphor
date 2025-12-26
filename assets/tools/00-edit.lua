@@ -1,7 +1,8 @@
 settings = {
   id = "00-edit",
   icon = "⌶",
-  label = "Edit"
+  label = "Edit",
+  shortcut = "Ctrl+Alt+E"
   ,
   -- Action routing hints (used by host Action Router).
   -- This tool intentionally overrides selection-delete semantics: with an active selection,
@@ -122,8 +123,14 @@ function render(ctx, layer)
   end
 
   if keys["delete"] then
-    layer:set(caret.x, caret.y, " ")
-    if layer.clearStyle then layer:clearStyle(caret.x, caret.y) end
+    -- Forward delete: shift cells left (native op; undo-aware; respects transparency-lock).
+    if ctx.canvas and ctx.canvas.deleteForwardShift then
+      ctx.canvas:deleteForwardShift()
+    else
+      -- Fallback (older hosts): clear cell.
+      layer:set(caret.x, caret.y, " ")
+      if layer.clearStyle then layer:clearStyle(caret.x, caret.y) end
+    end
   end
 
   if keys.enter then

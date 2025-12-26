@@ -65,6 +65,7 @@ nl_NL {
     top {
       file { "Bestand" }
       edit { "Bewerken" }
+      canvas { "Canvas" }
       view { "Beeld" }
       window { "Venster" }
     }
@@ -104,6 +105,8 @@ nl_NL {
       copy { "Kopiëren" }
       cut { "Knippen" }
       paste { "Plakken" }
+      delete_selection { "Selectie-inhoud verwijderen" }
+      delete_forward_shift { "Verwijderen (naar links schuiven)" }
       select_all { "Alles selecteren" }
       select_none { "Niets selecteren" }
       mirror_mode { "Spiegelmodus" }

@@ -65,6 +65,7 @@ pl_PL {
     top {
       file { "Plik" }
       edit { "Edycja" }
+      canvas { "Płótno" }
       view { "Widok" }
       window { "Okno" }
     }
@@ -104,6 +105,8 @@ pl_PL {
       copy { "Kopiuj" }
       cut { "Wytnij" }
       paste { "Wklej" }
+      delete_selection { "Usuń zawartość zaznaczenia" }
+      delete_forward_shift { "Usuń (przesuń w lewo)" }
       select_all { "Zaznacz wszystko" }
       select_none { "Odznacz wszystko" }
       mirror_mode { "Tryb lustrzany" }

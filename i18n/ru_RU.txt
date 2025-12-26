@@ -65,6 +65,7 @@ ru_RU {
     top {
       file { "Файл" }
       edit { "Правка" }
+      canvas { "Холст" }
       view { "Вид" }
       window { "Окно" }
     }
@@ -104,6 +105,8 @@ ru_RU {
       copy { "Копировать" }
       cut { "Вырезать" }
       paste { "Вставить" }
+      delete_selection { "Удалить содержимое выделения" }
+      delete_forward_shift { "Удалить (сдвинуть влево)" }
       select_all { "Выделить всё" }
       select_none { "Снять выделение" }
       mirror_mode { "Режим зеркала" }

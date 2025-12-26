@@ -22,6 +22,8 @@
           };
         };
 
+        simplep2p = pkgs.callPackage ./nix/simplep2p.nix { };
+
         baseVersion = pkgs.lib.strings.removeSuffix "\n" (builtins.readFile ./VERSION);
 
         # Deterministic build identifier for reproducible builds:
@@ -116,11 +118,13 @@
           pkg-config
           gcc
           python3
+          simplep2p
         ] ++ phosphorBuildInputs;
       in
       {
         packages = {
           phosphor = phosphor;
+          simplep2p = simplep2p;
           default = phosphor;
         };
 

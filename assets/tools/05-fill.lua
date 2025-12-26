@@ -2,6 +2,7 @@ settings = {
   id = "05-fill",
   icon = "🪣",
   label = "Fill",
+  shortcut = "Ctrl+Alt+F",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

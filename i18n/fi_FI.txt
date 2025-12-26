@@ -65,6 +65,7 @@ fi_FI {
     top {
       file { "Tiedosto" }
       edit { "Muokkaa" }
+      canvas { "Kangas" }
       view { "Näytä" }
       window { "Ikkuna" }
     }
@@ -104,6 +105,8 @@ fi_FI {
       copy { "Kopioi" }
       cut { "Leikkaa" }
       paste { "Liitä" }
+      delete_selection { "Poista valinnan sisältö" }
+      delete_forward_shift { "Poista (siirrä vasemmalle)" }
       select_all { "Valitse kaikki" }
       select_none { "Poista valinta" }
       mirror_mode { "Peilaustila" }

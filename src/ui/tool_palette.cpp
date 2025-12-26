@@ -29,6 +29,58 @@ extern "C"
 
 namespace fs = std::filesystem;
 
+namespace
+{
+static std::string FindShortcutForAction(const kb::KeyBindingsEngine& keybinds,
+                                         std::string_view action_id,
+                                         std::string_view preferred_context)
+{
+    const kb::Platform plat = kb::RuntimePlatform();
+    const auto& actions = keybinds.Actions();
+    for (const auto& a : actions)
+    {
+        if (a.id != action_id)
+            continue;
+
+        auto plat_ok = [&](const kb::KeyBinding& b) -> bool
+        {
+            if (b.platform == "any") return true;
+            if (plat == kb::Platform::Windows) return b.platform == "windows";
+            if (plat == kb::Platform::Linux) return b.platform == "linux";
+            if (plat == kb::Platform::MacOS) return b.platform == "macos";
+            return false;
+        };
+
+        auto pick = [&](std::string_view ctx) -> std::string
+        {
+            for (const auto& b : a.bindings)
+            {
+                if (!b.enabled) continue;
+                if (b.chord.empty()) continue;
+                if (!plat_ok(b)) continue;
+                if (b.context == ctx)
+                    return b.chord;
+            }
+            return {};
+        };
+
+        std::string s = pick(preferred_context);
+        if (!s.empty()) return s;
+        s = pick("global");
+        if (!s.empty()) return s;
+        for (const auto& b : a.bindings)
+        {
+            if (!b.enabled) continue;
+            if (b.chord.empty()) continue;
+            if (plat_ok(b))
+                return b.chord;
+        }
+        return {};
+    }
+    return {};
+}
+} // namespace
+
 // Compute tight glyph bounds for a UTF-8 string rendered with `font` at `font_size`.
 // This is used for "optical centering" of icon glyphs (especially emoji), where
 // line-height-based centering can look visibly off.
@@ -275,6 +327,63 @@ bool ToolPalette::ParseToolSettingsFromLuaFile(const std::string& path, ToolSpec
         if (lua_isstring(L, -1))
             out.label = lua_tostring(L, -1);
         lua_pop(L, 1);
+
+        // Optional: Tool activation shortcut (host-provided action).
+        //
+        // Lua schema:
+        //   settings.shortcut = "Ctrl+Alt+B"
+        //   -- OR --
+        //   settings.shortcuts = { "Ctrl+Alt+B", "..." }
+        //
+        // This registers a synthetic keybinding action:
+        //   id = "tool.activate.<tool_id>"
+        // which the host can route to activate/switch tools.
+        std::vector<std::string> activate_chords;
+        {
+            std::string single;
+            get_string_field("shortcut", single);
+            if (!single.empty())
+                activate_chords.push_back(single);
+            else
+                LuaReadStringArrayField(L, -1, "shortcuts", activate_chords);
+        }
+        if (!activate_chords.empty())
+        {
+            kb::Action ta;
+            ta.id = "tool.activate." + out.id;
+            ta.title = "Activate Tool: " + out.label;
+            ta.category = "Tools";
+            ta.description = "Switch to this tool.";
+            ta.bindings.clear();
+            ta.bindings.reserve(activate_chords.size());
+            for (const std::string& chord : activate_chords)
+            {
+                if (chord.empty())
+                    continue;
+                kb::KeyBinding b;
+                b.enabled = true;
+                b.chord = chord;
+                // Require canvas focus so tool switching doesn't trigger while typing in Settings, etc.
+                b.context = "canvas";
+                b.platform = "any";
+                ta.bindings.push_back(std::move(b));
+            }
+            if (!ta.bindings.empty())
+            {
+                // Avoid duplicates if the tool author explicitly declared the same action in settings.actions.
+                bool exists = false;
+                for (const auto& a : out.actions)
+                {
+                    if (a.id == ta.id)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists)
+                    out.actions.push_back(std::move(ta));
+            }
+        }
 
         // Optional routing hints:
         // - preferred: settings.handles = { {action=..., when="active"/"inactive"}, ... }
@@ -543,7 +652,11 @@ bool ToolPalette::SetActiveToolByPath(const std::string& path)
     return false;
 }
 
-bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session, bool apply_placement_this_frame)
+bool ToolPalette::Render(const char* title,
+                         bool* p_open,
+                         SessionState* session,
+                         bool apply_placement_this_frame,
+                         const kb::KeyBindingsEngine* keybinds)
 {
     bool changed_this_frame = false;
     if (session)
@@ -752,7 +865,15 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
         if (ImGui::IsItemHovered())
         {
             ImGui::BeginTooltip();
-            ImGui::Text("%s", tools_[(size_t)i].label.c_str());
+            std::string label = tools_[(size_t)i].label;
+            if (keybinds && !tools_[(size_t)i].id.empty())
+            {
+                const std::string action_id = "tool.activate." + tools_[(size_t)i].id;
+                const std::string chord = FindShortcutForAction(*keybinds, action_id, "canvas");
+                if (!chord.empty())
+                    label += " (" + chord + ")";
+            }
+            ImGui::Text("%s", label.c_str());
             ImGui::TextDisabled("%s", tools_[(size_t)i].path.c_str());
             ImGui::EndTooltip();
         }

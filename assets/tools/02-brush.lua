@@ -2,6 +2,7 @@ settings = {
   id = "02-brush",
   icon = "🖍",
   label = "Brush",
+  shortcut = "Ctrl+Alt+B",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
