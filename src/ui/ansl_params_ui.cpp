@@ -369,7 +369,10 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
 
     // Filter input (make it obvious + auto-focus).
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(PHOS_TR("common.filter_colon").c_str());
+    {
+        const std::string label = PHOS_TR("common.filter_colon") + ":";
+        ImGui::TextUnformatted(label.c_str());
+    }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     char buf[256] = {};
@@ -817,7 +820,10 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                     {
                         // Filter input (make it obvious + auto-focus).
                         ImGui::AlignTextToFramePadding();
-                        ImGui::TextUnformatted(PHOS_TR("common.filter_colon").c_str());
+                        {
+                            const std::string label = PHOS_TR("common.filter_colon") + ":";
+                            ImGui::TextUnformatted(label.c_str());
+                        }
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         char buf[256] = {};

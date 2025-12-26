@@ -5,8 +5,14 @@ root {
   // Notes / conventions:
   // - Keys are stable API: prefer adding new keys over renaming existing ones.
   // - Keep Dear ImGui IDs (## / ### suffixes) OUT of translations; build IDs in code.
+  // - Ellipsis convention: use Unicode ellipsis "…" for UI continuation / opens-dialog labels.
+  // - Punctuation ownership: prefer translating words only; compose glue punctuation in code
+  //   for field-label colons ":" and decorative UI affordances (e.g. "< " back chevron).
+  // - Translator safety: file dialog / export filter strings are label-only (no embedded
+  //   pattern blobs like "(*.png;*.jpg;...)"); patterns are supplied by code.
   // - Prefer message-style placeholders ("{0}") for formatted strings (MessageFormat).
   // - We keep UI grouped by module/window to match the codebase layout.
+  // - Run `make i18n-validate` to enforce key coverage + MessageFormat safety checks.
   // ---------------------------------------------------------------------------
 
   meta {
@@ -36,7 +42,8 @@ root {
     search { "Search" }
     go { "Go" }
     filter_actions_ellipsis { "Filter actions…" }
-    filter_colon { "Filter:" }
+    // NOTE: historical key retained for stability; punctuation (":") is owned by code.
+    filter_colon { "Filter" }
     search_filter_api { "Search (filter=...)" }
     help_marker { "(?)" }
     error_fmt { "Error: {0}" }
@@ -497,7 +504,8 @@ root {
     rename_ellipsis { "Rename…" }
     rename_layer_modal { "Rename Layer" }
     target_canvas_missing { "Target canvas no longer exists." }
-    layer_name_fmt { "Layer {0} name:" }
+    // NOTE: historical key retained for stability; punctuation (":") is owned by code.
+    layer_name_fmt { "Layer {0} name" }
     layers_header { "Layers" }
 
     ctx_set_active { "Set Active" }

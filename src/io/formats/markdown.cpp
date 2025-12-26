@@ -1848,7 +1848,7 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
 
     // Build a single-layer project state, like other importers.
     AnsiCanvas::ProjectState st;
-    st.version = 13;
+    st.version = 14;
     st.undo_limit = 0;
     st.current.columns = cols;
     st.current.rows = std::max(1, rows);

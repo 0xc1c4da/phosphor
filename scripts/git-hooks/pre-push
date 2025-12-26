@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Phosphor pre-push guardrail: run i18n validation when pushing changes that could affect it.
+#
+# Install:
+#   bash scripts/install-git-hooks.sh
+#
+# Skip (one-off):
+#   PHOS_SKIP_I18N_VALIDATE=1 git push
+
+if [[ "${PHOS_SKIP_I18N_VALIDATE:-}" == "1" ]]; then
+  echo "pre-push: skipping i18n-validate (PHOS_SKIP_I18N_VALIDATE=1)"
+  exit 0
+fi
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  exit 0
+fi
+
+if ! command -v make >/dev/null 2>&1; then
+  echo "pre-push: make not found; skipping i18n-validate"
+  exit 0
+fi
+
+should_run=1
+
+# If the branch has an upstream, only run when relevant files changed vs upstream.
+if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+  changed="$(git diff --name-only '@{u}..HEAD' || true)"
+  if [[ -n "${changed}" ]]; then
+    should_run=0
+    while IFS= read -r f; do
+      case "${f}" in
+        i18n/*|src/*|Makefile)
+          should_run=1
+          break
+          ;;
+      esac
+    done <<< "${changed}"
+  fi
+fi
+
+if [[ "${should_run}" != "1" ]]; then
+  exit 0
+fi
+
+echo "pre-push: running i18n-validate"
+
+if command -v nix >/dev/null 2>&1; then
+  nix develop -c make -j i18n-validate
+else
+  make -j i18n-validate
+fi
+
+

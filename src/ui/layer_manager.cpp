@@ -485,7 +485,8 @@ void LayerManager::Render(const char* title,
         }
         else
         {
-            const std::string s = PHOS_TRF("layer_manager.layer_name_fmt", phos::i18n::Arg::I64((long long)rename_target_layer_index_));
+            const std::string s =
+                PHOS_TRF("layer_manager.layer_name_fmt", phos::i18n::Arg::I64((long long)rename_target_layer_index_)) + ":";
             ImGui::TextUnformatted(s.c_str());
             ImGui::SetNextItemWidth(420.0f);
             if (ImGui::IsWindowAppearing())

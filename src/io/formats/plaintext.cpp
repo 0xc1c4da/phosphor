@@ -284,7 +284,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         glyphs.push_back(phos::glyph::MakeUnicodeScalar(cp));
 
     AnsiCanvas::ProjectState st;
-    st.version = 13;
+    st.version = 14;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = columns;
     st.current.rows = out_rows;

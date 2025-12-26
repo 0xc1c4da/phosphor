@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string_view>
 
@@ -55,6 +57,59 @@ static bool RgbEquals(const std::vector<Rgb8>& a, const std::vector<Rgb8>& b)
             return false;
     }
     return true;
+}
+
+static std::string TrimCopy(std::string_view s)
+{
+    size_t b = 0;
+    while (b < s.size() && std::isspace((unsigned char)s[b]))
+        ++b;
+    size_t e = s.size();
+    while (e > b && std::isspace((unsigned char)s[e - 1]))
+        --e;
+    return std::string(s.substr(b, e - b));
+}
+
+static std::string RgbToHexRgb(const Rgb8& c)
+{
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", (int)c.r, (int)c.g, (int)c.b);
+    return std::string(buf);
+}
+
+static std::string MakeUniqueTitle(const nlohmann::json& j, std::string_view wanted)
+{
+    using nlohmann::json;
+
+    const std::string base = TrimCopy(wanted.empty() ? std::string_view("Imported Palette") : wanted);
+
+    auto title_exists = [&](const std::string& t) -> bool
+    {
+        if (!j.is_array())
+            return false;
+        for (const auto& item : j)
+        {
+            if (!item.is_object())
+                continue;
+            auto it = item.find("title");
+            if (it != item.end() && it->is_string() && it->get<std::string>() == t)
+                return true;
+        }
+        return false;
+    };
+
+    if (!title_exists(base))
+        return base;
+
+    for (int n = 2; n < 10000; ++n)
+    {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "%s (%d)", base.c_str(), n);
+        std::string cand(buf);
+        if (!title_exists(cand))
+            return cand;
+    }
+    return base; // fallback
 }
 
 void PaletteCatalog::RebuildBuiltinList()
@@ -167,6 +222,107 @@ bool PaletteCatalog::LoadFromJsonFile(const std::string& path, std::string& out_
     }
 
     // Successful parse (even if it had zero valid entries).
+    return true;
+}
+
+bool PaletteCatalog::AppendToJsonFile(const std::string& path,
+                                      std::string_view wanted_title,
+                                      std::span<const Rgb8> rgb,
+                                      std::string& out_error,
+                                      std::string* out_final_title)
+{
+    using nlohmann::json;
+
+    out_error.clear();
+    if (out_final_title)
+        out_final_title->clear();
+
+    if (path.empty())
+    {
+        out_error = "Invalid path";
+        return false;
+    }
+    if (rgb.empty())
+    {
+        out_error = "Palette has no colors";
+        return false;
+    }
+
+    json j;
+    {
+        std::ifstream f(path);
+        if (f)
+        {
+            try
+            {
+                f >> j;
+            }
+            catch (const std::exception& e)
+            {
+                out_error = e.what();
+                return false;
+            }
+        }
+        else
+        {
+            // Missing file: treat as empty catalog and create it.
+            j = json::array();
+        }
+    }
+
+    if (!j.is_array())
+    {
+        out_error = "Expected top-level JSON array in color-palettes.json";
+        return false;
+    }
+
+    const std::string final_title = MakeUniqueTitle(j, wanted_title);
+    if (out_final_title)
+        *out_final_title = final_title;
+
+    json item;
+    item["title"] = final_title;
+    json colors = json::array();
+    const std::size_t n = std::min<std::size_t>((std::size_t)rgb.size(), kMaxPaletteSize);
+    for (std::size_t i = 0; i < n; ++i)
+        colors.push_back(RgbToHexRgb(rgb[i]));
+    item["colors"] = std::move(colors);
+    j.push_back(std::move(item));
+
+    try
+    {
+        namespace fs = std::filesystem;
+        const fs::path p(path);
+        fs::path tmp = p;
+        tmp += ".tmp";
+
+        {
+            std::ofstream out(tmp.string());
+            if (!out)
+            {
+                out_error = std::string("Failed to write ") + tmp.string();
+                return false;
+            }
+            out << j.dump(2) << "\n";
+        }
+
+        std::error_code ec;
+        fs::rename(tmp, p, ec);
+        if (ec)
+        {
+            // Best-effort cleanup; keep original file intact if rename fails.
+            std::error_code ec2;
+            fs::remove(tmp, ec2);
+            out_error = std::string("Failed to replace ") + p.string() + ": " + ec.message();
+            return false;
+        }
+    }
+    catch (const std::exception& e)
+    {
+        out_error = e.what();
+        return false;
+    }
+
     return true;
 }
 

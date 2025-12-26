@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 namespace project_state_json
 {
@@ -120,7 +121,23 @@ static std::uint32_t U24FromRgb8(const phos::color::Rgb8& c)
     return ((std::uint32_t)c.r << 16) | ((std::uint32_t)c.g << 8) | (std::uint32_t)c.b;
 }
 
-static json PaletteRefToJson(const phos::color::PaletteRef& ref)
+struct PaletteUidHash
+{
+    std::size_t operator()(const phos::color::PaletteUid& u) const noexcept
+    {
+        // Simple mix over 16 bytes; stable across runs.
+        std::size_t h = 1469598103934665603ull;
+        for (std::uint8_t b : u.bytes)
+        {
+            h ^= (std::size_t)b;
+            h *= 1099511628211ull;
+        }
+        return h;
+    }
+};
+
+static json PaletteRefToJson(const phos::color::PaletteRef& ref,
+                            const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
 {
     json pj;
     if (ref.is_builtin)
@@ -132,6 +149,10 @@ static json PaletteRefToJson(const phos::color::PaletteRef& ref)
         return pj;
 
     pj["uid"] = BytesToLowerHex(ref.uid.bytes);
+
+    // If this palette is embedded at the project level, keep refs lean (uid-only).
+    if (embedded && embedded->find(ref.uid) != embedded->end())
+        return pj;
 
     // Dynamic palettes: embed the RGB table so undo history remains self-contained.
     auto& cs = phos::color::GetColorSystem();
@@ -219,6 +240,68 @@ static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std
         }
         return true;
     }
+    return true;
+}
+
+static bool RegisterEmbeddedPaletteFromJson(const json& pj, std::string& err)
+{
+    err.clear();
+    if (!pj.is_object())
+        return true;
+
+    if (!pj.contains("uid") || !pj["uid"].is_string())
+        return true;
+    if (!pj.contains("rgb_u24") || !pj["rgb_u24"].is_array())
+        return true;
+
+    const std::string uid_hex = pj["uid"].get<std::string>();
+    phos::color::PaletteUid uid;
+    if (!LowerHexToBytes(uid_hex, uid.bytes))
+    {
+        err = "embedded_palettes[].uid is not valid hex.";
+        return false;
+    }
+
+    std::vector<phos::color::Rgb8> rgb;
+    rgb.reserve(pj["rgb_u24"].size());
+    for (const auto& v : pj["rgb_u24"])
+    {
+        if (!v.is_number_unsigned() && !v.is_number_integer())
+        {
+            err = "embedded_palettes[].rgb_u24 contains a non-integer value.";
+            return false;
+        }
+        std::uint32_t u24 = 0;
+        if (v.is_number_unsigned())
+            u24 = v.get<std::uint32_t>();
+        else
+        {
+            const std::int64_t si = v.get<std::int64_t>();
+            if (si < 0)
+            {
+                err = "embedded_palettes[].rgb_u24 contains a negative value.";
+                return false;
+            }
+            u24 = (std::uint32_t)si;
+        }
+        rgb.push_back(Rgb8FromU24(u24));
+        if (rgb.size() >= phos::color::kMaxPaletteSize)
+            break;
+    }
+    if (rgb.empty())
+        return true;
+
+    const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
+    if (computed != uid)
+    {
+        err = "embedded_palettes[].uid does not match embedded_palettes[].rgb_u24.";
+        return false;
+    }
+
+    std::string title;
+    if (pj.contains("title") && pj["title"].is_string())
+        title = pj["title"].get<std::string>();
+    (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
     return true;
 }
 
@@ -509,7 +592,8 @@ static bool ProjectLayerFromJson(const json& jl,
     return true;
 }
 
-static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
+static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s,
+                                  const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
 {
     json js;
     js["columns"] = s.columns;
@@ -517,8 +601,8 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
     js["active_layer"] = s.active_layer;
     js["caret_row"] = s.caret_row;
     js["caret_col"] = s.caret_col;
-    js["palette_ref"] = PaletteRefToJson(s.palette_ref);
-    js["ui_palette_ref"] = PaletteRefToJson(s.ui_palette_ref);
+    js["palette_ref"] = PaletteRefToJson(s.palette_ref, embedded);
+    js["ui_palette_ref"] = PaletteRefToJson(s.ui_palette_ref, embedded);
     json layers = json::array();
     for (const auto& l : s.layers)
         layers.push_back(ProjectLayerToJson(l));
@@ -596,7 +680,8 @@ static bool ProjectSnapshotFromJson(const json& js,
     return true;
 }
 
-static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
+static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e,
+                            const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
 {
     json je;
     if (e.kind == AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Patch)
@@ -607,8 +692,8 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
         je["active_layer"] = e.patch.active_layer;
         je["caret_row"] = e.patch.caret_row;
         je["caret_col"] = e.patch.caret_col;
-        je["palette_ref"] = PaletteRefToJson(e.patch.palette_ref);
-        je["ui_palette_ref"] = PaletteRefToJson(e.patch.ui_palette_ref);
+        je["palette_ref"] = PaletteRefToJson(e.patch.palette_ref, embedded);
+        je["ui_palette_ref"] = PaletteRefToJson(e.patch.ui_palette_ref, embedded);
         je["state_token"] = e.patch.state_token;
         je["page_rows"] = e.patch.page_rows;
 
@@ -651,7 +736,7 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
     else
     {
         je["kind"] = "snapshot";
-        je["snapshot"] = ProjectSnapshotToJson(e.snapshot);
+        je["snapshot"] = ProjectSnapshotToJson(e.snapshot, embedded);
     }
     return je;
 }
@@ -852,23 +937,94 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["version"] = st.version;
     j["bold_semantics"] = st.bold_semantics;
     j["undo_limit"] = st.undo_limit;
+
+    // -----------------------------------------------------------------
+    // embedded_palettes[]: dedup dynamic palette RGB tables across the entire project
+    // (current state + undo/redo). PaletteRef entries can then be UID-only.
+    // -----------------------------------------------------------------
+    std::unordered_set<phos::color::PaletteUid, PaletteUidHash> embedded;
+    auto add_ref = [&](const phos::color::PaletteRef& r)
+    {
+        if (!r.is_builtin && !r.uid.IsZero())
+            embedded.insert(r.uid);
+    };
+    add_ref(st.palette_ref);
+    add_ref(st.ui_palette_ref);
+    add_ref(st.current.palette_ref);
+    add_ref(st.current.ui_palette_ref);
+    for (const auto& e : st.undo)
+    {
+        if (e.kind == AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot)
+        {
+            add_ref(e.snapshot.palette_ref);
+            add_ref(e.snapshot.ui_palette_ref);
+        }
+        else
+        {
+            add_ref(e.patch.palette_ref);
+            add_ref(e.patch.ui_palette_ref);
+        }
+    }
+    for (const auto& e : st.redo)
+    {
+        if (e.kind == AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Snapshot)
+        {
+            add_ref(e.snapshot.palette_ref);
+            add_ref(e.snapshot.ui_palette_ref);
+        }
+        else
+        {
+            add_ref(e.patch.palette_ref);
+            add_ref(e.patch.ui_palette_ref);
+        }
+    }
+
+    json embedded_pals = json::array();
+    if (!embedded.empty())
+    {
+        auto& cs = phos::color::GetColorSystem();
+        for (const auto& uid : embedded)
+        {
+            phos::color::PaletteRef r;
+            r.is_builtin = false;
+            r.uid = uid;
+            const auto id = cs.Palettes().Resolve(r);
+            if (!id.has_value())
+                continue;
+            const phos::color::Palette* p = cs.Palettes().Get(*id);
+            if (!p || p->rgb.empty())
+                continue;
+
+            json ep;
+            ep["uid"] = BytesToLowerHex(uid.bytes);
+            if (!p->title.empty())
+                ep["title"] = p->title;
+            json rgb = json::array();
+            for (const phos::color::Rgb8& c : p->rgb)
+                rgb.push_back(U24FromRgb8(c));
+            ep["rgb_u24"] = std::move(rgb);
+            embedded_pals.push_back(std::move(ep));
+        }
+    }
+    j["embedded_palettes"] = std::move(embedded_pals);
+
     // Core palette identity.
-    j["palette_ref"] = PaletteRefToJson(st.palette_ref);
+    j["palette_ref"] = PaletteRefToJson(st.palette_ref, &embedded);
     // UI palette selection identity.
-    j["ui_palette_ref"] = PaletteRefToJson(st.ui_palette_ref);
+    j["ui_palette_ref"] = PaletteRefToJson(st.ui_palette_ref, &embedded);
     j["sauce"] = SauceMetaToJson(st.sauce);
     if (st.embedded_font.has_value())
         j["embedded_font"] = EmbeddedBitmapFontToJson(*st.embedded_font);
-    j["current"] = ProjectSnapshotToJson(st.current);
+    j["current"] = ProjectSnapshotToJson(st.current, &embedded);
 
     json undo = json::array();
     for (const auto& s : st.undo)
-        undo.push_back(UndoEntryToJson(s));
+        undo.push_back(UndoEntryToJson(s, &embedded));
     j["undo"] = std::move(undo);
 
     json redo = json::array();
     for (const auto& s : st.redo)
-        redo.push_back(UndoEntryToJson(s));
+        redo.push_back(UndoEntryToJson(s, &embedded));
     j["redo"] = std::move(redo);
     return j;
 }
@@ -921,6 +1077,20 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
             return false;
         }
         out.embedded_font = std::move(f);
+    }
+
+    // Register any embedded dynamic palettes up-front so UID-only PaletteRefs resolve.
+    if (j.contains("embedded_palettes") && j["embedded_palettes"].is_array())
+    {
+        for (const auto& ep : j["embedded_palettes"])
+        {
+            std::string perr;
+            if (!RegisterEmbeddedPaletteFromJson(ep, perr))
+            {
+                err = perr;
+                return false;
+            }
+        }
     }
 
     // Core palette identity (optional; defaults to xterm256).

@@ -103,6 +103,32 @@ nix run .#phosphor
 
 This repo builds a native binary called `phosphor`.
 
+## i18n guardrails (recommended for contributors)
+
+Phosphor includes an `i18n-validate` target that checks:
+
+- resource key coverage (all `PHOS_TR/PHOS_TRF` keys exist)
+- ICU MessageFormat parse correctness (`PHOS_TRF` keys + all `*_fmt`)
+- translator-safety rules (no `##` ImGui IDs in values, no file pattern blobs like `(*.png;...)`, `_ellipsis` uses `…`)
+
+To run manually:
+
+```bash
+nix develop -c make -j i18n-validate
+```
+
+To prevent accidental regressions, you can install a `pre-push` git hook:
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+Skip for a one-off push:
+
+```bash
+PHOS_SKIP_I18N_VALIDATE=1 git push
+```
+
 ### With Nix
 
 ```bash

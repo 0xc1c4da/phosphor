@@ -107,7 +107,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 13;
+    out.version = 14;
     out.bold_semantics = (int)m_bold_semantics;
     out.palette_ref = m_palette_ref;
     out.ui_palette_ref = m_ui_palette_ref;

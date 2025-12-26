@@ -846,8 +846,7 @@ void RunFrame(AppState& st)
                     continue;
                 }
 
-                // Register the palette immediately so it can be selected even if the JSON reload fails.
-                const std::string title = pal.name.empty() ? fallback : pal.name;
+                const std::string wanted_title = pal.name.empty() ? fallback : pal.name;
                 std::vector<phos::color::Rgb8> rgb;
                 rgb.reserve(std::min<std::size_t>(pal.colors.size(), phos::color::kMaxPaletteSize));
                 for (std::size_t i = 0; i < pal.colors.size() && rgb.size() < phos::color::kMaxPaletteSize; ++i)
@@ -856,34 +855,30 @@ void RunFrame(AppState& st)
                     rgb.push_back(phos::color::Rgb8{c.r, c.g, c.b});
                 }
                 auto& cs = phos::color::GetColorSystem();
-                const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic(title, rgb);
+
+                const std::string json_path = PhosphorAssetPath("color-palettes.json");
+                std::string jerr;
+                std::string final_title;
+                const bool wrote_json = cs.Catalog().AppendToJsonFile(json_path, wanted_title, rgb, jerr, &final_title);
+
+                // Register the palette immediately so it can be selected even if the JSON write/reload fails.
+                // Register with empty title first so we can later "upgrade" the title metadata based on the JSON result.
+                phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("", rgb);
+                if (wrote_json)
+                    pid = cs.Palettes().RegisterDynamic(final_title, rgb);
+                else
+                    pid = cs.Palettes().RegisterDynamic(wanted_title, rgb);
+
                 if (const phos::color::Palette* p = cs.Palettes().Get(pid))
                 {
                     if (active_canvas)
                         active_canvas->SetUiPaletteRef(p->ref);
                     (void)cs.Catalog().EnsureUiIncludes(p->ref);
                 }
-
-                const std::string json_path = PhosphorAssetPath("color-palettes.json");
-                std::string jerr;
+                if (!wrote_json)
                 {
-                    ColourPaletteDef def;
-                    def.title = title;
-                    def.colors.reserve(pal.colors.size());
-                    for (const auto& c : pal.colors)
-                    {
-                        ImVec4 v;
-                        v.x = c.r / 255.0f;
-                        v.y = c.g / 255.0f;
-                        v.z = c.b / 255.0f;
-                        v.w = 1.0f;
-                        def.colors.push_back(v);
-                    }
-                    if (!AppendColourPaletteToJson(json_path.c_str(), std::move(def), jerr))
-                    {
-                        io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
-                        continue;
-                    }
+                    io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
+                    continue;
                 }
 
                 // Reload palette catalog now (not next frame) so open UI refreshes right away.

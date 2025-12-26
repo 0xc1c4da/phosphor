@@ -442,7 +442,7 @@ public:
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 13;
+        int                     version = 14;
 
         // Persisted bold policy:
         // 0 = AnsiBright, 1 = Typographic.

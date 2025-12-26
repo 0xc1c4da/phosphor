@@ -7,8 +7,6 @@
 #include "core/paths.h"
 #include "io/formats/sauce.h"
 
-#include <nlohmann/json.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -393,142 +391,6 @@ static void BuildDefaultPalette32(std::array<AnsiCanvas::Color32, 16>& out_pal32
         out_pal32[i] = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal16, phos::color::ColorIndex{(std::uint16_t)i});
 }
 
-struct PaletteDef32
-{
-    std::string title;
-    std::vector<AnsiCanvas::Color32> colors;
-};
-
-static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
-{
-    std::string s = hex;
-    if (!s.empty() && s[0] == '#')
-        s.erase(0, 1);
-    if (s.size() != 6 && s.size() != 8)
-        return false;
-
-    auto to_u8 = [](const std::string& sub) -> std::uint8_t
-    {
-        return (std::uint8_t)std::strtoul(sub.c_str(), nullptr, 16);
-    };
-
-    const std::uint8_t r = to_u8(s.substr(0, 2));
-    const std::uint8_t g = to_u8(s.substr(2, 2));
-    const std::uint8_t b = to_u8(s.substr(4, 2));
-    std::uint8_t a = 255;
-    if (s.size() == 8)
-        a = to_u8(s.substr(6, 2));
-
-    // Packed colors follow ImGui's IM_COL32 (ABGR).
-    out = ((AnsiCanvas::Color32)a << 24) | ((AnsiCanvas::Color32)b << 16) | ((AnsiCanvas::Color32)g << 8) | (AnsiCanvas::Color32)r;
-    return true;
-}
-
-static bool LoadPalettesFromJson32(const std::string& path,
-                                  std::vector<PaletteDef32>& out,
-                                  std::string& err)
-{
-    using nlohmann::json;
-    err.clear();
-    out.clear();
-
-    std::ifstream f(path);
-    if (!f)
-    {
-        err = std::string("Failed to open ") + path;
-        return false;
-    }
-
-    json j;
-    try
-    {
-        f >> j;
-    }
-    catch (const std::exception& e)
-    {
-        err = e.what();
-        return false;
-    }
-
-    if (!j.is_array())
-    {
-        err = "Expected top-level JSON array in color-palettes.json";
-        return false;
-    }
-
-    for (const auto& item : j)
-    {
-        if (!item.is_object())
-            continue;
-
-        PaletteDef32 def;
-        if (auto it = item.find("title"); it != item.end() && it->is_string())
-            def.title = it->get<std::string>();
-        else
-            continue;
-
-        if (auto it = item.find("colors"); it != item.end() && it->is_array())
-        {
-            for (const auto& c : *it)
-            {
-                if (!c.is_string())
-                    continue;
-                AnsiCanvas::Color32 col = 0;
-                if (HexToColor32(c.get<std::string>(), col))
-                    def.colors.push_back(col);
-            }
-        }
-
-        if (!def.colors.empty())
-            out.push_back(std::move(def));
-    }
-
-    if (out.empty())
-    {
-        err = "No valid palettes found in color-palettes.json";
-        return false;
-    }
-    return true;
-}
-
-static std::string InferPaletteTitleFromPalette16(const std::array<AnsiCanvas::Color32, 16>& pal32,
-                                                 const std::vector<PaletteDef32>& palettes)
-{
-    if (palettes.empty())
-        return {};
-
-    auto dist2_rgb = [](AnsiCanvas::Color32 a, AnsiCanvas::Color32 b) -> std::uint32_t
-    {
-        std::uint8_t ar, ag, ab;
-        std::uint8_t br, bg, bb;
-        UnpackImGuiCol32(a, ar, ag, ab);
-        UnpackImGuiCol32(b, br, bg, bb);
-        const int dr = (int)ar - (int)br;
-        const int dg = (int)ag - (int)bg;
-        const int db = (int)ab - (int)bb;
-        return (std::uint32_t)(dr * dr + dg * dg + db * db);
-    };
-
-    std::uint64_t best = ~0ull;
-    std::string best_title;
-    for (const auto& p : palettes)
-    {
-        if (p.colors.size() < 16)
-            continue;
-        std::uint64_t s = 0;
-        for (int i = 0; i < 16; ++i)
-            s += dist2_rgb(pal32[(size_t)i], p.colors[(size_t)i]);
-        if (s < best)
-        {
-            best = s;
-            best_title = p.title;
-            if (best == 0)
-                break;
-        }
-    }
-    return best_title;
-}
-
 static bool PaletteEquals16(const std::vector<phos::color::Rgb8>& a, const phos::color::Palette* b)
 {
     if (!b || b->rgb.size() != 16 || a.size() != 16)
@@ -826,7 +688,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 13;
+    st.version = 14;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = cols;
     st.current.rows = rows;
@@ -887,14 +749,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         else if (hdr.has_palette)
         {
             // No exact builtin match: register as a dynamic palette.
-            std::vector<PaletteDef32> pals;
-            std::string perr;
-            const std::string pal_path = PhosphorAssetPath("color-palettes.json");
-            const bool loaded = LoadPalettesFromJson32(pal_path, pals, perr);
-            const std::string inferred = loaded ? InferPaletteTitleFromPalette16(pal32, pals) : std::string{};
-            const std::string title = inferred.empty() ? "XBin Palette" : inferred;
-
-            const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic(title, rgb);
+            const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("XBin Palette", rgb);
             if (const phos::color::Palette* p = cs.Palettes().Get(pid))
             {
                 st.palette_ref = p->ref;

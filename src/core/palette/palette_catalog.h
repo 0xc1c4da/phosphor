@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace phos::color
@@ -28,6 +29,18 @@ public:
     // Returns true if the file was successfully loaded and parsed; returns false on error.
     // On error, builtins remain available via UiPaletteList().
     bool LoadFromJsonFile(const std::string& path, std::string& out_error);
+
+    // Appends a palette to a JSON catalog file (typically assets/color-palettes.json).
+    // - Creates the file if it does not exist.
+    // - Ensures a unique "title" within the JSON (appends " (n)" suffix if needed).
+    //
+    // Returns true on success; returns false on failure and sets out_error.
+    // If out_final_title is non-null, it is set to the title actually written.
+    bool AppendToJsonFile(const std::string& path,
+                          std::string_view wanted_title,
+                          std::span<const Rgb8> rgb,
+                          std::string& out_error,
+                          std::string* out_final_title = nullptr);
 
     // Current UI palette list in stable order.
     // Includes builtins first, then any loaded catalog palettes.

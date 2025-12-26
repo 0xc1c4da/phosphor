@@ -7,8 +7,6 @@
 #include "core/xterm256_palette.h"
 #include "io/formats/sauce.h"
 
-#include <nlohmann/json.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -63,12 +61,6 @@ static inline void UnpackImGuiCol32(AnsiCanvas::Color32 c, std::uint8_t& out_r, 
     out_b = (std::uint8_t)((c >> 16) & 0xFFu);
 }
 
-struct PaletteDef32
-{
-    std::string title;
-    std::vector<AnsiCanvas::Color32> colors;
-};
-
 // Canonical ANSI art palette: VGA 16 (matches assets/color-palettes.json "VGA 16").
 // IMPORTANT: Indices here are **ANSI/SGR order**, not IBM PC attribute order:
 //   0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white
@@ -98,98 +90,6 @@ static inline AnsiCanvas::Color32 Vga16Color32ForIndex(int idx)
     idx = std::clamp(idx, 0, 15);
     const VgaRgb c = kVga16[idx];
     return PackImGuiCol32(c.r, c.g, c.b);
-}
-
-static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
-{
-    std::string s = hex;
-    if (!s.empty() && s[0] == '#')
-        s.erase(0, 1);
-    if (s.size() != 6 && s.size() != 8)
-        return false;
-
-    auto to_u8 = [](const std::string& sub) -> std::uint8_t
-    {
-        return (std::uint8_t)std::strtoul(sub.c_str(), nullptr, 16);
-    };
-
-    const std::uint8_t r = to_u8(s.substr(0, 2));
-    const std::uint8_t g = to_u8(s.substr(2, 2));
-    const std::uint8_t b = to_u8(s.substr(4, 2));
-    std::uint8_t a = 255;
-    if (s.size() == 8)
-        a = to_u8(s.substr(6, 2));
-
-    // Our packed colors follow ImGui's IM_COL32 (ABGR).
-    out = ((AnsiCanvas::Color32)a << 24) | ((AnsiCanvas::Color32)b << 16) | ((AnsiCanvas::Color32)g << 8) | (AnsiCanvas::Color32)r;
-    return true;
-}
-
-static bool LoadPalettesFromJson32(const std::string& path,
-                                  std::vector<PaletteDef32>& out,
-                                  std::string& err)
-{
-    using nlohmann::json;
-    err.clear();
-    out.clear();
-
-    std::ifstream f(path);
-    if (!f)
-    {
-        err = std::string("Failed to open ") + path;
-        return false;
-    }
-
-    json j;
-    try
-    {
-        f >> j;
-    }
-    catch (const std::exception& e)
-    {
-        err = e.what();
-        return false;
-    }
-
-    if (!j.is_array())
-    {
-        err = "Expected top-level JSON array in color-palettes.json";
-        return false;
-    }
-
-    for (const auto& item : j)
-    {
-        if (!item.is_object())
-            continue;
-
-        PaletteDef32 def;
-        if (auto it = item.find("title"); it != item.end() && it->is_string())
-            def.title = it->get<std::string>();
-        else
-            continue;
-
-        if (auto it = item.find("colors"); it != item.end() && it->is_array())
-        {
-            for (const auto& c : *it)
-            {
-                if (!c.is_string())
-                    continue;
-                AnsiCanvas::Color32 col = 0;
-                if (HexToColor32(c.get<std::string>(), col))
-                    def.colors.push_back(col);
-            }
-        }
-
-        if (!def.colors.empty())
-            out.push_back(std::move(def));
-    }
-
-    if (out.empty())
-    {
-        err = "No valid palettes found in color-palettes.json";
-        return false;
-    }
-    return true;
 }
 
 static bool SauceWantsIceColors(const sauce::Parsed& sp, bool& out_ice)
@@ -265,102 +165,6 @@ static bool ContainsSgr90_100(const std::vector<std::uint8_t>& bytes, size_t n)
         }
     }
     return false;
-}
-
-static std::string InferPaletteTitleFromHistogram(const std::unordered_map<AnsiCanvas::Color32, std::uint32_t>& hist,
-                                                  const std::vector<PaletteDef32>& palettes)
-{
-    if (hist.empty() || palettes.empty())
-        return {};
-
-    // Prefer the smallest palette that exactly contains all used colors.
-    // This prevents giant supersets (e.g. "Xterm 256") from beating tight palettes (e.g. "VGA 16")
-    // when the artwork is clearly limited to a small, exact set.
-    {
-        std::vector<size_t> order;
-        order.reserve(palettes.size());
-        for (size_t i = 0; i < palettes.size(); ++i)
-            order.push_back(i);
-        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            const auto& pa = palettes[a];
-            const auto& pb = palettes[b];
-            if (pa.colors.size() != pb.colors.size())
-                return pa.colors.size() < pb.colors.size();
-            return pa.title < pb.title;
-        });
-
-        for (size_t idx : order)
-        {
-            const auto& p = palettes[idx];
-            if (p.colors.empty())
-                continue;
-            std::unordered_set<AnsiCanvas::Color32> s;
-            s.reserve(p.colors.size());
-            for (const auto c : p.colors)
-                s.insert(c);
-
-            bool ok = true;
-            for (const auto& kv : hist)
-            {
-                if (s.find(kv.first) == s.end())
-                {
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok)
-                return p.title;
-        }
-    }
-
-    auto dist2_rgb = [](AnsiCanvas::Color32 a, AnsiCanvas::Color32 b) -> std::uint32_t
-    {
-        std::uint8_t ar, ag, ab;
-        std::uint8_t br, bg, bb;
-        UnpackImGuiCol32(a, ar, ag, ab);
-        UnpackImGuiCol32(b, br, bg, bb);
-        const int dr = (int)ar - (int)br;
-        const int dg = (int)ag - (int)bg;
-        const int db = (int)ab - (int)bb;
-        return (std::uint32_t)(dr * dr + dg * dg + db * db);
-    };
-
-    std::uint64_t best_score = std::numeric_limits<std::uint64_t>::max();
-    std::string best_title;
-
-    for (const auto& p : palettes)
-    {
-        if (p.colors.empty())
-            continue;
-
-        std::uint64_t score = 0;
-        for (const auto& kv : hist)
-        {
-            const AnsiCanvas::Color32 used = kv.first;
-            const std::uint32_t count = kv.second;
-
-            std::uint32_t best_d2 = std::numeric_limits<std::uint32_t>::max();
-            for (AnsiCanvas::Color32 pc : p.colors)
-                best_d2 = std::min(best_d2, dist2_rgb(used, pc));
-            score += (std::uint64_t)best_d2 * (std::uint64_t)count;
-
-            // Early exit if already worse.
-            if (score >= best_score)
-                break;
-        }
-
-        // Small bias toward smaller palettes to avoid "superset wins" when scores are similar.
-        // (This is only used if there was no exact match above.)
-        score += (std::uint64_t)p.colors.size();
-
-        if (score < best_score)
-        {
-            best_score = score;
-            best_title = p.title;
-        }
-    }
-
-    return best_title;
 }
 
 static void Utf8Append(char32_t cp, std::vector<std::uint8_t>& out)
@@ -1951,7 +1755,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 13;
+    st.version = 14;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = out_cols;
     st.current.rows = out_rows;

@@ -144,7 +144,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int rows = std::max(1, bmp.h);
 
     AnsiCanvas::ProjectState st;
-    st.version = 13;
+    st.version = 14;
     st.current.columns = cols;
     st.current.rows = rows;
     st.current.active_layer = 0;
