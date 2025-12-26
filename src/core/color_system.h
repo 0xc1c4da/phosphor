@@ -3,6 +3,7 @@
 #include "core/lut/lut_cache.h"
 #include "core/color_ops.h"
 #include "core/palette/palette.h"
+#include "core/palette/palette_catalog.h"
 
 namespace phos::color
 {
@@ -14,6 +15,9 @@ public:
     PaletteRegistry& Palettes() { return m_palettes; }
     const PaletteRegistry& Palettes() const { return m_palettes; }
 
+    PaletteCatalog& Catalog() { return m_catalog; }
+    const PaletteCatalog& Catalog() const { return m_catalog; }
+
     LutCache& Luts() { return m_luts; }
     const LutCache& Luts() const { return m_luts; }
 
@@ -22,6 +26,7 @@ public:
 
 private:
     PaletteRegistry m_palettes;
+    PaletteCatalog m_catalog;
     LutCache m_luts;
     ColorOps m_ops;
 };

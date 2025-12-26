@@ -1848,7 +1848,7 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
 
     // Build a single-layer project state, like other importers.
     AnsiCanvas::ProjectState st;
-    st.version = 6;
+    st.version = 13;
     st.undo_limit = 0;
     st.current.columns = cols;
     st.current.rows = std::max(1, rows);
@@ -1865,6 +1865,13 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
     st.current.layers[0].fg.assign(total, 0);
     st.current.layers[0].bg.assign(total, 0);
     st.current.layers[0].attrs.assign(total, 0);
+
+    // Phase-B/index-native defaults: xterm256 core palette, UI selection follows core.
+    st.palette_ref.is_builtin = true;
+    st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+    st.ui_palette_ref = st.palette_ref;
+    st.current.palette_ref = st.palette_ref;
+    st.current.ui_palette_ref = st.ui_palette_ref;
 
     auto at = [&](int r, int c) -> size_t {
         return (size_t)r * (size_t)cols + (size_t)c;

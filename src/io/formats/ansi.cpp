@@ -1951,7 +1951,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 12;
+    st.version = 13;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = out_cols;
     st.current.rows = out_rows;
@@ -1963,31 +1963,6 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
 
-    // Palette inference: scan all used fg/bg colors and pick the closest palette from assets/color-palettes.json.
-    // This is a UI convenience (helps the colour picker default to something sensible) and does not affect stored colors.
-    {
-        std::unordered_map<AnsiCanvas::Color32, std::uint32_t> hist;
-        hist.reserve(64);
-        for (const auto c : fg32)
-            if (c != 0) ++hist[c];
-        for (const auto c : bg32)
-            if (c != 0) ++hist[c];
-
-        // Avoid guessing from near-empty art (e.g. mostly-unset imports).
-        if (hist.size() >= 2)
-        {
-            std::vector<PaletteDef32> pals;
-            std::string perr;
-            const std::string pal_path = PhosphorAssetPath("color-palettes.json");
-            if (LoadPalettesFromJson32(pal_path, pals, perr))
-            {
-                const std::string inferred = InferPaletteTitleFromHistogram(hist, pals);
-                if (!inferred.empty())
-                    st.colour_palette_title = inferred;
-            }
-        }
-    }
-
     // Palette identity + indexed colors (Phase B).
     {
         auto& cs = phos::color::GetColorSystem();
@@ -1995,6 +1970,9 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             (saw_xterm256 || saw_truecolor) ? phos::color::BuiltinPalette::Xterm256 : phos::color::BuiltinPalette::Vga16;
         st.palette_ref.is_builtin = true;
         st.palette_ref.builtin = builtin;
+        // UI palette selection:
+        // For now, default to following the core palette identity. (Best-match inference can be added later.)
+        st.ui_palette_ref = st.palette_ref;
         // Bold semantics default:
         // - VGA16 (classic ANSI art): SGR1/Attr_Bold is intensity/bright fg (libansilove semantics)
         // - xterm256/truecolor: SGR1 is typographic emphasis (colors are explicit)
@@ -2004,7 +1982,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         // IMPORTANT: Set both the project-level metadata and the active snapshot palette_ref.
         // SetProjectState() applies the snapshot palette_ref for rendering.
         st.current.palette_ref = st.palette_ref;
-        st.current.colour_palette_title = st.colour_palette_title;
+        st.current.ui_palette_ref = st.ui_palette_ref;
 
         const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
         const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();

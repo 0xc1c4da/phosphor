@@ -32,7 +32,7 @@ AnsiCanvas::Snapshot AnsiCanvas::MakeSnapshot() const
     s.caret_row = m_caret_row;
     s.caret_col = m_caret_col;
     s.palette_ref = m_palette_ref;
-    s.colour_palette_title = m_colour_palette_title;
+    s.ui_palette_ref = m_ui_palette_ref;
     s.layers = m_layers;
     s.state_token = m_state_token;
     return s;
@@ -46,7 +46,7 @@ void AnsiCanvas::ApplySnapshot(const Snapshot& s)
     if (m_columns > 4096) m_columns = 4096;
     m_rows    = (s.rows > 0) ? s.rows : 1;
     m_palette_ref = s.palette_ref;
-    m_colour_palette_title = s.colour_palette_title;
+    m_ui_palette_ref = s.ui_palette_ref;
     m_layers  = s.layers;
     m_active_layer = s.active_layer;
     m_caret_row = s.caret_row;
@@ -169,7 +169,7 @@ void AnsiCanvas::EnsureUndoCaptureIsPatch()
     e.patch.caret_row = m_caret_row;
     e.patch.caret_col = m_caret_col;
     e.patch.palette_ref = m_palette_ref;
-    e.patch.colour_palette_title = m_colour_palette_title;
+    e.patch.ui_palette_ref = m_ui_palette_ref;
     e.patch.state_token = m_state_token;
     e.patch.page_rows = 64;
     e.patch.layers.clear();
@@ -321,7 +321,7 @@ bool AnsiCanvas::Undo()
         cur.patch.caret_row = m_caret_row;
         cur.patch.caret_col = m_caret_col;
         cur.patch.palette_ref = m_palette_ref;
-        cur.patch.colour_palette_title = m_colour_palette_title;
+        cur.patch.ui_palette_ref = m_ui_palette_ref;
         cur.patch.state_token = m_state_token;
         cur.patch.page_rows = prev.patch.page_rows;
         cur.patch.layers.clear();
@@ -395,7 +395,7 @@ bool AnsiCanvas::Undo()
         m_caret_row = prev.patch.caret_row;
         m_caret_col = prev.patch.caret_col;
         m_palette_ref = prev.patch.palette_ref;
-        m_colour_palette_title = prev.patch.colour_palette_title;
+        m_ui_palette_ref = prev.patch.ui_palette_ref;
         m_state_token = prev.patch.state_token ? prev.patch.state_token : 1;
 
         // Restore layer metadata and ensure layer count.
@@ -489,7 +489,7 @@ bool AnsiCanvas::Redo()
         cur.patch.caret_row = m_caret_row;
         cur.patch.caret_col = m_caret_col;
         cur.patch.palette_ref = m_palette_ref;
-        cur.patch.colour_palette_title = m_colour_palette_title;
+        cur.patch.ui_palette_ref = m_ui_palette_ref;
         cur.patch.state_token = m_state_token;
         cur.patch.page_rows = next.patch.page_rows;
         cur.patch.layers.clear();
@@ -567,7 +567,7 @@ bool AnsiCanvas::Redo()
         m_caret_row = next.patch.caret_row;
         m_caret_col = next.patch.caret_col;
         m_palette_ref = next.patch.palette_ref;
-        m_colour_palette_title = next.patch.colour_palette_title;
+        m_ui_palette_ref = next.patch.ui_palette_ref;
         m_state_token = next.patch.state_token ? next.patch.state_token : 1;
 
         if ((int)m_layers.size() != (int)next.patch.layers.size())

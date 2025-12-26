@@ -83,6 +83,7 @@ SOURCES  = \
            src/core/color_ops.cpp \
            src/core/xterm256_palette.cpp \
            src/core/palette/palette.cpp \
+           src/core/palette/palette_catalog.cpp \
            src/core/lut/lut_cache.cpp \
            src/ansl/ansl_script_engine.cpp \
            src/ansl/ansl_luajit.cpp \
@@ -232,6 +233,40 @@ $(FONT_SANITY_EXE): $(FONT_SANITY_SRCS)
 
 .PHONY: font-sanity
 font-sanity: $(FONT_SANITY_EXE)
+
+# ---------------------------------------------------------------------------
+# i18n validation: checks PHOS_TR/PHOS_TRF keys exist in build/i18n/root.res
+# and validates MessageFormat patterns for PHOS_TRF keys.
+# ---------------------------------------------------------------------------
+I18N_VALIDATE_EXE = i18n_validate
+I18N_VALIDATE_SRCS = src/tools/i18n_validate.cpp
+I18N_VALIDATE_LIBS = $(shell pkg-config --libs icu-uc icu-i18n)
+
+$(I18N_VALIDATE_EXE): $(I18N_VALIDATE_SRCS) $(I18N_RES)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(I18N_VALIDATE_LIBS)
+
+.PHONY: i18n-validate
+i18n-validate: $(I18N_VALIDATE_EXE)
+	@./$(I18N_VALIDATE_EXE) $(I18N_BUILD_DIR) root
+
+# ---------------------------------------------------------------------------
+# palette validation: checks built-in palettes (src/) match assets/color-palettes.json
+# ---------------------------------------------------------------------------
+PALETTE_VALIDATE_EXE = palette_validate
+PALETTE_VALIDATE_SRCS = \
+           src/tools/palette_validate.cpp \
+           src/core/palette/palette.cpp \
+           src/core/xterm256_palette.cpp
+PALETTE_VALIDATE_LIBS = $(shell pkg-config --libs libblake3)
+
+$(PALETTE_VALIDATE_EXE): $(PALETTE_VALIDATE_SRCS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(PALETTE_VALIDATE_LIBS)
+
+.PHONY: palette-validate
+palette-validate: $(PALETTE_VALIDATE_EXE)
+	@./$(PALETTE_VALIDATE_EXE) --assets assets
 
 # Include generated dependency files if they exist.
 -include $(DEPS)

@@ -284,7 +284,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         glyphs.push_back(phos::glyph::MakeUnicodeScalar(cp));
 
     AnsiCanvas::ProjectState st;
-    st.version = 6;
+    st.version = 13;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = columns;
     st.current.rows = out_rows;
@@ -296,8 +296,16 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
     st.current.layers[0].cells = std::move(glyphs);
-    st.current.layers[0].fg.assign((size_t)out_rows * (size_t)columns, 0);
-    st.current.layers[0].bg.assign((size_t)out_rows * (size_t)columns, 0);
+
+    // Phase-B/index-native defaults: use builtin xterm256 palette and leave fg/bg unset.
+    st.palette_ref.is_builtin = true;
+    st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+    st.ui_palette_ref = st.palette_ref;
+    st.current.palette_ref = st.palette_ref;
+    st.current.ui_palette_ref = st.ui_palette_ref;
+
+    st.current.layers[0].fg.assign((size_t)out_rows * (size_t)columns, AnsiCanvas::kUnsetIndex16);
+    st.current.layers[0].bg.assign((size_t)out_rows * (size_t)columns, AnsiCanvas::kUnsetIndex16);
 
     AnsiCanvas canvas(columns);
     std::string apply_err;

@@ -39,6 +39,7 @@ root {
     filter_colon { "Filter:" }
     search_filter_api { "Search (filter=...)" }
     help_marker { "(?)" }
+    error_fmt { "Error: {0}" }
     unknown { "Unknown" }
     unknown_short { "?" }
     unnamed { "(unnamed)" }
@@ -62,8 +63,8 @@ root {
     file {
       new_canvas { "New Canvas" }
       save { "Save" }
-      save_as_ellipsis { "Save As..." }
-      load_ellipsis { "Load..." }
+      save_as_ellipsis { "Save As…" }
+      load_ellipsis { "Load…" }
       recent { "Recent" }
       recent_empty { "(Empty)" }
       recent_clear { "Clear Recent" }
@@ -84,7 +85,7 @@ root {
       export_image_ellipsis { "Image…" }
       export_xbin_ellipsis { "XBin…" }
 
-      settings_ellipsis { "Settings..." }
+      settings_ellipsis { "Settings…" }
       quit { "Quit" }
     }
 
@@ -133,7 +134,7 @@ root {
   confirm {
     quit_modal_title { "Quit" }
     quit_question { "Quit Phosphor?" }
-    unsaved_count { "You have {0} canvas{1} with unsaved changes." }
+    unsaved_count { "You have {0, plural, one{# canvas} other{# canvases}} with unsaved changes." }
     save_before_quit { "Do you want to save your changes before quitting?" }
 
     close_canvas_modal_title { "Save changes?" }
@@ -168,19 +169,20 @@ root {
     // File extensions should be dynamically generated from formats/, not hard coded
     file_dialog_filters {
       all_files { "All files" }
-      phosphor_project { "Phosphor Project (*.phos)" }
+      // Historical keys retained for stability; do not embed extension patterns in translatable text.
+      phosphor_project { "Phosphor Project" }
       phosphor_project_base { "Phosphor Project" }
-      supported_files { "Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.gpl;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)" }
+      supported_files { "Supported files" }
       supported_files_base { "Supported files" }
-      ansi_text { "ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)" }
+      ansi_text { "ANSI / Text" }
       ansi_text_base { "ANSI / Text" }
-      gimp_palette { "GIMP Palette (*.gpl)" }
+      gimp_palette { "GIMP Palette" }
       gimp_palette_base { "GIMP Palette" }
-      markdown { "Markdown (*.md;*.markdown;*.mdown;*.mkd)" }
+      markdown { "Markdown" }
       markdown_base { "Markdown" }
-      xbin { "XBin (*.xb)" }
+      xbin { "XBin" }
       xbin_base { "XBin" }
-      images { "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)" }
+      images { "Images" }
       images_base { "Images" }
       export_base { "Export" }
       image_base { "Image" }
@@ -301,7 +303,8 @@ root {
       export_ansi_ellipsis { "Export ANSI…" }
 
       export_filters {
-        ansi_ans { "ANSI (*.ans)" }  // File extensions should be dynamically generated from formats/, not hard coded
+        // Labels only; patterns are supplied by code (translator-safe).
+        ansi_ans { "ANSI" }
         all_files { "All files" }
       }
     }
@@ -324,8 +327,9 @@ root {
       export_text_ellipsis { "Export Text…" }
       // File extensions should be dynamically generated from formats/, not hard coded
       export_filters {
-        text_txt { "Text (*.txt)" }
-        ascii_asc { "ASCII (*.asc)" }
+        // Labels only; patterns are supplied by code (translator-safe).
+        text_txt { "Text" }
+        ascii_asc { "ASCII" }
         all_files { "All files" }
       }
     }
@@ -351,8 +355,9 @@ root {
       export_image_ellipsis { "Export Image…" }
       // File extensions should be dynamically generated from formats/, not hard coded
       export_filters {
-        png { "PNG (*.png)" }
-        jpeg { "JPEG (*.jpg;*.jpeg)" }
+        // Labels only; patterns are supplied by code (translator-safe).
+        png { "PNG" }
+        jpeg { "JPEG" }
         all_files { "All files" }
       }
     }
@@ -368,7 +373,8 @@ root {
       append_sauce { "Append SAUCE metadata" }
       export_xbin_ellipsis { "Export XBin…" }
       export_filters {
-        xbin_xb { "XBin (*.xb)" }
+        // Labels only; patterns are supplied by code (translator-safe).
+        xbin_xb { "XBin" }
         all_files { "All files" }
       }
     }
@@ -488,14 +494,14 @@ root {
 
     add_layer { "+ Add" }
     remove_layer { "- Remove" }
-    rename_ellipsis { "Rename..." }
+    rename_ellipsis { "Rename…" }
     rename_layer_modal { "Rename Layer" }
     target_canvas_missing { "Target canvas no longer exists." }
     layer_name_fmt { "Layer {0} name:" }
     layers_header { "Layers" }
 
     ctx_set_active { "Set Active" }
-    ctx_rename_ellipsis { "Rename..." }
+    ctx_rename_ellipsis { "Rename…" }
     ctx_move_to_front { "Move to Front" }
     ctx_move_to_back { "Move to Back" }
     ctx_remove_layer { "Remove Layer" }
@@ -819,7 +825,7 @@ root {
   image_window {
     title { "Image" }
     no_image_data { "No image data." }
-    ctx_convert_to_ansi { "Convert to ANSI..." }
+    ctx_convert_to_ansi { "Convert to ANSI…" }
   }
 
   // ---------------------------------------------------------------------------
@@ -830,13 +836,13 @@ root {
     field_title { "Title" }
     field_author { "Author" }
     field_group { "Group" }
-    field_date { "Date:" }
-    field_font { "Font:" }
+    field_date { "Date" }
+    field_font { "Font" }
     custom { "Custom" }
     unknown { "(Unknown)" }
     known_fonts_header { "Known fonts (SAUCE FontName)" }
     field_tinfos { "TInfoS" }
-    comments { "Comments:" }
+    comments { "Comments" }
     advanced { "Advanced" }
 
     help_title { "SAUCE Title (35 chars): the title of the file/artwork. Fixed-width field in the 128-byte SAUCE record (space-padded when written)." }
@@ -885,7 +891,7 @@ root {
       "This is a slow background spider of 16colo.rs.\nIt is used to pre-populate the cache to archive 16colo.rs for offline use.\nYou will have to intentionally turn this on between runs to continue archiving.\n\nEnqueued: {0}\nCompleted: {1}\nErrors: {2}\nPending: {3}\n"
     }
 
-    back { "< Back" }
+    back { "Back" }
 
     filter_hint_default { "Search (filter=...)" }
     filter_hint_packs { "Search packs (filter=...)" }
@@ -899,9 +905,9 @@ root {
     sort { "Sort" }
     order { "Order" }
 
-    loading_pack { "Loading pack..." }
-    loading { "Loading..." }
-    downloading_n_fmt { "Downloading {0}..." }
+    loading_pack { "Loading pack…" }
+    loading { "Loading…" }
+    downloading_n_fmt { "Downloading {0}…" }
     error_fmt { "Error: {0}" }
 
     left_title_packs { "Packs" }
@@ -924,7 +930,7 @@ root {
     filter_tag_hint { "Filter tag (substring)" }
     no_thumbnail { "no thumbnail" }
     thumb_failed { "thumb failed" }
-    thumb_loading { "loading..." }
+    thumb_loading { "loading…" }
     no_files_for_pack { "No files for this pack." }
     unexpected_pack_details { "Unexpected pack details response." }
     no_pack_details_yet { "No pack details loaded yet." }

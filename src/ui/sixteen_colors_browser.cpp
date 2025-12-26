@@ -1054,7 +1054,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     if (m_left_view == LeftView::PacksList && (m_mode == BrowseMode::Groups || m_mode == BrowseMode::Artists || m_mode == BrowseMode::Years))
     {
         ImGui::SameLine();
-        if (ImGui::Button((PHOS_TR("sixteen_colors.back") + "##16c_back").c_str()))
+        if (ImGui::Button(("< " + PHOS_TR("sixteen_colors.back") + "##16c_back").c_str()))
         {
             m_left_view = LeftView::RootList;
             m_drill_packs_json.clear();
@@ -1294,7 +1294,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     {
         ImGui::Separator();
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
-                           PHOS_TRF("sixteen_colors.error_fmt", phos::i18n::Arg::Str(m_last_error)).c_str());
+                           PHOS_TRF("common.error_fmt", phos::i18n::Arg::Str(m_last_error)).c_str());
     }
 
     ImGui::Separator();

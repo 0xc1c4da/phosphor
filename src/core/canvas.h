@@ -433,15 +433,16 @@ public:
         int                     caret_col = 0;
         // Core palette identity for interpreting fg/bg indices.
         phos::color::PaletteRef palette_ref;
-        // Optional UI colour palette identity.
-        std::string             colour_palette_title;
+        // UI palette selection identity (used by Colour Picker/palette UI; does not affect stored indices).
+        // Stable identity: builtin enum or dynamic palette UID.
+        phos::color::PaletteRef ui_palette_ref;
         std::vector<ProjectLayer> layers;
     };
 
     struct ProjectState
     {
         // Project serialization version (bumped when the on-disk schema changes).
-        int                     version = 12;
+        int                     version = 13;
 
         // Persisted bold policy:
         // 0 = AnsiBright, 1 = Typographic.
@@ -462,12 +463,17 @@ public:
         }();
 
         // Optional: UI colour palette identity (from assets/color-palettes.json).
-        // This is a per-canvas preference used by the Colour Picker UI to offer a useful palette
-        // when editing/importing artwork. It does NOT affect the stored per-cell colors.
+        // This is a per-canvas preference used by the Colour Picker UI to select a discrete palette
+        // for browsing and tool constraints. It does NOT affect the stored per-cell colors.
         //
-        // Stored as a palette title (string) rather than an index so it remains stable if the
-        // palette list is reordered.
-        std::string             colour_palette_title;
+        // Stored as a stable palette ref (builtin enum or dynamic palette uid).
+        // Default: follow `palette_ref`.
+        phos::color::PaletteRef ui_palette_ref = []{
+            phos::color::PaletteRef r;
+            r.is_builtin = true;
+            r.builtin = phos::color::BuiltinPalette::Xterm256;
+            return r;
+        }();
 
         // Optional SAUCE metadata associated with this canvas/project.
         // This is persisted in .phos and session state, and may be populated when importing
@@ -549,8 +555,8 @@ public:
                 int caret_col = 0;
                 // Core palette identity for interpreting fg/bg indices.
                 phos::color::PaletteRef palette_ref;
-                // Optional UI colour palette identity.
-                std::string colour_palette_title;
+                // UI palette selection identity (see ProjectState::ui_palette_ref).
+                phos::color::PaletteRef ui_palette_ref;
                 std::uint64_t state_token = 1;
 
                 int page_rows = 64;
@@ -575,10 +581,9 @@ public:
     const ProjectState::SauceMeta& GetSauceMeta() const { return m_sauce; }
     void SetSauceMeta(const ProjectState::SauceMeta& meta) { m_sauce = meta; }
 
-    // Optional: UI colour palette identity (persisted via ProjectState).
-    const std::string& GetColourPaletteTitle() const { return m_colour_palette_title; }
-    void SetColourPaletteTitle(const std::string& title) { m_colour_palette_title = title; }
-    void ClearColourPaletteTitle() { m_colour_palette_title.clear(); }
+    // UI palette selection identity (persisted via ProjectState).
+    const phos::color::PaletteRef& GetUiPaletteRef() const { return m_ui_palette_ref; }
+    void SetUiPaletteRef(const phos::color::PaletteRef& ref) { m_ui_palette_ref = ref; TouchContent(); }
 
     BoldSemantics GetBoldSemantics() const { return m_bold_semantics; }
     void SetBoldSemantics(BoldSemantics s)
@@ -1004,8 +1009,8 @@ private:
         int                caret_col = 0;
         // Core palette identity for interpreting fg/bg indices.
         phos::color::PaletteRef palette_ref;
-        // Optional UI colour palette identity (does not affect stored indices, but should be undoable).
-        std::string        colour_palette_title;
+        // UI palette selection identity (does not affect stored indices, but is persisted/undoable).
+        phos::color::PaletteRef ui_palette_ref;
         std::vector<Layer> layers;
 
         // Monotonic state identity token used for savepoint/dirty tracking.
@@ -1058,8 +1063,8 @@ private:
             int caret_col = 0;
             // Core palette identity for interpreting fg/bg indices.
             phos::color::PaletteRef palette_ref;
-            // Optional UI colour palette identity.
-            std::string colour_palette_title;
+            // UI palette selection identity.
+            phos::color::PaletteRef ui_palette_ref;
             std::uint64_t state_token = 1;
 
             int page_rows = 64;
@@ -1131,8 +1136,8 @@ private:
     // Bold semantics policy (persisted via ProjectState, not undoable).
     BoldSemantics m_bold_semantics = BoldSemantics::AnsiBright;
 
-    // Optional UI colour palette title (persisted via ProjectState).
-    std::string m_colour_palette_title;
+    // UI palette selection identity (persisted via ProjectState).
+    phos::color::PaletteRef m_ui_palette_ref;
     phos::color::PaletteRef m_palette_ref;
 
     // Optional embedded bitmap font payload (persisted via ProjectState).

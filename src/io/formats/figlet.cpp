@@ -144,7 +144,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int rows = std::max(1, bmp.h);
 
     AnsiCanvas::ProjectState st;
-    st.version = 8;
+    st.version = 13;
     st.current.columns = cols;
     st.current.rows = rows;
     st.current.active_layer = 0;
@@ -163,8 +163,10 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const phos::color::BuiltinPalette builtin = ChooseBuiltinPaletteForBitmap(bmp);
     st.palette_ref.is_builtin = true;
     st.palette_ref.builtin = builtin;
+    st.ui_palette_ref = st.palette_ref;
     // IMPORTANT: snapshot fields drive rendering; keep them in sync.
     st.current.palette_ref = st.palette_ref;
+    st.current.ui_palette_ref = st.ui_palette_ref;
     {
         auto& cs = phos::color::GetColorSystem();
         const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);

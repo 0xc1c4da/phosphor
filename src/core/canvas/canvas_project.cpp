@@ -47,7 +47,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
         out.caret_row = s.caret_row;
         out.caret_col = s.caret_col;
         out.palette_ref = s.palette_ref;
-        out.colour_palette_title = s.colour_palette_title;
+        out.ui_palette_ref = s.ui_palette_ref;
         out.layers.reserve(s.layers.size());
         for (const auto& l : s.layers)
             out.layers.push_back(to_project_layer(l));
@@ -65,7 +65,7 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
             out.patch.caret_row = e.patch.caret_row;
             out.patch.caret_col = e.patch.caret_col;
             out.patch.palette_ref = e.patch.palette_ref;
-            out.patch.colour_palette_title = e.patch.colour_palette_title;
+            out.patch.ui_palette_ref = e.patch.ui_palette_ref;
             out.patch.state_token = e.patch.state_token;
             out.patch.page_rows = e.patch.page_rows;
             out.patch.layers.clear();
@@ -107,10 +107,10 @@ AnsiCanvas::ProjectState AnsiCanvas::GetProjectState() const
     };
 
     ProjectState out;
-    out.version = 12;
+    out.version = 13;
     out.bold_semantics = (int)m_bold_semantics;
     out.palette_ref = m_palette_ref;
-    out.colour_palette_title = m_colour_palette_title;
+    out.ui_palette_ref = m_ui_palette_ref;
     out.sauce = m_sauce;
     out.embedded_font = m_embedded_font;
     out.current = to_project_snapshot(MakeSnapshot());
@@ -177,7 +177,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         out.caret_row = s.caret_row;
         out.caret_col = s.caret_col;
         out.palette_ref = s.palette_ref;
-        out.colour_palette_title = s.colour_palette_title;
+        out.ui_palette_ref = s.ui_palette_ref;
         out.layers.clear();
         out.layers.reserve(s.layers.size());
         for (const auto& pl : s.layers)
@@ -203,7 +203,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
             out.patch.caret_row = e.patch.caret_row;
             out.patch.caret_col = e.patch.caret_col;
             out.patch.palette_ref = e.patch.palette_ref;
-            out.patch.colour_palette_title = e.patch.colour_palette_title;
+            out.patch.ui_palette_ref = e.patch.ui_palette_ref;
             out.patch.state_token = e.patch.state_token;
             out.patch.page_rows = e.patch.page_rows;
             out.patch.layers.clear();
@@ -323,15 +323,15 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
     // Metadata (non-undoable, persisted).
     m_sauce = state.sauce;
     m_palette_ref = state.palette_ref;
-    m_colour_palette_title = state.colour_palette_title;
+    m_ui_palette_ref = state.ui_palette_ref;
     m_embedded_font = state.embedded_font;
 
     // Bold semantics migration:
-    // - v12+ persists `bold_semantics`
+    // - v13+ persists `bold_semantics`
     // - v11 and earlier default deterministically based on palette identity (classic VGA16 -> AnsiBright)
     {
         BoldSemantics sem = BoldSemantics::AnsiBright;
-        if (state.version >= 12)
+        if (state.version >= 13)
         {
             sem = (state.bold_semantics == (int)BoldSemantics::Typographic) ? BoldSemantics::Typographic
                                                                             : BoldSemantics::AnsiBright;

@@ -826,7 +826,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     AnsiCanvas::ProjectState st;
     // Keep this state at the current in-memory schema version so GlyphId tokens remain meaningful.
-    st.version = 12;
+    st.version = 13;
     st.undo_limit = 0; // unlimited by default
     st.current.columns = cols;
     st.current.rows = rows;
@@ -874,13 +874,15 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         {
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-            st.colour_palette_title = "VGA 16";
+            // UI palette selection: follow the core palette identity.
+            st.ui_palette_ref = st.palette_ref;
         }
         else if (PaletteEquals16(rgb, x16))
         {
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm16;
-            st.colour_palette_title = "xterm 16";
+            // UI palette selection: follow the core palette identity.
+            st.ui_palette_ref = st.palette_ref;
         }
         else if (hdr.has_palette)
         {
@@ -896,13 +898,15 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             if (const phos::color::Palette* p = cs.Palettes().Get(pid))
             {
                 st.palette_ref = p->ref;
-                st.colour_palette_title = title;
+                // UI palette selection: follow the core palette identity.
+                st.ui_palette_ref = st.palette_ref;
             }
             else
             {
                 st.palette_ref.is_builtin = true;
                 st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-                st.colour_palette_title = "VGA 16";
+                // UI palette selection: follow the core palette identity.
+                st.ui_palette_ref = st.palette_ref;
             }
         }
         else
@@ -910,12 +914,13 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             // No palette chunk => default VGA16.
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-            st.colour_palette_title = "VGA 16";
+            // UI palette selection: follow the core palette identity.
+            st.ui_palette_ref = st.palette_ref;
         }
 
         // IMPORTANT: snapshot fields drive rendering; keep them in sync.
         st.current.palette_ref = st.palette_ref;
-        st.current.colour_palette_title = st.colour_palette_title;
+        st.current.ui_palette_ref = st.ui_palette_ref;
     }
 
     // Default bold semantics for XBin:

@@ -29,6 +29,9 @@ AnsiCanvas::AnsiCanvas(int columns)
     // Default palette identity (core).
     m_palette_ref.is_builtin = true;
     m_palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+
+    // Default UI palette selection follows the core palette.
+    m_ui_palette_ref = m_palette_ref;
 }
 
 fonts::FontId AnsiCanvas::GetFontId() const

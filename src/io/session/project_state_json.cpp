@@ -518,8 +518,7 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s)
     js["caret_row"] = s.caret_row;
     js["caret_col"] = s.caret_col;
     js["palette_ref"] = PaletteRefToJson(s.palette_ref);
-    if (!s.colour_palette_title.empty())
-        js["colour_palette_title"] = s.colour_palette_title;
+    js["ui_palette_ref"] = PaletteRefToJson(s.ui_palette_ref);
     json layers = json::array();
     for (const auto& l : s.layers)
         layers.push_back(ProjectLayerToJson(l));
@@ -544,7 +543,7 @@ static bool ProjectSnapshotFromJson(const json& js,
     out = AnsiCanvas::ProjectSnapshot{};
     // Default to the project's palette identity, but allow snapshots to override it.
     out.palette_ref = palette_ref;
-    out.colour_palette_title.clear();
+    out.ui_palette_ref = palette_ref;
     if (js.contains("palette_ref") && js["palette_ref"].is_object())
     {
         phos::color::PaletteRef pref;
@@ -557,8 +556,18 @@ static bool ProjectSnapshotFromJson(const json& js,
         if (pref.is_builtin || !pref.uid.IsZero())
             out.palette_ref = pref;
     }
-    if (js.contains("colour_palette_title") && js["colour_palette_title"].is_string())
-        out.colour_palette_title = js["colour_palette_title"].get<std::string>();
+    if (js.contains("ui_palette_ref") && js["ui_palette_ref"].is_object())
+    {
+        phos::color::PaletteRef pref;
+        std::string perr;
+        if (!PaletteRefFromJson(js["ui_palette_ref"], pref, perr))
+        {
+            err = perr;
+            return false;
+        }
+        if (pref.is_builtin || !pref.uid.IsZero())
+            out.ui_palette_ref = pref;
+    }
     if (js.contains("columns") && js["columns"].is_number_integer())
         out.columns = js["columns"].get<int>();
     if (js.contains("rows") && js["rows"].is_number_integer())
@@ -599,8 +608,7 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e)
         je["caret_row"] = e.patch.caret_row;
         je["caret_col"] = e.patch.caret_col;
         je["palette_ref"] = PaletteRefToJson(e.patch.palette_ref);
-        if (!e.patch.colour_palette_title.empty())
-            je["colour_palette_title"] = e.patch.colour_palette_title;
+        je["ui_palette_ref"] = PaletteRefToJson(e.patch.ui_palette_ref);
         je["state_token"] = e.patch.state_token;
         je["page_rows"] = e.patch.page_rows;
 
@@ -676,7 +684,7 @@ static bool UndoEntryFromJson(const json& je,
         if (je.contains("caret_col") && je["caret_col"].is_number_integer()) p.caret_col = je["caret_col"].get<int>();
         // Default to the project's palette identity, but allow patches to override it.
         p.palette_ref = palette_ref;
-        p.colour_palette_title.clear();
+        p.ui_palette_ref = palette_ref;
         if (je.contains("palette_ref") && je["palette_ref"].is_object())
         {
             phos::color::PaletteRef pref;
@@ -689,8 +697,18 @@ static bool UndoEntryFromJson(const json& je,
             if (pref.is_builtin || !pref.uid.IsZero())
                 p.palette_ref = pref;
         }
-        if (je.contains("colour_palette_title") && je["colour_palette_title"].is_string())
-            p.colour_palette_title = je["colour_palette_title"].get<std::string>();
+        if (je.contains("ui_palette_ref") && je["ui_palette_ref"].is_object())
+        {
+            phos::color::PaletteRef pref;
+            std::string perr;
+            if (!PaletteRefFromJson(je["ui_palette_ref"], pref, perr))
+            {
+                err = perr;
+                return false;
+            }
+            if (pref.is_builtin || !pref.uid.IsZero())
+                p.ui_palette_ref = pref;
+        }
         if (je.contains("state_token") && (je["state_token"].is_number_unsigned() || je["state_token"].is_number_integer()))
             p.state_token = je["state_token"].get<std::uint64_t>();
         if (je.contains("page_rows") && je["page_rows"].is_number_integer())
@@ -836,8 +854,8 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     j["undo_limit"] = st.undo_limit;
     // Core palette identity.
     j["palette_ref"] = PaletteRefToJson(st.palette_ref);
-    if (!st.colour_palette_title.empty())
-        j["colour_palette_title"] = st.colour_palette_title;
+    // UI palette selection identity.
+    j["ui_palette_ref"] = PaletteRefToJson(st.ui_palette_ref);
     j["sauce"] = SauceMetaToJson(st.sauce);
     if (st.embedded_font.has_value())
         j["embedded_font"] = EmbeddedBitmapFontToJson(*st.embedded_font);
@@ -905,10 +923,6 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
         out.embedded_font = std::move(f);
     }
 
-    // Optional UI colour palette identity.
-    if (j.contains("colour_palette_title") && j["colour_palette_title"].is_string())
-        out.colour_palette_title = j["colour_palette_title"].get<std::string>();
-
     // Core palette identity (optional; defaults to xterm256).
     if (j.contains("palette_ref") && j["palette_ref"].is_object())
     {
@@ -921,6 +935,21 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
         }
         if (pref.is_builtin || !pref.uid.IsZero())
             out.palette_ref = pref;
+    }
+
+    // UI palette selection identity (optional; defaults to follow core palette identity).
+    out.ui_palette_ref = out.palette_ref;
+    if (j.contains("ui_palette_ref") && j["ui_palette_ref"].is_object())
+    {
+        phos::color::PaletteRef pref;
+        std::string perr;
+        if (!PaletteRefFromJson(j["ui_palette_ref"], pref, perr))
+        {
+            err = perr;
+            return false;
+        }
+        if (pref.is_builtin || !pref.uid.IsZero())
+            out.ui_palette_ref = pref;
     }
 
     if (!j.contains("current"))

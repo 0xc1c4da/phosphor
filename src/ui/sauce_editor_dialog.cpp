@@ -254,7 +254,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     }
 
     // Fixed text fields (with spec lengths)
-    const std::string title_lbl = PHOS_TR("sauce_editor.field_title") + "##sauce_title";
+    const std::string title_lbl = PHOS_TR("sauce_editor.field_title") + ":##sauce_title";
     InputTextUtf8Clamped(title_lbl.c_str(), m_title, 35);
     TooltipLastItem(PHOS_TR("sauce_editor.help_title").c_str());
     sauce::FilterControlChars(m_title);
@@ -262,7 +262,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     ImGui::SameLine();
     ImGui::TextDisabled("%zu/35", sauce::Utf8CodepointCount(m_title));
 
-    const std::string author_lbl = PHOS_TR("sauce_editor.field_author") + "##sauce_author";
+    const std::string author_lbl = PHOS_TR("sauce_editor.field_author") + ":##sauce_author";
     InputTextUtf8Clamped(author_lbl.c_str(), m_author, 20);
     TooltipLastItem(PHOS_TR("sauce_editor.help_author").c_str());
     sauce::FilterControlChars(m_author);
@@ -270,7 +270,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     ImGui::SameLine();
     ImGui::TextDisabled("%zu/20", sauce::Utf8CodepointCount(m_author));
 
-    const std::string group_lbl = PHOS_TR("sauce_editor.field_group") + "##sauce_group";
+    const std::string group_lbl = PHOS_TR("sauce_editor.field_group") + ":##sauce_group";
     InputTextUtf8Clamped(group_lbl.c_str(), m_group, 20);
     TooltipLastItem(PHOS_TR("sauce_editor.help_group").c_str());
     sauce::FilterControlChars(m_group);
@@ -281,7 +281,8 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     // Date picker: calendar-style dropdown (stores SAUCE as CCYYMMDD).
     {
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(PHOS_TR("sauce_editor.field_date").c_str());
+        const std::string date_lbl = PHOS_TR("sauce_editor.field_date") + ":";
+        ImGui::TextUnformatted(date_lbl.c_str());
         ImGui::SameLine();
         ClampSauceDateTm(m_date);
         ImGui::SetNextItemWidth(220.0f);
@@ -311,7 +312,8 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             preview = PHOS_TR("sauce_editor.unknown").c_str();
 
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(PHOS_TR("sauce_editor.field_font").c_str());
+        const std::string font_lbl = PHOS_TR("sauce_editor.field_font") + ":";
+        ImGui::TextUnformatted(font_lbl.c_str());
         ImGui::SameLine();
         ImGui::SetNextItemWidth(320.0f);
         if (ImGui::BeginCombo("##sauce_font", preview))
@@ -373,7 +375,8 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
 
     ImGui::Separator();
 
-    ImGui::TextUnformatted(PHOS_TR("sauce_editor.comments").c_str());
+    const std::string comments_lbl = PHOS_TR("sauce_editor.comments") + ":";
+    ImGui::TextUnformatted(comments_lbl.c_str());
     {
         // Fill available width so the right edge aligns with the window content region.
         const float w = ImGui::GetContentRegionAvail().x;

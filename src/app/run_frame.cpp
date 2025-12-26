@@ -181,42 +181,19 @@ void RunFrame(AppState& st)
     float& xterm_picker_last_hue = *st.colors.xterm_picker_last_hue;
 
     // ---------------------------------------------------------------------
-    // Colour palettes (loaded from assets/color-palettes.json)
+    // Palette catalog (Option A): registry-backed palette list for UI
     // ---------------------------------------------------------------------
-    // Tools (e.g. Smudge) need the active palette even if the Colour Picker window
-    // isn't open, so we cache the palette defs here at the RunFrame scope.
-    static bool                         palettes_loaded    = false;
-    static std::vector<ColourPaletteDef> palettes;
-    static std::string                  palettes_error;
-    if (!palettes_loaded)
+    // Builtins always exist in PaletteRegistry. The optional JSON catalog augments the UI list.
+    // This replaces the previous RunFrame-local JSON palette cache (and removes HSV fallback).
+    static bool        palette_catalog_loaded = false;
+    static std::string palette_catalog_error;
+    if (!palette_catalog_loaded)
     {
-        LoadColourPalettesFromJson(PhosphorAssetPath("color-palettes.json").c_str(), palettes, palettes_error);
-        palettes_loaded = true;
-
-        // Fallback if loading failed or file empty: single default HSV palette.
-        if (!palettes_error.empty() || palettes.empty())
-        {
-            ColourPaletteDef def;
-            def.title = PHOS_TR("colour_picker_window.default_palette_title");
-            for (int n = 0; n < 32; ++n)
-            {
-                ImVec4 c;
-                float h = n / 31.0f;
-                ImGui::ColorConvertHSVtoRGB(h, 0.8f, 0.8f, c.x, c.y, c.z);
-                c.w = 1.0f;
-                def.colors.push_back(c);
-            }
-            palettes.clear();
-            palettes.push_back(std::move(def));
-            palettes_error.clear();
-            xterm_selected_palette = 0;
-        }
-    }
-
-    if (!palettes.empty())
-    {
-        if (xterm_selected_palette < 0 || xterm_selected_palette >= (int)palettes.size())
-            xterm_selected_palette = 0;
+        auto& cs = phos::color::GetColorSystem();
+        std::string err;
+        (void)cs.Catalog().LoadFromJsonFile(PhosphorAssetPath("color-palettes.json"), err);
+        palette_catalog_error = err; // may be empty even if the file had no extra palettes
+        palette_catalog_loaded = true;
     }
 
     std::uint32_t& tool_brush_glyph = *st.tools.tool_brush_glyph;
@@ -728,8 +705,7 @@ void RunFrame(AppState& st)
         else
         {
             const std::string unsaved = PHOS_TRF("confirm.unsaved_count",
-                                                phos::i18n::Arg::I64(dirty_n),
-                                                phos::i18n::Arg::Str(dirty_n == 1 ? "" : "es"));
+                                                phos::i18n::Arg::I64(dirty_n));
             const std::string q = PHOS_TR("confirm.save_before_quit");
             ImGui::TextUnformatted(unsaved.c_str());
             ImGui::TextUnformatted(q.c_str());
@@ -853,7 +829,7 @@ void RunFrame(AppState& st)
             else if (ev.kind == IoManager::OpenEventKind::Palette && !ev.path.empty())
             {
                 // Import palette files (currently: GIMP Palette .gpl) into assets/color-palettes.json,
-                // then reload the cached palette list so the UI updates immediately.
+                // then reload the palette catalog so the UI updates immediately.
                 std::string err;
                 formats::gpl::Palette pal;
                 std::string fallback;
@@ -870,47 +846,50 @@ void RunFrame(AppState& st)
                     continue;
                 }
 
-                ColourPaletteDef def;
-                def.title = pal.name.empty() ? fallback : pal.name;
-                def.colors.reserve(pal.colors.size());
-                for (const auto& c : pal.colors)
+                // Register the palette immediately so it can be selected even if the JSON reload fails.
+                const std::string title = pal.name.empty() ? fallback : pal.name;
+                std::vector<phos::color::Rgb8> rgb;
+                rgb.reserve(std::min<std::size_t>(pal.colors.size(), phos::color::kMaxPaletteSize));
+                for (std::size_t i = 0; i < pal.colors.size() && rgb.size() < phos::color::kMaxPaletteSize; ++i)
                 {
-                    ImVec4 v;
-                    v.x = c.r / 255.0f;
-                    v.y = c.g / 255.0f;
-                    v.z = c.b / 255.0f;
-                    v.w = 1.0f;
-                    def.colors.push_back(v);
+                    const auto& c = pal.colors[i];
+                    rgb.push_back(phos::color::Rgb8{c.r, c.g, c.b});
+                }
+                auto& cs = phos::color::GetColorSystem();
+                const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic(title, rgb);
+                if (const phos::color::Palette* p = cs.Palettes().Get(pid))
+                {
+                    if (active_canvas)
+                        active_canvas->SetUiPaletteRef(p->ref);
+                    (void)cs.Catalog().EnsureUiIncludes(p->ref);
                 }
 
                 const std::string json_path = PhosphorAssetPath("color-palettes.json");
                 std::string jerr;
-                if (!AppendColourPaletteToJson(json_path.c_str(), std::move(def), jerr))
                 {
-                    io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
-                    continue;
+                    ColourPaletteDef def;
+                    def.title = title;
+                    def.colors.reserve(pal.colors.size());
+                    for (const auto& c : pal.colors)
+                    {
+                        ImVec4 v;
+                        v.x = c.r / 255.0f;
+                        v.y = c.g / 255.0f;
+                        v.z = c.b / 255.0f;
+                        v.w = 1.0f;
+                        def.colors.push_back(v);
+                    }
+                    if (!AppendColourPaletteToJson(json_path.c_str(), std::move(def), jerr))
+                    {
+                        io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
+                        continue;
+                    }
                 }
 
-                // Reload cached list now (not next frame) so open UI refreshes right away.
-                std::vector<ColourPaletteDef> prev_palettes = palettes;
-                const int prev_selected = xterm_selected_palette;
+                // Reload palette catalog now (not next frame) so open UI refreshes right away.
                 std::string reload_err;
-                std::vector<ColourPaletteDef> reloaded;
-                if (!LoadColourPalettesFromJson(json_path.c_str(), reloaded, reload_err))
-                {
-                    // Keep prior palettes if reload fails, but surface error.
-                    palettes = std::move(prev_palettes);
-                    xterm_selected_palette = prev_selected;
-                    palettes_loaded = true;
-                    io_manager.SetLastError(reload_err.empty() ? "Failed to reload palettes." : reload_err);
-                }
-                else
-                {
-                    palettes = std::move(reloaded);
-                    palettes_loaded = true;
-                    if (!palettes.empty())
-                        xterm_selected_palette = (int)palettes.size() - 1;
-                }
+                (void)cs.Catalog().LoadFromJsonFile(json_path, reload_err);
+                palette_catalog_error = reload_err;
             }
         }
     }
@@ -1183,32 +1162,48 @@ void RunFrame(AppState& st)
         static std::vector<ImVec4> saved_palette_snapped;
         static phos::color::PaletteInstanceId last_snap_palette;
 
-        if (!palettes_error.empty())
+        if (!palette_catalog_error.empty())
         {
             const std::string s = PHOS_TRF("colour_picker_window.palette_load_error_fmt",
-                                           phos::i18n::Arg::Str(palettes_error));
+                                           phos::i18n::Arg::Str(palette_catalog_error));
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                "%s", s.c_str());
         }
 
-        // If the active canvas has a stored palette title, sync the picker to it when switching canvases.
+        auto& cs = phos::color::GetColorSystem();
+
+        // Ensure the active canvas' UI palette ref is visible in the UI list (even if not in the JSON catalog).
         {
-            static int last_synced_canvas_id = -1;
-            if (active_canvas && !palettes.empty() && last_active_canvas_id != last_synced_canvas_id)
+            if (active_canvas)
             {
-                last_synced_canvas_id = last_active_canvas_id;
-                const std::string& want = active_canvas->GetColourPaletteTitle();
-                if (!want.empty())
-                {
-                    for (int i = 0; i < (int)palettes.size(); ++i)
-                    {
-                        if (palettes[i].title == want)
-                        {
-                            xterm_selected_palette = i;
-                            break;
-                        }
-                    }
-                }
+                (void)cs.Catalog().EnsureUiIncludes(active_canvas->GetUiPaletteRef());
+            }
+        }
+
+        // Sync picker selection to the active canvas' UI palette ref.
+        // (This keeps the picker reflecting the active canvas on new/load/switch.)
+        auto find_ui_index_for_ref = [&](const phos::color::PaletteRef& ref) -> int {
+            const auto ui_list = cs.Catalog().UiPaletteList();
+            const auto resolved = cs.Palettes().Resolve(ref);
+            if (!resolved.has_value())
+                return 0;
+            for (int i = 0; i < (int)ui_list.size(); ++i)
+            {
+                if (ui_list[(size_t)i] == *resolved)
+                    return i;
+            }
+            return 0;
+        };
+        {
+            const auto ui_list = cs.Catalog().UiPaletteList();
+            if (!ui_list.empty())
+            {
+                const int want = active_canvas ? find_ui_index_for_ref(active_canvas->GetUiPaletteRef()) : 0;
+                xterm_selected_palette = std::clamp(want, 0, (int)ui_list.size() - 1);
+            }
+            else
+            {
+                xterm_selected_palette = 0;
             }
         }
 
@@ -1246,7 +1241,7 @@ void RunFrame(AppState& st)
         float   picker_col[4] = { preview_col.x, preview_col.y, preview_col.z, preview_col.w };
         bool    value_changed = false;
         bool    used_right = false;
-        auto& cs = phos::color::GetColorSystem();
+        // (cs declared earlier in this window)
         phos::color::PaletteInstanceId snap_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
         if (active_canvas)
         {
@@ -1278,17 +1273,35 @@ void RunFrame(AppState& st)
 
         ImGui::Separator();
 
-        // Palette selection combo
+        const auto ui_list = cs.Catalog().UiPaletteList();
+
+        // Palette selection combo (registry-backed via PaletteCatalog)
         {
             std::vector<const char*> names;
-            names.reserve(palettes.size());
-            for (const auto& p : palettes)
-                names.push_back(p.title.c_str());
+            names.reserve(ui_list.size());
+            for (phos::color::PaletteInstanceId id : ui_list)
+            {
+                if (const phos::color::Palette* p = cs.Palettes().Get(id))
+                    names.push_back(p->title.c_str());
+                else
+                    names.push_back("<?>");
+            }
 
             if (!names.empty())
             {
                 ImGui::SetNextItemWidth(-FLT_MIN);
+                const int prev = xterm_selected_palette;
                 ImGui::Combo("##Palette", &xterm_selected_palette, names.data(), (int)names.size());
+                xterm_selected_palette = std::clamp(xterm_selected_palette, 0, (int)names.size() - 1);
+                if (active_canvas && xterm_selected_palette != prev)
+                {
+                    if (const phos::color::Palette* p = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
+                        active_canvas->SetUiPaletteRef(p->ref);
+                }
+            }
+            else
+            {
+                xterm_selected_palette = 0;
             }
         }
 
@@ -1297,39 +1310,21 @@ void RunFrame(AppState& st)
         // because it remaps the entire document and changes the canvas palette index space.
         if (active_canvas)
         {
-            const bool can_apply = (xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size());
+            const bool can_apply =
+                (xterm_selected_palette >= 0 && xterm_selected_palette < (int)ui_list.size() &&
+                 cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]) != nullptr);
             if (!can_apply)
                 ImGui::BeginDisabled();
             if (ImGui::Button(PHOS_TR("colour_picker_window.set_canvas_palette").c_str()))
             {
-                const ColourPaletteDef& sel = palettes[xterm_selected_palette];
-                std::vector<phos::color::Rgb8> rgb;
-                rgb.reserve(std::min<std::size_t>(sel.colors.size(), phos::color::kMaxPaletteSize));
-                for (std::size_t i = 0; i < sel.colors.size() && rgb.size() < phos::color::kMaxPaletteSize; ++i)
+                if (const phos::color::Palette* pnew = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
                 {
-                    const ImVec4& c = sel.colors[i];
-                    const int r = (int)std::lround(c.x * 255.0f);
-                    const int g = (int)std::lround(c.y * 255.0f);
-                    const int b = (int)std::lround(c.z * 255.0f);
-                    rgb.push_back(phos::color::Rgb8{
-                        (std::uint8_t)std::clamp(r, 0, 255),
-                        (std::uint8_t)std::clamp(g, 0, 255),
-                        (std::uint8_t)std::clamp(b, 0, 255),
-                    });
-                }
-
-                if (!rgb.empty())
-                {
-                    auto& cs2 = phos::color::GetColorSystem();
-                    const phos::color::PaletteInstanceId pid = cs2.Palettes().RegisterDynamic(sel.title, rgb);
-                    if (const phos::color::Palette* pnew = cs2.Palettes().Get(pid))
-                    {
-                        active_canvas->SetColourPaletteTitle(sel.title);
-                        (void)active_canvas->ConvertToPalette(pnew->ref);
-                        // Force the picker to rebuild its snapped palette against the new active palette.
-                        last_snap_palette = phos::color::PaletteInstanceId{};
-                        last_palette_index = -1;
-                    }
+                    active_canvas->SetUiPaletteRef(pnew->ref);
+                    (void)cs.Catalog().EnsureUiIncludes(pnew->ref);
+                    (void)active_canvas->ConvertToPalette(pnew->ref);
+                    // Force the picker to rebuild its snapped palette against the new active palette.
+                    last_snap_palette = phos::color::PaletteInstanceId{};
+                    last_palette_index = -1;
                 }
             }
             if (!can_apply)
@@ -1340,12 +1335,20 @@ void RunFrame(AppState& st)
         const bool need_rebuild_palette =
             (xterm_selected_palette != last_palette_index) ||
             (snap_pal != last_snap_palette);
-        if (need_rebuild_palette && !palettes.empty())
+        if (need_rebuild_palette && !ui_list.empty() &&
+            xterm_selected_palette >= 0 && xterm_selected_palette < (int)ui_list.size())
         {
-            saved_palette = palettes[xterm_selected_palette].colors;
             last_palette_index = xterm_selected_palette;
-            if (active_canvas && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
-                active_canvas->SetColourPaletteTitle(palettes[xterm_selected_palette].title);
+
+            saved_palette.clear();
+            if (const phos::color::Palette* sel = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
+            {
+                saved_palette.reserve(sel->rgb.size());
+                for (const phos::color::Rgb8& c : sel->rgb)
+                    saved_palette.push_back(ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1.0f));
+                if (active_canvas)
+                    active_canvas->SetUiPaletteRef(sel->ref);
+            }
 
             // Build a snapped version of the selected UI palette against the *active canvas palette*.
             //
@@ -1928,48 +1931,35 @@ void RunFrame(AppState& st)
 
         // Active palette: expose allowed indices to tools (for quantization/snapping).
         // These indices are in the canvas's active palette index space (canvas.palette_ref).
-            if (!palettes.empty())
             {
-                const ColourPaletteDef* def = nullptr;
-                const std::string& want = c.GetColourPaletteTitle();
-                if (!want.empty())
-                {
-                    for (const auto& p : palettes)
-                    {
-                        if (p.title == want)
-                        {
-                            def = &p;
-                            break;
-                        }
-                    }
-                }
-                if (!def && xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size())
-                    def = &palettes[(size_t)xterm_selected_palette];
-                if (!def)
-                    def = &palettes[0];
+                phos::color::PaletteInstanceId core_id = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+                if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
+                    core_id = *id;
 
-            auto& cs = phos::color::GetColorSystem();
-            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
-            if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
-                pal = *id;
-            std::unordered_set<int> seen;
-                seen.reserve(def->colors.size());
-                for (const ImVec4& ccol : def->colors)
+                const phos::color::Palette* core = cs.Palettes().Get(core_id);
+
+                // Use the canvas' UI palette selection when available; otherwise fall back to the core palette itself.
+                const phos::color::Palette* ui = nullptr;
+                if (auto ui_id = cs.Palettes().Resolve(c.GetUiPaletteRef()))
+                    ui = cs.Palettes().Get(*ui_id);
+                if (!ui)
+                    ui = core;
+
+                if (core && ui && !core->rgb.empty() && !ui->rgb.empty())
                 {
-                    const int r = (int)std::lround(ccol.x * 255.0f);
-                    const int g = (int)std::lround(ccol.y * 255.0f);
-                    const int b = (int)std::lround(ccol.z * 255.0f);
-                const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-                const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
-                                                                            (std::uint8_t)std::clamp(r, 0, 255),
-                                                                            (std::uint8_t)std::clamp(g, 0, 255),
-                                                                            (std::uint8_t)std::clamp(b, 0, 255),
-                                                                            qp);
-                    if (seen.insert(idx).second)
-                        allowed_indices.push_back(idx);
+                    std::unordered_set<int> seen;
+                    seen.reserve(ui->rgb.size());
+                    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+                    for (const phos::color::Rgb8& ccol : ui->rgb)
+                    {
+                        const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), core_id,
+                                                                                    ccol.r, ccol.g, ccol.b, qp);
+                        if (seen.insert(idx).second)
+                            allowed_indices.push_back(idx);
+                    }
+                    if (!allowed_indices.empty())
+                        ctx.allowed_indices = &allowed_indices;
                 }
-                if (!allowed_indices.empty())
-                    ctx.allowed_indices = &allowed_indices;
             }
 
             // Candidate glyph set: limit expensive glyph-search tools (e.g. deform quantization)
