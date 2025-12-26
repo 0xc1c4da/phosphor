@@ -73,7 +73,7 @@ static std::string TdfTypeToString(TdfFontType t)
     {
     case TdfFontType::Outline: return "outline";
     case TdfFontType::Block:   return "block";
-    case TdfFontType::Color:   return "color";
+    case TdfFontType::Colour:   return "colour";
     }
     return "block";
 }
@@ -340,8 +340,8 @@ bool Registry::Scan(const std::string& assets_dir, std::string& out_error, const
         RenderOptions ro;
         ro.mode = RenderMode::Display;
         ro.outline_style = 0;
-        ro.use_font_colors = true;
-        ro.icecolors = true;
+        ro.use_font_colours = true;
+        ro.icecolours = true;
 
         std::vector<std::string> broken;
         broken.reserve(256);

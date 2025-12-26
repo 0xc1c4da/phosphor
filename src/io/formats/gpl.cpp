@@ -225,7 +225,7 @@ bool ImportBytesToPalette(const std::vector<std::uint8_t>& bytes,
             continue;
         }
 
-        // Color line: "R G B [optional name...]"
+        // Colour line: "R G B [optional name...]"
         {
             const char* p = line.data();
             const char* e = line.data() + line.size();
@@ -238,19 +238,19 @@ bool ImportBytesToPalette(const std::vector<std::uint8_t>& bytes,
             std::string_view nm(p, (size_t)(e - p));
             nm = TrimAscii(nm);
 
-            Color c;
+            Colour c;
             c.r = (std::uint8_t)std::clamp(r, 0, 255);
             c.g = (std::uint8_t)std::clamp(g, 0, 255);
             c.b = (std::uint8_t)std::clamp(b, 0, 255);
             if (!nm.empty())
                 c.name.assign(nm.begin(), nm.end());
-            out_palette.colors.push_back(std::move(c));
+            out_palette.colours.push_back(std::move(c));
         }
     }
 
-    if (out_palette.colors.empty())
+    if (out_palette.colours.empty())
     {
-        err = "No colors found in palette.";
+        err = "No colours found in palette.";
         return false;
     }
 

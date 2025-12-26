@@ -12,8 +12,8 @@
 #include <nlohmann/json.hpp>
 
 #include "app/clipboard_utils.h"
-#include "core/color_ops.h"
-#include "core/color_system.h"
+#include "core/colour_ops.h"
+#include "core/colour_system.h"
 #include "core/i18n.h"
 #include "core/paths.h"
 #include "io/formats/plaintext.h"
@@ -203,7 +203,7 @@ void RenderMainMenuBar(SDL_Window* window,
                        AnsiCanvas* active_canvas,
                        bool& done,
                        bool& window_fullscreen,
-                       bool& show_color_picker_window,
+                       bool& show_colour_picker_window,
                        bool& show_character_picker_window,
                        bool& show_character_palette_window,
                        bool& show_character_sets_window,
@@ -523,7 +523,7 @@ void RenderMainMenuBar(SDL_Window* window,
         const std::string mi_16c = PHOS_TR("menu.window.sixteen_colors_browser");
         const std::string mi_fullscreen = PHOS_TR("menu.window.fullscreen");
 
-        ImGui::MenuItem(mi_colour_picker.c_str(), nullptr, &show_color_picker_window);
+        ImGui::MenuItem(mi_colour_picker.c_str(), nullptr, &show_colour_picker_window);
         ImGui::MenuItem(mi_unicode_picker.c_str(), nullptr, &show_character_picker_window);
         ImGui::MenuItem(mi_char_palette.c_str(), nullptr, &show_character_palette_window);
         ImGui::MenuItem(mi_char_sets.c_str(), nullptr, &show_character_sets_window);
@@ -579,8 +579,8 @@ void HandleKeybindings(SDL_Window* window,
                        bool& show_minimap_window,
                        bool& show_settings_window,
                        SettingsWindow& settings_window,
-                       ImVec4& fg_color,
-                       ImVec4& bg_color,
+                       ImVec4& fg_colour,
+                       ImVec4& bg_colour,
                        const std::function<void()>& create_new_canvas)
 {
     MaybeApplyPendingMaximize(window, session_state);
@@ -731,22 +731,22 @@ void HandleKeybindings(SDL_Window* window,
         }
 
         // Colour hotkeys affect the shared fg/bg selection used by tools.
-        auto& cs = phos::color::GetColorSystem();
-        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        auto& cs = phos::colour::GetColourSystem();
+        phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
         if (focused_canvas)
         {
             if (auto id = cs.Palettes().Resolve(focused_canvas->GetPaletteRef()))
                 pal = *id;
         }
-        const phos::color::Palette* pal_def = cs.Palettes().Get(pal);
+        const phos::colour::Palette* pal_def = cs.Palettes().Get(pal);
         const int pal_size = (pal_def && !pal_def->rgb.empty()) ? (int)pal_def->rgb.size() : 256;
-        const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+        const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
 
         auto to_idx = [&](const ImVec4& c) -> int {
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            const std::uint8_t idx = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+            const std::uint8_t idx = phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(),
                                                                             pal,
                                                                             (std::uint8_t)std::clamp(r, 0, 255),
                                                                             (std::uint8_t)std::clamp(g, 0, 255),
@@ -755,61 +755,61 @@ void HandleKeybindings(SDL_Window* window,
             return (int)std::clamp<int>((int)idx, 0, std::max(0, pal_size - 1));
         };
 
-        auto apply_idx_to_color = [&](int idx, ImVec4& dst) {
+        auto apply_idx_to_colour = [&](int idx, ImVec4& dst) {
             if (!pal_def || pal_def->rgb.empty())
                 return;
             idx = std::clamp(idx, 0, std::max(0, pal_size - 1));
-            const phos::color::Rgb8 rgb = pal_def->rgb[(size_t)idx];
+            const phos::colour::Rgb8 rgb = pal_def->rgb[(size_t)idx];
             dst.x = (float)rgb.r / 255.0f;
             dst.y = (float)rgb.g / 255.0f;
             dst.z = (float)rgb.b / 255.0f;
             dst.w = 1.0f;
         };
 
-        if (keybinds.ActionPressed("color.prev_fg", kctx))
+        if (keybinds.ActionPressed("colour.prev_fg", kctx))
         {
-            int idx = to_idx(fg_color);
+            int idx = to_idx(fg_colour);
             if (pal_size > 0)
                 idx = (idx + pal_size - 1) % pal_size;
-            apply_idx_to_color(idx, fg_color);
+            apply_idx_to_colour(idx, fg_colour);
         }
-        if (keybinds.ActionPressed("color.next_fg", kctx))
+        if (keybinds.ActionPressed("colour.next_fg", kctx))
         {
-            int idx = to_idx(fg_color);
+            int idx = to_idx(fg_colour);
             if (pal_size > 0)
                 idx = (idx + 1) % pal_size;
-            apply_idx_to_color(idx, fg_color);
+            apply_idx_to_colour(idx, fg_colour);
         }
-        if (keybinds.ActionPressed("color.prev_bg", kctx))
+        if (keybinds.ActionPressed("colour.prev_bg", kctx))
         {
-            int idx = to_idx(bg_color);
+            int idx = to_idx(bg_colour);
             if (pal_size > 0)
                 idx = (idx + pal_size - 1) % pal_size;
-            apply_idx_to_color(idx, bg_color);
+            apply_idx_to_colour(idx, bg_colour);
         }
-        if (keybinds.ActionPressed("color.next_bg", kctx))
+        if (keybinds.ActionPressed("colour.next_bg", kctx))
         {
-            int idx = to_idx(bg_color);
+            int idx = to_idx(bg_colour);
             if (pal_size > 0)
                 idx = (idx + 1) % pal_size;
-            apply_idx_to_color(idx, bg_color);
+            apply_idx_to_colour(idx, bg_colour);
         }
-        if (keybinds.ActionPressed("color.default", kctx))
+        if (keybinds.ActionPressed("colour.default", kctx))
         {
-            apply_idx_to_color(std::min(7, std::max(0, pal_size - 1)), fg_color);
-            apply_idx_to_color(0, bg_color);
+            apply_idx_to_colour(std::min(7, std::max(0, pal_size - 1)), fg_colour);
+            apply_idx_to_colour(0, bg_colour);
         }
-        if (keybinds.ActionPressed("color.pick_attribute", kctx))
+        if (keybinds.ActionPressed("colour.pick_attribute", kctx))
         {
             int cx = 0, cy = 0;
             focused_canvas->GetCaretCell(cx, cy);
             char32_t cp = U' ';
-            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
             if (focused_canvas->GetCompositeCellPublicIndices(cy, cx, cp, fg, bg))
             {
-                if (fg != AnsiCanvas::kUnsetIndex16) apply_idx_to_color((int)fg, fg_color);
-                if (bg != AnsiCanvas::kUnsetIndex16) apply_idx_to_color((int)bg, bg_color);
+                if (fg != AnsiCanvas::kUnsetIndex16) apply_idx_to_colour((int)fg, fg_colour);
+                if (bg != AnsiCanvas::kUnsetIndex16) apply_idx_to_colour((int)bg, bg_colour);
             }
         }
 

@@ -4,8 +4,8 @@
 
 settings = {
   fps = 60,
-  bg = ansl.color.ansi16.black,
-  fg = ansl.color.ansi16.white,
+  bg = ansl.colour.ansi16.black,
+  fg = ansl.colour.ansi16.white,
 }
 
 local v2 = ansl.vec2

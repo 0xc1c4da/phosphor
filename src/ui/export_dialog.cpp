@@ -344,20 +344,20 @@ void ExportDialog::Render(const char* title,
                     ansi_opt_.screen_prep = (formats::ansi::ExportOptions::ScreenPrep)v;
             }
 
-            // Colors
+            // Colours
             {
-                const std::string cm0 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.ansi16_classic");
-                const std::string cm1 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.xterm256");
-                const std::string cm2 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.truecolor_sgr");
-                const std::string cm3 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.pablo_t");
+                const std::string cm0 = PHOS_TR("export_dialog.ansi_tab.colour_mode_items.ansi16_classic");
+                const std::string cm1 = PHOS_TR("export_dialog.ansi_tab.colour_mode_items.xterm256");
+                const std::string cm2 = PHOS_TR("export_dialog.ansi_tab.colour_mode_items.truecolour_sgr");
+                const std::string cm3 = PHOS_TR("export_dialog.ansi_tab.colour_mode_items.pablo_t");
                 const char* items[] = { cm0.c_str(), cm1.c_str(), cm2.c_str(), cm3.c_str() };
-                int v = (int)ansi_opt_.color_mode;
-                const std::string cm_lbl = PHOS_TR("export_dialog.ansi_tab.color_mode");
+                int v = (int)ansi_opt_.colour_mode;
+                const std::string cm_lbl = PHOS_TR("export_dialog.ansi_tab.colour_mode");
                 if (ImGui::Combo(cm_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
-                    ansi_opt_.color_mode = (formats::ansi::ExportOptions::ColorMode)v;
+                    ansi_opt_.colour_mode = (formats::ansi::ExportOptions::ColourMode)v;
             }
 
-            if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::Ansi16)
+            if (ansi_opt_.colour_mode == formats::ansi::ExportOptions::ColourMode::Ansi16)
             {
                 const std::string ba0 = PHOS_TR("export_dialog.ansi_tab.bright_ansi16_items.bold_ice");
                 const std::string ba1 = PHOS_TR("export_dialog.ansi_tab.bright_ansi16_items.sgr_90_97");
@@ -366,15 +366,15 @@ void ExportDialog::Render(const char* title,
                 const std::string ba_lbl = PHOS_TR("export_dialog.ansi_tab.bright_ansi16");
                 if (ImGui::Combo(ba_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.ansi16_bright = (formats::ansi::ExportOptions::Ansi16Bright)v;
-                const std::string ice = PHOS_TR("export_dialog.ansi_tab.ice_colors");
-                ImGui::Checkbox(ice.c_str(), &ansi_opt_.icecolors);
+                const std::string ice = PHOS_TR("export_dialog.ansi_tab.ice_colours");
+                ImGui::Checkbox(ice.c_str(), &ansi_opt_.icecolours);
             }
-            else if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::Xterm256)
+            else if (ansi_opt_.colour_mode == formats::ansi::ExportOptions::ColourMode::Xterm256)
             {
                 const std::string s = PHOS_TR("export_dialog.ansi_tab.xterm_240_safe");
                 ImGui::Checkbox(s.c_str(), &ansi_opt_.xterm_240_safe);
             }
-            else if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::TrueColorPabloT)
+            else if (ansi_opt_.colour_mode == formats::ansi::ExportOptions::ColourMode::TrueColourPabloT)
             {
                 const std::string s = PHOS_TR("export_dialog.ansi_tab.pablo_t_overlay");
                 ImGui::Checkbox(s.c_str(), &ansi_opt_.pablo_t_with_ansi16_fallback);
@@ -389,7 +389,7 @@ void ExportDialog::Render(const char* title,
                     ImGui::SameLine();
                     ImVec4 col = ImGui::ColorConvertU32ToFloat4((ImU32)ansi_opt_.default_fg);
                     if (ImGui::ColorEdit4("##ansi_def_fg", (float*)&col, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                        ansi_opt_.default_fg = (AnsiCanvas::Color32)ImGui::ColorConvertFloat4ToU32(col);
+                        ansi_opt_.default_fg = (AnsiCanvas::Colour32)ImGui::ColorConvertFloat4ToU32(col);
                 }
                 else
                 {
@@ -404,7 +404,7 @@ void ExportDialog::Render(const char* title,
                     ImGui::SameLine();
                     ImVec4 col = ImGui::ColorConvertU32ToFloat4((ImU32)ansi_opt_.default_bg);
                     if (ImGui::ColorEdit4("##ansi_def_bg", (float*)&col, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar))
-                        ansi_opt_.default_bg = (AnsiCanvas::Color32)ImGui::ColorConvertFloat4ToU32(col);
+                        ansi_opt_.default_bg = (AnsiCanvas::Colour32)ImGui::ColorConvertFloat4ToU32(col);
                 }
                 else
                 {

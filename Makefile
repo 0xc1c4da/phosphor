@@ -79,8 +79,8 @@ SOURCES  = \
            src/core/i18n.cpp \
            src/core/key_bindings.cpp \
            src/core/paths.cpp \
-           src/core/color_system.cpp \
-           src/core/color_ops.cpp \
+           src/core/colour_system.cpp \
+           src/core/colour_ops.cpp \
            src/core/xterm256_palette.cpp \
            src/core/palette/palette.cpp \
            src/core/palette/palette_catalog.cpp \

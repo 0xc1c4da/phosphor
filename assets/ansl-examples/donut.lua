@@ -10,7 +10,7 @@ then `main()` returns the cached glyph for each coord.
 
 settings = {
   bg = "#f5f5f5",
-  fg = ansl.color.ansi16.black,
+  fg = ansl.colour.ansi16.black,
 }
 
 local shades = ".,-~:;=!*#$@"

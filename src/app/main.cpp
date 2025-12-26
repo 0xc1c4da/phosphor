@@ -28,7 +28,7 @@
 #include "app/workspace_persist.h"
 
 #include "core/embedded_assets.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/glyph_id.h"
 #include "core/glyph_resolve.h"
 #include "core/i18n.h"
@@ -145,7 +145,7 @@ int main(int argc, char** argv)
     }
 
     // Apply session preferences to the core LUT cache (global for now).
-    phos::color::GetColorSystem().Luts().SetBudgetBytes(session_state.lut_cache_budget_bytes);
+    phos::colour::GetColourSystem().Luts().SetBudgetBytes(session_state.lut_cache_budget_bytes);
 
     // Setup SDL
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
@@ -264,8 +264,8 @@ int main(int argc, char** argv)
     // ---------------------------------------------------------------------
 
     bool show_demo_window = false;
-    ImVec4 clear_color = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
-    bool show_color_picker_window = session_state.show_color_picker_window;
+    ImVec4 clear_colour = ImVec4(0.10f, 0.10f, 0.12f, 1.00f);
+    bool show_colour_picker_window = session_state.show_colour_picker_window;
     bool show_character_picker_window = session_state.show_character_picker_window;
     bool show_character_palette_window = session_state.show_character_palette_window;
     bool show_character_sets_window = session_state.show_character_sets_window;
@@ -282,7 +282,7 @@ int main(int argc, char** argv)
     settings_window.SetOpen(show_settings_window);
     settings_window.SetMainScale(main_scale);
     settings_window.SetLutCacheBudgetApplier([](size_t bytes) {
-        phos::color::GetColorSystem().Luts().SetBudgetBytes(bytes);
+        phos::colour::GetColourSystem().Luts().SetBudgetBytes(bytes);
     });
 
     ExportDialog export_dialog;
@@ -295,20 +295,20 @@ int main(int argc, char** argv)
     }
     settings_window.SetKeyBindingsEngine(&keybinds);
 
-    // Shared color state for the xterm-256 color pickers.
-    ImVec4 fg_color = ImVec4(session_state.xterm_color_picker.fg[0],
-                             session_state.xterm_color_picker.fg[1],
-                             session_state.xterm_color_picker.fg[2],
-                             session_state.xterm_color_picker.fg[3]);
-    ImVec4 bg_color = ImVec4(session_state.xterm_color_picker.bg[0],
-                             session_state.xterm_color_picker.bg[1],
-                             session_state.xterm_color_picker.bg[2],
-                             session_state.xterm_color_picker.bg[3]);
-    int active_fb = session_state.xterm_color_picker.active_fb;                     // 0 = foreground, 1 = background
-    int xterm_picker_mode = session_state.xterm_color_picker.picker_mode;           // 0 = Hue Bar, 1 = Hue Wheel
-    int xterm_selected_palette = session_state.xterm_color_picker.selected_palette;
-    int xterm_picker_preview_fb = session_state.xterm_color_picker.picker_preview_fb; // 0 = fg, 1 = bg
-    float xterm_picker_last_hue = session_state.xterm_color_picker.last_hue;
+    // Shared colour state for the xterm-256 colour pickers.
+    ImVec4 fg_colour = ImVec4(session_state.xterm_colour_picker.fg[0],
+                             session_state.xterm_colour_picker.fg[1],
+                             session_state.xterm_colour_picker.fg[2],
+                             session_state.xterm_colour_picker.fg[3]);
+    ImVec4 bg_colour = ImVec4(session_state.xterm_colour_picker.bg[0],
+                             session_state.xterm_colour_picker.bg[1],
+                             session_state.xterm_colour_picker.bg[2],
+                             session_state.xterm_colour_picker.bg[3]);
+    int active_fb = session_state.xterm_colour_picker.active_fb;                     // 0 = foreground, 1 = background
+    int xterm_picker_mode = session_state.xterm_colour_picker.picker_mode;           // 0 = Hue Bar, 1 = Hue Wheel
+    int xterm_selected_palette = session_state.xterm_colour_picker.selected_palette;
+    int xterm_picker_preview_fb = session_state.xterm_colour_picker.picker_preview_fb; // 0 = fg, 1 = bg
+    float xterm_picker_last_hue = session_state.xterm_colour_picker.last_hue;
 
     // Workspace (documents)
     std::vector<std::unique_ptr<CanvasWindow>> canvases;
@@ -580,17 +580,17 @@ int main(int argc, char** argv)
     st.tools.tool_brush_utf8 = &tool_brush_utf8;
     st.tools.tool_attrs_mask = &tool_attrs_mask;
 
-    st.colors.clear_color = &clear_color;
-    st.colors.fg_color = &fg_color;
-    st.colors.bg_color = &bg_color;
-    st.colors.active_fb = &active_fb;
-    st.colors.xterm_picker_mode = &xterm_picker_mode;
-    st.colors.xterm_selected_palette = &xterm_selected_palette;
-    st.colors.xterm_picker_preview_fb = &xterm_picker_preview_fb;
-    st.colors.xterm_picker_last_hue = &xterm_picker_last_hue;
+    st.colours.clear_colour = &clear_colour;
+    st.colours.fg_colour = &fg_colour;
+    st.colours.bg_colour = &bg_colour;
+    st.colours.active_fb = &active_fb;
+    st.colours.xterm_picker_mode = &xterm_picker_mode;
+    st.colours.xterm_selected_palette = &xterm_selected_palette;
+    st.colours.xterm_picker_preview_fb = &xterm_picker_preview_fb;
+    st.colours.xterm_picker_last_hue = &xterm_picker_last_hue;
 
     st.toggles.show_demo_window = &show_demo_window;
-    st.toggles.show_color_picker_window = &show_color_picker_window;
+    st.toggles.show_colour_picker_window = &show_colour_picker_window;
     st.toggles.show_character_picker_window = &show_character_picker_window;
     st.toggles.show_character_palette_window = &show_character_palette_window;
     st.toggles.show_character_sets_window = &show_character_sets_window;
@@ -621,7 +621,7 @@ int main(int argc, char** argv)
                                               io_manager,
                                               tool_palette,
                                               ansl_editor,
-                                              show_color_picker_window,
+                                              show_colour_picker_window,
                                               show_character_picker_window,
                                               show_character_palette_window,
                                               show_character_sets_window,
@@ -632,8 +632,8 @@ int main(int argc, char** argv)
                                               show_minimap_window,
                                               show_settings_window,
                                               show_16colors_browser_window,
-                                              fg_color,
-                                              bg_color,
+                                              fg_colour,
+                                              bg_colour,
                                               active_fb,
                                               xterm_picker_mode,
                                               xterm_selected_palette,

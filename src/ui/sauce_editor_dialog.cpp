@@ -460,7 +460,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "\n"
             "Common meanings:\n"
             "- DataType=Character: ANSiFlags (rendering hints)\n"
-            "  - iCE Color / non-blink background mode (enables 16 background colors)\n"
+            "  - iCE Colour / non-blink background mode (enables 16 background colours)\n"
             "  - (newer SAUCE) font width/aspect-ratio hints\n"
             "- DataType=BinaryText: also commonly uses ANSiFlags\n"
             "\n"

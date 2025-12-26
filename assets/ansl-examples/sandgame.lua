@@ -158,16 +158,16 @@ function main(coord, ctx, cursor)
   if y >= (ctx.rows or rows) - 1 then
     return {
       char = groundChar(x),
-      bg = ansl.color.rgb(138, 162, 70),
-      fg = ansl.color.rgb(211, 231, 151),
+      bg = ansl.colour.rgb(138, 162, 70),
+      fg = ansl.colour.rgb(211, 231, 151),
     }
   end
 
   if x <= 0 or x >= (ctx.cols or cols) - 1 then
     return {
       char = wallChar(y),
-      bg = ansl.color.rgb(247, 187, 39),
-      fg = ansl.color.ansi16.white,
+      bg = ansl.colour.rgb(247, 187, 39),
+      fg = ansl.colour.ansi16.white,
     }
   end
 
@@ -181,8 +181,8 @@ function main(coord, ctx, cursor)
   end
   return {
     char = ch,
-    bg = ansl.color.ansi16.white,
-    fg = ansl.color.rgb(179, 158, 124),
+    bg = ansl.colour.ansi16.white,
+    fg = ansl.colour.rgb(179, 158, 124),
   }
 end
 

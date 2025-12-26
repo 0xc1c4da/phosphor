@@ -45,15 +45,15 @@ function main(coord, ctx)
   local idx0 = floor(map(v3, -2, 2, 0, 1) * #density)
   idx0 = clampi(idx0, 0, #density - 1)
 
-  -- Colors are quantized for performance (as in JS).
+  -- Colours are quantized for performance (as in JS).
   local quant = 2
   local mult = 255 / (quant - 1)
   local r = floor(map(sin(v3 * PI + t1), -1, 1, 0, quant)) * mult
   local g = floor(map(sin(v3 * PI23 + t2), -1, 1, 0, quant)) * mult
   local b = floor(map(sin(v3 * PI43 - t1), -1, 1, 0, quant)) * mult
 
-  local bg = ansl.color.rgb(r, g, b)
-  return { char = density[idx0 + 1], fg = ansl.color.ansi16.white, bg = bg }
+  local bg = ansl.colour.rgb(r, g, b)
+  return { char = density[idx0 + 1], fg = ansl.colour.ansi16.white, bg = bg }
 end
 
 

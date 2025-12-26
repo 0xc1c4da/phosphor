@@ -114,10 +114,10 @@ function main(coord, ctx, cursor)
     local x = (coord.x % bgW) + 1
     local y = (coord.y % bgH) + 1
     local ch = (d < 0) and " " or bgRows[y][x]
-    return { char = ch, fg = ansl.color.ansi16.black }
+    return { char = ch, fg = ansl.colour.ansi16.black }
   end
 
-  return { char = density[idx0 + 1], fg = ansl.color.hex("#4169e1") } -- royalblue
+  return { char = density[idx0 + 1], fg = ansl.colour.hex("#4169e1") } -- royalblue
 end
 
 

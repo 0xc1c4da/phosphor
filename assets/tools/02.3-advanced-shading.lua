@@ -36,7 +36,7 @@ settings = {
         "- clean: Tight 1-cell transition band at region boundaries (minimal ░▒▓).",
         "- clean_plus: Like clean, but slightly smoother (2-cell band). Still avoids overshading.",
         "- halshade: Adds Halaster-style texture (swirls/sparkles/pits) + lit-side border + density reversal, while respecting light.",
-        "- plus_chroma: Grit mode. Adds '+' texture and palette-local 'random shade' color picks (from colors already nearby).",
+        "- plus_chroma: Grit mode. Adds '+' texture and palette-local 'random shade' colour picks (from colours already nearby).",
         "- pnakotic: Subtle micro-variation (small safe hue/value shifts) to avoid flat bands.",
         "- softblend: Wider transition band (softer gradients). Easier to overdo; keep strength modest.",
         "- bg_blend: Background feathering near silhouettes (softens the outside/background side).",
@@ -126,12 +126,12 @@ settings = {
 
     allowHardTextures = {
       type = "bool",
-      label = "Hard-color textures",
+      label = "Hard-colour textures",
       ui = "toggle",
       section = "Safety",
       order = 30,
       default = false,
-      tooltip = "If off (recommended): suppresses textures on 'hard' colors (classic ANSI reds/greens/blues and vivid saturated colors), because they tend to look noisy/ugly when auto-textured. Turn on only if you intentionally want gritty texture there.",
+      tooltip = "If off (recommended): suppresses textures on 'hard' colours (classic ANSI reds/greens/blues and vivid saturated colours), because they tend to look noisy/ugly when auto-textured. Turn on only if you intentionally want gritty texture there.",
     },
     allow08Transition = {
       type = "bool",
@@ -141,7 +141,7 @@ settings = {
       order = 31,
       default = false,
       inline = true,
-      tooltip = "Classic ANSI rule: color 08 is special—often great as a flat fill, often ugly as a blended intermediate. If off: CPS forbids 08 inside fg/bg mixes except safe pairs (03↔08 and 07↔08). Turn on only if you know you want 08 blends.",
+      tooltip = "Classic ANSI rule: colour 08 is special—often great as a flat fill, often ugly as a blended intermediate. If off: CPS forbids 08 inside fg/bg mixes except safe pairs (03↔08 and 07↔08). Turn on only if you know you want 08 blends.",
     },
 
     -- Advanced tuning knobs (derived from the CPS spec).
@@ -156,7 +156,7 @@ settings = {
       step = 0.01,
       default = 0.75,
       width = 180,
-      tooltip = "Shaded-together cutoff (Rule 7 scope + transition reasoning). Higher = more conservative about treating two colors as a valid shading pair.",
+      tooltip = "Shaded-together cutoff (Rule 7 scope + transition reasoning). Higher = more conservative about treating two colours as a valid shading pair.",
     },
     brightThreshold = {
       type = "float",
@@ -274,7 +274,7 @@ settings = {
       step = 1,
       default = 6,
       inline = true,
-      tooltip = "Plus/Chroma: palette-local random shade only picks colors that appear at least this many times in the local window.",
+      tooltip = "Plus/Chroma: palette-local random shade only picks colours that appear at least this many times in the local window.",
     },
     chromaRadius = {
       type = "int",
@@ -473,10 +473,10 @@ local function idx_to_rgb(idx)
     return c[1], c[2], c[3], true
   end
   local a = get_ansl()
-  if not a or not a.color or not a.color.rgb_of then
+  if not a or not a.colour or not a.colour.rgb_of then
     return 0, 0, 0, false
   end
-  local ok, r, g, b = pcall(function() return a.color.rgb_of(idx) end)
+  local ok, r, g, b = pcall(function() return a.colour.rgb_of(idx) end)
   if not ok then
     return 0, 0, 0, false
   end
@@ -528,7 +528,7 @@ local rule7_white_exception = true
 local rule7_white_threshold = 0.92
 
 -- Classic ANSI-16 tutorial-derived rules.
-local colorClass16 = {
+local colourClass16 = {
   [0] = "neutral",
   [1] = "hard", [2] = "hard", [3] = "soft", [4] = "hard",
   [5] = "soft", [6] = "soft", [7] = "soft", [8] = "weird08",
@@ -545,7 +545,7 @@ local avoidShadeTogetherPairs = {
   ["2,3"] = true, ["2,7"] = true, ["3,7"] = true,
 }
 
-local color08BlendAllowedPairs = {
+local colour08BlendAllowedPairs = {
   ["3,8"] = true, ["7,8"] = true,
 }
 
@@ -568,7 +568,7 @@ local function compat16(a, b, allow08)
 
   -- 08 policy dominates (unless user override).
   if (lo == 8 or hi == 8) and not allow08 then
-    if color08BlendAllowedPairs[key] then return 0.70 end
+    if colour08BlendAllowedPairs[key] then return 0.70 end
     return 0.00
   end
 
@@ -594,11 +594,11 @@ local function is_whiteish_idx(idx)
   return luminance(idx) >= (rule7_white_threshold or 0.92)
 end
 
-local function color_class(idx, is_classic16)
+local function colour_class(idx, is_classic16)
   if type(idx) ~= "number" then return "neutral" end
   idx = math.floor(idx)
   if is_classic16 and idx >= 0 and idx <= 15 then
-    return colorClass16[idx] or "neutral"
+    return colourClass16[idx] or "neutral"
   end
   local r, g, b, ok = idx_to_rgb(idx)
   if not ok then return "neutral" end
@@ -911,8 +911,8 @@ local function sample_cell(ctx, layer, x, y, sample_mode)
   return ch, fg, bg, nil
 end
 
-local function dominant_color(ch, fg, bg)
-  -- Pick a stable "region color key".
+local function dominant_colour(ch, fg, bg)
+  -- Pick a stable "region colour key".
   if type(fg) ~= "number" and type(bg) ~= "number" then return nil end
   if type(fg) ~= "number" then return bg end
   if type(bg) ~= "number" then return fg end
@@ -926,7 +926,7 @@ local function is_filled_cell(ch, fg, bg)
     return not is_blank_glyph(ch)
   end
   if is_blank_glyph(ch) then
-    -- A colored-space is treated as filled.
+    -- A coloured-space is treated as filled.
     return (type(bg) == "number")
   end
   if is_density_glyph(ch) or is_half_glyph(ch) or ch == "█" then
@@ -953,16 +953,16 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
         if x >= 0 and x < cols then
           local ch, fg, bg, attrs = sample_cell(ctx, layer, x, y, sample_mode)
           local filled = is_filled_cell(ch, fg, bg)
-          local dom = dominant_color(ch, fg, bg)
+          local dom = dominant_colour(ch, fg, bg)
           cell[key_xy(x, y)] = { ch = ch, fg = fg, bg = bg, attrs = attrs, filled = filled, dom = dom }
         end
       end
     end
   end
 
-  -- Flood-fill regions by dominant color (4-connected) inside the extended footprint.
+  -- Flood-fill regions by dominant colour (4-connected) inside the extended footprint.
   local region = {} -- key -> regionId (int)
-  local region_dom = {} -- regionId -> dom color
+  local region_dom = {} -- regionId -> dom colour
   local next_id = 1
   local qx, qy = {}, {}
 
@@ -1284,7 +1284,7 @@ local function analyze_footprint(ctx, layer, cx, cy, r, stroke_dx, stroke_dy, li
               local nd = outside_dist[nk]
               if d0 + 1 < nd then
                 outside_dist[nk] = d0 + 1
-                -- propagate "inside color" outward (first-hit is fine for a local feather).
+                -- propagate "inside colour" outward (first-hit is fine for a local feather).
                 if outside_in_dom[nk] == nil then
                   outside_in_dom[nk] = outside_in_dom[k]
                 end
@@ -1456,14 +1456,14 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
   -- Merge candidate into current.
   local w = merge_write(cur_state, cand)
 
-  -- Dominant color for adjacency reasoning.
-  local dom = dominant_color(w.ch, w.fg, w.bg)
+  -- Dominant colour for adjacency reasoning.
+  local dom = dominant_colour(w.ch, w.fg, w.bg)
   if dom == nil then dom = cur_state.dom end
 
-  -- Snap computed colors to allowed palette if host provided a restriction.
+  -- Snap computed colours to allowed palette if host provided a restriction.
   if type(w.fg) == "number" then w.fg = snap_to_allowed(w.fg, allowed, allowed_set) end
   if type(w.bg) == "number" then w.bg = snap_to_allowed(w.bg, allowed, allowed_set) end
-  dom = dominant_color(w.ch, w.fg, w.bg) or dom
+  dom = dominant_colour(w.ch, w.fg, w.bg) or dom
 
   -- Overshading guardrail.
   if is_density_glyph(w.ch) then
@@ -1502,9 +1502,9 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
     end
   end
 
-  -- Hard-color clamp: suppress texture on hard colors unless allowed.
+  -- Hard-colour clamp: suppress texture on hard colours unless allowed.
   local base_dom = cur_state.dom
-  local base_class = color_class(base_dom, is_classic16)
+  local base_class = colour_class(base_dom, is_classic16)
   if (base_class == "hard") and (not hard_textures) then
     if cand.tag == "swirl" or cand.tag == "pit" or cand.tag == "sparkle" or cand.tag == "plus" or cand.tag == "chroma" or cand.tag == "pnakotic" then
       return math.huge
@@ -1518,7 +1518,7 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
       local lo, hi = fg, bg
       if lo > hi then lo, hi = hi, lo end
       local kk = tostring(lo) .. "," .. tostring(hi)
-      if (lo == 8 or hi == 8) and (not color08BlendAllowedPairs[kk]) then
+      if (lo == 8 or hi == 8) and (not colour08BlendAllowedPairs[kk]) then
         return math.huge
       end
     end
@@ -1657,7 +1657,7 @@ local function score_cell(fields, params, proposed, x, y, cur_state, cand, inten
   return pen
 end
 
-local function pick_toon_color(allowed, base, want_dir, is_classic16)
+local function pick_toon_colour(allowed, base, want_dir, is_classic16)
   -- want_dir: -1 darken, +1 lighten
   local allowed_set = build_allowed_set(allowed)
   if type(base) ~= "number" then
@@ -1717,7 +1717,7 @@ end
 local function is_classic16_palette(ctx, allowed)
   local is_builtin = (ctx and ctx.palette_is_builtin) == true
   local b = to_int(ctx and ctx.palette_builtin, 0)
-  -- phos::color::BuiltinPalette:
+  -- phos::colour::BuiltinPalette:
   --   Vga16 = 1, Xterm16 = 3
   if is_builtin and (b == 1 or b == 3) then
     return true
@@ -1827,10 +1827,10 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
   local thin_feature = (rmax < (params.thinThicknessMin or 2)) or ((fields.D[k] or 0.0) < (params.thinDetailMin or 0.50))
   allowed_set = allowed_set or build_allowed_set(allowed)
 
-  -- Local transition width clamp for hard colors (tutorial: hard colors don't shade well).
+  -- Local transition width clamp for hard colours (tutorial: hard colours don't shade well).
   local tw = params.transitionWidth
   if type(cur.dom) == "number" then
-    local cls = color_class(cur.dom, is_classic16)
+    local cls = colour_class(cur.dom, is_classic16)
     if cls == "hard" and tw > 1 then tw = 1 end
   end
   if thin_feature and tw > 1 then tw = 1 end
@@ -1846,7 +1846,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
     elseif intent_sign > 0 then want = (t >= 0) and 1 or 0 end
     if want ~= 0 then
       local glyph = is_structural_glyph(cur.ch) and cur.ch or "█"
-      local new_fg = pick_toon_color(allowed, cur.dom, want, is_classic16)
+      local new_fg = pick_toon_colour(allowed, cur.dom, want, is_classic16)
       cands[#cands + 1] = { ch = glyph, fg = new_fg, tag = "toon_fill" }
     else
       -- still allow collapsing non-structural to fill in toon mode at low strength
@@ -1861,7 +1861,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
     local other_dom, odir = pick_neighbor_other(fields, x, y)
     if type(other_dom) == "number" and odir ~= nil and type(cur.dom) == "number" then
       local hg = choose_half_glyph(odir.dx, odir.dy)
-      -- Inside region color goes to the ink half; outside to the other half.
+      -- Inside region colour goes to the ink half; outside to the other half.
       cands[#cands + 1] = { ch = hg, fg = cur.dom, bg = other_dom, tag = "half_edge" }
     end
   end
@@ -1889,7 +1889,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
       -- Fast drop (skip-step) at strong intent: jump tone without midtone ladder.
       if params.enableFastDrop and math.abs((fields.T[k] or 0.0)) >= 0.60 then
         local want = (intent_sign < 0) and -1 or 1
-        local jump = pick_toon_color(allowed, cur.dom, want, is_classic16)
+        local jump = pick_toon_colour(allowed, cur.dom, want, is_classic16)
         cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = jump, tag = "fast_drop" }
       end
     end
@@ -1904,11 +1904,11 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
         if rule7_white_exception and (is_whiteish_idx(cur.dom) or is_whiteish_idx(other_dom)) then
           -- allow the "white exception"
         else
-        -- Prefer a dark separator (default color 0 if allowed).
+        -- Prefer a dark separator (default colour 0 if allowed).
         local sep = snap_to_allowed(0, allowed, allowed_set) or darkest_allowed(allowed) or cur.dom
         cands[#cands + 1] = { ch = "█", fg = sep, bg = sep, tag = "rule7_sep" }
         -- Or fade the edge inward by darkening this cell.
-        local fade = pick_toon_color(allowed, cur.dom, -1, is_classic16)
+        local fade = pick_toon_colour(allowed, cur.dom, -1, is_classic16)
         if type(fade) == "number" then
           cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = fade, tag = "rule7_fade" }
         end
@@ -1928,7 +1928,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
     -- Bias border to the light-facing side (simple heuristic: high L(c)).
     local lc = fields.L[k] or 0.5
     if lc >= 0.65 then
-      local bright = pick_toon_color(allowed, cur.dom, 1, is_classic16)
+      local bright = pick_toon_colour(allowed, cur.dom, 1, is_classic16)
       cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = bright, tag = "border" }
     end
   end
@@ -1945,7 +1945,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
       end
       -- sparkles in highlight centers
       if lc >= 0.70 then
-        local sp = pick_toon_color(allowed, cur.dom, 1, is_classic16) or brightest_allowed(allowed) or cur.dom
+        local sp = pick_toon_colour(allowed, cur.dom, 1, is_classic16) or brightest_allowed(allowed) or cur.dom
         cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = sp, tag = "sparkle" }
       end
     end
@@ -1953,14 +1953,14 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
     if lc >= 0.55 then
       local n = rand01(dab_seed, x, y, 101)
       if n >= 0.93 then
-        local sw = pick_toon_color(allowed, cur.dom, 1, is_classic16) or cur.dom
+        local sw = pick_toon_colour(allowed, cur.dom, 1, is_classic16) or cur.dom
         cands[#cands + 1] = { ch = is_structural_glyph(cur.ch) and cur.ch or "█", fg = sw, tag = "swirl" }
       end
     end
   end
 
   if params.enablePlus and (not thin_feature) then
-    -- Use '+' as grit in safe contexts (keep colors unless we can respect intent).
+    -- Use '+' as grit in safe contexts (keep colours unless we can respect intent).
     local lc = fields.L[k] or 0.5
     if lc >= 0.55 then
       cands[#cands + 1] = { ch = "+", fg = cur.dom, bg = cur.bg, tag = "plus" }
@@ -1969,7 +1969,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
 
   if params.enableChroma and (not thin_feature) then
     local h = (fields.hist and fields.hist[k]) or {}
-    -- Allowed = colors that appear locally at least minCount.
+    -- Allowed = colours that appear locally at least minCount.
     local minCount = clamp(to_int(params.chromaMinCount, 6), 1, 9999)
     local pool = {}
     for col, cnt in pairs(h) do
@@ -1986,7 +1986,7 @@ local function gen_candidates(ctx, fields, params, allowed, allowed_set, dab_see
   end
 
   if params.enablePnakotic and (not thin_feature) then
-    -- Micro-variation: small fg shifts among close compat colors.
+    -- Micro-variation: small fg shifts among close compat colours.
     if type(allowed) ~= "table" or #allowed == 0 then
       -- Host didn't provide a palette list; skip pnakotic (cannot search neighbors safely).
     else
@@ -2056,7 +2056,7 @@ local function solve_and_apply(ctx, layer, cx, cy, r, fields, params, allowed, a
 
   local function apply_proposed(x, y, w)
     local k = key_xy(x, y)
-    local dom = dominant_color(w.ch, w.fg, w.bg)
+    local dom = dominant_colour(w.ch, w.fg, w.bg)
     proposed[k] = { write = w, dom = dom }
   end
 

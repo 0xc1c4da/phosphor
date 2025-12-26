@@ -28,7 +28,7 @@ AnsiCanvas::AnsiCanvas(int columns)
 
     // Default palette identity (core).
     m_palette_ref.is_builtin = true;
-    m_palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+    m_palette_ref.builtin = phos::colour::BuiltinPalette::Xterm256;
 
     // Default UI palette selection follows the core palette.
     m_ui_palette_ref = m_palette_ref;
@@ -124,7 +124,7 @@ void AnsiCanvas::RequestScrollPixels(float scroll_x, float scroll_y)
     m_scroll_request_y = scroll_y;
 }
 
-bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const
+bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colour32& out_fg, Colour32& out_bg) const
 {
     out_cp = U' ';
     out_fg = 0;
@@ -133,12 +133,12 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
         return false;
     CompositeCell c = GetCompositeCell(row, col);
     out_cp = c.cp;
-    out_fg = IndexToColor32(c.fg);
-    out_bg = IndexToColor32(c.bg);
+    out_fg = IndexToColour32(c.fg);
+    out_bg = IndexToColour32(c.bg);
     return true;
 }
 
-bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg, Attrs& out_attrs) const
+bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colour32& out_fg, Colour32& out_bg, Attrs& out_attrs) const
 {
     out_cp = U' ';
     out_fg = 0;
@@ -148,13 +148,13 @@ bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colo
         return false;
     CompositeCell c = GetCompositeCell(row, col);
     out_cp = c.cp;
-    out_fg = IndexToColor32(c.fg);
-    out_bg = IndexToColor32(c.bg);
+    out_fg = IndexToColour32(c.fg);
+    out_bg = IndexToColour32(c.bg);
     out_attrs = c.attrs;
     return true;
 }
 
-bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg) const
+bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColourIndex16& out_fg, ColourIndex16& out_bg) const
 {
     out_cp = U' ';
     out_fg = kUnsetIndex16;
@@ -168,7 +168,7 @@ bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_c
     return true;
 }
 
-bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const
+bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColourIndex16& out_fg, ColourIndex16& out_bg, Attrs& out_attrs) const
 {
     out_cp = U' ';
     out_fg = kUnsetIndex16;
@@ -184,7 +184,7 @@ bool AnsiCanvas::GetCompositeCellPublicIndices(int row, int col, char32_t& out_c
     return true;
 }
 
-bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg) const
+bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColourIndex16& out_fg, ColourIndex16& out_bg) const
 {
     out_glyph = phos::glyph::MakeUnicodeScalar(U' ');
     out_fg = kUnsetIndex16;
@@ -198,7 +198,7 @@ bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& o
     return true;
 }
 
-bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const
+bool AnsiCanvas::GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColourIndex16& out_fg, ColourIndex16& out_bg, Attrs& out_attrs) const
 {
     out_glyph = phos::glyph::MakeUnicodeScalar(U' ');
     out_fg = kUnsetIndex16;

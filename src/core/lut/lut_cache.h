@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace phos::color
+namespace phos::colour
 {
 enum class LutType : std::uint8_t
 {
@@ -148,6 +148,6 @@ private:
     std::unordered_map<LutKey, Entry, LutKeyHash> m_map;
 };
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

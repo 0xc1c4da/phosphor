@@ -7,7 +7,7 @@
 #include <cstring>
 #include <span>
 
-namespace phos::color
+namespace phos::colour
 {
 QuantizePolicy DefaultQuantizePolicy()
 {
@@ -232,7 +232,7 @@ PaletteInstanceId PaletteRegistry::RegisterInternal(Palette p)
     p.instance = id;
 
     // Build exact reverse lookup map (RGB24 -> lowest index).
-    // This is used as a fast path for "already-in-palette" colors and for deterministic blending outputs.
+    // This is used as a fast path for "already-in-palette" colours and for deterministic blending outputs.
     p.exact_u24_to_index.clear();
     p.exact_u24_to_index.reserve(p.rgb.size());
     for (std::size_t i = 0; i < p.rgb.size(); ++i)
@@ -311,6 +311,6 @@ PaletteInstanceId PaletteRegistry::RegisterDynamic(std::string_view title, std::
     return id;
 }
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

@@ -194,7 +194,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             ImGui::TextUnformatted(PHOS_TR("tool_parameters.advanced").c_str());
             ImGui::Separator();
             // Skip params that are deliberately surfaced in the main window's reserved rows
-            // (e.g. color row). IMPORTANT: don't skip non-primary versions of these keys (e.g. Font fallback),
+            // (e.g. colour row). IMPORTANT: don't skip non-primary versions of these keys (e.g. Font fallback),
             // otherwise they'd disappear from Advanced; instead only skip if they are primary.
             std::vector<const char*> skip_keys;
             skip_keys.reserve(8);
@@ -525,7 +525,7 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
     }
     ImGui::Separator();
 
-    // Row 2 (reserved when present): Color row (FG/BG + related options like Source).
+    // Row 2 (reserved when present): Colour row (FG/BG + related options like Source).
     // Only surface these here when the tool author marked them primary. Otherwise they remain in Advanced (e.g. Font fallback toggles).
     std::vector<const char*> skip_keys;
     skip_keys.reserve(8);

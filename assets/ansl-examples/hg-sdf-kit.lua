@@ -145,7 +145,7 @@ function main(coord, ctx, cursor)
   local ch = density[i]
   if d < 0 then ch = density[#density] end
 
-  return { char = ch, fg = ansl.color.ansi16.white, bg = ansl.color.ansi16.black }
+  return { char = ch, fg = ansl.colour.ansi16.white, bg = ansl.colour.ansi16.black }
 end
 
 

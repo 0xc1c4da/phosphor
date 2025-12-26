@@ -5,8 +5,8 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Fill", primary = true, items = { "char", "colorize", "both", "half" }, default = "both" },
-    exact = { type = "bool", label = "Exact", ui = "toggle", section = "Fill", primary = true, default = true, tooltip = "If off: match glyph only (ignore colors)." , inline = true },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Fill", primary = true, items = { "char", "colourize", "both", "half" }, default = "both" },
+    exact = { type = "bool", label = "Exact", ui = "toggle", section = "Fill", primary = true, default = true, tooltip = "If off: match glyph only (ignore colours)." , inline = true },
     useFg = { type = "bool", label = "FG", ui = "toggle", section = "Paint", primary = true, default = true, inline = true },
     useBg = { type = "bool", label = "BG", ui = "toggle", section = "Paint", primary = true, default = true, inline = true },
     maxCells = { type = "int", label = "Max cells", ui = "slider", section = "Safety", min = 1000, max = 500000, step = 1000, default = 200000, tooltip = "Safety cap for flood fill; prevents runaway fills." },
@@ -122,7 +122,7 @@ local function fill(ctx, layer, sx, sy, shalfy)
     return hy * cols + x
   end
 
-  local function get_half_color(x, hy)
+  local function get_half_colour(x, hy)
     local y = math.floor(hy / 2)
     if y < 0 or y >= rows then return nil end
     local is_top = (hy % 2) == 0
@@ -134,7 +134,7 @@ local function fill(ctx, layer, sx, sy, shalfy)
     return is_top and upper or lower
   end
 
-  local function set_half_color(x, hy, col)
+  local function set_half_colour(x, hy, col)
     local y = math.floor(hy / 2)
     if y < 0 then y = 0 end
     if y >= rows then return end
@@ -174,12 +174,12 @@ local function fill(ctx, layer, sx, sy, shalfy)
 
   -- If we can't change anything, bail early.
   if mode == "half" then
-    -- half fill needs a paint color
+    -- half fill needs a paint colour
     if fg == nil and bg == nil then return end
-  elseif mode == "colorize" then
+  elseif mode == "colourize" then
     if fg == nil and bg == nil then return end
   elseif mode == "char" then
-    -- If brush and colors would result in a no-op, bail.
+    -- If brush and colours would result in a no-op, bail.
     if brush == base and fg == nil and bg == nil then return end
   else -- both
     if brush == base and fg == nil and bg == nil then return end
@@ -199,7 +199,7 @@ local function fill(ctx, layer, sx, sy, shalfy)
     return y * cols + x
   end
 
-  -- Half-block fill: flood fill on a (cols x rows*2) grid, matching half colors.
+  -- Half-block fill: flood fill on a (cols x rows*2) grid, matching half colours.
   if mode == "half" then
     local primary_col = useFg and fg or (useBg and bg or nil)
     local secondary_col = useBg and bg or (useFg and fg or nil)
@@ -215,11 +215,11 @@ local function fill(ctx, layer, sx, sy, shalfy)
     if start_half_y < 0 then start_half_y = 0 end
     if start_half_y >= rows * 2 then start_half_y = rows * 2 - 1 end
 
-    local base_col = get_half_color(sx, start_half_y)
+    local base_col = get_half_colour(sx, start_half_y)
     -- Match Moebius behavior: only start half-fill if we clicked a "blocky" half.
     if type(base_col) ~= "number" then return end
-    local target_color = base_col
-    if paint_col == target_color then return end
+    local target_colour = base_col
+    if paint_col == target_colour then return end
 
     local visited_h = {}
     local stack_xh = { sx }
@@ -252,8 +252,8 @@ local function fill(ctx, layer, sx, sy, shalfy)
 
             if is_blocky then
               local cur_col = is_top and upper or lower
-              if cur_col == target_color then
-                set_half_color(x, hy, paint_col)
+              if cur_col == target_colour then
+                set_half_colour(x, hy, paint_col)
                 filled_h = filled_h + 1
                 if filled_h >= maxCells then
                   return
@@ -272,28 +272,28 @@ local function fill(ctx, layer, sx, sy, shalfy)
               if type(fhy) ~= "number" then fhy = hy end
 
               local function set_left()
-                if left == target_color then
+                if left == target_colour then
                   layer:set(x, y, "▌", paint_col, right or 0)
                 end
               end
               local function set_right()
-                if right == target_color then
+                if right == target_colour then
                   layer:set(x, y, "▐", paint_col, left or 0)
                 end
               end
 
               if fhy == hy - 1 then
                 -- entered from above
-                if left == target_color then
+                if left == target_colour then
                   layer:set(x, y, "▌", paint_col, right or 0)
-                elseif right == target_color then
+                elseif right == target_colour then
                   layer:set(x, y, "▐", paint_col, left or 0)
                 end
               elseif fhy == hy + 1 then
                 -- entered from below
-                if right == target_color then
+                if right == target_colour then
                   layer:set(x, y, "▐", paint_col, left or 0)
-                elseif left == target_color then
+                elseif left == target_colour then
                   layer:set(x, y, "▌", paint_col, right or 0)
                 end
               elseif fx == x - 1 then
@@ -322,7 +322,7 @@ local function fill(ctx, layer, sx, sy, shalfy)
   end
 
   local function apply_at(x, y)
-    if mode == "colorize" then
+    if mode == "colourize" then
       local ch = norm_glyph((layer:get(x, y)))
       layer:set(x, y, ch, fg, bg)
     elseif mode == "char" then

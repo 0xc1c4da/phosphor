@@ -144,7 +144,7 @@ static std::string FontPreviewKey(const std::string& id,
 {
     // Keep simple/stable; opts fields are small integers/bools.
     return id + "|" + text + "|" + std::to_string((int)opts.mode) + "|" + std::to_string(opts.outline_style) + "|" +
-           (opts.use_font_colors ? "1" : "0") + "|" + (opts.icecolors ? "1" : "0");
+           (opts.use_font_colours ? "1" : "0") + "|" + (opts.icecolours ? "1" : "0");
 }
 
 static std::string ShortenForPreview(std::string s, int max_len)
@@ -395,11 +395,11 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
         (void)engine.GetParamInt("outlineStyle", outline);
         ro.mode = edit ? textmode_font::RenderMode::Edit : textmode_font::RenderMode::Display;
         ro.outline_style = std::clamp(outline, 0, 64);
-        // Always render previews with intrinsic font colors enabled. The tool itself can
-        // still choose whether to stamp colors; the picker should help users see what a
+        // Always render previews with intrinsic font colours enabled. The tool itself can
+        // still choose whether to stamp colours; the picker should help users see what a
         // font looks like.
-        ro.use_font_colors = true;
-        ro.icecolors = true;
+        ro.use_font_colours = true;
+        ro.icecolours = true;
     }
 
     // Preview cache: render cost is in Registry::Render, so cache the resulting Bitmap.

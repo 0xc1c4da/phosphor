@@ -1,6 +1,6 @@
 #include "core/canvas_rasterizer.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
 
@@ -280,7 +280,7 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
     const ImU32 paper = canvas.IsCanvasBackgroundWhite() ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 255);
     const ImU32 default_fg = canvas.IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
     const bool active_palette_is_vga16 =
-        (canvas.GetPaletteRef().is_builtin && canvas.GetPaletteRef().builtin == phos::color::BuiltinPalette::Vga16);
+        (canvas.GetPaletteRef().is_builtin && canvas.GetPaletteRef().builtin == phos::colour::BuiltinPalette::Vga16);
 
     auto set_px = [&](int x, int y, ImU32 c)
     {
@@ -313,8 +313,8 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
         for (int col = r.x; col < r.x + r.w; ++col)
         {
             AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
-            AnsiCanvas::Color32 fg = 0;
-            AnsiCanvas::Color32 bg = 0;
+            AnsiCanvas::Colour32 fg = 0;
+            AnsiCanvas::Colour32 bg = 0;
             AnsiCanvas::Attrs attrs = 0;
             (void)get_cell(row, col, glyph, fg, bg, attrs);
 
@@ -335,7 +335,7 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
                 // background as the "default bg" for reverse so it remains visible.
                 const ImU32 bg_for_reverse = (bg != 0) ? (ImU32)bg : paper;
 
-                // Special VGA16 reverse rule (libansilove compatibility) when both colors are exact VGA16 entries.
+                // Special VGA16 reverse rule (libansilove compatibility) when both colours are exact VGA16 entries.
                 auto vga16_index = [&](ImU32 c, int& out_idx) -> bool
                 {
                     static const ImU32 vga16[16] = {
@@ -386,7 +386,7 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
                 }
             }
 
-            // Intensity (dim/bold) affects the foreground color.
+            // Intensity (dim/bold) affects the foreground colour.
             auto apply_mul = [&](ImU32 c, float mul) -> ImU32
             {
                 int rr, gg, bb, aa;
@@ -496,7 +496,7 @@ static bool RasterizeRegionImpl(const AnsiCanvas& canvas,
                         if (a8 == 0)
                             continue;
 
-                        // Source pixel alpha -> premultiply into fg color.
+                        // Source pixel alpha -> premultiply into fg colour.
                         int fr, fg_, fb, fa;
                         UnpackImGui(fg_col, fr, fg_, fb, fa);
                         const int src_a = (int)a8; // atlas alpha is coverage
@@ -616,8 +616,8 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
     const int rows = canvas.GetRows();
 
     // Resolve the active palette once. Composite sampling is index-native; we only convert to RGBA at this boundary.
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         pal = *id;
 
@@ -628,15 +628,15 @@ bool RasterizeCompositeToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
-                                  AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                                  AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Colour32& out_fg, AnsiCanvas::Colour32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                                  AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                                   if (!canvas.GetCompositeCellPublicGlyphIndices(row, col, out_glyph, fg, bg, out_attrs))
                                       return false;
                                   out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{fg});
                                   out_bg = (bg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{bg});
                                   return true;
                               });
 }
@@ -660,8 +660,8 @@ bool RasterizeCompositeRegionToRgba32(const AnsiCanvas& canvas,
                                      const Options& opt)
 {
     // Resolve the active palette once. Composite sampling is index-native; we only convert to RGBA at this boundary.
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         pal = *id;
 
@@ -672,15 +672,15 @@ bool RasterizeCompositeRegionToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
-                                  AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                                  AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Colour32& out_fg, AnsiCanvas::Colour32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                                  AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                                  AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                                   if (!canvas.GetCompositeCellPublicGlyphIndices(row, col, out_glyph, fg, bg, out_attrs))
                                       return false;
                                   out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{fg});
                                   out_bg = (bg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{bg});
                                   return true;
                               });
 }
@@ -703,8 +703,8 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
         return false;
     }
 
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         pal = *id;
 
@@ -715,17 +715,17 @@ bool RasterizeLayerRegionToRgba32(const AnsiCanvas& canvas,
                               out_h,
                               err,
                               opt,
-                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Color32& out_fg, AnsiCanvas::Color32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
+                              [&](int row, int col, AnsiCanvas::GlyphId& out_glyph, AnsiCanvas::Colour32& out_fg, AnsiCanvas::Colour32& out_bg, AnsiCanvas::Attrs& out_attrs) -> bool {
                                   // IMPORTANT: layer-only rasterization must sample stored GlyphIds directly
                                   // to avoid collapsing BitmapIndex/EmbeddedIndex tokens to Unicode representatives.
                                   out_glyph = canvas.GetLayerGlyph(layer_index, row, col);
-                                  AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                                  AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                                  AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                                  AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                                   (void)canvas.GetLayerCellIndices(layer_index, row, col, fg, bg);
                                   out_fg = (fg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{fg});
                                   out_bg = (bg == AnsiCanvas::kUnsetIndex16) ? 0
-                                                                           : (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bg});
+                                                                           : (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{bg});
                                   (void)canvas.GetLayerCellAttrs(layer_index, row, col, out_attrs);
                                   return true;
                               });

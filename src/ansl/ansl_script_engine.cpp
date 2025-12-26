@@ -1,6 +1,6 @@
 #include "ansl/ansl_script_engine.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/canvas.h"
 #include "core/deform/deform_engine.h"
 #include "core/glyph_resolve.h"
@@ -25,19 +25,19 @@ extern "C"
 namespace
 {
 // Forward declaration (used by layer bindings before the definition below).
-static bool ParseHexColorToRgb8(const std::string& s, int& out_r, int& out_g, int& out_b);
-static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx);
+static bool ParseHexColourToRgb8(const std::string& s, int& out_r, int& out_g, int& out_b);
+static bool ParseHexColourToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx);
 
-static inline std::uint8_t QuantizeRgbToPaletteIndex_Quant3dOrExact(phos::color::PaletteInstanceId pal,
+static inline std::uint8_t QuantizeRgbToPaletteIndex_Quant3dOrExact(phos::colour::PaletteInstanceId pal,
                                                                     std::uint8_t r,
                                                                     std::uint8_t g,
                                                                     std::uint8_t b,
-                                                                    const phos::color::QuantizePolicy& qpol)
+                                                                    const phos::colour::QuantizePolicy& qpol)
 {
     // ANSL/Lua hotspot: many scripts quantize lots of random RGB values. A Quant3D LUT gives an O(1)
     // mapping to a reasonable nearest index. If the LUT can't be allocated, we fall back to the exact
     // deterministic scan path.
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     constexpr std::uint8_t kBits = 5; // 32^3 = 32768 entries (~32KiB), a good speed/size tradeoff.
     const auto qlut = cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, kBits, qpol);
     if (qlut && qlut->bits == kBits && !qlut->table.empty())
@@ -52,13 +52,13 @@ static inline std::uint8_t QuantizeRgbToPaletteIndex_Quant3dOrExact(phos::color:
             return qlut->table[flat];
     }
 
-    return phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qpol);
+    return phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(), pal, r, g, b, qpol);
 }
 
-static phos::color::PaletteInstanceId ResolveCanvasPaletteOrXterm256(const AnsiCanvas* canvas)
+static phos::colour::PaletteInstanceId ResolveCanvasPaletteOrXterm256(const AnsiCanvas* canvas)
 {
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (canvas)
     {
         if (auto id = cs.Palettes().Resolve(canvas->GetPaletteRef()))
@@ -69,9 +69,9 @@ static phos::color::PaletteInstanceId ResolveCanvasPaletteOrXterm256(const AnsiC
 
 static int CanvasPaletteMaxIndex(const AnsiCanvas* canvas)
 {
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
-    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+    const phos::colour::Palette* p = cs.Palettes().Get(pal);
     const int n = (p && !p->rgb.empty()) ? (int)p->rgb.size() : 256;
     return std::max(0, n - 1);
 }
@@ -580,8 +580,8 @@ static int l_canvas_getCell(lua_State* L)
     const bool want_layer = (mode == "layer" || mode == "Layer");
     AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
     char32_t cp = U' ';
-    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
     AnsiCanvas::Attrs attrs = 0;
 
     if (want_layer || layer != -9999)
@@ -693,7 +693,7 @@ static AnsiCanvas::PasteMode ParsePasteMode(lua_State* L, int idx, AnsiCanvas::P
     {
         const int v = (int)lua_tointeger(L, idx);
         if (v == 1) return AnsiCanvas::PasteMode::CharOnly;
-        if (v == 2) return AnsiCanvas::PasteMode::ColorOnly;
+        if (v == 2) return AnsiCanvas::PasteMode::ColourOnly;
         return AnsiCanvas::PasteMode::Both;
     }
     if (lua_isstring(L, idx))
@@ -703,8 +703,8 @@ static AnsiCanvas::PasteMode ParsePasteMode(lua_State* L, int idx, AnsiCanvas::P
         const std::string v(s ? s : "", s ? (s + len) : (s ? s : ""));
         if (v == "char" || v == "Char" || v == "glyph" || v == "charOnly" || v == "CharOnly")
             return AnsiCanvas::PasteMode::CharOnly;
-        if (v == "color" || v == "colour" || v == "colorOnly" || v == "ColorOnly")
-            return AnsiCanvas::PasteMode::ColorOnly;
+        if (v == "colour" || v == "colour" || v == "colourOnly" || v == "ColourOnly")
+            return AnsiCanvas::PasteMode::ColourOnly;
         if (v == "both" || v == "Both")
             return AnsiCanvas::PasteMode::Both;
     }
@@ -894,14 +894,14 @@ static int l_layer_set(lua_State* L)
     // - pass "#RRGGBB"        => quantize to active palette
     //
     // This is intentionally "preserve-friendly" so tools can override FG/BG independently.
-    std::optional<AnsiCanvas::ColorIndex16> fg;
-    std::optional<AnsiCanvas::ColorIndex16> bg;
+    std::optional<AnsiCanvas::ColourIndex16> fg;
+    std::optional<AnsiCanvas::ColourIndex16> bg;
     std::optional<AnsiCanvas::Attrs> attrs;
     const int nargs = lua_gettop(L);
 
     const int max_idx = b->max_idx;
 
-    auto parse_color_arg = [&](int idx, std::optional<AnsiCanvas::ColorIndex16>& out) {
+    auto parse_colour_arg = [&](int idx, std::optional<AnsiCanvas::ColourIndex16>& out) {
         if (nargs < idx)
             return;
         if (lua_isnil(L, idx))
@@ -914,7 +914,7 @@ static int l_layer_set(lua_State* L)
                 out = AnsiCanvas::kUnsetIndex16; // explicit unset
                 return;
             }
-            out = (AnsiCanvas::ColorIndex16)std::clamp<int>((int)v, 0, max_idx);
+            out = (AnsiCanvas::ColourIndex16)std::clamp<int>((int)v, 0, max_idx);
             return;
         }
         if (lua_isstring(L, idx))
@@ -922,12 +922,12 @@ static int l_layer_set(lua_State* L)
             size_t len = 0;
             const char* s = lua_tolstring(L, idx, &len);
             int parsed = 0;
-            if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
-                out = (AnsiCanvas::ColorIndex16)std::clamp<int>(parsed, 0, max_idx);
+            if (s && ParseHexColourToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+                out = (AnsiCanvas::ColourIndex16)std::clamp<int>(parsed, 0, max_idx);
         }
     };
-    parse_color_arg(5, fg);
-    parse_color_arg(6, bg);
+    parse_colour_arg(5, fg);
+    parse_colour_arg(6, bg);
 
     if (nargs >= 7 && !lua_isnil(L, 7))
     {
@@ -959,8 +959,8 @@ static int l_layer_get(lua_State* L)
     // We intentionally return multiple values for backward compatibility:
     //   local ch = layer:get(x,y)        -- old scripts still work (Lua keeps first)
     //   local ch, fg, bg = layer:get(x,y)
-    AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-    AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+    AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
     (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
 
     if (fg != AnsiCanvas::kUnsetIndex16) lua_pushinteger(L, (lua_Integer)fg);
@@ -994,11 +994,11 @@ static int l_layer_clear(lua_State* L)
     //   layer:clear(cpOrString?, fg?, bg?)
     // Where fg/bg are palette indices or "#RRGGBB" (quantized to active palette).
     // If fg/bg are omitted, we fall back to global `settings.fg`/`settings.bg` if present.
-    std::optional<AnsiCanvas::ColorIndex16> fg;
-    std::optional<AnsiCanvas::ColorIndex16> bg;
+    std::optional<AnsiCanvas::ColourIndex16> fg;
+    std::optional<AnsiCanvas::ColourIndex16> bg;
     const int max_idx = CanvasPaletteMaxIndex(b->canvas);
 
-    auto parseColorValueAt = [&](int idx, std::optional<AnsiCanvas::ColorIndex16>& out) -> void {
+    auto parseColourValueAt = [&](int idx, std::optional<AnsiCanvas::ColourIndex16>& out) -> void {
         if (lua_gettop(L) < idx || lua_isnil(L, idx))
             return;
         int pidx = -1;
@@ -1011,16 +1011,16 @@ static int l_layer_clear(lua_State* L)
             size_t len = 0;
             const char* s = lua_tolstring(L, idx, &len);
             int parsed = 0;
-            if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+            if (s && ParseHexColourToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
                 pidx = parsed;
         }
         if (pidx < 0)
             return;
-        out = (AnsiCanvas::ColorIndex16)std::clamp<int>(pidx, 0, max_idx);
+        out = (AnsiCanvas::ColourIndex16)std::clamp<int>(pidx, 0, max_idx);
     };
 
-    parseColorValueAt(3, fg);
-    parseColorValueAt(4, bg);
+    parseColourValueAt(3, fg);
+    parseColourValueAt(4, bg);
 
     // If fg/bg weren't provided, try settings = { fg=..., bg=... }.
     if (!fg.has_value() && !bg.has_value())
@@ -1028,7 +1028,7 @@ static int l_layer_clear(lua_State* L)
         lua_getglobal(L, "settings");
         if (lua_istable(L, -1))
         {
-            auto parseSettingField = [&](const char* const* keys, std::optional<AnsiCanvas::ColorIndex16>& out) -> void {
+            auto parseSettingField = [&](const char* const* keys, std::optional<AnsiCanvas::ColourIndex16>& out) -> void {
                 for (int i = 0; keys[i] != nullptr; ++i)
                 {
                     lua_getfield(L, -1, keys[i]);
@@ -1047,20 +1047,20 @@ static int l_layer_clear(lua_State* L)
                         size_t len = 0;
                         const char* s = lua_tolstring(L, -1, &len);
                         int parsed = 0;
-                        if (s && ParseHexColorToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
+                        if (s && ParseHexColourToPaletteIndex(b->canvas, std::string(s, s + len), parsed))
                             pidx = parsed;
                     }
                     lua_pop(L, 1);
                     if (pidx >= 0)
                     {
-                        out = (AnsiCanvas::ColorIndex16)std::clamp<int>(pidx, 0, max_idx);
+                        out = (AnsiCanvas::ColourIndex16)std::clamp<int>(pidx, 0, max_idx);
                         return;
                     }
                 }
             };
 
-            const char* fg_keys[] = {"fg", "foreground", "foregroundColor", nullptr};
-            const char* bg_keys[] = {"bg", "background", "backgroundColor", nullptr};
+            const char* fg_keys[] = {"fg", "foreground", "foregroundColour", nullptr};
+            const char* bg_keys[] = {"bg", "background", "backgroundColour", nullptr};
             parseSettingField(fg_keys, fg);
             parseSettingField(bg_keys, bg);
         }
@@ -1075,8 +1075,8 @@ static int l_layer_clear(lua_State* L)
         {
             for (int xx = 0; xx < cols; ++xx)
             {
-                AnsiCanvas::ColorIndex16 cur_fg = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColorIndex16 cur_bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 cur_fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 cur_bg = AnsiCanvas::kUnsetIndex16;
                 (void)b->canvas->GetLayerCellIndices(b->layer_index, yy, xx, cur_fg, cur_bg);
                 if (fg.has_value()) cur_fg = *fg;
                 if (bg.has_value()) cur_bg = *bg;
@@ -1106,8 +1106,8 @@ static int l_layer_setRow(lua_State* L)
     for (int x = 0; x < cols; ++x)
     {
         const char32_t cp = (x < (int)cps.size()) ? cps[(size_t)x] : U' ';
-        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
         (void)b->canvas->GetLayerCellIndices(b->layer_index, y, x, fg, bg);
         (void)b->canvas->SetLayerCellIndices(b->layer_index, y, x, cp, fg, bg);
     }
@@ -1321,7 +1321,7 @@ static bool EnsureAnslModule(lua_State* L, std::string& error)
     return true;
 }
 
-static bool ParseHexColorToRgb8(const std::string& s, int& out_r, int& out_g, int& out_b)
+static bool ParseHexColourToRgb8(const std::string& s, int& out_r, int& out_g, int& out_b)
 {
     // Accept "#RRGGBB" or "RRGGBB".
     std::string str = s;
@@ -1345,7 +1345,7 @@ static bool ParseHexColorToRgb8(const std::string& s, int& out_r, int& out_g, in
     return true;
 }
 
-static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx)
+static bool ParseHexColourToPaletteIndex(const AnsiCanvas* canvas, const std::string& s, int& out_idx)
 {
     // Accept "#RRGGBB" or "RRGGBB". Quantize to the canvas's active palette.
     std::string str = s;
@@ -1366,8 +1366,8 @@ static bool ParseHexColorToPaletteIndex(const AnsiCanvas* canvas, const std::str
     const int g = std::clamp(byte(2), 0, 255);
     const int b = std::clamp(byte(4), 0, 255);
 
-    const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
-    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+    const phos::colour::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+    const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
     out_idx = (int)QuantizeRgbToPaletteIndex_Quant3dOrExact(pal,
                                                            (std::uint8_t)r,
                                                            (std::uint8_t)g,
@@ -1405,7 +1405,7 @@ static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
         out.once = lua_toboolean(L, -1) != 0;
     lua_pop(L, 1);
 
-    // Script color defaults (settings.fg / settings.bg):
+    // Script colour defaults (settings.fg / settings.bg):
     // - number: palette index in the *active canvas palette* (clamped at runtime)
     // - string: "#RRGGBB" or "RRGGBB" (quantized to the active canvas palette at runtime)
     //
@@ -1413,7 +1413,7 @@ static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
     // store an encoded RGB sentinel inside the existing int fields:
     //   value < 0  => rgb_u24 = (-value - 1)
     // This avoids changing AnslScriptSettings' layout/ABI.
-    auto parse_color_field = [&](const char* const* keys, int& out_value) -> bool
+    auto parse_colour_field = [&](const char* const* keys, int& out_value) -> bool
     {
         for (const char* k = *keys; k; ++keys, k = *keys)
         {
@@ -1439,7 +1439,7 @@ static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
                 size_t len = 0;
                 const char* s = lua_tolstring(L, -1, &len);
                 int r = 0, g = 0, b = 0;
-                if (s && ParseHexColorToRgb8(std::string(s, s + len), r, g, b))
+                if (s && ParseHexColourToRgb8(std::string(s, s + len), r, g, b))
                 {
                     const int rgb_u24 = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
                     out_value = -(rgb_u24 + 1);
@@ -1454,18 +1454,18 @@ static void ReadScriptSettings(lua_State* L, AnslScriptSettings& out)
     };
 
     // Foreground: fg / foreground (preferred) + some aliases.
-    const char* fg_keys[] = {"fg", "foreground", "foregroundColor", nullptr};
+    const char* fg_keys[] = {"fg", "foreground", "foregroundColour", nullptr};
     int fg_value = 0;
-    if (parse_color_field(fg_keys, fg_value))
+    if (parse_colour_field(fg_keys, fg_value))
     {
         out.has_foreground = true;
         out.foreground_xterm = fg_value; // NOTE: now "index-or-encoded-rgb", despite legacy name
     }
 
     // Background: bg / background (preferred) + some aliases.
-    const char* bg_keys[] = {"bg", "background", "backgroundColor", nullptr};
+    const char* bg_keys[] = {"bg", "background", "backgroundColour", nullptr};
     int bg_value = 0;
-    if (parse_color_field(bg_keys, bg_value))
+    if (parse_colour_field(bg_keys, bg_value))
     {
         out.has_background = true;
         out.background_xterm = bg_value; // NOTE: now "index-or-encoded-rgb", despite legacy name
@@ -1744,10 +1744,10 @@ struct AnslScriptEngine::Impl
     int params_ref = LUA_NOREF; // reusable ctx.params table
     std::string last_source;
     // Cache key extension: many scripts compute palette-dependent constants at load time via
-    // ansl.color.* helpers, so we must recompile if the active canvas palette identity changes
+    // ansl.colour.* helpers, so we must recompile if the active canvas palette identity changes
     // even when the source text is unchanged.
     bool has_last_compile_palette_ref = false;
-    phos::color::PaletteRef last_compile_palette_ref;
+    phos::colour::PaletteRef last_compile_palette_ref;
     bool initialized = false;
     AnslScriptSettings settings;
 
@@ -1977,17 +1977,17 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
 
     // Determine the palette identity that load-time helpers should bind against.
     // If we don't have a canvas, default to xterm256.
-    phos::color::PaletteRef compile_pref;
+    phos::colour::PaletteRef compile_pref;
     if (canvas)
         compile_pref = canvas->GetPaletteRef();
     else
     {
         compile_pref.is_builtin = true;
-        compile_pref.builtin = phos::color::BuiltinPalette::Xterm256;
+        compile_pref.builtin = phos::colour::BuiltinPalette::Xterm256;
         compile_pref.uid = {}; // unused for builtins
     }
 
-    auto pref_equal = [](const phos::color::PaletteRef& a, const phos::color::PaletteRef& b) -> bool
+    auto pref_equal = [](const phos::colour::PaletteRef& a, const phos::colour::PaletteRef& b) -> bool
     {
         return a.is_builtin == b.is_builtin &&
                a.builtin == b.builtin &&
@@ -2030,17 +2030,17 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
     clear_global("pre");
     clear_global("post");
 
-    // Ensure LuaJIT palette-aware helpers (ansl.color.*) see the correct palette *during compilation*.
-    // Many scripts compute color constants at load time, and those must be indices in the canvas palette.
+    // Ensure LuaJIT palette-aware helpers (ansl.colour.*) see the correct palette *during compilation*.
+    // Many scripts compute colour constants at load time, and those must be indices in the canvas palette.
     {
-        const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
+        const phos::colour::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(canvas);
         lua_pushinteger(impl_->L, (lua_Integer)pal.v);
         lua_setfield(impl_->L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
 
-        // Prebuild Quant3D for ANSL/Lua color quantization hotspots (if budget allows).
-        // This avoids a "first-frame hitch" when scripts start quantizing random colors.
-        auto& cs = phos::color::GetColorSystem();
-        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+        // Prebuild Quant3D for ANSL/Lua colour quantization hotspots (if budget allows).
+        // This avoids a "first-frame hitch" when scripts start quantizing random colours.
+        auto& cs = phos::colour::GetColourSystem();
+        const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
         (void)cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, /*bits=*/5, qpol);
     }
 
@@ -2096,8 +2096,8 @@ bool AnslScriptEngine::CompileUserScript(const std::string& source, const AnsiCa
                 "          if ch == nil then ch = out[1] end\n"
                 "          if ch == nil then ch = ' ' end\n"
                 "          if type(ch) == 'number' then ch = tostring(ch) end\n"
-                "          local fg = out.fg; if fg == nil then fg = out.color end\n"
-                "          local bg = out.bg; if bg == nil then bg = out.backgroundColor end\n"
+                "          local fg = out.fg; if fg == nil then fg = out.colour end\n"
+                "          local bg = out.bg; if bg == nil then bg = out.backgroundColour end\n"
                 "          local attrs = out.attrs\n"
                 "          if type(fg) ~= 'number' then fg = nil end\n"
                 "          if type(bg) ~= 'number' then bg = nil end\n"
@@ -2237,10 +2237,10 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         canvas.ClearLayer(layer_index, U' ');
         // If the script requested a fg/bg fill, apply it after clearing.
         // This keeps defaults stable even when "Clear layer each frame" is enabled.
-        std::optional<AnsiCanvas::ColorIndex16> fg;
-        std::optional<AnsiCanvas::ColorIndex16> bg;
+        std::optional<AnsiCanvas::ColourIndex16> fg;
+        std::optional<AnsiCanvas::ColourIndex16> bg;
 
-        auto resolve_setting_to_index = [&](int v) -> AnsiCanvas::ColorIndex16 {
+        auto resolve_setting_to_index = [&](int v) -> AnsiCanvas::ColourIndex16 {
             const int max_idx = CanvasPaletteMaxIndex(&canvas);
             if (v < 0)
             {
@@ -2250,19 +2250,19 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                 const int g = (rgb_u24 >> 8) & 0xFF;
                 const int b = (rgb_u24 >> 0) & 0xFF;
 
-                auto& cs = phos::color::GetColorSystem();
-                const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
-                const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
-                const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                auto& cs = phos::colour::GetColourSystem();
+                const phos::colour::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
+                const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
+                const int idx = (int)phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(),
                                                                            pal,
                                                                            (std::uint8_t)r,
                                                                            (std::uint8_t)g,
                                                                            (std::uint8_t)b,
                                                                            qpol);
-                return (AnsiCanvas::ColorIndex16)std::clamp<int>(idx, 0, max_idx);
+                return (AnsiCanvas::ColourIndex16)std::clamp<int>(idx, 0, max_idx);
             }
 
-            return (AnsiCanvas::ColorIndex16)std::clamp<int>(v, 0, max_idx);
+            return (AnsiCanvas::ColourIndex16)std::clamp<int>(v, 0, max_idx);
         };
 
         if (impl_->settings.has_foreground)
@@ -2278,8 +2278,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
             {
                 for (int xx = 0; xx < cols; ++xx)
                 {
-                    AnsiCanvas::ColorIndex16 cur_fg = AnsiCanvas::kUnsetIndex16;
-                    AnsiCanvas::ColorIndex16 cur_bg = AnsiCanvas::kUnsetIndex16;
+                    AnsiCanvas::ColourIndex16 cur_fg = AnsiCanvas::kUnsetIndex16;
+                    AnsiCanvas::ColourIndex16 cur_bg = AnsiCanvas::kUnsetIndex16;
                     if (fg.has_value()) cur_fg = *fg;
                     if (bg.has_value()) cur_bg = *bg;
                     (void)canvas.SetLayerCellIndices(layer_index, yy, xx, U' ', cur_fg, cur_bg);
@@ -2291,16 +2291,16 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
     lua_State* L = impl_->L;
     lua_settop(L, 0);
 
-    // Expose the active canvas palette to LuaJIT bindings (ansl.color.*).
-    // Contract: all color indices in scripts are indices in the active canvas palette.
+    // Expose the active canvas palette to LuaJIT bindings (ansl.colour.*).
+    // Contract: all colour indices in scripts are indices in the active canvas palette.
     {
-        const phos::color::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
+        const phos::colour::PaletteInstanceId pal = ResolveCanvasPaletteOrXterm256(&canvas);
         lua_pushinteger(L, (lua_Integer)pal.v);
         lua_setfield(L, LUA_REGISTRYINDEX, "phosphor.active_palette_instance_id");
 
         // Prebuild Quant3D for runtime (palette can change across frames / canvases).
-        auto& cs = phos::color::GetColorSystem();
-        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+        auto& cs = phos::colour::GetColourSystem();
+        const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
         (void)cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal, /*bits=*/5, qpol);
     }
 
@@ -2394,8 +2394,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     lua_setfield(L, -2, "ch");
                     // Index-native: expose palette indices in the active canvas palette index space (nil = unset),
                     // matching layer:get().
-                    const AnsiCanvas::ColorIndex16 fg_idx = frame_ctx.brush->fg[i];
-                    const AnsiCanvas::ColorIndex16 bg_idx = frame_ctx.brush->bg[i];
+                    const AnsiCanvas::ColourIndex16 fg_idx = frame_ctx.brush->fg[i];
+                    const AnsiCanvas::ColourIndex16 bg_idx = frame_ctx.brush->bg[i];
                     const std::uint16_t attrs = frame_ctx.brush->attrs[i];
                     if (fg_idx != AnsiCanvas::kUnsetIndex16) { lua_pushinteger(L, (lua_Integer)fg_idx); lua_setfield(L, -2, "fg"); }
                     else { lua_pushnil(L); lua_setfield(L, -2, "fg"); }

@@ -1,7 +1,7 @@
 #include "app/canvas_preview_texture.h"
 
 #include "core/canvas.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
 
@@ -500,8 +500,8 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
     // Render a *downscaled composite* without rendering glyph geometry.
     //
     // Key idea: use a cached "ink coverage" value per glyph (0..1) derived from the font atlas.
-    // Then approximate a cell's perceived color as:
-    //    color = lerp(bg, fg, coverage)
+    // Then approximate a cell's perceived colour as:
+    //    colour = lerp(bg, fg, coverage)
     //
     // This preserves shading characters (░▒▓), gradients and dithering much better than
     // treating cells as flat bg/fg blocks, and avoids per-pixel glyph rendering.
@@ -702,22 +702,22 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
         return out;
     };
 
-    auto sample_cell_color = [&](int row, int col, float lx, float ly) -> ImU32
+    auto sample_cell_colour = [&](int row, int col, float lx, float ly) -> ImU32
     {
         AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
-        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
         (void)canvas.GetCompositeCellPublicGlyphIndices(row, col, glyph, fg, bg);
         const char32_t cp_rep = phos::glyph::ToUnicodeRepresentative((phos::GlyphId)glyph);
 
-        auto& cs = phos::color::GetColorSystem();
-        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        auto& cs = phos::colour::GetColourSystem();
+        phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
         if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
             pal = *id;
-        auto idx_to_u32 = [&](AnsiCanvas::ColorIndex16 idx) -> ImU32 {
+        auto idx_to_u32 = [&](AnsiCanvas::ColourIndex16 idx) -> ImU32 {
             if (idx == AnsiCanvas::kUnsetIndex16)
                 return 0;
-            return (ImU32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{idx});
+            return (ImU32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{idx});
         };
 
         const ImU32 bg_col = (bg != AnsiCanvas::kUnsetIndex16) ? idx_to_u32(bg) : paper;
@@ -762,7 +762,7 @@ static void RasterizeMinimapRGBA(const AnsiCanvas& canvas,
             const float lx = fx_cell - (float)col; // 0..1 within cell
             const float ly = v - (float)row;       // 0..1 within cell
 
-            const ImU32 c = sample_cell_color(row, col, lx, ly);
+            const ImU32 c = sample_cell_colour(row, col, lx, ly);
 
             const size_t idx = ((size_t)y * (size_t)dst_w + (size_t)x) * 4u;
             out_rgba[idx + 0] = (std::uint8_t)(c & 0xFF);

@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace phos::color
+namespace phos::colour
 {
 // Hard cap for palettes in the LUT-centric model (see references/luts-refactor.md).
 static constexpr std::uint16_t kMaxPaletteSize = 256;
@@ -25,7 +25,7 @@ enum class BuiltinPalette : std::uint32_t
     Vga16 = 1,
     Xterm256 = 2,
     Xterm16 = 3,
-    Xterm240Safe = 4, // xterm indices 16..255 (240 colors)
+    Xterm240Safe = 4, // xterm indices 16..255 (240 colours)
     Vga8 = 5,
 };
 
@@ -74,7 +74,7 @@ struct Palette
     std::string title;
     std::vector<Rgb8> rgb; // size 1..256
     std::optional<DerivedPaletteMapping> derived;
-    // Exact reverse lookup (RGB24 -> lowest palette index with that exact color).
+    // Exact reverse lookup (RGB24 -> lowest palette index with that exact colour).
     // Built once at palette registration time; safe because palettes are immutable after registration.
     std::unordered_map<std::uint32_t, std::uint8_t> exact_u24_to_index;
 };
@@ -128,6 +128,6 @@ private:
     std::uint64_t m_next_instance = 1;
 };
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

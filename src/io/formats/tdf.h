@@ -24,12 +24,12 @@ struct ImportOptions
     bool edit_mode = false;
     int outline_style = 0;
 
-    // If true and the selected font is Color type, honor its per-cell colors.
-    // If false, leave fg/bg unset so callers can stamp their own colors.
-    bool use_font_colors = true;
+    // If true and the selected font is Colour type, honor its per-cell colours.
+    // If false, leave fg/bg unset so callers can stamp their own colours.
+    bool use_font_colours = true;
 
-    // If true, treat blink bit as bright background (ICE colors).
-    bool icecolors = true;
+    // If true, treat blink bit as bright background (ICE colours).
+    bool icecolours = true;
 };
 
 bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,

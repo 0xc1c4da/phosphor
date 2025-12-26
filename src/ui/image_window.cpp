@@ -11,7 +11,7 @@
 
 // Render an ImageWindow's pixels scaled to fit the current ImGui window content region.
 // We deliberately keep this renderer agnostic of Vulkan textures by drawing a coarse
-// grid of colored rectangles that approximates the image. This is sufficient for a
+// grid of coloured rectangles that approximates the image. This is sufficient for a
 // preview and keeps the RGBA buffer directly reusable for chafa-based ANSI conversion.
 static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDialog& dialog)
 {

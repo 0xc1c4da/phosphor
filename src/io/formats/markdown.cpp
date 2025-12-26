@@ -117,13 +117,13 @@ static void Utf8ToCodepointsBestEffort(std::string_view s, std::vector<char32_t>
     }
 }
 
-static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255)
+static inline AnsiCanvas::Colour32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255)
 {
     // Dear ImGui IM_COL32 is ABGR.
-    return ((AnsiCanvas::Color32)a << 24) | ((AnsiCanvas::Color32)b << 16) | ((AnsiCanvas::Color32)g << 8) | (AnsiCanvas::Color32)r;
+    return ((AnsiCanvas::Colour32)a << 24) | ((AnsiCanvas::Colour32)b << 16) | ((AnsiCanvas::Colour32)g << 8) | (AnsiCanvas::Colour32)r;
 }
 
-static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
+static bool HexToColour32(const std::string& hex, AnsiCanvas::Colour32& out)
 {
     std::string s = hex;
     if (!s.empty() && s[0] == '#')
@@ -150,8 +150,8 @@ static bool HexToColor32(const std::string& hex, AnsiCanvas::Color32& out)
 // ---------------------------------------------------------------------------
 struct StyleSpec
 {
-    std::optional<AnsiCanvas::Color32> fg;
-    std::optional<AnsiCanvas::Color32> bg;
+    std::optional<AnsiCanvas::Colour32> fg;
+    std::optional<AnsiCanvas::Colour32> bg;
     AnsiCanvas::Attrs attrs = 0;
 
     std::optional<std::string> prefix;
@@ -168,7 +168,7 @@ struct Theme
 {
     std::string name;
     std::string author;
-    std::unordered_map<std::string, std::string> colors;            // token -> color string
+    std::unordered_map<std::string, std::string> colours;            // token -> colour string
     std::optional<StyleSpec> defaults;
     std::unordered_map<std::string, StyleSpec> elements;            // element name -> style
     // syntax map is reserved for future (code highlighting), but we ignore it for now.
@@ -192,27 +192,27 @@ static StyleSpec MergeStyle(const StyleSpec& base, const StyleSpec& over)
     return out;
 }
 
-static bool ResolveColorString(const Theme& t, const std::string& s, AnsiCanvas::Color32& out, std::string& err, int depth = 0)
+static bool ResolveColourString(const Theme& t, const std::string& s, AnsiCanvas::Colour32& out, std::string& err, int depth = 0)
 {
     if (depth > 16)
     {
-        err = "Theme color alias recursion limit exceeded.";
+        err = "Theme colour alias recursion limit exceeded.";
         return false;
     }
     if (s.rfind("name:", 0) == 0)
     {
         const std::string key = s.substr(5);
-        auto it = t.colors.find(key);
-        if (it == t.colors.end())
+        auto it = t.colours.find(key);
+        if (it == t.colours.end())
         {
-            err = std::string("Theme color alias not found: ") + key;
+            err = std::string("Theme colour alias not found: ") + key;
             return false;
         }
-        return ResolveColorString(t, it->second, out, err, depth + 1);
+        return ResolveColourString(t, it->second, out, err, depth + 1);
     }
-    if (!HexToColor32(s, out))
+    if (!HexToColour32(s, out))
     {
-        err = std::string("Invalid color string: ") + s;
+        err = std::string("Invalid colour string: ") + s;
         return false;
     }
     return true;
@@ -239,15 +239,15 @@ static bool ParseStyleSpec(const Theme& theme, const Json& j, StyleSpec& out, st
     if (!j.is_object())
         return true;
 
-    auto parse_color = [&](const char* key, std::optional<AnsiCanvas::Color32>& dst) -> bool {
+    auto parse_colour = [&](const char* key, std::optional<AnsiCanvas::Colour32>& dst) -> bool {
         auto it = j.find(key);
         if (it == j.end())
             return true;
         if (!it->is_string())
             return true;
-        AnsiCanvas::Color32 c = 0;
+        AnsiCanvas::Colour32 c = 0;
         std::string e;
-        if (!ResolveColorString(theme, it->get<std::string>(), c, e))
+        if (!ResolveColourString(theme, it->get<std::string>(), c, e))
         {
             err = e;
             return false;
@@ -256,8 +256,8 @@ static bool ParseStyleSpec(const Theme& theme, const Json& j, StyleSpec& out, st
         return true;
     };
 
-    if (!parse_color("fg", out.fg)) return false;
-    if (!parse_color("bg", out.bg)) return false;
+    if (!parse_colour("fg", out.fg)) return false;
+    if (!parse_colour("bg", out.bg)) return false;
 
     if (auto it = j.find("attrs"); it != j.end() && it->is_array())
     {
@@ -311,13 +311,13 @@ static bool LoadThemeFromJson(const Json& j, Theme& out, std::string& err)
     if (auto it = j.find("author"); it != j.end() && it->is_string())
         out.author = it->get<std::string>();
 
-    if (auto it = j.find("colors"); it != j.end() && it->is_object())
+    if (auto it = j.find("colours"); it != j.end() && it->is_object())
     {
         for (auto it2 = it->begin(); it2 != it->end(); ++it2)
         {
             if (!it2.value().is_string())
                 continue;
-            out.colors[it2.key()] = it2.value().get<std::string>();
+            out.colours[it2.key()] = it2.value().get<std::string>();
         }
     }
 
@@ -902,8 +902,8 @@ static bool ParseMarkdownToIr(std::string_view markdown, Block& out_doc, std::st
 // ---------------------------------------------------------------------------
 struct ResolvedStyle
 {
-    AnsiCanvas::Color32 fg = 0;   // 0 = unset
-    AnsiCanvas::Color32 bg = 0;   // 0 = unset
+    AnsiCanvas::Colour32 fg = 0;   // 0 = unset
+    AnsiCanvas::Colour32 bg = 0;   // 0 = unset
     AnsiCanvas::Attrs attrs = 0;
     std::string indent_token;     // optional (for indentation visuals)
     int indent = 0;              // indentation units
@@ -926,8 +926,8 @@ static ResolvedStyle ResolveStyleForElement(const Theme& theme, std::string_view
 struct Cell
 {
     char32_t cp = U' ';
-    AnsiCanvas::Color32 fg = 0;
-    AnsiCanvas::Color32 bg = 0;
+    AnsiCanvas::Colour32 fg = 0;
+    AnsiCanvas::Colour32 bg = 0;
     AnsiCanvas::Attrs attrs = 0;
 };
 
@@ -1868,7 +1868,7 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
 
     // Phase-B/index-native defaults: xterm256 core palette, UI selection follows core.
     st.palette_ref.is_builtin = true;
-    st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+    st.palette_ref.builtin = phos::colour::BuiltinPalette::Xterm256;
     st.ui_palette_ref = st.palette_ref;
     st.current.palette_ref = st.palette_ref;
     st.current.ui_palette_ref = st.ui_palette_ref;

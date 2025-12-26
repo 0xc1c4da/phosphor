@@ -131,22 +131,22 @@ struct AppState
         class BrushPaletteWindow* brush_palette_window = nullptr;
     } ui;
 
-    struct Colors
+    struct Colours
     {
-        ImVec4* clear_color = nullptr;
-        ImVec4* fg_color = nullptr;
-        ImVec4* bg_color = nullptr;
+        ImVec4* clear_colour = nullptr;
+        ImVec4* fg_colour = nullptr;
+        ImVec4* bg_colour = nullptr;
         int* active_fb = nullptr;
         int* xterm_picker_mode = nullptr;
         int* xterm_selected_palette = nullptr;
         int* xterm_picker_preview_fb = nullptr;
         float* xterm_picker_last_hue = nullptr;
-    } colors;
+    } colours;
 
     struct Toggles
     {
         bool* show_demo_window = nullptr;
-        bool* show_color_picker_window = nullptr;
+        bool* show_colour_picker_window = nullptr;
         bool* show_character_picker_window = nullptr;
         bool* show_character_palette_window = nullptr;
         bool* show_character_sets_window = nullptr;

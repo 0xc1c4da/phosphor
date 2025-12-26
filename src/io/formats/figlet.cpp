@@ -1,6 +1,6 @@
 #include "io/formats/figlet.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "fonts/textmode_font.h"
 #include "io/formats/sauce.h"
 
@@ -26,53 +26,53 @@ const std::vector<std::string_view>& ExportExtensions()
 
 namespace
 {
-static phos::color::BuiltinPalette ChooseBuiltinPaletteForBitmap(const textmode_font::Bitmap& bmp)
+static phos::colour::BuiltinPalette ChooseBuiltinPaletteForBitmap(const textmode_font::Bitmap& bmp)
 {
-    // If the bitmap uses colors and they all match VGA16 exactly, keep the canvas palette as VGA16.
+    // If the bitmap uses colours and they all match VGA16 exactly, keep the canvas palette as VGA16.
     // Otherwise quantize into xterm256 (fallback).
-    auto& cs = phos::color::GetColorSystem();
-    const auto pal_vga16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+    auto& cs = phos::colour::GetColourSystem();
+    const auto pal_vga16 = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Vga16);
 
-    const phos::color::Palette* vga = cs.Palettes().Get(pal_vga16);
+    const phos::colour::Palette* vga = cs.Palettes().Get(pal_vga16);
     auto is_in_vga16 = [&](std::uint32_t c32) -> bool {
         if (c32 == 0)
             return true; // unset
         if (!vga || vga->rgb.empty())
             return false;
         std::uint8_t r = 0, g = 0, b = 0;
-        if (!phos::color::ColorOps::UnpackImGuiAbgr(c32, r, g, b))
-            return true; // treat non-color as unset
+        if (!phos::colour::ColourOps::UnpackImGuiAbgr(c32, r, g, b))
+            return true; // treat non-colour as unset
         const std::uint32_t u24 = (std::uint32_t)r | ((std::uint32_t)g << 8) | ((std::uint32_t)b << 16);
         return vga->exact_u24_to_index.find(u24) != vga->exact_u24_to_index.end();
     };
 
-    bool any_color = false;
+    bool any_colour = false;
     for (std::uint32_t c : bmp.fg)
     {
-        if (c != 0) any_color = true;
+        if (c != 0) any_colour = true;
         if (!is_in_vga16(c))
-            return phos::color::BuiltinPalette::Xterm256;
+            return phos::colour::BuiltinPalette::Xterm256;
     }
     for (std::uint32_t c : bmp.bg)
     {
-        if (c != 0) any_color = true;
+        if (c != 0) any_colour = true;
         if (!is_in_vga16(c))
-            return phos::color::BuiltinPalette::Xterm256;
+            return phos::colour::BuiltinPalette::Xterm256;
     }
-    return any_color ? phos::color::BuiltinPalette::Vga16 : phos::color::BuiltinPalette::Xterm256;
+    return any_colour ? phos::colour::BuiltinPalette::Vga16 : phos::colour::BuiltinPalette::Xterm256;
 }
 
-static std::vector<AnsiCanvas::ColorIndex16> QuantizeColor32VectorToIndices(const std::vector<std::uint32_t>& in,
-                                                                           phos::color::PaletteInstanceId pal)
+static std::vector<AnsiCanvas::ColourIndex16> QuantizeColour32VectorToIndices(const std::vector<std::uint32_t>& in,
+                                                                           phos::colour::PaletteInstanceId pal)
 {
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-    std::vector<AnsiCanvas::ColorIndex16> out;
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+    std::vector<AnsiCanvas::ColourIndex16> out;
     out.resize(in.size(), AnsiCanvas::kUnsetIndex16);
     for (std::size_t i = 0; i < in.size(); ++i)
     {
-        const phos::color::ColorIndex idx = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, in[i], qp);
-        out[i] = idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)idx.v;
+        const phos::colour::ColourIndex idx = phos::colour::ColourOps::Colour32ToIndex(cs.Palettes(), pal, in[i], qp);
+        out[i] = idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColourIndex16)idx.v;
     }
     return out;
 }
@@ -130,8 +130,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     textmode_font::RenderOptions ro;
     ro.mode = options.edit_mode ? textmode_font::RenderMode::Edit : textmode_font::RenderMode::Display;
     ro.outline_style = options.outline_style;
-    ro.use_font_colors = options.use_font_colors;
-    ro.icecolors = options.icecolors;
+    ro.use_font_colours = options.use_font_colours;
+    ro.icecolours = options.icecolours;
 
     textmode_font::Bitmap bmp;
     if (!textmode_font::RenderText(fonts[0], options.text, ro, bmp, ferr))
@@ -159,8 +159,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     for (char32_t cp : bmp.cp)
         st.current.layers[0].cells.push_back(phos::glyph::MakeUnicodeScalar(cp));
 
-    // Palette identity + indexed colors (Phase B).
-    const phos::color::BuiltinPalette builtin = ChooseBuiltinPaletteForBitmap(bmp);
+    // Palette identity + indexed colours (Phase B).
+    const phos::colour::BuiltinPalette builtin = ChooseBuiltinPaletteForBitmap(bmp);
     st.palette_ref.is_builtin = true;
     st.palette_ref.builtin = builtin;
     st.ui_palette_ref = st.palette_ref;
@@ -168,10 +168,10 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     st.current.palette_ref = st.palette_ref;
     st.current.ui_palette_ref = st.ui_palette_ref;
     {
-        auto& cs = phos::color::GetColorSystem();
-        const phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
-        st.current.layers[0].fg = QuantizeColor32VectorToIndices(bmp.fg, pal);
-        st.current.layers[0].bg = QuantizeColor32VectorToIndices(bmp.bg, pal);
+        auto& cs = phos::colour::GetColourSystem();
+        const phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(builtin);
+        st.current.layers[0].fg = QuantizeColour32VectorToIndices(bmp.fg, pal);
+        st.current.layers[0].bg = QuantizeColour32VectorToIndices(bmp.bg, pal);
     }
 
     // Minimal SAUCE record to preserve geometry.

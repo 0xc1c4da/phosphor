@@ -5,16 +5,16 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Stamp", primary = true, order = 0, items = { "both", "char", "color" }, default = "both" },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Stamp", primary = true, order = 0, items = { "both", "char", "colour" }, default = "both" },
     anchor = { type = "enum", label = "Anchor", ui = "segmented", section = "Stamp", primary = true, order = 1, inline = true, items = { "center", "top-left" }, default = "center" },
     transparent = { type = "bool", label = "Transparent", ui = "toggle", section = "Stamp", primary = true, order = 2, inline = true, default = true },
 
     -- Compact "Apply BG brush/current" style rows:
-    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Color", primary = true, order = 10, default = true },
-    bgSource = { type = "enum", label = "Source", ui = "segmented", section = "Color", primary = true, order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Colour", primary = true, order = 10, default = true },
+    bgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", primary = true, order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
 
-    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Color", primary = true, order = 12, default = true },
-    fgSource = { type = "enum", label = "Source", ui = "segmented", section = "Color", primary = true, order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Colour", primary = true, order = 12, default = true },
+    fgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", primary = true, order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
   },
 }
 
@@ -49,7 +49,7 @@ local function should_skip_cell(cell, transparent_spaces)
   local ch = cell.ch
   if type(ch) ~= "string" or #ch == 0 then ch = " " end
   if ch ~= " " then return false end
-  -- If it's a space, still apply if it carries bg/fg/attrs (e.g. colored blocks).
+  -- If it's a space, still apply if it carries bg/fg/attrs (e.g. coloured blocks).
   local fg = cell.fg
   local bg = cell.bg
   local attrs = cell.attrs
@@ -64,8 +64,8 @@ local function apply_cell(layer, x, y, glyph_or_ch, fg, bg, attrs, mode)
     return
   end
 
-  if mode == "color" then
-    -- Color only: preserve glyph; write fg/bg/attrs by reusing the existing glyph.
+  if mode == "colour" then
+    -- Colour only: preserve glyph; write fg/bg/attrs by reusing the existing glyph.
     local cur_ch, _, _, _, _, cur_glyph = layer:get(x, y)
     if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
     local keep = cur_ch
@@ -90,7 +90,7 @@ local function apply_cell(layer, x, y, glyph_or_ch, fg, bg, attrs, mode)
   end
 end
 
-local function pick_color(ctx, cell, which, source, apply)
+local function pick_colour(ctx, cell, which, source, apply)
   if not apply then
     return nil -- preserve
   end
@@ -158,10 +158,10 @@ local function stamp(ctx, layer, cx, cy)
             local glyph = (type(cell) == "table") and cell.glyph or nil
             local ch = (type(cell) == "table") and cell.ch or nil
             if type(ch) ~= "string" or #ch == 0 then ch = " " end
-            -- Colors are indices in the active canvas palette (or nil).
+            -- Colours are indices in the active canvas palette (or nil).
             -- nil means "preserve" (host-side).
-            local fg = pick_color(ctx, cell, "fg", fgSource, useFg)
-            local bg = pick_color(ctx, cell, "bg", bgSource, useBg)
+            local fg = pick_colour(ctx, cell, "fg", fgSource, useFg)
+            local bg = pick_colour(ctx, cell, "bg", bgSource, useBg)
             local attrs = (type(cell) == "table" and type(cell.attrs) == "number") and math.floor(cell.attrs) or nil
             if attrs ~= nil and attrs < 0 then attrs = 0 end
             local arg = ch

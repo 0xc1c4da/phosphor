@@ -1,6 +1,6 @@
 #include "io/formats/xbin.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/encodings.h"
 #include "core/glyph_id.h"
 #include "core/glyph_resolve.h"
@@ -36,7 +36,7 @@ static constexpr std::uint8_t kXbinMagic[4] = {'X', 'B', 'I', 'N'};
 
 // XBIN attributes use IBM PC textmode attribute order (not ANSI/SGR order).
 // Our built-in VGA16 palette is in ANSI/SGR order (see core/palette/palette.cpp).
-// Remap indices at import so XBIN colors render correctly under the ANSI-ordered palette.
+// Remap indices at import so XBIN colours render correctly under the ANSI-ordered palette.
 static constexpr std::uint8_t kIbmToAnsi16[16] = {
     0,  // 0 black -> 0 black
     4,  // 1 blue -> 4 blue
@@ -75,13 +75,13 @@ static constexpr std::uint8_t kAnsiToIbm16[16] = {
     15, // 15 bright white
 };
 
-static inline AnsiCanvas::Color32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
+static inline AnsiCanvas::Colour32 PackImGuiCol32(std::uint8_t r, std::uint8_t g, std::uint8_t b)
 {
     // Dear ImGui IM_COL32 is ABGR.
     return 0xFF000000u | ((std::uint32_t)b << 16) | ((std::uint32_t)g << 8) | (std::uint32_t)r;
 }
 
-static inline void UnpackImGuiCol32(AnsiCanvas::Color32 c, std::uint8_t& out_r, std::uint8_t& out_g, std::uint8_t& out_b)
+static inline void UnpackImGuiCol32(AnsiCanvas::Colour32 c, std::uint8_t& out_r, std::uint8_t& out_g, std::uint8_t& out_b)
 {
     // Dear ImGui IM_COL32 is ABGR.
     out_r = (std::uint8_t)(c & 0xFFu);
@@ -199,7 +199,7 @@ static bool ParseHeader(const std::vector<std::uint8_t>& payload, Header& out, s
 
 static bool ReadPalette(const std::vector<std::uint8_t>& payload,
                         size_t& io_off,
-                        std::array<AnsiCanvas::Color32, 16>& out_palette,
+                        std::array<AnsiCanvas::Colour32, 16>& out_palette,
                         std::string& err)
 {
     err.clear();
@@ -223,11 +223,11 @@ static bool ReadPalette(const std::vector<std::uint8_t>& payload,
     return true;
 }
 
-static void ReorderPaletteIbmToAnsi(std::array<AnsiCanvas::Color32, 16>& io_pal32)
+static void ReorderPaletteIbmToAnsi(std::array<AnsiCanvas::Colour32, 16>& io_pal32)
 {
     // io_pal32 currently contains entries in IBM order (as stored in XBIN palette chunk).
     // Convert to ANSI/SGR order to match our palette index semantics.
-    std::array<AnsiCanvas::Color32, 16> tmp = io_pal32;
+    std::array<AnsiCanvas::Colour32, 16> tmp = io_pal32;
     for (int ibm = 0; ibm < 16; ++ibm)
     {
         const int ansi = (int)kIbmToAnsi16[(size_t)ibm];
@@ -364,34 +364,34 @@ static std::uint8_t ToVga6(std::uint8_t v8)
     return (std::uint8_t)((v8 * 63u + 127u) / 255u);
 }
 
-static void WritePaletteChunk(std::vector<std::uint8_t>& out, phos::color::PaletteInstanceId pal16)
+static void WritePaletteChunk(std::vector<std::uint8_t>& out, phos::colour::PaletteInstanceId pal16)
 {
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::Palette* p = cs.Palettes().Get(pal16);
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::Palette* p = cs.Palettes().Get(pal16);
     if (!p || p->rgb.size() < 16)
         return;
     for (int i = 0; i < 16; ++i)
     {
-        const phos::color::Rgb8 rgb = p->rgb[(size_t)i];
+        const phos::colour::Rgb8 rgb = p->rgb[(size_t)i];
         out.push_back(ToVga6(rgb.r));
         out.push_back(ToVga6(rgb.g));
         out.push_back(ToVga6(rgb.b));
     }
 }
 
-static void BuildDefaultPalette32(std::array<AnsiCanvas::Color32, 16>& out_pal32)
+static void BuildDefaultPalette32(std::array<AnsiCanvas::Colour32, 16>& out_pal32)
 {
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     // XBin readers assume a classic VGA16 palette when no palette chunk is present.
-    const phos::color::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
-    const phos::color::Palette* p = cs.Palettes().Get(pal16);
+    const phos::colour::PaletteInstanceId pal16 = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Vga16);
+    const phos::colour::Palette* p = cs.Palettes().Get(pal16);
     if (!p || p->rgb.size() < 16)
         return;
     for (int i = 0; i < 16; ++i)
-        out_pal32[i] = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal16, phos::color::ColorIndex{(std::uint16_t)i});
+        out_pal32[i] = (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal16, phos::colour::ColourIndex{(std::uint16_t)i});
 }
 
-static bool PaletteEquals16(const std::vector<phos::color::Rgb8>& a, const phos::color::Palette* b)
+static bool PaletteEquals16(const std::vector<phos::colour::Rgb8>& a, const phos::colour::Palette* b)
 {
     if (!b || b->rgb.size() != 16 || a.size() != 16)
         return false;
@@ -539,7 +539,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     if (!ParseHeader(payload, hdr, off, err))
         return false;
 
-    std::array<AnsiCanvas::Color32, 16> pal32{};
+    std::array<AnsiCanvas::Colour32, 16> pal32{};
     BuildDefaultPalette32(pal32);
     if (hdr.has_palette)
     {
@@ -559,8 +559,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
     const int rows = (int)hdr.height;
 
     std::vector<AnsiCanvas::GlyphId> glyphs((size_t)cols * (size_t)rows, phos::glyph::MakeUnicodeScalar(U' '));
-    std::vector<AnsiCanvas::ColorIndex16> fg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
-    std::vector<AnsiCanvas::ColorIndex16> bg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
+    std::vector<AnsiCanvas::ColourIndex16> fg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
+    std::vector<AnsiCanvas::ColourIndex16> bg((size_t)cols * (size_t)rows, AnsiCanvas::kUnsetIndex16);
 
     const int embedded_glyph_count = hdr.mode_512 ? 512 : 256;
     const bool use_embedded_font = hdr.has_font && !embedded_font_bitmap.empty();
@@ -650,8 +650,8 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
                     glyphs[idx] = phos::glyph::MakeUnicodeScalar(decode_unicode_scalar(c));
                 }
             }
-            fg[idx] = (AnsiCanvas::ColorIndex16)fg_idx;
-            bg[idx] = (AnsiCanvas::ColorIndex16)bg_idx;
+            fg[idx] = (AnsiCanvas::ColourIndex16)fg_idx;
+            bg[idx] = (AnsiCanvas::ColourIndex16)bg_idx;
         }
     };
 
@@ -715,18 +715,18 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         ef.bitmap = embedded_font_bitmap; // copy into ProjectState (we still move it onto canvas below)
         st.embedded_font = std::move(ef);
     }
-    // Track palette identity on the canvas (XBin palettes are always 16-color).
+    // Track palette identity on the canvas (XBin palettes are always 16-colour).
     {
-        auto& cs = phos::color::GetColorSystem();
+        auto& cs = phos::colour::GetColourSystem();
 
         // Build RGB24 list from the decoded palette chunk (or default VGA16 if absent).
-        std::vector<phos::color::Rgb8> rgb;
+        std::vector<phos::colour::Rgb8> rgb;
         rgb.reserve(16);
         for (int i = 0; i < 16; ++i)
         {
             std::uint8_t r = 0, g = 0, b = 0;
             UnpackImGuiCol32(pal32[(size_t)i], r, g, b);
-            rgb.push_back(phos::color::Rgb8{r, g, b});
+            rgb.push_back(phos::colour::Rgb8{r, g, b});
         }
 
         // Best-match UI palette inference (registry-backed via PaletteCatalog).
@@ -735,37 +735,37 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         const auto inferred_ui = cs.Catalog().BestMatchUiByIndexOrder(rgb);
 
         // Prefer builtins when the palette matches exactly (better UX + smaller identity).
-        const phos::color::Palette* vga = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16));
-        const phos::color::Palette* x16 = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16));
+        const phos::colour::Palette* vga = cs.Palettes().Get(cs.Palettes().Builtin(phos::colour::BuiltinPalette::Vga16));
+        const phos::colour::Palette* x16 = cs.Palettes().Get(cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm16));
         if (PaletteEquals16(rgb, vga))
         {
             st.palette_ref.is_builtin = true;
-            st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+            st.palette_ref.builtin = phos::colour::BuiltinPalette::Vga16;
         }
         else if (PaletteEquals16(rgb, x16))
         {
             st.palette_ref.is_builtin = true;
-            st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm16;
+            st.palette_ref.builtin = phos::colour::BuiltinPalette::Xterm16;
         }
         else if (hdr.has_palette)
         {
             // No exact builtin match: register as a dynamic palette.
-            const phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("XBin Palette", rgb);
-            if (const phos::color::Palette* p = cs.Palettes().Get(pid))
+            const phos::colour::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("XBin Palette", rgb);
+            if (const phos::colour::Palette* p = cs.Palettes().Get(pid))
             {
                 st.palette_ref = p->ref;
             }
             else
             {
                 st.palette_ref.is_builtin = true;
-                st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+                st.palette_ref.builtin = phos::colour::BuiltinPalette::Vga16;
             }
         }
         else
         {
             // No palette chunk => default VGA16.
             st.palette_ref.is_builtin = true;
-            st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
+            st.palette_ref.builtin = phos::colour::BuiltinPalette::Vga16;
         }
 
         // UI palette selection:
@@ -782,7 +782,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     // Default bold semantics for XBin:
     // XBin is a classic bitmap-font workflow; treat bold as ANSI intensity by default.
-    st.bold_semantics = (st.palette_ref.is_builtin && st.palette_ref.builtin == phos::color::BuiltinPalette::Vga16)
+    st.bold_semantics = (st.palette_ref.is_builtin && st.palette_ref.builtin == phos::colour::BuiltinPalette::Vga16)
                             ? (int)AnsiCanvas::BoldSemantics::AnsiBright
                             : (int)AnsiCanvas::BoldSemantics::Typographic;
 
@@ -862,28 +862,28 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         return false;
     }
 
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
 
-    // Export is index-native: remap from the canvas palette to the chosen XBin 16-color palette.
-    phos::color::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    // Export is index-native: remap from the canvas palette to the chosen XBin 16-colour palette.
+    phos::colour::PaletteInstanceId src_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
         src_pal = *id;
 
-    phos::color::PaletteInstanceId dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+    phos::colour::PaletteInstanceId dst_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm16);
     if (options.include_palette)
     {
         if (options.target_palette == ExportOptions::TargetPalette::Vga16)
         {
-            dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+            dst_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Vga16);
         }
         else if (options.target_palette == ExportOptions::TargetPalette::Xterm16)
         {
-            dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16);
+            dst_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm16);
         }
         else if (options.target_palette == ExportOptions::TargetPalette::CanvasIf16)
         {
-            const phos::color::Palette* p = cs.Palettes().Get(src_pal);
+            const phos::colour::Palette* p = cs.Palettes().Get(src_pal);
             if (p && p->rgb.size() == 16)
                 dst_pal = src_pal;
         }
@@ -895,10 +895,10 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 err = "XBin export: explicit_palette_ref does not resolve.";
                 return false;
             }
-            const phos::color::Palette* p = cs.Palettes().Get(*id);
+            const phos::colour::Palette* p = cs.Palettes().Get(*id);
             if (!p || p->rgb.size() != 16)
             {
-                err = "XBin export: explicit palette must be exactly 16 colors.";
+                err = "XBin export: explicit palette must be exactly 16 colours.";
                 return false;
             }
             dst_pal = *id;
@@ -908,22 +908,22 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     else
     {
         // No palette chunk => readers assume default palette; encode with xterm16.
-        dst_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16);
+        dst_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Vga16);
     }
 
     const auto remap_to_16 = cs.Luts().GetOrBuildRemap(cs.Palettes(), src_pal, dst_pal, qpol);
 
-    auto remap_index_to_16 = [&](AnsiCanvas::ColorIndex16 idx, int fallback) -> int {
+    auto remap_index_to_16 = [&](AnsiCanvas::ColourIndex16 idx, int fallback) -> int {
         if (idx == AnsiCanvas::kUnsetIndex16)
             return fallback;
         if (remap_to_16 && (size_t)idx < remap_to_16->remap.size())
             return (int)remap_to_16->remap[(size_t)idx];
 
-        // Budget-pressure fallback: exact scan via packed color round-trip.
+        // Budget-pressure fallback: exact scan via packed colour round-trip.
         const std::uint32_t c32 =
-            phos::color::ColorOps::IndexToColor32(cs.Palettes(), src_pal, phos::color::ColorIndex{idx});
-        const phos::color::ColorIndex di =
-            phos::color::ColorOps::Color32ToIndex(cs.Palettes(), dst_pal, c32, qpol);
+            phos::colour::ColourOps::IndexToColour32(cs.Palettes(), src_pal, phos::colour::ColourIndex{idx});
+        const phos::colour::ColourIndex di =
+            phos::colour::ColourOps::Colour32ToIndex(cs.Palettes(), dst_pal, c32, qpol);
         return di.IsUnset() ? fallback : (int)std::clamp<int>((int)di.v, 0, 15);
     };
 
@@ -972,7 +972,7 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
     if (options.include_font)
         out_bytes.insert(out_bytes.end(), ef->bitmap.begin(), ef->bitmap.end());
 
-    // Gather cell data and quantize to 16-color indices.
+    // Gather cell data and quantize to 16-colour indices.
     std::vector<std::uint8_t> ch((size_t)cols * (size_t)rows);
     std::vector<std::uint8_t> at((size_t)cols * (size_t)rows);
 
@@ -981,8 +981,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
         for (int x = 0; x < cols; ++x)
         {
             phos::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
-            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
 
             if (options.source == ExportOptions::Source::Composite)
             {

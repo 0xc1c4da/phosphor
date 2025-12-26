@@ -338,7 +338,7 @@ bool AnsiCanvas::SetProjectState(const ProjectState& state, std::string& out_err
         }
         else
         {
-            if (state.palette_ref.is_builtin && state.palette_ref.builtin == phos::color::BuiltinPalette::Vga16)
+            if (state.palette_ref.is_builtin && state.palette_ref.builtin == phos::colour::BuiltinPalette::Vga16)
                 sem = BoldSemantics::AnsiBright;
             else
                 sem = BoldSemantics::Typographic;

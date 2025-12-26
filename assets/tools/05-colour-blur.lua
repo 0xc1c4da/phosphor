@@ -91,8 +91,8 @@ end
 local function idx_to_rgb(idx)
   if type(idx) ~= "number" then return 0, 0, 0, false end
   local a = get_ansl()
-  if not a or not a.color or not a.color.rgb_of then return 0, 0, 0, false end
-  local r, g, b = a.color.rgb_of(idx)
+  if not a or not a.colour or not a.colour.rgb_of then return 0, 0, 0, false end
+  local r, g, b = a.colour.rgb_of(idx)
   return tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0, true
 end
 
@@ -102,13 +102,13 @@ local function snap_rgb_to_palette(r, g, b, pal)
   b = clamp(to_int(b, 0), 0, 255)
 
   local a = get_ansl()
-  if not a or not a.color or not a.color.rgb then
+  if not a or not a.colour or not a.colour.rgb then
     return nil
   end
 
   -- If no palette is provided, let the host pick the closest index.
   if type(pal) ~= "table" or #pal == 0 then
-    return a.color.rgb(r, g, b)
+    return a.colour.rgb(r, g, b)
   end
 
   local best_idx = nil
@@ -131,7 +131,7 @@ local function snap_rgb_to_palette(r, g, b, pal)
   end
 
   if best_idx == nil then
-    return a.color.rgb(r, g, b)
+    return a.colour.rgb(r, g, b)
   end
   return best_idx
 end
@@ -165,7 +165,7 @@ local function resolve_channel(tr, tg, tb, cur_idx, flow, pal)
     return snap_rgb_to_palette(tr, tg, tb, pal)
   end
 
-  -- Blend against current color if present; otherwise blend against target itself (no-op).
+  -- Blend against current colour if present; otherwise blend against target itself (no-op).
   local cr, cg, cb, ok = idx_to_rgb(cur_idx)
   if not ok then
     cr, cg, cb = tr, tg, tb

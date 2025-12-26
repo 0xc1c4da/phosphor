@@ -45,7 +45,7 @@ function main(coord, ctx)
   if idx0 < 0 then idx0 = 0 end
   if idx0 > #density - 1 then idx0 = #density - 1 end
 
-  local fg = (k == 0) and ansl.color.hex("ff4500") or ansl.color.hex("4169e1") -- orangered / royalblue
+  local fg = (k == 0) and ansl.colour.hex("ff4500") or ansl.colour.hex("4169e1") -- orangered / royalblue
   return { char = density[idx0 + 1], fg = fg }
 end
 

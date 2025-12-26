@@ -59,7 +59,7 @@ private:
         bool              canvas_bg_white = false;
         int               gw = 0;
         int               gh = 0;
-        std::vector<std::uint32_t> colors; // packed ImU32
+        std::vector<std::uint32_t> colours; // packed ImU32
     };
     AnsiCanvas*                 thumb_cache_canvas_ = nullptr;
     std::vector<LayerThumbCache> thumb_cache_;

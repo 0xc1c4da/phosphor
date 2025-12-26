@@ -46,11 +46,11 @@ struct ImportOptions
     // so forcing 80 by default can be wrong for SAUCE'd works (e.g. 100/132 cols).
     int columns = 0;
 
-    // If true, SGR 5 (blink) is interpreted as "bright background" (ICE colors),
+    // If true, SGR 5 (blink) is interpreted as "bright background" (ICE colours),
     // matching common ANSI art conventions.
-    bool icecolors = true;
+    bool icecolours = true;
 
-    // If true, interpret SGR 90-97 / 100-107 as "bright" 16-color codes.
+    // If true, interpret SGR 90-97 / 100-107 as "bright" 16-colour codes.
     //
     // IMPORTANT:
     // - libansilove ignores these codes (it uses classic 30-37/40-47 + bold/blink conventions).
@@ -59,12 +59,12 @@ struct ImportOptions
     // Default: false (match libansilove).
     bool enable_sgr90_100 = false;
 
-    // Default colors used when the file resets attributes (SGR 0 / 39 / 49).
-    // These are stored as actual packed colors (not xterm indices).
-    AnsiCanvas::Color32 default_fg = 0; // if 0, importer will use ANSI light gray
-    AnsiCanvas::Color32 default_bg = 0; // if 0, importer will use ANSI black
+    // Default colours used when the file resets attributes (SGR 0 / 39 / 49).
+    // These are stored as actual packed colours (not xterm indices).
+    AnsiCanvas::Colour32 default_fg = 0; // if 0, importer will use ANSI light gray
+    AnsiCanvas::Colour32 default_bg = 0; // if 0, importer will use ANSI black
 
-    // If true, treat the "default background" as unset/transparent (Color32=0) instead
+    // If true, treat the "default background" as unset/transparent (Colour32=0) instead
     // of forcing ANSI black. Useful for generated ANSI streams (e.g. Chafa) where
     // a default background should not paint over the editor UI.
     bool default_bg_unset = false;
@@ -141,11 +141,11 @@ bool ImportFileToCanvas(const std::string& path,
 // ---------------------------------------------------------------------------
 struct ExportOptions
 {
-    // Which SGR attribute codes we will emit (independent of color mode).
+    // Which SGR attribute codes we will emit (independent of colour mode).
     //
     // Rationale:
     // - "Classic" DOS-era drivers (ANSI.SYS / BBSes) widely supported only a small subset:
-    //     0 reset, 1 bold/bright (often mapped to high-intensity colors), 5 blink (often used for iCE),
+    //     0 reset, 1 bold/bright (often mapped to high-intensity colours), 5 blink (often used for iCE),
     //     7 reverse video.
     // - Modern terminals support the larger set (dim/italic/underline/strikethrough and per-attr resets).
     enum class AttributeMode
@@ -195,31 +195,31 @@ struct ExportOptions
     };
     ScreenPrep screen_prep = ScreenPrep::None;
 
-    // How colors are emitted.
-    enum class ColorMode
+    // How colours are emitted.
+    enum class ColourMode
     {
-        // Classic 16-color SGR (30-37/40-47) with optional bold/ICE conventions.
+        // Classic 16-colour SGR (30-37/40-47) with optional bold/ICE conventions.
         Ansi16 = 0,
-        // Xterm indexed colors: 38;5;n / 48;5;n.
+        // Xterm indexed colours: 38;5;n / 48;5;n.
         Xterm256,
-        // Truecolor SGR: 38;2;r;g;b / 48;2;r;g;b.
-        TrueColorSgr,
+        // Truecolour SGR: 38;2;r;g;b / 48;2;r;g;b.
+        TrueColourSgr,
         // PabloDraw/Icy/libansilove extension: ESC[1;R;G;Bt / ESC[0;R;G;Bt.
         // Typically used as an *overlay* on top of an ANSI16 baseline for compatibility.
-        TrueColorPabloT,
+        TrueColourPabloT,
     };
-    ColorMode color_mode = ColorMode::Xterm256;
+    ColourMode colour_mode = ColourMode::Xterm256;
 
-    // Only meaningful for ColorMode::TrueColorPabloT:
+    // Only meaningful for ColourMode::TrueColourPabloT:
     // - If true, emit an ANSI16 baseline (classic SGR) and only emit `...t` when a cell's
-    //   intended color differs from that ANSI16 approximation.
-    // - If false, emit only `...t` sequences (plus optional 39/49 resets for unset colors).
+    //   intended colour differs from that ANSI16 approximation.
+    // - If false, emit only `...t` sequences (plus optional 39/49 resets for unset colours).
     bool pablo_t_with_ansi16_fallback = true;
 
-    // Only meaningful for ColorMode::Ansi16: how to represent "bright" colors.
+    // Only meaningful for ColourMode::Ansi16: how to represent "bright" colours.
     enum class Ansi16Bright
     {
-        // "Scene classic": bright foreground via SGR 1 (bold). Bright background via SGR 5 when icecolors=true.
+        // "Scene classic": bright foreground via SGR 1 (bold). Bright background via SGR 5 when icecolours=true.
         BoldAndIceBlink = 0,
         // Emit bright codes 90-97/100-107 when needed (more terminal-y; less scene-compatible).
         Sgr90_100,
@@ -227,23 +227,23 @@ struct ExportOptions
     Ansi16Bright ansi16_bright = Ansi16Bright::BoldAndIceBlink;
 
     // If true, interpret background 8..15 as iCE (blink bit repurposed as bright bg) for Ansi16 export.
-    bool icecolors = true;
+    bool icecolours = true;
 
-    // Default colors used when exporting "unset" (Color32==0) cells.
+    // Default colours used when exporting "unset" (Colour32==0) cells.
     // - If default_* is 0, exporter uses ANSI default (fg=7, bg=0) for Ansi16
     //   or leaves as default (39/49) for modern modes depending on flags below.
-    AnsiCanvas::Color32 default_fg = 0;
-    AnsiCanvas::Color32 default_bg = 0;
+    AnsiCanvas::Colour32 default_fg = 0;
+    AnsiCanvas::Colour32 default_bg = 0;
 
-    // Background/foreground reset policy for unset colors.
+    // Background/foreground reset policy for unset colours.
     // If true, "unset" background prefers SGR 49 (default bg) instead of painting black.
     bool use_default_bg_49 = true;
     // If true, "unset" foreground prefers SGR 39 (default fg) instead of forcing 37.
     bool use_default_fg_39 = true;
 
     // Xterm palette portability knob:
-    // If true and color_mode==Xterm256, remap palette indices 0..15 to a nearest stable index in 16..255
-    // to avoid terminal-configurable low-16 palette differences (Chafa guidance: prefer 240 colors).
+    // If true and colour_mode==Xterm256, remap palette indices 0..15 to a nearest stable index in 16..255
+    // to avoid terminal-configurable low-16 palette differences (Chafa guidance: prefer 240 colours).
     bool xterm_240_safe = false;
 
     // Geometry contract:
@@ -285,8 +285,8 @@ enum class PresetId : int
     SceneClassic = 0,      // CP437 + Ansi16 + CRLF + SAUCE (optional by default in UI)
     ModernUtf8_240Safe,    // UTF-8 + xterm256 (16..255) + LF
     ModernUtf8_256,        // UTF-8 + xterm256 (0..255) + LF
-    TruecolorSgr_Utf8,     // UTF-8 + 38;2/48;2 + LF
-    TruecolorPabloT_Cp437, // CP437 + 16-color fallback + ...t truecolor enhancements
+    TruecolourSgr_Utf8,     // UTF-8 + 38;2/48;2 + LF
+    TruecolourPabloT_Cp437, // CP437 + 16-colour fallback + ...t truecolour enhancements
 
     // Named ecosystem presets (initial set; can grow without changing core export logic)
     Durdraw_Utf8_256,

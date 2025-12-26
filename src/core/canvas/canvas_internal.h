@@ -123,7 +123,7 @@ static inline void EnsureSauceDefaultsAndSyncGeometry(AnsiCanvas::ProjectState::
 // IMPORTANT:
 // Many parts of this app implement per-window opacity via PushImGuiWindowChromeAlpha(),
 // which multiplies ImGuiStyleVar_Alpha. ImDrawList primitives that use raw IM_COL32 /
-// raw ImU32 colors bypass that multiplication unless we apply it manually.
+// raw ImU32 colours bypass that multiplication unless we apply it manually.
 static inline ImU32 ApplyCurrentStyleAlpha(ImU32 col)
 {
     // Convert to float4 (includes original alpha), then let ImGui re-pack while applying style.Alpha.
@@ -243,7 +243,7 @@ static inline int NormalizeLayerIndex(const AnsiCanvas& c, int layer_index)
     return layer_index;
 }
 
-static inline bool IsTransparentCellValue(AnsiCanvas::GlyphId cp, AnsiCanvas::ColorIndex16 fg, AnsiCanvas::ColorIndex16 bg, AnsiCanvas::Attrs attrs)
+static inline bool IsTransparentCellValue(AnsiCanvas::GlyphId cp, AnsiCanvas::ColourIndex16 fg, AnsiCanvas::ColourIndex16 bg, AnsiCanvas::Attrs attrs)
 {
     (void)attrs;
     // In this editor, a cell is considered "transparent" (no contribution) iff:
@@ -260,8 +260,8 @@ static inline bool IsTransparentCellValue(AnsiCanvas::GlyphId cp, AnsiCanvas::Co
 // When a layer has "transparency lock" enabled, mutations must not change a cell's
 // transparency state (transparent <-> opaque).
 static inline bool TransparencyTransitionAllowed(bool lock_transparency,
-                                                AnsiCanvas::GlyphId old_cp, AnsiCanvas::ColorIndex16 old_fg, AnsiCanvas::ColorIndex16 old_bg, AnsiCanvas::Attrs old_attrs,
-                                                AnsiCanvas::GlyphId new_cp, AnsiCanvas::ColorIndex16 new_fg, AnsiCanvas::ColorIndex16 new_bg, AnsiCanvas::Attrs new_attrs)
+                                                AnsiCanvas::GlyphId old_cp, AnsiCanvas::ColourIndex16 old_fg, AnsiCanvas::ColourIndex16 old_bg, AnsiCanvas::Attrs old_attrs,
+                                                AnsiCanvas::GlyphId new_cp, AnsiCanvas::ColourIndex16 new_fg, AnsiCanvas::ColourIndex16 new_bg, AnsiCanvas::Attrs new_attrs)
 {
     if (!lock_transparency)
         return true;

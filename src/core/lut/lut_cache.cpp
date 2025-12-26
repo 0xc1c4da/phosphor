@@ -1,12 +1,12 @@
 #include "core/lut/lut_cache.h"
 
-#include "core/color_blend.h"
+#include "core/colour_blend.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <span>
 
-namespace phos::color
+namespace phos::colour
 {
 static inline std::uint64_t Mix64(std::uint64_t x)
 {
@@ -525,7 +525,7 @@ std::shared_ptr<const BlendLut> LutCache::GetOrBuildBlend(PaletteRegistry& palet
             {
                 const Rgb8 base_rgb = p->rgb[bi];
                 const Rgb8 src_rgb = p->rgb[si];
-                const Rgb8 res_rgb = phos::color::BlendOverRgb(base_rgb, src_rgb, mode, alpha);
+                const Rgb8 res_rgb = phos::colour::BlendOverRgb(base_rgb, src_rgb, mode, alpha);
                 out = NearestIndexRgb_Scan(*p, res_rgb.r, res_rgb.g, res_rgb.b, policy);
             }
             lut->table[bi * n + si] = out;
@@ -542,6 +542,6 @@ std::shared_ptr<const BlendLut> LutCache::GetOrBuildBlend(PaletteRegistry& palet
     return lut;
 }
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

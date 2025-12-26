@@ -373,8 +373,8 @@ int main(int argc, char** argv)
     textmode_font::RenderOptions ro;
     ro.mode = textmode_font::RenderMode::Display;
     ro.outline_style = 0;
-    ro.use_font_colors = true;
-    ro.icecolors = true;
+    ro.use_font_colours = true;
+    ro.icecolours = true;
 
     struct Row
     {

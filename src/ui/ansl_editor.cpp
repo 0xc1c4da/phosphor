@@ -17,7 +17,7 @@
 
 namespace fs = std::filesystem;
 
-static bool PaletteRefEqual(const phos::color::PaletteRef& a, const phos::color::PaletteRef& b)
+static bool PaletteRefEqual(const phos::colour::PaletteRef& a, const phos::colour::PaletteRef& b)
 {
     return a.is_builtin == b.is_builtin &&
            a.builtin == b.builtin &&
@@ -128,7 +128,7 @@ AnslEditor::AnslEditor()
         text_ =
             "-- Define a global render(ctx, layer) function.\\n"
             "-- ctx = { cols, rows, frame, time, fg, bg, metrics={aspect=...}, cursor={x,y,pressed,p={...}} }\\n"
-            "-- Modules are available as `ansl.*` (num, sdf, vec2, vec3, color, buffer, drawbox, string).\\n"
+            "-- Modules are available as `ansl.*` (num, sdf, vec2, vec3, colour, buffer, drawbox, string).\\n"
             "-- Tip: you can also do `local ansl = require('ansl')` if you prefer not to use globals.\\n"
             "-- layer supports:\\n"
             "--   layer:set(x, y, cpOrString, fg?, bg?)   -- fg/bg are indices in the active canvas palette (or nil)\\n"
@@ -136,17 +136,17 @@ AnslEditor::AnslEditor()
             "--   layer:clear(cpOrString?)\\n"
             "--   layer:setRow(y, utf8String)\\n"
             "\\n"
-            "-- Colors are indices in the active canvas palette (no alpha). Helpers:\\n"
-            "--   ansl.color.rgb(r,g,b) -> idx\\n"
-            "--   ansl.color.hex('#RRGGBB') -> idx\\n"
-            "--   ansl.color.ansi16.bright_white, etc (ANSI16/VGA16 names mapped into the active palette)\\n"
+            "-- Colours are indices in the active canvas palette (no alpha). Helpers:\\n"
+            "--   ansl.colour.rgb(r,g,b) -> idx\\n"
+            "--   ansl.colour.hex('#RRGGBB') -> idx\\n"
+            "--   ansl.colour.ansi16.bright_white, etc (ANSI16/VGA16 names mapped into the active palette)\\n"
             "-- ctx.fg / ctx.bg expose the editor's current FG/BG selection when available.\\n"
             "\\n"
             "function render(ctx, layer)\\n"
             "  -- Example: moving dot\\n"
             "  local x = (ctx.frame %% ctx.cols)\\n"
             "  local y = math.floor((ctx.frame / 2) %% ctx.rows)\\n"
-            "  local fg = ctx.fg or ansl.color.ansi16.bright_white\\n"
+            "  local fg = ctx.fg or ansl.colour.ansi16.bright_white\\n"
             "  local bg = ctx.bg -- nil means unset\\n"
             "  layer:set(x, y, '@', fg, bg)\\n"
             "end\\n";
@@ -395,12 +395,12 @@ void AnslEditor::Render(const char* id,
             {
                 // Treat script-driven fills as tool/script mutations so they respect selection clipping.
                 AnsiCanvas::ToolRunScope scope(*c);
-                std::optional<AnsiCanvas::Color32> fg;
-                std::optional<AnsiCanvas::Color32> bg;
+                std::optional<AnsiCanvas::Colour32> fg;
+                std::optional<AnsiCanvas::Colour32> bg;
                 if (s.has_foreground)
-                    fg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.foreground_xterm);
+                    fg = (AnsiCanvas::Colour32)xterm256::Colour32ForIndex(s.foreground_xterm);
                 if (s.has_background)
-                    bg = (AnsiCanvas::Color32)xterm256::Color32ForIndex(s.background_xterm);
+                    bg = (AnsiCanvas::Colour32)xterm256::Colour32ForIndex(s.background_xterm);
                 const int layer_index = c->GetActiveLayerIndex();
                 c->FillLayer(layer_index, std::nullopt, fg, bg);
             }
@@ -416,7 +416,7 @@ void AnslEditor::Render(const char* id,
                 needs_recompile_ = true;
 
             // If the active canvas palette has changed since the last successful compile,
-            // force a recompile so palette-dependent constants (ansl.color.*) are re-quantized
+            // force a recompile so palette-dependent constants (ansl.colour.*) are re-quantized
             // into the new palette index space.
             if (canvas && engine.HasRenderFunction())
             {

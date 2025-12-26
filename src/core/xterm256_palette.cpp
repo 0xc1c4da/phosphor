@@ -1,8 +1,8 @@
 // Shared xterm-256 palette implementation.
 //
 // The palette layout matches the widely-used xterm-256 definition:
-// - 0..15   : ANSI base colors
-// - 16..231 : 6x6x6 color cube (levels: 0,95,135,175,215,255)
+// - 0..15   : ANSI base colours
+// - 16..231 : 6x6x6 colour cube (levels: 0,95,135,175,215,255)
 // - 232..255: grayscale ramp (24 steps, 8..238)
 //
 // NearestIndex() uses the canonical cube/grayscale projection and picks the best
@@ -32,7 +32,7 @@ constexpr std::array<Rgb, 256> BuildPalette()
         p[(size_t)idx] = Rgb{(std::uint8_t)r, (std::uint8_t)g, (std::uint8_t)b};
     };
 
-    // 0–15: standard ANSI colors (common xterm defaults)
+    // 0–15: standard ANSI colours (common xterm defaults)
     set(0, 0, 0, 0);
     set(1, 205, 0, 0);
     set(2, 0, 205, 0);
@@ -50,7 +50,7 @@ constexpr std::array<Rgb, 256> BuildPalette()
     set(14, 0, 255, 255);
     set(15, 255, 255, 255);
 
-    // 16–231: 6x6x6 color cube
+    // 16–231: 6x6x6 colour cube
     constexpr int level[6] = {0, 95, 135, 175, 215, 255};
     for (int i = 16; i <= 231; ++i)
     {
@@ -107,7 +107,7 @@ const Rgb& RgbForIndex(int idx)
     return kPalette[(size_t)i];
 }
 
-std::uint32_t Color32ForIndex(int idx)
+std::uint32_t Colour32ForIndex(int idx)
 {
     const Rgb& c = RgbForIndex(idx);
     return PackImGuiCol32(c.r, c.g, c.b);
@@ -148,8 +148,8 @@ int NearestIndex(std::uint8_t r, std::uint8_t g, std::uint8_t b)
         best_idx = gray_idx;
     }
 
-    // Candidate 3: base 16 ANSI colors (some inputs map nicer here)
-    // Only 16 checks, cheap, improves fidelity for many "named" colors.
+    // Candidate 3: base 16 ANSI colours (some inputs map nicer here)
+    // Only 16 checks, cheap, improves fidelity for many "named" colours.
     for (int i = 0; i < 16; ++i)
     {
         const Rgb& p = kPalette[(size_t)i];

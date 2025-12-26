@@ -208,7 +208,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             const IoManager& io_manager,
                             const ToolPalette& tool_palette,
                             const AnslEditor& ansl_editor,
-                            bool show_color_picker_window,
+                            bool show_colour_picker_window,
                             bool show_character_picker_window,
                             bool show_character_palette_window,
                             bool show_character_sets_window,
@@ -219,8 +219,8 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             bool show_minimap_window,
                             bool show_settings_window,
                             bool show_16colors_browser_window,
-                            const ImVec4& fg_color,
-                            const ImVec4& bg_color,
+                            const ImVec4& fg_colour,
+                            const ImVec4& bg_colour,
                             int active_fb,
                             int xterm_picker_mode,
                             int xterm_selected_palette,
@@ -249,7 +249,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
     st.window_maximized = (wf & SDL_WINDOW_MAXIMIZED) != 0;
     st.window_fullscreen = (wf & SDL_WINDOW_FULLSCREEN) != 0;
 
-    st.show_color_picker_window = show_color_picker_window;
+    st.show_colour_picker_window = show_colour_picker_window;
     st.show_character_picker_window = show_character_picker_window;
     st.show_character_palette_window = show_character_palette_window;
     st.show_character_sets_window = show_character_sets_window;
@@ -262,19 +262,19 @@ void SaveSessionStateOnExit(const SessionState& session_state,
     st.show_16colors_browser_window = show_16colors_browser_window;
 
     // Xterm-256 picker UI state
-    st.xterm_color_picker.fg[0] = fg_color.x;
-    st.xterm_color_picker.fg[1] = fg_color.y;
-    st.xterm_color_picker.fg[2] = fg_color.z;
-    st.xterm_color_picker.fg[3] = fg_color.w;
-    st.xterm_color_picker.bg[0] = bg_color.x;
-    st.xterm_color_picker.bg[1] = bg_color.y;
-    st.xterm_color_picker.bg[2] = bg_color.z;
-    st.xterm_color_picker.bg[3] = bg_color.w;
-    st.xterm_color_picker.active_fb = active_fb;
-    st.xterm_color_picker.picker_mode = xterm_picker_mode;
-    st.xterm_color_picker.selected_palette = xterm_selected_palette;
-    st.xterm_color_picker.picker_preview_fb = xterm_picker_preview_fb;
-    st.xterm_color_picker.last_hue = xterm_picker_last_hue;
+    st.xterm_colour_picker.fg[0] = fg_colour.x;
+    st.xterm_colour_picker.fg[1] = fg_colour.y;
+    st.xterm_colour_picker.fg[2] = fg_colour.z;
+    st.xterm_colour_picker.fg[3] = fg_colour.w;
+    st.xterm_colour_picker.bg[0] = bg_colour.x;
+    st.xterm_colour_picker.bg[1] = bg_colour.y;
+    st.xterm_colour_picker.bg[2] = bg_colour.z;
+    st.xterm_colour_picker.bg[3] = bg_colour.w;
+    st.xterm_colour_picker.active_fb = active_fb;
+    st.xterm_colour_picker.picker_mode = xterm_picker_mode;
+    st.xterm_colour_picker.selected_palette = xterm_selected_palette;
+    st.xterm_colour_picker.picker_preview_fb = xterm_picker_preview_fb;
+    st.xterm_colour_picker.last_hue = xterm_picker_last_hue;
 
     st.last_import_image_dir = io_manager.GetLastDir();
 

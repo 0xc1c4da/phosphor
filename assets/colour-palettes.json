@@ -1,6 +1,6 @@
 [
   {
-    "colors": [
+    "colours": [
       "#000000",
       "#0000AA",
       "#00AA00",
@@ -69,7 +69,7 @@
     "title": "EGA 64"
   },
   {
-    "colors": [
+    "colours": [
       "#000000",
       "#FFFFFF",
       "#68372B",
@@ -90,7 +90,7 @@
     "title": "C64"
   },
   {
-    "colors": [
+    "colours": [
       "#000000",
       "#FF0000",
       "#00FF00",
@@ -103,7 +103,7 @@
     "title": "Teletext L1 ITU‑R BT.653"
   },
   {
-    "colors": [
+    "colours": [
       "#000000",
       "#FF0000",
       "#00FF00",

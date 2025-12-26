@@ -9,9 +9,9 @@ settings = {
     place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", primary = true, inline = true },
     clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", primary = true, inline = true },
 
-    useFontColors = { type = "bool", label = "Use font colors", ui = "toggle", section = "Color", default = true },
-    useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Color", default = true, inline = true },
-    useBg = { type = "bool", label = "Fallback: Use BG", ui = "toggle", section = "Color", default = false, inline = true },
+    useFontColours = { type = "bool", label = "Use font colours", ui = "toggle", section = "Colour", default = true },
+    useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Colour", default = true, inline = true },
+    useBg = { type = "bool", label = "Fallback: Use BG", ui = "toggle", section = "Colour", default = false, inline = true },
 
     editMode = { type = "bool", label = "Edit markers (outline)", ui = "toggle", section = "Outline", default = false },
     outlineStyle = { type = "int", label = "Outline style", ui = "slider", section = "Outline", min = 0, max = 18, step = 1, default = 0, inline = true, width = 180 },
@@ -111,7 +111,7 @@ local function current_font_id(ctx)
 end
 
 local function set_cell(layer, x, y, cp, fg, bg)
-  -- Clear style if we don't have explicit colors.
+  -- Clear style if we don't have explicit colours.
   if fg == nil and bg == nil then
     layer:set(x, y, cp)
     layer:clearStyle(x, y)
@@ -265,7 +265,7 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
   local bg = bmp.bg or {}
 
   local p = ctx.params or {}
-  local use_font_colors = (p.useFontColors ~= false)
+  local use_font_colours = (p.useFontColours ~= false)
   local use_fallback_fg = (p.useFg ~= false)
   local use_fallback_bg = (p.useBg == true)
 
@@ -287,7 +287,7 @@ local function stamp_bitmap(ctx, layer, x0, y0, bmp)
 
       local fgi = tonumber(fg[i])
       local bgi = tonumber(bg[i])
-      if use_font_colors then
+      if use_font_colours then
         if fgi ~= nil and fgi >= 0 then out_fg = math.floor(fgi) end
         if bgi ~= nil and bgi >= 0 then out_bg = math.floor(bgi) end
       end
@@ -330,10 +330,10 @@ local function render_key(ctx)
   local text = current_text()
   local editMode = (p.editMode == true) and "1" or "0"
   local outlineStyle = tostring(tonumber(p.outlineStyle) or 0)
-  local useFontColors = (p.useFontColors ~= false) and "1" or "0"
+  local useFontColours = (p.useFontColours ~= false) and "1" or "0"
   local useFg = (p.useFg ~= false) and "1" or "0"
   local useBg = (p.useBg == true) and "1" or "0"
-  return id .. "|" .. text .. "|" .. editMode .. "|" .. outlineStyle .. "|" .. useFontColors .. "|" .. useFg .. "|" .. useBg
+  return id .. "|" .. text .. "|" .. editMode .. "|" .. outlineStyle .. "|" .. useFontColours .. "|" .. useFg .. "|" .. useBg
 end
 
 local function try_place(ctx, layer, x, y)
@@ -346,8 +346,8 @@ local function try_place(ctx, layer, x, y)
   local opts = {
     editMode = (p.editMode == true),
     outlineStyle = tonumber(p.outlineStyle) or 0,
-    useFontColors = (p.useFontColors ~= false),
-    icecolors = true,
+    useFontColours = (p.useFontColours ~= false),
+    icecolours = true,
   }
 
   local bmp, err = ansl.font.render(id, text, opts)
@@ -476,8 +476,8 @@ local function maybe_rerender_selected_stamp(ctx, layer)
   local opts = {
     editMode = (p.editMode == true),
     outlineStyle = tonumber(p.outlineStyle) or 0,
-    useFontColors = (p.useFontColors ~= false),
-    icecolors = true,
+    useFontColours = (p.useFontColours ~= false),
+    icecolours = true,
   }
   local bmp, _ = ansl.font.render(id, text, opts)
   if bmp == nil then

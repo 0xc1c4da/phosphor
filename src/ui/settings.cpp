@@ -1,7 +1,7 @@
 #include "ui/settings.h"
 
 #include "imgui.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/encodings.h"
 #include "core/i18n.h"
 #include "core/paths.h"
@@ -453,7 +453,7 @@ void SettingsWindow::RenderTab_General()
 
         // Budget pressure indicator (live): 100% corresponds to the current allocatable budget.
         {
-            auto& cs = phos::color::GetColorSystem();
+            auto& cs = phos::colour::GetColourSystem();
             const std::size_t used_b = cs.Luts().UsedBytes();
             const std::size_t budget_b = cs.Luts().BudgetBytes();
 

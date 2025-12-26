@@ -8,7 +8,7 @@
 namespace phos
 {
 // v1 compositor: background blends across layers; glyph selection is unchanged (topmost non-space wins);
-// foreground color is blended only for the chosen glyph layer (when fg is set).
+// foreground colour is blended only for the chosen glyph layer (when fg is set).
 enum class LayerBlendMode : std::uint8_t
 {
     Normal = 0,
@@ -17,8 +17,8 @@ enum class LayerBlendMode : std::uint8_t
     Overlay,
     Darken,
     Lighten,
-    ColorDodge,
-    ColorBurn,
+    ColourDodge,
+    ColourBurn,
 };
 
 inline constexpr const char* LayerBlendModeToString(LayerBlendMode m)
@@ -31,8 +31,8 @@ inline constexpr const char* LayerBlendModeToString(LayerBlendMode m)
         case LayerBlendMode::Overlay:    return "overlay";
         case LayerBlendMode::Darken:     return "darken";
         case LayerBlendMode::Lighten:    return "lighten";
-        case LayerBlendMode::ColorDodge: return "color_dodge";
-        case LayerBlendMode::ColorBurn:  return "color_burn";
+        case LayerBlendMode::ColourDodge: return "colour_dodge";
+        case LayerBlendMode::ColourBurn:  return "colour_burn";
     }
     return "normal";
 }
@@ -47,8 +47,8 @@ inline constexpr const char* LayerBlendModeToUiLabel(LayerBlendMode m)
         case LayerBlendMode::Overlay:    return "Overlay";
         case LayerBlendMode::Darken:     return "Darken";
         case LayerBlendMode::Lighten:    return "Lighten";
-        case LayerBlendMode::ColorDodge: return "Color Dodge";
-        case LayerBlendMode::ColorBurn:  return "Color Burn";
+        case LayerBlendMode::ColourDodge: return "Colour Dodge";
+        case LayerBlendMode::ColourBurn:  return "Colour Burn";
     }
     return "Normal";
 }
@@ -62,8 +62,8 @@ inline bool LayerBlendModeFromString(std::string_view s, LayerBlendMode& out)
     if (s == "overlay") { out = LayerBlendMode::Overlay; return true; }
     if (s == "darken") { out = LayerBlendMode::Darken; return true; }
     if (s == "lighten") { out = LayerBlendMode::Lighten; return true; }
-    if (s == "color_dodge" || s == "dodge" || s == "colordodge") { out = LayerBlendMode::ColorDodge; return true; }
-    if (s == "color_burn" || s == "burn" || s == "colorburn") { out = LayerBlendMode::ColorBurn; return true; }
+    if (s == "colour_dodge" || s == "dodge" || s == "colourdodge") { out = LayerBlendMode::ColourDodge; return true; }
+    if (s == "colour_burn" || s == "burn" || s == "colourburn") { out = LayerBlendMode::ColourBurn; return true; }
     return false;
 }
 
@@ -78,8 +78,8 @@ inline LayerBlendMode LayerBlendModeFromInt(std::uint32_t v)
         case LayerBlendMode::Overlay:
         case LayerBlendMode::Darken:
         case LayerBlendMode::Lighten:
-        case LayerBlendMode::ColorDodge:
-        case LayerBlendMode::ColorBurn:
+        case LayerBlendMode::ColourDodge:
+        case LayerBlendMode::ColourBurn:
             return (LayerBlendMode)v;
     }
     return LayerBlendMode::Normal;

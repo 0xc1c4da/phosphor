@@ -2,20 +2,20 @@
 
 #include <cstdint>
 
-namespace phos::color
+namespace phos::colour
 {
 static constexpr std::uint16_t kUnsetIndex = 0xFFFFu;
 
-struct ColorIndex
+struct ColourIndex
 {
     std::uint16_t v = kUnsetIndex;
     bool IsUnset() const { return v == kUnsetIndex; }
 };
 
 // Plane-specific wrappers (same sentinel, different semantic meaning).
-struct FgIndex { ColorIndex v; };
-struct BgIndex { ColorIndex v; };
+struct FgIndex { ColourIndex v; };
+struct BgIndex { ColourIndex v; };
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

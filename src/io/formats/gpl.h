@@ -21,7 +21,7 @@ namespace formats::gpl
 // Lowercase extension (no leading dot).
 const std::vector<std::string_view>& ImportExtensions(); // {"gpl"}
 
-struct Color
+struct Colour
 {
     std::uint8_t r = 0;
     std::uint8_t g = 0;
@@ -33,7 +33,7 @@ struct Palette
 {
     std::string        name;    // from "Name:" header (or caller-provided fallback)
     int                columns = 0;
-    std::vector<Color> colors;
+    std::vector<Colour> colours;
 };
 
 bool ImportBytesToPalette(const std::vector<std::uint8_t>& bytes,

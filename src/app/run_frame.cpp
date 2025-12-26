@@ -28,7 +28,7 @@
 #include <cfloat>
 
 #include "core/fonts.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/glyph_resolve.h"
 #include "core/i18n.h"
 #include "core/paths.h"
@@ -158,8 +158,8 @@ void RunFrame(AppState& st)
     int& last_active_canvas_id = *st.workspace.last_active_canvas_id;
 
     bool& show_demo_window = *st.toggles.show_demo_window;
-    ImVec4& clear_color = *st.colors.clear_color;
-    bool& show_color_picker_window = *st.toggles.show_color_picker_window;
+    ImVec4& clear_colour = *st.colours.clear_colour;
+    bool& show_colour_picker_window = *st.toggles.show_colour_picker_window;
     bool& show_character_picker_window = *st.toggles.show_character_picker_window;
     bool& show_character_palette_window = *st.toggles.show_character_palette_window;
     bool& show_character_sets_window = *st.toggles.show_character_sets_window;
@@ -172,13 +172,13 @@ void RunFrame(AppState& st)
     bool& show_16colors_browser_window = *st.toggles.show_16colors_browser_window;
     bool& window_fullscreen = *st.toggles.window_fullscreen;
 
-    ImVec4& fg_color = *st.colors.fg_color;
-    ImVec4& bg_color = *st.colors.bg_color;
-    int& active_fb = *st.colors.active_fb;
-    int& xterm_picker_mode = *st.colors.xterm_picker_mode;
-    int& xterm_selected_palette = *st.colors.xterm_selected_palette;
-    int& xterm_picker_preview_fb = *st.colors.xterm_picker_preview_fb;
-    float& xterm_picker_last_hue = *st.colors.xterm_picker_last_hue;
+    ImVec4& fg_colour = *st.colours.fg_colour;
+    ImVec4& bg_colour = *st.colours.bg_colour;
+    int& active_fb = *st.colours.active_fb;
+    int& xterm_picker_mode = *st.colours.xterm_picker_mode;
+    int& xterm_selected_palette = *st.colours.xterm_selected_palette;
+    int& xterm_picker_preview_fb = *st.colours.xterm_picker_preview_fb;
+    float& xterm_picker_last_hue = *st.colours.xterm_picker_last_hue;
 
     // ---------------------------------------------------------------------
     // Palette catalog (Option A): registry-backed palette list for UI
@@ -189,9 +189,9 @@ void RunFrame(AppState& st)
     static std::string palette_catalog_error;
     if (!palette_catalog_loaded)
     {
-        auto& cs = phos::color::GetColorSystem();
+        auto& cs = phos::colour::GetColourSystem();
         std::string err;
-        (void)cs.Catalog().LoadFromJsonFile(PhosphorAssetPath("color-palettes.json"), err);
+        (void)cs.Catalog().LoadFromJsonFile(PhosphorAssetPath("colour-palettes.json"), err);
         palette_catalog_error = err; // may be empty even if the file had no extra palettes
         palette_catalog_loaded = true;
     }
@@ -664,7 +664,7 @@ void RunFrame(AppState& st)
     appui::RenderMainMenuBar(window, keybinds, session_state, io_manager, file_dialogs, io_cbs,
                              export_dialog, settings_window,
                              active_canvas, st.done, window_fullscreen,
-                             show_color_picker_window,
+                             show_colour_picker_window,
                              show_character_picker_window,
                              show_character_palette_window,
                              show_character_sets_window,
@@ -888,7 +888,7 @@ void RunFrame(AppState& st)
                 push_recent(ev.path);
             else if (ev.kind == IoManager::OpenEventKind::Palette && !ev.path.empty())
             {
-                // Import palette files (currently: GIMP Palette .gpl) into assets/color-palettes.json,
+                // Import palette files (currently: GIMP Palette .gpl) into assets/colour-palettes.json,
                 // then reload the palette catalog so the UI updates immediately.
                 std::string err;
                 formats::gpl::Palette pal;
@@ -907,29 +907,29 @@ void RunFrame(AppState& st)
                 }
 
                 const std::string wanted_title = pal.name.empty() ? fallback : pal.name;
-                std::vector<phos::color::Rgb8> rgb;
-                rgb.reserve(std::min<std::size_t>(pal.colors.size(), phos::color::kMaxPaletteSize));
-                for (std::size_t i = 0; i < pal.colors.size() && rgb.size() < phos::color::kMaxPaletteSize; ++i)
+                std::vector<phos::colour::Rgb8> rgb;
+                rgb.reserve(std::min<std::size_t>(pal.colours.size(), phos::colour::kMaxPaletteSize));
+                for (std::size_t i = 0; i < pal.colours.size() && rgb.size() < phos::colour::kMaxPaletteSize; ++i)
                 {
-                    const auto& c = pal.colors[i];
-                    rgb.push_back(phos::color::Rgb8{c.r, c.g, c.b});
+                    const auto& c = pal.colours[i];
+                    rgb.push_back(phos::colour::Rgb8{c.r, c.g, c.b});
                 }
-                auto& cs = phos::color::GetColorSystem();
+                auto& cs = phos::colour::GetColourSystem();
 
-                const std::string json_path = PhosphorAssetPath("color-palettes.json");
+                const std::string json_path = PhosphorAssetPath("colour-palettes.json");
                 std::string jerr;
                 std::string final_title;
                 const bool wrote_json = cs.Catalog().AppendToJsonFile(json_path, wanted_title, rgb, jerr, &final_title);
 
                 // Register the palette immediately so it can be selected even if the JSON write/reload fails.
                 // Register with empty title first so we can later "upgrade" the title metadata based on the JSON result.
-                phos::color::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("", rgb);
+                phos::colour::PaletteInstanceId pid = cs.Palettes().RegisterDynamic("", rgb);
                 if (wrote_json)
                     pid = cs.Palettes().RegisterDynamic(final_title, rgb);
                 else
                     pid = cs.Palettes().RegisterDynamic(wanted_title, rgb);
 
-                if (const phos::color::Palette* p = cs.Palettes().Get(pid))
+                if (const phos::colour::Palette* p = cs.Palettes().Get(pid))
                 {
                     if (active_canvas)
                         active_canvas->SetUiPaletteRef(p->ref);
@@ -937,7 +937,7 @@ void RunFrame(AppState& st)
                 }
                 if (!wrote_json)
                 {
-                    io_manager.SetLastError(jerr.empty() ? "Failed to save palette to color-palettes.json." : jerr);
+                    io_manager.SetLastError(jerr.empty() ? "Failed to save palette to colour-palettes.json." : jerr);
                     continue;
                 }
 
@@ -969,7 +969,7 @@ void RunFrame(AppState& st)
                              active_canvas, active_canvas_window,
                              st.done, window_fullscreen, show_minimap_window,
                              show_settings_window, settings_window,
-                             fg_color, bg_color,
+                             fg_colour, bg_colour,
                              create_new_canvas);
 
     // Optional: keep the ImGui demo available for reference
@@ -1083,29 +1083,29 @@ void RunFrame(AppState& st)
             return;
 
         // Respect current editor FG/BG selection (xterm-256 picker).
-        // Canvas uses Color32 where 0 means "unset"; we always apply explicit colours here.
+        // Canvas uses Colour32 where 0 means "unset"; we always apply explicit colours here.
         // Respect current editor FG/BG selection, snapped to the active canvas palette.
-        auto to_idx = [&](const ImVec4& c, phos::color::PaletteInstanceId pal) -> int {
+        auto to_idx = [&](const ImVec4& c, phos::colour::PaletteInstanceId pal) -> int {
             const int r = (int)std::lround(c.x * 255.0f);
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
-            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-            return (int)phos::color::ColorOps::NearestIndexRgb(phos::color::GetColorSystem().Palettes(),
+            const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+            return (int)phos::colour::ColourOps::NearestIndexRgb(phos::colour::GetColourSystem().Palettes(),
                                                                pal,
                                                                (std::uint8_t)std::clamp(r, 0, 255),
                                                                (std::uint8_t)std::clamp(g, 0, 255),
                                                                (std::uint8_t)std::clamp(b, 0, 255),
                                                                qp);
         };
-        auto& cs = phos::color::GetColorSystem();
-        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        auto& cs = phos::colour::GetColourSystem();
+        phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
         if (dst)
         {
             if (auto id = cs.Palettes().Resolve(dst->GetPaletteRef()))
                 pal = *id;
         }
-        const AnsiCanvas::ColorIndex16 fg_idx = (AnsiCanvas::ColorIndex16)to_idx(fg_color, pal);
-        const AnsiCanvas::ColorIndex16 bg_idx = (AnsiCanvas::ColorIndex16)to_idx(bg_color, pal);
+        const AnsiCanvas::ColourIndex16 fg_idx = (AnsiCanvas::ColourIndex16)to_idx(fg_colour, pal);
+        const AnsiCanvas::ColourIndex16 bg_idx = (AnsiCanvas::ColourIndex16)to_idx(bg_colour, pal);
 
         int caret_x = 0;
         int caret_y = 0;
@@ -1199,7 +1199,7 @@ void RunFrame(AppState& st)
     }
 
     // Colour picker showcase window
-    if (show_color_picker_window)
+    if (show_colour_picker_window)
     {
         const char* name = "Colour Picker"; // persistence key (stable, non-localized)
         ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
@@ -1207,7 +1207,7 @@ void RunFrame(AppState& st)
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
         const std::string title = PHOS_TR("menu.window.colour_picker") + "###Colour Picker";
-        ImGui::Begin(title.c_str(), &show_color_picker_window, flags);
+        ImGui::Begin(title.c_str(), &show_colour_picker_window, flags);
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
@@ -1215,7 +1215,7 @@ void RunFrame(AppState& st)
         static int                 last_palette_index = -1;
         static std::vector<ImVec4> saved_palette;
         static std::vector<ImVec4> saved_palette_snapped;
-        static phos::color::PaletteInstanceId last_snap_palette;
+        static phos::colour::PaletteInstanceId last_snap_palette;
 
         if (!palette_catalog_error.empty())
         {
@@ -1225,7 +1225,7 @@ void RunFrame(AppState& st)
                                "%s", s.c_str());
         }
 
-        auto& cs = phos::color::GetColorSystem();
+        auto& cs = phos::colour::GetColourSystem();
 
         // Ensure the active canvas' UI palette ref is visible in the UI list (even if not in the JSON catalog).
         {
@@ -1237,7 +1237,7 @@ void RunFrame(AppState& st)
 
         // Sync picker selection to the active canvas' UI palette ref.
         // (This keeps the picker reflecting the active canvas on new/load/switch.)
-        auto find_ui_index_for_ref = [&](const phos::color::PaletteRef& ref) -> int {
+        auto find_ui_index_for_ref = [&](const phos::colour::PaletteRef& ref) -> int {
             const auto ui_list = cs.Catalog().UiPaletteList();
             const auto resolved = cs.Palettes().Resolve(ref);
             if (!resolved.has_value())
@@ -1274,7 +1274,7 @@ void RunFrame(AppState& st)
 
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
             const bool fb_widget_changed =
-                ImGui::XtermForegroundBackgroundWidget("🙿", fg_color, bg_color, active_fb);
+                ImGui::XtermForegroundBackgroundWidget("🙿", fg_colour, bg_colour, active_fb);
             if (fb_widget_changed)
                 xterm_picker_preview_fb = active_fb;
         }
@@ -1292,24 +1292,24 @@ void RunFrame(AppState& st)
 
         ImGui::BeginGroup();
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImVec4& preview_col = (xterm_picker_preview_fb == 0) ? fg_color : bg_color;
+        ImVec4& preview_col = (xterm_picker_preview_fb == 0) ? fg_colour : bg_colour;
         float   picker_col[4] = { preview_col.x, preview_col.y, preview_col.z, preview_col.w };
         bool    value_changed = false;
         bool    used_right = false;
         // (cs declared earlier in this window)
-        phos::color::PaletteInstanceId snap_pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        phos::colour::PaletteInstanceId snap_pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
         if (active_canvas)
         {
             if (auto id = cs.Palettes().Resolve(active_canvas->GetPaletteRef()))
                 snap_pal = *id;
         }
         if (xterm_picker_mode == 0)
-            value_changed = ImGui::ColorPicker4_Xterm256_HueBar("##picker", picker_col, false,
+            value_changed = ImGui::ColourPicker4_Xterm256_HueBar("##picker", picker_col, false,
                                                                &used_right, &xterm_picker_last_hue,
                                                                saved_palette_snapped.data(), (int)saved_palette_snapped.size(),
                                                                snap_pal);
         else
-            value_changed = ImGui::ColorPicker4_Xterm256_HueWheel("##picker", picker_col, false,
+            value_changed = ImGui::ColourPicker4_Xterm256_HueWheel("##picker", picker_col, false,
                                                                  &used_right, &xterm_picker_last_hue,
                                                                  saved_palette_snapped.data(), (int)saved_palette_snapped.size(),
                                                                  snap_pal);
@@ -1318,7 +1318,7 @@ void RunFrame(AppState& st)
         {
             int dst_fb = used_right ? (1 - active_fb) : active_fb;
             xterm_picker_preview_fb = dst_fb;
-            ImVec4& dst = (dst_fb == 0) ? fg_color : bg_color;
+            ImVec4& dst = (dst_fb == 0) ? fg_colour : bg_colour;
             dst.x = picker_col[0];
             dst.y = picker_col[1];
             dst.z = picker_col[2];
@@ -1334,9 +1334,9 @@ void RunFrame(AppState& st)
         {
             std::vector<const char*> names;
             names.reserve(ui_list.size());
-            for (phos::color::PaletteInstanceId id : ui_list)
+            for (phos::colour::PaletteInstanceId id : ui_list)
             {
-                if (const phos::color::Palette* p = cs.Palettes().Get(id))
+                if (const phos::colour::Palette* p = cs.Palettes().Get(id))
                     names.push_back(p->title.c_str());
                 else
                     names.push_back("<?>");
@@ -1350,7 +1350,7 @@ void RunFrame(AppState& st)
                 xterm_selected_palette = std::clamp(xterm_selected_palette, 0, (int)names.size() - 1);
                 if (active_canvas && xterm_selected_palette != prev)
                 {
-                    if (const phos::color::Palette* p = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
+                    if (const phos::colour::Palette* p = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
                         active_canvas->SetUiPaletteRef(p->ref);
                 }
             }
@@ -1372,13 +1372,13 @@ void RunFrame(AppState& st)
                 ImGui::BeginDisabled();
             if (ImGui::Button(PHOS_TR("colour_picker_window.set_canvas_palette").c_str()))
             {
-                if (const phos::color::Palette* pnew = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
+                if (const phos::colour::Palette* pnew = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
                 {
                     active_canvas->SetUiPaletteRef(pnew->ref);
                     (void)cs.Catalog().EnsureUiIncludes(pnew->ref);
                     (void)active_canvas->ConvertToPalette(pnew->ref);
                     // Force the picker to rebuild its snapped palette against the new active palette.
-                    last_snap_palette = phos::color::PaletteInstanceId{};
+                    last_snap_palette = phos::colour::PaletteInstanceId{};
                     last_palette_index = -1;
                 }
             }
@@ -1396,10 +1396,10 @@ void RunFrame(AppState& st)
             last_palette_index = xterm_selected_palette;
 
             saved_palette.clear();
-            if (const phos::color::Palette* sel = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
+            if (const phos::colour::Palette* sel = cs.Palettes().Get(ui_list[(size_t)xterm_selected_palette]))
             {
                 saved_palette.reserve(sel->rgb.size());
-                for (const phos::color::Rgb8& c : sel->rgb)
+                for (const phos::colour::Rgb8& c : sel->rgb)
                     saved_palette.push_back(ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1.0f));
                 if (active_canvas)
                     active_canvas->SetUiPaletteRef(sel->ref);
@@ -1408,13 +1408,13 @@ void RunFrame(AppState& st)
             // Build a snapped version of the selected UI palette against the *active canvas palette*.
             //
             // IMPORTANT:
-            // - We keep `saved_palette` as the raw UI palette colors so browsing palettes is stable
+            // - We keep `saved_palette` as the raw UI palette colours so browsing palettes is stable
             //   (swatches should not visually change when the active canvas palette changes).
             // - We use `saved_palette_snapped` only as a mapping helper for picking/quantized selection.
             saved_palette_snapped.clear();
             saved_palette_snapped.reserve(saved_palette.size());
-            const phos::color::Palette* sp = cs.Palettes().Get(snap_pal);
-            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+            const phos::colour::Palette* sp = cs.Palettes().Get(snap_pal);
+            const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
             for (const ImVec4& c : saved_palette)
             {
                 if (!sp || sp->rgb.empty())
@@ -1425,7 +1425,7 @@ void RunFrame(AppState& st)
                 const int r = (int)std::lround(c.x * 255.0f);
                 const int g = (int)std::lround(c.y * 255.0f);
                 const int b = (int)std::lround(c.z * 255.0f);
-                const std::uint8_t idx = phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+                const std::uint8_t idx = phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(),
                                                                                 snap_pal,
                                                                                 (std::uint8_t)std::clamp(r, 0, 255),
                                                                                 (std::uint8_t)std::clamp(g, 0, 255),
@@ -1436,7 +1436,7 @@ void RunFrame(AppState& st)
                     saved_palette_snapped.push_back(c);
                     continue;
                 }
-                const phos::color::Rgb8 prgb = sp->rgb[(size_t)idx];
+                const phos::colour::Rgb8 prgb = sp->rgb[(size_t)idx];
                 saved_palette_snapped.push_back(ImVec4(prgb.r / 255.0f, prgb.g / 255.0f, prgb.b / 255.0f, c.w));
             }
             last_snap_palette = snap_pal;
@@ -1489,11 +1489,11 @@ void RunFrame(AppState& st)
         const int cols = (count > 0) ? best_cols : 1;
         ImVec2 button_size(best_size, best_size);
 
-        ImVec4& pal_primary   = (active_fb == 0) ? fg_color : bg_color;
-        ImVec4& pal_secondary = (active_fb == 0) ? bg_color : fg_color;
+        ImVec4& pal_primary   = (active_fb == 0) ? fg_colour : bg_colour;
+        ImVec4& pal_secondary = (active_fb == 0) ? bg_colour : fg_colour;
         
         auto same_rgb = [](const ImVec4& a, const ImVec4& b) -> bool {
-            // Colors are normalized floats; compare with ~0.5/255 tolerance.
+            // Colours are normalized floats; compare with ~0.5/255 tolerance.
             const float eps = 0.002f;
             return (std::fabs(a.x - b.x) <= eps) &&
                    (std::fabs(a.y - b.y) <= eps) &&
@@ -1506,11 +1506,11 @@ void RunFrame(AppState& st)
             if (n % cols != 0)
                 ImGui::SameLine(0.0f, style.ItemSpacing.x);
 
-            // Mark selection based on the *effective* snapped color (palette entry), even though
+            // Mark selection based on the *effective* snapped colour (palette entry), even though
             // we display the raw UI palette swatch.
             const ImVec4 snapped = (n < (int)saved_palette_snapped.size()) ? saved_palette_snapped[n] : saved_palette[n];
-            const bool mark_fg = same_rgb(snapped, fg_color);
-            const bool mark_bg = same_rgb(snapped, bg_color);
+            const bool mark_fg = same_rgb(snapped, fg_colour);
+            const bool mark_bg = same_rgb(snapped, bg_colour);
             const ColourPaletteSwatchAction a =
                 RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg);
             if (a.set_primary)
@@ -1916,8 +1916,8 @@ void RunFrame(AppState& st)
         snprintf(id_buf, sizeof(id_buf), "canvas_%d", canvas.id);
 
         // Current FG/BG selection quantized to the active canvas palette.
-        auto& cs = phos::color::GetColorSystem();
-        phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        auto& cs = phos::colour::GetColourSystem();
+        phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
 
         auto tool_runner = [&](AnsiCanvas& c, int phase) {
             if (!tool_engine.HasRenderFunction())
@@ -1946,15 +1946,15 @@ void RunFrame(AppState& st)
                     const int r = (int)std::lround(col.x * 255.0f);
                     const int g = (int)std::lround(col.y * 255.0f);
                     const int b = (int)std::lround(col.z * 255.0f);
-                    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-                    return (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), pal,
+                    const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+                    return (int)phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(), pal,
                                                                        (std::uint8_t)std::clamp(r, 0, 255),
                                                                        (std::uint8_t)std::clamp(g, 0, 255),
                                                                        (std::uint8_t)std::clamp(b, 0, 255),
                                                                        qp);
                 };
-                ctx.fg = to_idx_pal(fg_color);
-                ctx.bg = to_idx_pal(bg_color);
+                ctx.fg = to_idx_pal(fg_colour);
+                ctx.bg = to_idx_pal(bg_colour);
             }
             ctx.palette_is_builtin = c.GetPaletteRef().is_builtin;
             ctx.palette_builtin = (std::uint32_t)c.GetPaletteRef().builtin;
@@ -1987,14 +1987,14 @@ void RunFrame(AppState& st)
         // Active palette: expose allowed indices to tools (for quantization/snapping).
         // These indices are in the canvas's active palette index space (canvas.palette_ref).
             {
-                phos::color::PaletteInstanceId core_id = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+                phos::colour::PaletteInstanceId core_id = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
                 if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
                     core_id = *id;
 
-                const phos::color::Palette* core = cs.Palettes().Get(core_id);
+                const phos::colour::Palette* core = cs.Palettes().Get(core_id);
 
                 // Use the canvas' UI palette selection when available; otherwise fall back to the core palette itself.
-                const phos::color::Palette* ui = nullptr;
+                const phos::colour::Palette* ui = nullptr;
                 if (auto ui_id = cs.Palettes().Resolve(c.GetUiPaletteRef()))
                     ui = cs.Palettes().Get(*ui_id);
                 if (!ui)
@@ -2004,10 +2004,10 @@ void RunFrame(AppState& st)
                 {
                     std::unordered_set<int> seen;
                     seen.reserve(ui->rgb.size());
-                    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-                    for (const phos::color::Rgb8& ccol : ui->rgb)
+                    const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+                    for (const phos::colour::Rgb8& ccol : ui->rgb)
                     {
-                        const int idx = (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(), core_id,
+                        const int idx = (int)phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(), core_id,
                                                                                     ccol.r, ccol.g, ccol.b, qp);
                         if (seen.insert(idx).second)
                             allowed_indices.push_back(idx);
@@ -2119,7 +2119,7 @@ void RunFrame(AppState& st)
                     if (src != st.last_source)
                     {
                         std::string err;
-                        // Compile with the active canvas so palette-aware helpers (ansl.color.*)
+                        // Compile with the active canvas so palette-aware helpers (ansl.colour.*)
                         // produce indices in the correct palette at load time.
                         if (!st.engine->CompileUserScript(src, active_canvas, err))
                         {
@@ -2325,12 +2325,12 @@ void RunFrame(AppState& st)
             }
             else
             {
-                auto apply_idx_to_color = [&](int idx, ImVec4& dst) {
-                    const phos::color::Palette* p = cs.Palettes().Get(pal);
+                auto apply_idx_to_colour = [&](int idx, ImVec4& dst) {
+                    const phos::colour::Palette* p = cs.Palettes().Get(pal);
                     if (!p || p->rgb.empty())
                         return;
                     idx = std::clamp(idx, 0, (int)p->rgb.size() - 1);
-                    const phos::color::Rgb8 rgb = p->rgb[(size_t)idx];
+                    const phos::colour::Rgb8 rgb = p->rgb[(size_t)idx];
                     dst.x = (float)rgb.r / 255.0f;
                     dst.y = (float)rgb.g / 255.0f;
                     dst.z = (float)rgb.b / 255.0f;
@@ -2378,9 +2378,9 @@ void RunFrame(AppState& st)
                     case ToolCommand::Type::PaletteSet:
                     {
                         if (cmd.has_fg)
-                            apply_idx_to_color(cmd.fg, fg_color);
+                            apply_idx_to_colour(cmd.fg, fg_colour);
                         if (cmd.has_bg)
-                            apply_idx_to_color(cmd.bg, bg_color);
+                            apply_idx_to_colour(cmd.bg, bg_colour);
                     } break;
                     case ToolCommand::Type::AttrsSet:
                     {
@@ -2424,8 +2424,8 @@ void RunFrame(AppState& st)
                         struct CropCell
                         {
                             char32_t cp = U' ';
-                            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                             AnsiCanvas::Attrs attrs = 0;
                         };
 
@@ -2702,24 +2702,24 @@ void RunFrame(AppState& st)
             const int g = (int)std::lround(c.y * 255.0f);
             const int b = (int)std::lround(c.z * 255.0f);
 
-            auto& cs = phos::color::GetColorSystem();
-            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+            auto& cs = phos::colour::GetColourSystem();
+            phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
             if (ui_active_canvas)
             {
                 if (auto id = cs.Palettes().Resolve(ui_active_canvas->GetPaletteRef()))
                     pal = *id;
             }
 
-            const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
-            return (int)phos::color::ColorOps::NearestIndexRgb(cs.Palettes(),
+            const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+            return (int)phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(),
                                                                pal,
                                                                (std::uint8_t)std::clamp(r, 0, 255),
                                                                (std::uint8_t)std::clamp(g, 0, 255),
                                                                (std::uint8_t)std::clamp(b, 0, 255),
                                                                qp);
         };
-        const int fg_idx2 = to_idx(fg_color);
-        const int bg_idx2 = to_idx(bg_color);
+        const int fg_idx2 = to_idx(fg_colour);
+        const int bg_idx2 = to_idx(bg_colour);
         ansl_editor.Render("ansl_editor", ui_active_canvas, ansl_engine, fg_idx2, bg_idx2, ImGuiInputTextFlags_AllowTabInput);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
@@ -2811,9 +2811,9 @@ void RunFrame(AppState& st)
         });
         settings_window.SetLutCacheBudgetApplier([&](size_t bytes) {
             // LUT cache is not yet implemented as a core service; persist the preference now.
-            // Apply immediately (LutCache is global in ColorSystem for now).
+            // Apply immediately (LutCache is global in ColourSystem for now).
             session_state.lut_cache_budget_bytes = bytes;
-            phos::color::GetColorSystem().Luts().SetBudgetBytes(bytes);
+            phos::colour::GetColourSystem().Luts().SetBudgetBytes(bytes);
         });
         settings_window.Render(name, &session_state, should_apply_placement(name));
         show_settings_window = settings_window.IsOpen();
@@ -2895,7 +2895,7 @@ void RunFrame(AppState& st)
                                                          io_manager,
                                                          tool_palette,
                                                          ansl_editor,
-                                                         show_color_picker_window,
+                                                         show_colour_picker_window,
                                                          show_character_picker_window,
                                                          show_character_palette_window,
                                                          show_character_sets_window,
@@ -2906,8 +2906,8 @@ void RunFrame(AppState& st)
                                                          show_minimap_window,
                                                          show_settings_window,
                                                          show_16colors_browser_window,
-                                                         fg_color,
-                                                         bg_color,
+                                                         fg_colour,
+                                                         bg_colour,
                                                          active_fb,
                                                          xterm_picker_mode,
                                                          xterm_selected_palette,
@@ -2930,10 +2930,10 @@ void RunFrame(AppState& st)
         (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
     if (!is_minimized)
     {
-        wd->ClearValue.color.float32[0] = clear_color.x * clear_color.w;
-        wd->ClearValue.color.float32[1] = clear_color.y * clear_color.w;
-        wd->ClearValue.color.float32[2] = clear_color.z * clear_color.w;
-        wd->ClearValue.color.float32[3] = clear_color.w;
+        wd->ClearValue.color.float32[0] = clear_colour.x * clear_colour.w;
+        wd->ClearValue.color.float32[1] = clear_colour.y * clear_colour.w;
+        wd->ClearValue.color.float32[2] = clear_colour.z * clear_colour.w;
+        wd->ClearValue.color.float32[3] = clear_colour.w;
         vk.FrameRender(wd, draw_data);
         vk.FramePresent(wd);
     }

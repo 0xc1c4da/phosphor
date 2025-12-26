@@ -1,6 +1,6 @@
 #include "core/palette/palette_catalog.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 
 #include <nlohmann/json.hpp>
 
@@ -14,7 +14,7 @@
 #include <limits>
 #include <string_view>
 
-namespace phos::color
+namespace phos::colour
 {
 static bool ParseHexRgb(std::string_view s, Rgb8& out)
 {
@@ -119,7 +119,7 @@ void PaletteCatalog::RebuildBuiltinList()
     m_ui_list.clear();
     m_catalog_only.clear();
 
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     // Stable builtin ordering.
     const BuiltinPalette order[] = {
         BuiltinPalette::Vga8,
@@ -169,12 +169,12 @@ bool PaletteCatalog::LoadFromJsonFile(const std::string& path, std::string& out_
 
     if (!j.is_array())
     {
-        out_error = "Expected top-level JSON array in color-palettes.json";
+        out_error = "Expected top-level JSON array in colour-palettes.json";
         m_last_error = out_error;
         return false;
     }
 
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     const Palette* vga8 = cs.Palettes().Get(cs.Palettes().Builtin(BuiltinPalette::Vga8));
     const Palette* vga16 = cs.Palettes().Get(cs.Palettes().Builtin(BuiltinPalette::Vga16));
     const Palette* x16 = cs.Palettes().Get(cs.Palettes().Builtin(BuiltinPalette::Xterm16));
@@ -190,12 +190,12 @@ bool PaletteCatalog::LoadFromJsonFile(const std::string& path, std::string& out_
             continue;
         const std::string title = item["title"].get<std::string>();
 
-        if (!item.contains("colors") || !item["colors"].is_array())
+        if (!item.contains("colours") || !item["colours"].is_array())
             continue;
 
         std::vector<Rgb8> rgb;
-        rgb.reserve(std::min<std::size_t>(item["colors"].size(), kMaxPaletteSize));
-        for (const auto& c : item["colors"])
+        rgb.reserve(std::min<std::size_t>(item["colours"].size(), kMaxPaletteSize));
+        for (const auto& c : item["colours"])
         {
             if (!c.is_string())
                 continue;
@@ -246,7 +246,7 @@ bool PaletteCatalog::AppendToJsonFile(const std::string& path,
     }
     if (rgb.empty())
     {
-        out_error = "Palette has no colors";
+        out_error = "Palette has no colours";
         return false;
     }
 
@@ -274,7 +274,7 @@ bool PaletteCatalog::AppendToJsonFile(const std::string& path,
 
     if (!j.is_array())
     {
-        out_error = "Expected top-level JSON array in color-palettes.json";
+        out_error = "Expected top-level JSON array in colour-palettes.json";
         return false;
     }
 
@@ -284,11 +284,11 @@ bool PaletteCatalog::AppendToJsonFile(const std::string& path,
 
     json item;
     item["title"] = final_title;
-    json colors = json::array();
+    json colours = json::array();
     const std::size_t n = std::min<std::size_t>((std::size_t)rgb.size(), kMaxPaletteSize);
     for (std::size_t i = 0; i < n; ++i)
-        colors.push_back(RgbToHexRgb(rgb[i]));
-    item["colors"] = std::move(colors);
+        colours.push_back(RgbToHexRgb(rgb[i]));
+    item["colours"] = std::move(colours);
     j.push_back(std::move(item));
 
     try
@@ -330,7 +330,7 @@ bool PaletteCatalog::AppendToJsonFile(const std::string& path,
 
 std::optional<PaletteInstanceId> PaletteCatalog::FindInUiListByRef(const PaletteRef& ref) const
 {
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     const auto resolved = cs.Palettes().Resolve(ref);
     if (!resolved.has_value())
         return std::nullopt;
@@ -345,7 +345,7 @@ std::optional<PaletteInstanceId> PaletteCatalog::FindInUiListByRef(const Palette
 
 std::optional<PaletteInstanceId> PaletteCatalog::EnsureUiIncludes(const PaletteRef& ref)
 {
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     const auto resolved = cs.Palettes().Resolve(ref);
     if (!resolved.has_value())
         return std::nullopt;
@@ -370,7 +370,7 @@ std::optional<PaletteRef> PaletteCatalog::BestMatchUiByIndexOrder(std::span<cons
     if (table_rgb.empty())
         return std::nullopt;
 
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
 
     double best = std::numeric_limits<double>::infinity();
     double second = std::numeric_limits<double>::infinity();
@@ -423,18 +423,18 @@ std::optional<PaletteRef> PaletteCatalog::BestMatchUiByIndexOrder(std::span<cons
     return std::nullopt;
 }
 
-std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColors(std::span<const Rgb8> colors) const
+std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColours(std::span<const Rgb8> colours) const
 {
-    // Score: mean squared nearest-neighbor RGB distance for the observed colors.
+    // Score: mean squared nearest-neighbor RGB distance for the observed colours.
     // Lower is better.
     //
     // Confidence gating:
     // - Always accept perfect match (0).
     // - Otherwise accept only if the match is reasonably tight AND clearly better than runner-up.
-    if (colors.empty())
+    if (colours.empty())
         return std::nullopt;
 
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
 
     std::uint64_t best = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t second = std::numeric_limits<std::uint64_t>::max();
@@ -449,7 +449,7 @@ std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColors(std::span<c
             continue;
 
         std::uint64_t sum = 0;
-        for (const Rgb8& c : colors)
+        for (const Rgb8& c : colours)
         {
             std::uint32_t best_d = 0xFFFFFFFFu;
             for (const Rgb8& pc : p->rgb)
@@ -487,7 +487,7 @@ std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColors(std::span<c
     if (best == 0)
         return best_ref;
 
-    const double mean = (double)best / (double)colors.size();
+    const double mean = (double)best / (double)colours.size();
     const double rms = std::sqrt(mean); // RMS distance in RGB space (0..~441)
 
     // "Reasonably tight": within ~24 RMS, and a clear winner.
@@ -499,6 +499,6 @@ std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColors(std::span<c
     return std::nullopt;
 }
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

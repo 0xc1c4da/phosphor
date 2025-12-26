@@ -12,7 +12,7 @@ bool CopySelectionToSystemClipboardText(const AnsiCanvas& canvas);
 
 // Paste OS clipboard UTF-8 text at (x,y) in the active layer.
 // - If the canvas has a selection, replaces it and pastes at selection top-left.
-// - Detects ANSI escape sequences and preserves colors/attrs when present.
+// - Detects ANSI escape sequences and preserves colours/attrs when present.
 // - Always selects the pasted region on success.
 // Returns false if clipboard empty/unavailable or parse failed.
 bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y);

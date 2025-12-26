@@ -430,7 +430,7 @@ static Glyph DecodeTdfGlyph(const TdfFont& font, int idx)
 
         switch (font.font_type)
         {
-            case TdfFontType::Color:
+            case TdfFontType::Colour:
             {
                 if (p >= font.glyph_block_end || p >= font.bytes.size())
                     break;
@@ -523,8 +523,8 @@ struct TmpCell
 
 static void RenderGlyphToCells(const Glyph& g,
                               const RenderOptions& opt,
-                              int tdf_color_default_fg,
-                              int tdf_color_default_bg,
+                              int tdf_colour_default_fg,
+                              int tdf_colour_default_bg,
                               std::vector<TmpCell>& out,
                               int& out_w,
                               int& out_h)
@@ -596,25 +596,25 @@ static void RenderGlyphToCells(const Glyph& g,
                 break;
             case PartKind::AnsiChar:
             {
-                // Convert DOS 16-color indices to packed colors (xterm base 0..15).
-                // Blink bit can be used as bright background (ICE colors) if enabled.
+                // Convert DOS 16-colour indices to packed colours (xterm base 0..15).
+                // Blink bit can be used as bright background (ICE colours) if enabled.
                 const int fg_idx = std::clamp((int)part.fg, 0, 15);
                 int bg_idx = std::clamp((int)part.bg, 0, 7);
-                if (part.blink && opt.icecolors)
+                if (part.blink && opt.icecolours)
                     bg_idx = std::clamp(bg_idx + 8, 0, 15);
 
-                // If caller doesn't want font colors, keep them unset.
-                if (!opt.use_font_colors)
+                // If caller doesn't want font colours, keep them unset.
+                if (!opt.use_font_colours)
                 {
                     put(part.ch, std::nullopt, std::nullopt);
                 }
                 else
                 {
-                    (void)tdf_color_default_fg;
-                    (void)tdf_color_default_bg;
+                    (void)tdf_colour_default_fg;
+                    (void)tdf_colour_default_bg;
                     put(part.ch,
-                        (std::uint32_t)xterm256::Color32ForIndex(fg_idx),
-                        (std::uint32_t)xterm256::Color32ForIndex(bg_idx));
+                        (std::uint32_t)xterm256::Colour32ForIndex(fg_idx),
+                        (std::uint32_t)xterm256::Colour32ForIndex(bg_idx));
                 }
                 break;
             }
@@ -922,7 +922,7 @@ static bool ParseTdfBundle(const std::vector<std::uint8_t>& bytes, std::vector<F
         else if (type_b == 1)
             ftype = TdfFontType::Block;
         else if (type_b == 2)
-            ftype = TdfFontType::Color;
+            ftype = TdfFontType::Colour;
         else
         {
             err = "TDF: unsupported font type";

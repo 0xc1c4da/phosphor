@@ -1,7 +1,7 @@
 #include "io/formats/image.h"
 
 #include "core/canvas_rasterizer.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/xterm256_palette.h"
 #include "io/image_loader.h"
 #include "io/image_writer.h"
@@ -81,7 +81,7 @@ static void QuantizeToXterm16(const std::vector<std::uint8_t>& rgba,
     // Palette entries = xterm indices 0..15.
     for (int i = 0; i < 16; ++i)
     {
-        const std::uint32_t c = xterm256::Color32ForIndex(i);
+        const std::uint32_t c = xterm256::Colour32ForIndex(i);
         std::uint8_t r, g, b, a;
         UnpackImGui(c, r, g, b, a);
         out_palette_rgba[(size_t)i * 4u + 0] = r;
@@ -131,7 +131,7 @@ static void QuantizeToXterm256(const std::vector<std::uint8_t>& rgba,
 
     for (int i = 0; i < 256; ++i)
     {
-        const std::uint32_t c = xterm256::Color32ForIndex(i);
+        const std::uint32_t c = xterm256::Colour32ForIndex(i);
         std::uint8_t r, g, b, a;
         UnpackImGui(c, r, g, b, a);
         out_palette_rgba[(size_t)i * 4u + 0] = r;
@@ -159,7 +159,7 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
                                    std::vector<std::uint8_t>& out_idx,
                                    std::vector<std::uint8_t>& out_palette_rgba)
 {
-    // Palette entries correspond to xterm indices 16..255 (240 colors).
+    // Palette entries correspond to xterm indices 16..255 (240 colours).
     out_idx.assign((size_t)w * (size_t)h, 0u);
     out_palette_rgba.clear();
     out_palette_rgba.resize(240u * 4u, 255u);
@@ -167,7 +167,7 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
     for (int i = 0; i < 240; ++i)
     {
         const int xterm_index = 16 + i;
-        const std::uint32_t c = xterm256::Color32ForIndex(xterm_index);
+        const std::uint32_t c = xterm256::Colour32ForIndex(xterm_index);
         std::uint8_t r, g, b, a;
         UnpackImGui(c, r, g, b, a);
         out_palette_rgba[(size_t)i * 4u + 0] = r;
@@ -180,10 +180,10 @@ static void QuantizeToXterm240Safe(const std::vector<std::uint8_t>& rgba,
     //
     // Refactor note: this used to scan 240 entries per pixel. We now use a coarse RGB->index 3D LUT
     // cached in the core LUT cache (5 bits/channel => 32^3 entries).
-    auto& cs = phos::color::GetColorSystem();
-    const phos::color::PaletteInstanceId pal240 = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm240Safe);
-    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
-    const std::shared_ptr<const phos::color::RgbQuantize3dLut> qlut =
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::PaletteInstanceId pal240 = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm240Safe);
+    const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
+    const std::shared_ptr<const phos::colour::RgbQuantize3dLut> qlut =
         cs.Luts().GetOrBuildQuant3d(cs.Palettes(), pal240, /*bits=*/5, qpol);
 
     const std::uint8_t bits = qlut ? qlut->bits : 0;
@@ -332,7 +332,7 @@ static bool WritePngIndexed(const std::string& path,
     return true;
 }
 
-static bool WritePngTruecolor(const std::string& path,
+static bool WritePngTruecolour(const std::string& path,
                               int w,
                               int h,
                               const std::vector<std::uint8_t>& rgba,
@@ -353,7 +353,7 @@ static bool WritePngTruecolor(const std::string& path,
         return false;
     }
 
-    // Use lodepng's convenience API for truecolor paths.
+    // Use lodepng's convenience API for truecolour paths.
     if (with_alpha)
     {
         LodePNGState state;
@@ -519,11 +519,11 @@ bool ExportCanvasToFile(const std::string& path,
 
         if (mode == ExportOptions::PngFormat::Rgb24)
         {
-            return WritePngTruecolor(path, w, h, rgba, /*with_alpha=*/false, options.png_compression, err);
+            return WritePngTruecolour(path, w, h, rgba, /*with_alpha=*/false, options.png_compression, err);
         }
         if (mode == ExportOptions::PngFormat::Rgba32)
         {
-            return WritePngTruecolor(path, w, h, rgba, /*with_alpha=*/true, options.png_compression, err);
+            return WritePngTruecolour(path, w, h, rgba, /*with_alpha=*/true, options.png_compression, err);
         }
         if (mode == ExportOptions::PngFormat::Indexed8)
         {

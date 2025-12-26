@@ -24,10 +24,10 @@ struct GlobalClipboard
 {
     int w = 0;
     int h = 0;
-    // Stored per-cell (same dimensions): glyph + fg + bg. 0 colors mean "unset".
+    // Stored per-cell (same dimensions): glyph + fg + bg. 0 colours mean "unset".
     std::vector<AnsiCanvas::GlyphId> cp;
-    std::vector<AnsiCanvas::ColorIndex16> fg;
-    std::vector<AnsiCanvas::ColorIndex16> bg;
+    std::vector<AnsiCanvas::ColourIndex16> fg;
+    std::vector<AnsiCanvas::ColourIndex16> bg;
     std::vector<AnsiCanvas::Attrs> attrs;
 };
 
@@ -418,13 +418,13 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
             // If row is beyond current document, the old cell is implicitly transparent.
             const bool in_bounds = (lr < m_rows);
             const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
-            const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
-            const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const GlyphId  new_cp = BlankGlyph();
-            const ColorIndex16 new_fg = kUnsetIndex16;
-            const ColorIndex16 new_bg = kUnsetIndex16;
+            const ColourIndex16 new_fg = kUnsetIndex16;
+            const ColourIndex16 new_bg = kUnsetIndex16;
             const Attrs    new_attrs = 0;
 
             if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -518,17 +518,17 @@ bool AnsiCanvas::PasteClipboard(int x, int y, int layer_index, PasteMode mode, b
 
             const bool in_bounds = (lr < m_rows);
             const GlyphId  old_cp = (in_bounds && dst < layer.cells.size()) ? layer.cells[dst] : BlankGlyph();
-            const ColorIndex16 old_fg = (in_bounds && dst < layer.fg.size()) ? layer.fg[dst] : kUnsetIndex16;
-            const ColorIndex16 old_bg = (in_bounds && dst < layer.bg.size()) ? layer.bg[dst] : kUnsetIndex16;
+            const ColourIndex16 old_fg = (in_bounds && dst < layer.fg.size()) ? layer.fg[dst] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && dst < layer.bg.size()) ? layer.bg[dst] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && dst < layer.attrs.size()) ? layer.attrs[dst] : 0;
 
             GlyphId  new_cp = old_cp;
-            ColorIndex16 new_fg = old_fg;
-            ColorIndex16 new_bg = old_bg;
+            ColourIndex16 new_fg = old_fg;
+            ColourIndex16 new_bg = old_bg;
             Attrs    new_attrs = old_attrs;
             if (mode == PasteMode::Both || mode == PasteMode::CharOnly)
                 new_cp = cp;
-            if (mode == PasteMode::Both || mode == PasteMode::ColorOnly)
+            if (mode == PasteMode::Both || mode == PasteMode::ColourOnly)
             {
                 new_fg = g_clipboard.fg[s];
                 new_bg = g_clipboard.bg[s];
@@ -657,12 +657,12 @@ bool AnsiCanvas::BeginMoveSelection(int grab_x, int grab_y, bool copy, int layer
 
                 const bool in_bounds = (lr < m_rows);
                 const GlyphId  old_cp = (in_bounds && idx < mut.cells.size()) ? mut.cells[idx] : BlankGlyph();
-                const ColorIndex16 old_fg = (in_bounds && idx < mut.fg.size()) ? mut.fg[idx] : kUnsetIndex16;
-                const ColorIndex16 old_bg = (in_bounds && idx < mut.bg.size()) ? mut.bg[idx] : kUnsetIndex16;
+                const ColourIndex16 old_fg = (in_bounds && idx < mut.fg.size()) ? mut.fg[idx] : kUnsetIndex16;
+                const ColourIndex16 old_bg = (in_bounds && idx < mut.bg.size()) ? mut.bg[idx] : kUnsetIndex16;
                 const Attrs    old_attrs = (in_bounds && idx < mut.attrs.size()) ? mut.attrs[idx] : 0;
                 const GlyphId  new_cp = BlankGlyph();
-                const ColorIndex16 new_fg = kUnsetIndex16;
-                const ColorIndex16 new_bg = kUnsetIndex16;
+                const ColourIndex16 new_fg = kUnsetIndex16;
+                const ColourIndex16 new_bg = kUnsetIndex16;
                 const Attrs    new_attrs = 0;
 
                 if (!TransparencyTransitionAllowed(mut.lock_transparency,
@@ -754,13 +754,13 @@ bool AnsiCanvas::CommitMoveSelection(int layer_index)
 
             const bool in_bounds = (lr < m_rows);
             const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
-            const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
-            const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
             const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
             const GlyphId  new_cp = src.cp;
-            const ColorIndex16 new_fg = src.fg;
-            const ColorIndex16 new_bg = src.bg;
+            const ColourIndex16 new_fg = src.fg;
+            const ColourIndex16 new_bg = src.bg;
             const Attrs    new_attrs = src.attrs;
 
             if (!TransparencyTransitionAllowed(layer.lock_transparency,
@@ -840,13 +840,13 @@ bool AnsiCanvas::CancelMoveSelection(int layer_index)
 
                     const bool in_bounds = (lr < m_rows);
                     const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
-                    const ColorIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
-                    const ColorIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+                    const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+                    const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
                     const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
 
                     const GlyphId  new_cp = src.cp;
-                    const ColorIndex16 new_fg = src.fg;
-                    const ColorIndex16 new_bg = src.bg;
+                    const ColourIndex16 new_fg = src.fg;
+                    const ColourIndex16 new_bg = src.bg;
                     const Attrs    new_attrs = src.attrs;
 
                     if (!TransparencyTransitionAllowed(layer.lock_transparency,

@@ -11,7 +11,7 @@
 
 #include "ansl/ansl_native.h"
 #include "core/canvas.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/glyph_id.h"
 #include "io/formats/ansi.h"
 
@@ -55,8 +55,8 @@ static std::string SelectionToUtf8Text(const AnsiCanvas& canvas)
             const int x = r.x + i;
             const int y = r.y + j;
             char32_t cp = U' ';
-            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs attrs = 0;
             (void)canvas.GetCompositeCellPublicIndices(y, x, cp, fg, bg, attrs);
             line[(size_t)i] = cp;
@@ -193,13 +193,13 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
 
     if (ContainsEsc(sv))
     {
-        // ANSI paste: preserve colors/attrs.
+        // ANSI paste: preserve colours/attrs.
         std::vector<std::uint8_t> bytes;
         bytes.assign(sv.begin(), sv.end());
 
         formats::ansi::ImportOptions opt;
         opt.columns = 0;               // auto
-        opt.icecolors = true;
+        opt.icecolours = true;
         opt.default_bg_unset = true;   // avoid painting black when stream relies on "default bg"
         opt.cp437 = true;              // auto-switch to UTF-8 when appropriate
 
@@ -229,25 +229,25 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
         pasted_h = (max_row >= 0) ? (max_row + 1) : 1;
 
         // Remap palette indices from the imported canvas palette to the destination canvas palette.
-        auto& cs = phos::color::GetColorSystem();
-        phos::color::PaletteInstanceId pal_src = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
-        phos::color::PaletteInstanceId pal_dst = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+        auto& cs = phos::colour::GetColourSystem();
+        phos::colour::PaletteInstanceId pal_src = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
+        phos::colour::PaletteInstanceId pal_dst = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
         if (auto id = cs.Palettes().Resolve(imported.GetPaletteRef()))
             pal_src = *id;
         if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
             pal_dst = *id;
-        const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+        const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
         const auto remap = cs.Luts().GetOrBuildRemap(cs.Palettes(), pal_src, pal_dst, qpol);
 
-        auto remap_idx = [&](AnsiCanvas::ColorIndex16 src) -> AnsiCanvas::ColorIndex16 {
+        auto remap_idx = [&](AnsiCanvas::ColourIndex16 src) -> AnsiCanvas::ColourIndex16 {
             if (src == AnsiCanvas::kUnsetIndex16)
                 return AnsiCanvas::kUnsetIndex16;
             if (remap && (size_t)src < remap->remap.size())
-                return (AnsiCanvas::ColorIndex16)remap->remap[(size_t)src];
+                return (AnsiCanvas::ColourIndex16)remap->remap[(size_t)src];
             // Fallback: RGB round-trip through quantizer.
-            const std::uint32_t c32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal_src, phos::color::ColorIndex{src});
-            const phos::color::ColorIndex di = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal_dst, c32, qpol);
-            return di.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColorIndex16)di.v;
+            const std::uint32_t c32 = phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal_src, phos::colour::ColourIndex{src});
+            const phos::colour::ColourIndex di = phos::colour::ColourOps::Colour32ToIndex(cs.Palettes(), pal_dst, c32, qpol);
+            return di.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColourIndex16)di.v;
         };
 
         for (int rr = 0; rr < pasted_h; ++rr)
@@ -255,20 +255,20 @@ bool PasteSystemClipboardText(AnsiCanvas& canvas, int x, int y)
             for (int cc = 0; cc < pasted_w; ++cc)
             {
                 const AnsiCanvas::GlyphId glyph = imported.GetLayerGlyph(0, rr, cc);
-                AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs attrs = 0;
                 (void)imported.GetLayerCellIndices(0, rr, cc, fg, bg);
                 (void)imported.GetLayerCellAttrs(0, rr, cc, attrs);
 
-                const AnsiCanvas::ColorIndex16 out_fg = remap_idx(fg);
-                const AnsiCanvas::ColorIndex16 out_bg = remap_idx(bg);
+                const AnsiCanvas::ColourIndex16 out_fg = remap_idx(fg);
+                const AnsiCanvas::ColourIndex16 out_bg = remap_idx(bg);
                 (void)canvas.SetLayerGlyphIndicesPartial(layer,
                                                         y + rr,
                                                         x + cc,
                                                         glyph,
-                                                        std::optional<AnsiCanvas::ColorIndex16>(out_fg),
-                                                        std::optional<AnsiCanvas::ColorIndex16>(out_bg),
+                                                        std::optional<AnsiCanvas::ColourIndex16>(out_fg),
+                                                        std::optional<AnsiCanvas::ColourIndex16>(out_bg),
                                                         std::optional<AnsiCanvas::Attrs>(attrs));
             }
         }

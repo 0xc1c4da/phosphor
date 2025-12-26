@@ -25,7 +25,7 @@ namespace plaintext
 // ---------------------------------------------------------------------------
 // Lowercase extensions (no leading dot).
 // Note: extensions are hints; content may still include ANSI escapes, but plaintext
-// exporters never emit color/control sequences.
+// exporters never emit colour/control sequences.
 const std::vector<std::string_view>& ImportExtensions();
 const std::vector<std::string_view>& ExportExtensions();
 

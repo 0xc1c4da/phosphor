@@ -1,15 +1,15 @@
 #pragma once
 
 #include "core/lut/lut_cache.h"
-#include "core/color_ops.h"
+#include "core/colour_ops.h"
 #include "core/palette/palette.h"
 #include "core/palette/palette_catalog.h"
 
-namespace phos::color
+namespace phos::colour
 {
 // Integration-level singleton for the initial refactor landing.
 // Longer-term, this should become an owned service in AppState/SessionState and threaded through.
-class ColorSystem
+class ColourSystem
 {
 public:
     PaletteRegistry& Palettes() { return m_palettes; }
@@ -21,18 +21,18 @@ public:
     LutCache& Luts() { return m_luts; }
     const LutCache& Luts() const { return m_luts; }
 
-    ColorOps& Ops() { return m_ops; }
-    const ColorOps& Ops() const { return m_ops; }
+    ColourOps& Ops() { return m_ops; }
+    const ColourOps& Ops() const { return m_ops; }
 
 private:
     PaletteRegistry m_palettes;
     PaletteCatalog m_catalog;
     LutCache m_luts;
-    ColorOps m_ops;
+    ColourOps m_ops;
 };
 
-ColorSystem& GetColorSystem();
+ColourSystem& GetColourSystem();
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

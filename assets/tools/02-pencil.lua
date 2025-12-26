@@ -14,7 +14,7 @@ settings = {
       primary = true,
       order = 1,
       inline = true,
-      items = { "char", "spray", "colorize", "recolour", "half", "block", "shade" },
+      items = { "char", "spray", "colourize", "recolour", "half", "block", "shade" },
       default = "char",
       tooltip = "Right click swaps FG/BG in most modes. Half mode uses half-cell vertical resolution.",
     },
@@ -155,7 +155,7 @@ local function paint(ctx, layer, x, y, half_y_override)
       -- Half-block painting is handled in half-row space below so brush "size" is correct.
       return
     elseif mode == "recolour" then
-      -- Option A / Moebius-style replace color:
+      -- Option A / Moebius-style replace colour:
       -- - to = current FG
       -- - from = current BG
       -- Replace either channel that matches 'from' with 'to', preserving glyph.
@@ -178,10 +178,10 @@ local function paint(ctx, layer, x, y, half_y_override)
       end
       layer:set(px, py, cur_ch, new_fg, new_bg)
       return
-    elseif mode == "colorize" then
+    elseif mode == "colourize" then
       -- Preserve glyph, only modify fg/bg.
       if fg == nil and bg == nil then
-        return -- truly "colorize only": nothing to do if no colors are enabled
+        return -- truly "colourize only": nothing to do if no colours are enabled
       end
       ch = layer:get(px, py)
       if type(ch) ~= "string" or #ch == 0 then ch = " " end
@@ -214,7 +214,7 @@ local function paint(ctx, layer, x, y, half_y_override)
     local py = math.floor(hy / 2)
     if py < 0 then return end
 
-    -- Choose paint color:
+    -- Choose paint colour:
     -- - primary click paints with FG (if enabled)
     -- - right click paints with BG (if enabled)
     -- with fallbacks if only one is enabled.
@@ -225,16 +225,16 @@ local function paint(ctx, layer, x, y, half_y_override)
       return
     end
 
-    -- Read current cell and its colors (nil means "unset" in the layer).
+    -- Read current cell and its colours (nil means "unset" in the layer).
     local cur_ch, cur_fg, cur_bg = layer:get(hx, py)
     if type(cur_ch) ~= "string" or #cur_ch == 0 then cur_ch = " " end
     if type(cur_fg) ~= "number" then cur_fg = nil end
     if type(cur_bg) ~= "number" then cur_bg = nil end
 
-    -- Fallback "background" color to use when the existing cell has no usable bg/fg.
+    -- Fallback "background" colour to use when the existing cell has no usable bg/fg.
     local fallback_bg = (type(bg) == "number" and bg) or (type(fg) == "number" and fg) or 0
 
-    -- Decode current cell into (upper_color, lower_color) if it's "blocky".
+    -- Decode current cell into (upper_colour, lower_colour) if it's "blocky".
     local is_blocky = false
     local upper = nil
     local lower = nil
@@ -267,13 +267,13 @@ local function paint(ctx, layer, x, y, half_y_override)
       is_blocky = true
     end
 
-    -- Ensure we have something reasonable for the other-half color.
+    -- Ensure we have something reasonable for the other-half colour.
     if upper == nil then upper = (cur_fg ~= nil and cur_fg) or (cur_bg ~= nil and cur_bg) or fallback_bg end
     if lower == nil then lower = (cur_bg ~= nil and cur_bg) or (cur_fg ~= nil and cur_fg) or fallback_bg end
 
     local paint_top = (hy % 2) == 0
     if is_blocky then
-      -- If the other half already matches the paint color, collapse to a full block.
+      -- If the other half already matches the paint colour, collapse to a full block.
       if (paint_top and lower == col) or ((not paint_top) and upper == col) then
         if attrs == 0 then
           layer:set(hx, py, "█", col, 0)
@@ -500,7 +500,7 @@ function render(ctx, layer)
         end
 
         -- On double click, also stamp the current brush glyph at the clicked cell.
-        -- This is intentionally independent of the current mode (colorize/recolour/etc).
+        -- This is intentionally independent of the current mode (colourize/recolour/etc).
         if is_double_click then
           local p = ctx.params or {}
           local useFg = (p.useFg ~= false)

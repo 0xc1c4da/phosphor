@@ -276,12 +276,12 @@ de_DE {
         clear_plus_home { "Löschen + Home" }
       }
 
-      color_mode { "Farbmodus" }
-      color_mode_items {
+      colour_mode { "Farbmodus" }
+      colour_mode_items {
         ansi16_classic { "ANSI16 (klassisch)" }
         xterm256 { "xterm-256 (38;5/48;5)" }
-        truecolor_sgr { "Truecolor SGR (38;2/48;2)" }
-        pablo_t { "Pablo/Icy Truecolor (...t)" }
+        truecolour_sgr { "Truecolour SGR (38;2/48;2)" }
+        pablo_t { "Pablo/Icy Truecolour (...t)" }
       }
 
       bright_ansi16 { "Helles ANSI16" }
@@ -290,7 +290,7 @@ de_DE {
         sgr_90_97 { "SGR 90-97 / 100-107" }
       }
 
-      ice_colors { "iCE-Farben (Blink => heller Hintergrund)" }
+      ice_colours { "iCE-Farben (Blink => heller Hintergrund)" }
       xterm_240_safe { "240-Farben-sicher (Indizes 0..15 vermeiden)" }
       pablo_t_overlay { "ANSI16-Fallback + ...t-Overlay ausgeben" }
 
@@ -788,9 +788,9 @@ de_DE {
     zoom { "Zoom" }
     stretch { "Strecken" }
 
-    color_processing { "Farbe & Verarbeitung" }
-    color_mode { "Farbmodus" }
-    color_mode_items {
+    colour_processing { "Farbe & Verarbeitung" }
+    colour_mode { "Farbmodus" }
+    colour_mode_items {
       indexed_256 { "Indexed 256 (xterm)" }
       indexed_240 { "Indexed 240" }
       indexed_16 { "Indexed 16" }
@@ -799,10 +799,10 @@ de_DE {
       default_invert { "Standard fg/bg + invertieren" }
       default_no_codes { "Standard fg/bg (keine Codes)" }
     }
-    color_extractor { "Farbauszug" }
-    color_extractor_items { average { "Durchschnitt" } median { "Median" } }
-    color_space { "Farbraum" }
-    color_space_items { rgb_fast { "RGB (schnell)" } din99d { "DIN99d (perzeptiv)" } }
+    colour_extractor { "Farbauszug" }
+    colour_extractor_items { average { "Durchschnitt" } median { "Median" } }
+    colour_space { "Farbraum" }
+    colour_space_items { rgb_fast { "RGB (schnell)" } din99d { "DIN99d (perzeptiv)" } }
     preprocessing { "Vorverarbeitung" }
     transparency_threshold { "Transparenzschwelle" }
     foreground_only { "Nur Vordergrund (fg-only)" }

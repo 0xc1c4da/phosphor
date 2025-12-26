@@ -1,7 +1,7 @@
 -- Numbers
 -- Fun with integers
 
-settings = { bg = ansl.color.ansi16.black }
+settings = { bg = ansl.colour.ansi16.black }
 
 local map = ansl.num.map
 local floor = math.floor
@@ -15,22 +15,22 @@ end
 
 -- CGA palette (canonical). Converted to the active canvas palette via nearest match.
 local CGA = {
-  ansl.color.hex("000000"), -- black
-  ansl.color.hex("0000aa"), -- blue
-  ansl.color.hex("00aa00"), -- green
-  ansl.color.hex("00aaaa"), -- cyan
-  ansl.color.hex("aa0000"), -- red
-  ansl.color.hex("aa00aa"), -- magenta
-  ansl.color.hex("aa5500"), -- brown
-  ansl.color.hex("aaaaaa"), -- light gray
-  ansl.color.hex("555555"), -- dark gray
-  ansl.color.hex("5555ff"), -- bright blue
-  ansl.color.hex("55ff55"), -- bright green
-  ansl.color.hex("55ffff"), -- bright cyan
-  ansl.color.hex("ff5555"), -- bright red
-  ansl.color.hex("ff55ff"), -- bright magenta
-  ansl.color.hex("ffff55"), -- yellow
-  ansl.color.hex("ffffff"), -- white
+  ansl.colour.hex("000000"), -- black
+  ansl.colour.hex("0000aa"), -- blue
+  ansl.colour.hex("00aa00"), -- green
+  ansl.colour.hex("00aaaa"), -- cyan
+  ansl.colour.hex("aa0000"), -- red
+  ansl.colour.hex("aa00aa"), -- magenta
+  ansl.colour.hex("aa5500"), -- brown
+  ansl.colour.hex("aaaaaa"), -- light gray
+  ansl.colour.hex("555555"), -- dark gray
+  ansl.colour.hex("5555ff"), -- bright blue
+  ansl.colour.hex("55ff55"), -- bright green
+  ansl.colour.hex("55ffff"), -- bright cyan
+  ansl.colour.hex("ff5555"), -- bright red
+  ansl.colour.hex("ff55ff"), -- bright magenta
+  ansl.colour.hex("ffff55"), -- yellow
+  ansl.colour.hex("ffffff"), -- white
 }
 
 -- Match JS palette pruning (0-based splices):

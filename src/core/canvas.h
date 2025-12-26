@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-#include "core/color_index.h"
+#include "core/colour_index.h"
 #include "core/fonts.h"
 #include "core/glyph_id.h"
 #include "core/glyph_legacy.h"
@@ -31,18 +31,18 @@ namespace kb { class KeyBindingsEngine; }
 class AnsiCanvas
 {
 public:
-    // 32-bit packed RGBA color (compatible with Dear ImGui's ImU32 / IM_COL32()).
+    // 32-bit packed RGBA colour (compatible with Dear ImGui's ImU32 / IM_COL32()).
     // Convention in this codebase:
     //  - 0 means "unset" (use theme default for fg, and transparent/no-fill for bg).
-    using Color32 = std::uint32_t;
+    using Colour32 = std::uint32_t;
 
     // Glyph stored in canvas cell planes (opaque token; may represent Unicode or indexed glyphs).
     using GlyphId = phos::GlyphId;
 
-    // Indexed-color storage (Phase B): colors are stored as palette indices in the canvas's active palette.
-    // Unset is represented by phos::color::kUnsetIndex.
-    using ColorIndex16 = std::uint16_t;
-    static constexpr ColorIndex16 kUnsetIndex16 = phos::color::kUnsetIndex;
+    // Indexed-colour storage (Phase B): colours are stored as palette indices in the canvas's active palette.
+    // Unset is represented by phos::colour::kUnsetIndex.
+    using ColourIndex16 = std::uint16_t;
+    static constexpr ColourIndex16 kUnsetIndex16 = phos::colour::kUnsetIndex;
 
     // Per-cell attribute bitmask (stored alongside glyph + fg/bg).
     // These correspond to ANSI SGR effects (m-codes).
@@ -63,7 +63,7 @@ public:
     //
     // - AnsiBright: classic ANSI art / libansilove convention: SGR 1 selects bright foreground (ANSI16 intensity).
     //               No typographic bold should be applied to bitmap fonts.
-    // - Typographic: modern terminal convention: SGR 1 is a typographic effect (heavier glyph), independent of colors.
+    // - Typographic: modern terminal convention: SGR 1 is a typographic effect (heavier glyph), independent of colours.
     enum class BoldSemantics : std::uint8_t
     {
         AnsiBright = 0,
@@ -301,18 +301,18 @@ public:
 
     // Composite cell sampling (used by preview/minimap).
     // Returns false if out of bounds.
-    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg) const;
+    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colour32& out_fg, Colour32& out_bg) const;
     // Extended composite sampling including attributes.
-    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Color32& out_fg, Color32& out_bg, Attrs& out_attrs) const;
+    bool GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colour32& out_fg, Colour32& out_bg, Attrs& out_attrs) const;
     // Index-native composite sampling (Phase B): returns palette indices in the canvas's active palette.
     // Unset is returned as kUnsetIndex16 (preserves fg/bg unset semantics).
-    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
-    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const;
+    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColourIndex16& out_fg, ColourIndex16& out_bg) const;
+    bool GetCompositeCellPublicIndices(int row, int col, char32_t& out_cp, ColourIndex16& out_fg, ColourIndex16& out_bg, Attrs& out_attrs) const;
 
     // GlyphId-native composite sampling (Option B): returns the stored glyph token losslessly.
     // `out_cp` style representatives remain available via the existing APIs above.
-    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
-    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColorIndex16& out_fg, ColorIndex16& out_bg, Attrs& out_attrs) const;
+    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColourIndex16& out_fg, ColourIndex16& out_bg) const;
+    bool GetCompositeCellPublicGlyphIndices(int row, int col, GlyphId& out_glyph, ColourIndex16& out_fg, ColourIndex16& out_bg, Attrs& out_attrs) const;
 
     // ---------------------------------------------------------------------
     // Content revision (for minimaps/caches)
@@ -419,8 +419,8 @@ public:
         // Stored glyph plane (lossless token; may be Unicode or indexed glyph id).
         // Serialized as uint32 values in .phos.
         std::vector<GlyphId>  cells; // size == rows * columns
-        std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
-        std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
+        std::vector<ColourIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
+        std::vector<ColourIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
@@ -432,10 +432,10 @@ public:
         int                     caret_row = 0;
         int                     caret_col = 0;
         // Core palette identity for interpreting fg/bg indices.
-        phos::color::PaletteRef palette_ref;
+        phos::colour::PaletteRef palette_ref;
         // UI palette selection identity (used by Colour Picker/palette UI; does not affect stored indices).
         // Stable identity: builtin enum or dynamic palette UID.
-        phos::color::PaletteRef ui_palette_ref;
+        phos::colour::PaletteRef ui_palette_ref;
         std::vector<ProjectLayer> layers;
     };
 
@@ -455,23 +455,23 @@ public:
 
         // Core palette identity for this canvas (LUT/index-centric pipeline).
         // Default is xterm256 to preserve current behavior.
-        phos::color::PaletteRef palette_ref = []{
-            phos::color::PaletteRef r;
+        phos::colour::PaletteRef palette_ref = []{
+            phos::colour::PaletteRef r;
             r.is_builtin = true;
-            r.builtin = phos::color::BuiltinPalette::Xterm256;
+            r.builtin = phos::colour::BuiltinPalette::Xterm256;
             return r;
         }();
 
-        // Optional: UI colour palette identity (from assets/color-palettes.json).
+        // Optional: UI colour palette identity (from assets/colour-palettes.json).
         // This is a per-canvas preference used by the Colour Picker UI to select a discrete palette
-        // for browsing and tool constraints. It does NOT affect the stored per-cell colors.
+        // for browsing and tool constraints. It does NOT affect the stored per-cell colours.
         //
         // Stored as a stable palette ref (builtin enum or dynamic palette uid).
         // Default: follow `palette_ref`.
-        phos::color::PaletteRef ui_palette_ref = []{
-            phos::color::PaletteRef r;
+        phos::colour::PaletteRef ui_palette_ref = []{
+            phos::colour::PaletteRef r;
             r.is_builtin = true;
-            r.builtin = phos::color::BuiltinPalette::Xterm256;
+            r.builtin = phos::colour::BuiltinPalette::Xterm256;
             return r;
         }();
 
@@ -542,8 +542,8 @@ public:
                 // Stored glyph plane (lossless token; may be Unicode or indexed glyph id).
                 // Serialized as uint32 values in .phos.
                 std::vector<GlyphId> cells;
-                std::vector<ColorIndex16> fg;
-                std::vector<ColorIndex16> bg;
+                std::vector<ColourIndex16> fg;
+                std::vector<ColourIndex16> bg;
                 std::vector<Attrs>    attrs;
             };
             struct Patch
@@ -554,9 +554,9 @@ public:
                 int caret_row = 0;
                 int caret_col = 0;
                 // Core palette identity for interpreting fg/bg indices.
-                phos::color::PaletteRef palette_ref;
+                phos::colour::PaletteRef palette_ref;
                 // UI palette selection identity (see ProjectState::ui_palette_ref).
-                phos::color::PaletteRef ui_palette_ref;
+                phos::colour::PaletteRef ui_palette_ref;
                 std::uint64_t state_token = 1;
 
                 int page_rows = 64;
@@ -582,8 +582,8 @@ public:
     void SetSauceMeta(const ProjectState::SauceMeta& meta) { m_sauce = meta; }
 
     // UI palette selection identity (persisted via ProjectState).
-    const phos::color::PaletteRef& GetUiPaletteRef() const { return m_ui_palette_ref; }
-    void SetUiPaletteRef(const phos::color::PaletteRef& ref) { m_ui_palette_ref = ref; TouchContent(); }
+    const phos::colour::PaletteRef& GetUiPaletteRef() const { return m_ui_palette_ref; }
+    void SetUiPaletteRef(const phos::colour::PaletteRef& ref) { m_ui_palette_ref = ref; TouchContent(); }
 
     BoldSemantics GetBoldSemantics() const { return m_bold_semantics; }
     void SetBoldSemantics(BoldSemantics s)
@@ -594,29 +594,29 @@ public:
         TouchContent();
     }
 
-    // Core palette identity (used by LUT/index pipelines; not yet enforced on stored Color32 cells).
-    const phos::color::PaletteRef& GetPaletteRef() const { return m_palette_ref; }
-    void SetPaletteRef(const phos::color::PaletteRef& ref) { m_palette_ref = ref; TouchContent(); }
+    // Core palette identity (used by LUT/index pipelines; not yet enforced on stored Colour32 cells).
+    const phos::colour::PaletteRef& GetPaletteRef() const { return m_palette_ref; }
+    void SetPaletteRef(const phos::colour::PaletteRef& ref) { m_palette_ref = ref; TouchContent(); }
 
     // Convert the entire canvas to a new palette:
     // - Remaps all stored fg/bg indices from the current palette into `new_ref`
-    //   via deterministic nearest-color mapping (Unset stays Unset).
+    //   via deterministic nearest-colour mapping (Unset stays Unset).
     // - Sets the canvas palette_ref to `new_ref`.
     // This is an undoable structural operation (captured as a snapshot).
-    bool ConvertToPalette(const phos::color::PaletteRef& new_ref);
+    bool ConvertToPalette(const phos::colour::PaletteRef& new_ref);
 
     // ---------------------------------------------------------------------
-    // Public color/index helpers
+    // Public colour/index helpers
     // ---------------------------------------------------------------------
     // Convenience wrappers around the internal Phase-B palette index helpers.
-    // These are intentionally public so UI code can render indexed colors (e.g. brush thumbnails)
+    // These are intentionally public so UI code can render indexed colours (e.g. brush thumbnails)
     // without duplicating palette-resolution logic.
     //
     // Semantics:
-    // - `kUnsetIndex16` maps to Color32 0 ("unset")
-    // - Color32 0 maps to `kUnsetIndex16`
-    ColorIndex16 QuantizeColor32ToIndexPublic(Color32 c32) const { return QuantizeColor32ToIndex(c32); }
-    Color32      IndexToColor32Public(ColorIndex16 idx) const { return IndexToColor32(idx); }
+    // - `kUnsetIndex16` maps to Colour32 0 ("unset")
+    // - Colour32 0 maps to `kUnsetIndex16`
+    ColourIndex16 QuantizeColour32ToIndexPublic(Colour32 c32) const { return QuantizeColour32ToIndex(c32); }
+    Colour32      IndexToColour32Public(ColourIndex16 idx) const { return IndexToColour32(idx); }
 
     // ---------------------------------------------------------------------
     // Canvas font selection (persisted via SAUCE TInfoS)
@@ -688,9 +688,9 @@ public:
     bool     SetLayerCell(int layer_index, int row, int col, char32_t cp);
     // Index-native variant: set glyph + fg/bg palette indices (in the canvas's active palette index space).
     // Use kUnsetIndex16 for unset fg/bg (theme default fg / transparent bg).
-    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg);
+    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColourIndex16 fg, ColourIndex16 bg);
     // Index-native variant: set glyph + fg/bg indices + attrs.
-    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColorIndex16 fg, ColorIndex16 bg, Attrs attrs);
+    bool     SetLayerCellIndices(int layer_index, int row, int col, char32_t cp, ColourIndex16 fg, ColourIndex16 bg, Attrs attrs);
     // Index-native partial update: preserve-friendly without requiring a separate read.
     // - `std::nullopt` preserves the existing channel value
     // - `kUnsetIndex16` explicitly unsets fg/bg (theme default fg / transparent bg)
@@ -701,8 +701,8 @@ public:
                                         int row,
                                         int col,
                                         char32_t cp,
-                                        std::optional<ColorIndex16> fg,
-                                        std::optional<ColorIndex16> bg,
+                                        std::optional<ColourIndex16> fg,
+                                        std::optional<ColourIndex16> bg,
                                         std::optional<Attrs> attrs);
 
     // GlyphId-native variants (lossless token surface).
@@ -711,14 +711,14 @@ public:
                                          int row,
                                          int col,
                                          GlyphId glyph,
-                                         std::optional<ColorIndex16> fg,
-                                         std::optional<ColorIndex16> bg,
+                                         std::optional<ColourIndex16> fg,
+                                         std::optional<ColourIndex16> bg,
                                          std::optional<Attrs> attrs);
     GlyphId  GetLayerGlyph(int layer_index, int row, int col) const;
 
     char32_t GetLayerCell(int layer_index, int row, int col) const;
     // Index-native: returns false if invalid/out of bounds. Outputs palette indices in the canvas's active palette.
-    bool     GetLayerCellIndices(int layer_index, int row, int col, ColorIndex16& out_fg, ColorIndex16& out_bg) const;
+    bool     GetLayerCellIndices(int layer_index, int row, int col, ColourIndex16& out_fg, ColourIndex16& out_bg) const;
     // Returns false if `layer_index` is invalid or out of bounds.
     bool     GetLayerCellAttrs(int layer_index, int row, int col, Attrs& out_attrs) const;
     // Clears fg/bg style for a cell (sets to 0/unset). Returns false if layer_index invalid.
@@ -730,11 +730,11 @@ public:
 
     // General-purpose layer fill helper.
     // Any field set to std::nullopt is left unchanged.
-    // Note: `Color32` value 0 still means "unset" (theme default / transparent bg).
+    // Note: `Colour32` value 0 still means "unset" (theme default / transparent bg).
     bool FillLayer(int layer_index,
                    std::optional<char32_t> cp,
-                   std::optional<Color32> fg,
-                   std::optional<Color32> bg);
+                   std::optional<Colour32> fg,
+                   std::optional<Colour32> bg);
 
     // ---------------------------------------------------------------------
     // Pointer state (for tools/scripts)
@@ -826,8 +826,8 @@ public:
         // Stored per-cell, row-major, length = w*h.
         // NOTE: this is GlyphId (token) storage; do not assume Unicode semantics.
         std::vector<GlyphId>  cp;
-        std::vector<ColorIndex16> fg; // kUnsetIndex16 = unset
-        std::vector<ColorIndex16> bg; // kUnsetIndex16 = unset (transparent)
+        std::vector<ColourIndex16> fg; // kUnsetIndex16 = unset
+        std::vector<ColourIndex16> bg; // kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // 0 = none
     };
 
@@ -868,7 +868,7 @@ public:
     {
         Both = 0,     // overwrite glyph + fg + bg
         CharOnly = 1, // overwrite glyph only
-        ColorOnly = 2 // overwrite fg + bg only (glyph preserved)
+        ColourOnly = 2 // overwrite fg + bg only (glyph preserved)
     };
 
     // If transparent_spaces is true, space glyphs in the clipboard do not apply (no-op for that cell).
@@ -995,8 +995,8 @@ private:
         int                   offset_x = 0;
         int                   offset_y = 0;
         std::vector<GlyphId>  cells; // size == rows * columns (GlyphId tokens)
-        std::vector<ColorIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
-        std::vector<ColorIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
+        std::vector<ColourIndex16> fg; // per-cell foreground index; kUnsetIndex16 = unset
+        std::vector<ColourIndex16> bg; // per-cell background index; kUnsetIndex16 = unset (transparent)
         std::vector<Attrs>    attrs; // per-cell attribute bitmask; 0 = none
     };
 
@@ -1008,9 +1008,9 @@ private:
         int                caret_row = 0;
         int                caret_col = 0;
         // Core palette identity for interpreting fg/bg indices.
-        phos::color::PaletteRef palette_ref;
+        phos::colour::PaletteRef palette_ref;
         // UI palette selection identity (does not affect stored indices, but is persisted/undoable).
-        phos::color::PaletteRef ui_palette_ref;
+        phos::colour::PaletteRef ui_palette_ref;
         std::vector<Layer> layers;
 
         // Monotonic state identity token used for savepoint/dirty tracking.
@@ -1050,8 +1050,8 @@ private:
             int page_rows = 64;
             int row_count = 0; // <= page_rows
             std::vector<GlyphId>  cells;
-            std::vector<ColorIndex16> fg;
-            std::vector<ColorIndex16> bg;
+            std::vector<ColourIndex16> fg;
+            std::vector<ColourIndex16> bg;
             std::vector<Attrs>    attrs;
         };
         struct Patch
@@ -1062,9 +1062,9 @@ private:
             int caret_row = 0;
             int caret_col = 0;
             // Core palette identity for interpreting fg/bg indices.
-            phos::color::PaletteRef palette_ref;
+            phos::colour::PaletteRef palette_ref;
             // UI palette selection identity.
-            phos::color::PaletteRef ui_palette_ref;
+            phos::colour::PaletteRef ui_palette_ref;
             std::uint64_t state_token = 1;
 
             int page_rows = 64;
@@ -1137,8 +1137,8 @@ private:
     BoldSemantics m_bold_semantics = BoldSemantics::AnsiBright;
 
     // UI palette selection identity (persisted via ProjectState).
-    phos::color::PaletteRef m_ui_palette_ref;
-    phos::color::PaletteRef m_palette_ref;
+    phos::colour::PaletteRef m_ui_palette_ref;
+    phos::colour::PaletteRef m_palette_ref;
 
     // Optional embedded bitmap font payload (persisted via ProjectState).
     std::optional<EmbeddedBitmapFont> m_embedded_font;
@@ -1188,8 +1188,8 @@ private:
     struct ClipCell
     {
         GlyphId  cp = phos::glyph::MakeUnicodeScalar(U' ');
-        ColorIndex16 fg = kUnsetIndex16;
-        ColorIndex16 bg = kUnsetIndex16;
+        ColourIndex16 fg = kUnsetIndex16;
+        ColourIndex16 bg = kUnsetIndex16;
         Attrs    attrs = 0;
     };
 
@@ -1254,23 +1254,23 @@ private:
     bool   CanvasToLayerLocalForWrite(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
     bool   CanvasToLayerLocalForRead(int layer_index, int canvas_row, int canvas_col, int& out_local_row, int& out_local_col) const;
 
-    // Color/index helpers (Phase B).
-    phos::color::PaletteInstanceId ResolveActivePaletteId() const;
-    ColorIndex16 QuantizeColor32ToIndex(Color32 c32) const; // 0 => unset
-    Color32      IndexToColor32(ColorIndex16 idx) const;    // unset => 0
+    // Colour/index helpers (Phase B).
+    phos::colour::PaletteInstanceId ResolveActivePaletteId() const;
+    ColourIndex16 QuantizeColour32ToIndex(Colour32 c32) const; // 0 => unset
+    Colour32      IndexToColour32(ColourIndex16 idx) const;    // unset => 0
 
     struct CompositeCell
     {
         GlyphId  glyph = phos::glyph::MakeUnicodeScalar(U' ');
         char32_t cp = U' ';
-        ColorIndex16 fg = kUnsetIndex16; // index in active palette, or unset
-        ColorIndex16 bg = kUnsetIndex16; // index in active palette, or unset
+        ColourIndex16 fg = kUnsetIndex16; // index in active palette, or unset
+        ColourIndex16 bg = kUnsetIndex16; // index in active palette, or unset
         Attrs    attrs = 0;
     };
 
     CompositeCell GetCompositeCell(int row, int col) const;
     void          SetActiveCell(int row, int col, char32_t cp);
-    void          SetActiveCell(int row, int col, char32_t cp, Color32 fg, Color32 bg);
+    void          SetActiveCell(int row, int col, char32_t cp, Colour32 fg, Colour32 bg);
     void          ClearActiveCellStyle(int row, int col);
     void          ClearLayerCellStyleInternal(int layer_index, int row, int col);
     void          DrawActiveLayerBoundsOverlay(ImDrawList* draw_list, const ImVec2& origin, float cell_w, float cell_h);

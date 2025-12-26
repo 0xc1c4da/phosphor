@@ -71,7 +71,7 @@
       "x": 1070.0,
       "y": 163.0
     },
-    "Xterm-256 Color Picker": {
+    "Xterm-256 Colour Picker": {
       "collapsed": false,
       "h": 1476.0,
       "w": 249.0,
@@ -92,14 +92,14 @@
     "show_character_palette_window": true,
     "show_character_picker_window": true,
     "show_character_sets_window": true,
-    "show_color_picker_window": true,
+    "show_colour_picker_window": true,
     "show_layer_manager_window": true,
     "show_minimap_window": true,
     "show_settings_window": false,
     "show_tool_palette_window": true,
     "theme": "cherry",
     "undo_limit": 0,
-    "xterm_color_picker": {
+    "xterm_colour_picker": {
       "active_fb": 0,
       "bg": [
         0.0,

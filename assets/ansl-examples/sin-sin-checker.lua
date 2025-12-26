@@ -28,8 +28,8 @@ function main(coord, ctx)
   local p = pattern[c + 1]
   local ch = p[(i % #p) + 1]
 
-  local bg = (c == 1) and ansl.color.ansi16.blue or ansl.color.ansi16.black
-  return { char = ch, fg = ansl.color.ansi16.white, bg = bg }
+  local bg = (c == 1) and ansl.colour.ansi16.blue or ansl.colour.ansi16.black
+  return { char = ch, fg = ansl.colour.ansi16.white, bg = bg }
 end
 
 

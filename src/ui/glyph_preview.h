@@ -23,7 +23,7 @@ class AnsiCanvas;
 // - `p0` is top-left in screen space.
 // - `cell_w/h` are in pixels.
 // - `glyph` is the canvas glyph token (Unicode scalar or indexed glyph token).
-// - `fg_col` is an ImU32 color (e.g. ImGui::GetColorU32(ImGuiCol_Text)).
+// - `fg_col` is an ImU32 colour (e.g. ImGui::GetColorU32(ImGuiCol_Text)).
 void DrawGlyphPreview(ImDrawList* dl,
                       const ImVec2& p0,
                       float cell_w,

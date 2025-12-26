@@ -80,15 +80,15 @@ struct ApplyDabArgs
 
     // Active palette identity for the canvas (used for snapping/quantization).
     // Default is xterm256 to preserve current behavior.
-    phos::color::PaletteRef palette_ref = []{
-        phos::color::PaletteRef r;
+    phos::colour::PaletteRef palette_ref = []{
+        phos::colour::PaletteRef r;
         r.is_builtin = true;
-        r.builtin = phos::color::BuiltinPalette::Xterm256;
+        r.builtin = phos::colour::BuiltinPalette::Xterm256;
         return r;
     }();
 
     // Optional restriction: allowed indices (in the active palette index space).
-    // If provided, color snapping should choose from these.
+    // If provided, colour snapping should choose from these.
     const std::vector<int>* allowed_indices = nullptr;
 
     // Candidate glyph set.

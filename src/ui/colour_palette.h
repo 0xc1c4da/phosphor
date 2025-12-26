@@ -13,7 +13,7 @@ struct ColourPaletteSwatchAction
 };
 
 ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
-                                                         const ImVec4& color,
+                                                         const ImVec4& colour,
                                                          const ImVec2& size,
                                                          bool mark_foreground,
                                                          bool mark_background);

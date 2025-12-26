@@ -165,8 +165,8 @@ static bool SampleCell(const AnsiCanvas& canvas, const ExportOptions& opt, int r
     if (opt.source == ExportOptions::Source::Composite)
     {
         char32_t cp = U' ';
-        AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-        AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+        AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
         if (!canvas.GetCompositeCellPublicIndices(row, col, cp, fg, bg))
             return false;
         out_cp = cp;
@@ -299,7 +299,7 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
 
     // Phase-B/index-native defaults: use builtin xterm256 palette and leave fg/bg unset.
     st.palette_ref.is_builtin = true;
-    st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm256;
+    st.palette_ref.builtin = phos::colour::BuiltinPalette::Xterm256;
     st.ui_palette_ref = st.palette_ref;
     st.current.palette_ref = st.palette_ref;
     st.current.ui_palette_ref = st.ui_palette_ref;

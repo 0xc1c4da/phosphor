@@ -1,7 +1,7 @@
 #include "core/deform/deform_engine.h"
 
 #include "core/canvas_rasterizer.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/deform/glyph_mask_cache.h"
 #include "core/xterm256_palette.h"
 
@@ -139,17 +139,17 @@ static inline void StoreRgba(const RgbaF& c, std::uint8_t* dst4)
     dst4[3] = to_u8(c.a);
 }
 
-static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
-                                            phos::color::LutCache& luts,
-                                            phos::color::PaletteInstanceId pal,
+static inline int SnapToAllowedPaletteIndex(phos::colour::PaletteRegistry& reg,
+                                            phos::colour::LutCache& luts,
+                                            phos::colour::PaletteInstanceId pal,
                                             std::uint8_t r,
                                             std::uint8_t g,
                                             std::uint8_t b,
                                             const std::vector<int>* allowed)
 {
-    const phos::color::QuantizePolicy qpol = phos::color::DefaultQuantizePolicy();
+    const phos::colour::QuantizePolicy qpol = phos::colour::DefaultQuantizePolicy();
     if (!allowed || allowed->empty())
-        return (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
+        return (int)phos::colour::ColourOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
 
     // LUT-backed allowed quantization (coarse RGB 3D LUT).
     const auto qlut = luts.GetOrBuildAllowedQuant3d(reg, pal, *allowed, /*bits=*/5, qpol);
@@ -165,16 +165,16 @@ static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
     }
 
     // Fallback: exact scan (previous behavior) if LUT can't be built (budget pressure, etc).
-    const phos::color::Palette* p = reg.Get(pal);
+    const phos::colour::Palette* p = reg.Get(pal);
     if (!p || p->rgb.empty())
-        return (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
+        return (int)phos::colour::ColourOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
     int best = -1;
     int best_d = 0;
     for (int idx : *allowed)
     {
         if (idx < 0 || idx >= (int)p->rgb.size())
             continue;
-        const phos::color::Rgb8 prgb = p->rgb[(size_t)idx];
+        const phos::colour::Rgb8 prgb = p->rgb[(size_t)idx];
         const int dr = (int)prgb.r - (int)r;
         const int dg = (int)prgb.g - (int)g;
         const int db = (int)prgb.b - (int)b;
@@ -187,7 +187,7 @@ static inline int SnapToAllowedPaletteIndex(phos::color::PaletteRegistry& reg,
         }
     }
     if (best < 0)
-        best = (int)phos::color::ColorOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
+        best = (int)phos::colour::ColourOps::NearestIndexRgb(reg, pal, r, g, b, qpol);
     return best;
 }
 
@@ -215,8 +215,8 @@ static inline void SnapshotLayerRegion(const AnsiCanvas& canvas,
                                       int layer_index,
                                       const AnsiCanvas::Rect& r,
                                       std::vector<AnsiCanvas::GlyphId>& glyph,
-                                      std::vector<AnsiCanvas::ColorIndex16>& fg,
-                                      std::vector<AnsiCanvas::ColorIndex16>& bg,
+                                      std::vector<AnsiCanvas::ColourIndex16>& fg,
+                                      std::vector<AnsiCanvas::ColourIndex16>& bg,
                                       std::vector<AnsiCanvas::Attrs>& attrs)
 {
     const size_t n = (size_t)std::max(0, r.w) * (size_t)std::max(0, r.h);
@@ -326,11 +326,11 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 {
     err.clear();
 
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(args.palette_ref))
         pal = *id;
-    const phos::color::Palette* pal_def = cs.Palettes().Get(pal);
+    const phos::colour::Palette* pal_def = cs.Palettes().Get(pal);
     const int pal_max_idx = (pal_def && !pal_def->rgb.empty()) ? (int)pal_def->rgb.size() - 1 : 255;
 
     if (layer_index < 0 || layer_index >= canvas.GetLayerCount())
@@ -370,8 +370,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
         }
 
         std::vector<AnsiCanvas::GlyphId> src_glyph;
-        std::vector<AnsiCanvas::ColorIndex16> src_fg;
-        std::vector<AnsiCanvas::ColorIndex16> src_bg;
+        std::vector<AnsiCanvas::ColourIndex16> src_fg;
+        std::vector<AnsiCanvas::ColourIndex16> src_bg;
         std::vector<AnsiCanvas::Attrs> src_attrs;
         SnapshotLayerRegion(canvas, layer_index, clipped, src_glyph, src_fg, src_bg, src_attrs);
 
@@ -399,16 +399,16 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 const size_t si = (size_t)(src_row - clipped.y) * (size_t)clipped.w + (size_t)(src_col - clipped.x);
                 const AnsiCanvas::GlyphId new_glyph =
                     (si < src_glyph.size()) ? src_glyph[si] : (AnsiCanvas::GlyphId)phos::glyph::MakeUnicodeScalar(U' ');
-                const AnsiCanvas::ColorIndex16 new_fg =
+                const AnsiCanvas::ColourIndex16 new_fg =
                     (si < src_fg.size()) ? src_fg[si] : AnsiCanvas::kUnsetIndex16;
-                const AnsiCanvas::ColorIndex16 new_bg =
+                const AnsiCanvas::ColourIndex16 new_bg =
                     (si < src_bg.size()) ? src_bg[si] : AnsiCanvas::kUnsetIndex16;
                 const AnsiCanvas::Attrs new_attrs = (si < src_attrs.size()) ? src_attrs[si] : 0;
 
                 // Apply if changed.
                 const AnsiCanvas::GlyphId old_glyph = canvas.GetLayerGlyph(layer_index, row, col);
-                AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
                 (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
@@ -495,8 +495,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             for (int col = clipped.x; col < clipped.x + clipped.w; ++col)
             {
                 AnsiCanvas::GlyphId glyph = phos::glyph::MakeUnicodeScalar(U' ');
-                AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs a = 0;
                 if (args.sample == Sample::Composite)
                     (void)canvas.GetCompositeCellPublicGlyphIndices(row, col, glyph, fg, bg, a);
@@ -663,8 +663,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 
     // For sticky warp+quantize, we want a stable "source glyph" anchor from the edited layer.
     std::vector<AnsiCanvas::GlyphId> src_glyph_for_anchor;
-    std::vector<AnsiCanvas::ColorIndex16> tmp_fg;
-    std::vector<AnsiCanvas::ColorIndex16> tmp_bg;
+    std::vector<AnsiCanvas::ColourIndex16> tmp_fg;
+    std::vector<AnsiCanvas::ColourIndex16> tmp_bg;
     std::vector<AnsiCanvas::Attrs> tmp_attrs;
     if (args.algo == DeformAlgo::WarpQuantizeSticky)
         SnapshotLayerRegion(canvas, layer_index, clipped, src_glyph_for_anchor, tmp_fg, tmp_bg, tmp_attrs);
@@ -700,7 +700,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             const int bx0 = local_col * cell_w_px;
             const int by0 = local_row * cell_h_px;
 
-            // Gather alpha stats and (optionally) colors.
+            // Gather alpha stats and (optionally) colours.
             double sum_a = 0.0;
             int max_a = 0;
             int min_a = 255;
@@ -735,15 +735,15 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             {
                 // Fully transparent => unset bg + space.
                 const char32_t old_cp = canvas.GetLayerCell(layer_index, row, col);
-                AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+                AnsiCanvas::ColourIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
                 AnsiCanvas::Attrs old_attrs = 0;
                 (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
                 (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);
 
                 const char32_t new_cp = U' ';
-                const AnsiCanvas::ColorIndex16 new_fg = AnsiCanvas::kUnsetIndex16;
-                const AnsiCanvas::ColorIndex16 new_bg = AnsiCanvas::kUnsetIndex16;
+                const AnsiCanvas::ColourIndex16 new_fg = AnsiCanvas::kUnsetIndex16;
+                const AnsiCanvas::ColourIndex16 new_bg = AnsiCanvas::kUnsetIndex16;
                 const AnsiCanvas::Attrs new_attrs = 0;
                 if (old_cp != new_cp || old_fg != new_fg || old_bg != new_bg || old_attrs != new_attrs)
                 {
@@ -842,20 +842,20 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 {
                     const int bg_i = std::clamp(idx0, 0, (int)pal_def->rgb.size() - 1);
                     const int fg_i = std::clamp(idx1, 0, (int)pal_def->rgb.size() - 1);
-                    const phos::color::Rgb8 bg_rgb = pal_def->rgb[(size_t)bg_i];
-                    const phos::color::Rgb8 fg_rgb = pal_def->rgb[(size_t)fg_i];
+                    const phos::colour::Rgb8 bg_rgb = pal_def->rgb[(size_t)bg_i];
+                    const phos::colour::Rgb8 fg_rgb = pal_def->rgb[(size_t)fg_i];
                     bgr = (int)bg_rgb.r; bgg = (int)bg_rgb.g; bgb = (int)bg_rgb.b;
                     fgr = (int)fg_rgb.r; fgg = (int)fg_rgb.g; fgb = (int)fg_rgb.b;
                 }
                 else
                 {
-                    // Fallback: go through the packed-color bridge (shouldn't happen for built-in palettes).
-                    const std::uint32_t bg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx0});
-                    const std::uint32_t fg32 = phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{(std::uint16_t)idx1});
+                    // Fallback: go through the packed-colour bridge (shouldn't happen for built-in palettes).
+                    const std::uint32_t bg32 = phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{(std::uint16_t)idx0});
+                    const std::uint32_t fg32 = phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{(std::uint16_t)idx1});
                     std::uint8_t bgr8 = 0, bgg8 = 0, bgb8 = 0;
                     std::uint8_t fgr8 = 0, fgg8 = 0, fgb8 = 0;
-                    (void)phos::color::ColorOps::UnpackImGuiAbgr(bg32, bgr8, bgg8, bgb8);
-                    (void)phos::color::ColorOps::UnpackImGuiAbgr(fg32, fgr8, fgg8, fgb8);
+                    (void)phos::colour::ColourOps::UnpackImGuiAbgr(bg32, bgr8, bgg8, bgb8);
+                    (void)phos::colour::ColourOps::UnpackImGuiAbgr(fg32, fgr8, fgg8, fgb8);
                     bgr = (int)bgr8; bgg = (int)bgg8; bgb = (int)bgb8;
                     fgr = (int)fgr8; fgg = (int)fgg8; fgb = (int)fgb8;
                 }
@@ -959,9 +959,9 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                 }
             }
 
-            // Pick colors.
-            AnsiCanvas::ColorIndex16 out_fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 out_bg = AnsiCanvas::kUnsetIndex16;
+            // Pick colours.
+            AnsiCanvas::ColourIndex16 out_fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 out_bg = AnsiCanvas::kUnsetIndex16;
 
             if (prefer_unset_bg)
             {
@@ -976,7 +976,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                              (std::uint8_t)std::clamp(g8, 0, 255),
                                                              (std::uint8_t)std::clamp(b8, 0, 255),
                                                              args.allowed_indices);
-                    out_fg = (AnsiCanvas::ColorIndex16)std::clamp(idx, 0, pal_max_idx);
+                    out_fg = (AnsiCanvas::ColourIndex16)std::clamp(idx, 0, pal_max_idx);
                 }
                 out_bg = AnsiCanvas::kUnsetIndex16;
                 if (phos::glyph::IsBlank((phos::GlyphId)best_glyph))
@@ -984,7 +984,7 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
             }
             else
             {
-                // Opaque: estimate two colors from extremes (cheap) and snap.
+                // Opaque: estimate two colours from extremes (cheap) and snap.
                 int lo_r = 255, lo_g = 255, lo_b = 255;
                 int hi_r = 0, hi_g = 0, hi_b = 0;
                 for (int yy = 0; yy < cell_h_px; ++yy)
@@ -1009,8 +1009,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
                                                             (std::uint8_t)std::clamp(hi_g, 0, 255),
                                                             (std::uint8_t)std::clamp(hi_b, 0, 255),
                                                             args.allowed_indices);
-                out_bg = (AnsiCanvas::ColorIndex16)std::clamp(bg_idx, 0, pal_max_idx);
-                out_fg = (AnsiCanvas::ColorIndex16)std::clamp(fg_idx, 0, pal_max_idx);
+                out_bg = (AnsiCanvas::ColourIndex16)std::clamp(bg_idx, 0, pal_max_idx);
+                out_fg = (AnsiCanvas::ColourIndex16)std::clamp(fg_idx, 0, pal_max_idx);
                 if (phos::glyph::IsBlank((phos::GlyphId)best_glyph))
                     out_fg = AnsiCanvas::kUnsetIndex16;
             }
@@ -1020,8 +1020,8 @@ ApplyDabResult DeformEngine::ApplyDab(AnsiCanvas& canvas,
 
             // Apply if changed.
             AnsiCanvas::GlyphId old_glyph = canvas.GetLayerGlyph(layer_index, row, col);
-            AnsiCanvas::ColorIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 old_fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 old_bg = AnsiCanvas::kUnsetIndex16;
             AnsiCanvas::Attrs old_attrs = 0;
             (void)canvas.GetLayerCellIndices(layer_index, row, col, old_fg, old_bg);
             (void)canvas.GetLayerCellAttrs(layer_index, row, col, old_attrs);

@@ -21,11 +21,11 @@ struct ImportOptions
     bool edit_mode = false;
     int outline_style = 0;
 
-    // If true, apply rendered per-cell colors (FIGlet is usually monochrome, so this is typically false/unused).
-    bool use_font_colors = false;
+    // If true, apply rendered per-cell colours (FIGlet is usually monochrome, so this is typically false/unused).
+    bool use_font_colours = false;
 
-    // If true, treat blink bit as bright background (ICE colors) when applicable.
-    bool icecolors = true;
+    // If true, treat blink bit as bright background (ICE colours) when applicable.
+    bool icecolours = true;
 };
 
 bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,

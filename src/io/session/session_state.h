@@ -33,7 +33,7 @@ struct SessionState
         int z_order = 0;
     };
 
-    struct XtermColorPickerState
+    struct XtermColourPickerState
     {
         // Normalized RGBA, ImGui-style.
         float fg[4] = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -45,13 +45,13 @@ struct SessionState
         // 0 = Hue Bar, 1 = Hue Wheel
         int picker_mode = 0;
 
-        // Palette UI state (assets/color-palettes.json)
+        // Palette UI state (assets/colour-palettes.json)
         int selected_palette = 0;
 
-        // Which color the picker reticle is currently previewing (0 = fg, 1 = bg).
+        // Which colour the picker reticle is currently previewing (0 = fg, 1 = bg).
         int picker_preview_fb = 0;
 
-        // Hue memory for grayscale colors so the picker doesn't reset to red after restart.
+        // Hue memory for grayscale colours so the picker doesn't reset to red after restart.
         float last_hue = 0.0f;
     };
 
@@ -152,8 +152,8 @@ struct SessionState
         int h = 0;
         // Row-major arrays, length = w*h
         std::vector<std::uint32_t> cp;    // Unicode scalar values
-        std::vector<std::uint32_t> fg;    // packed RGBA Color32 (0 = unset)
-        std::vector<std::uint32_t> bg;    // packed RGBA Color32 (0 = unset)
+        std::vector<std::uint32_t> fg;    // packed RGBA Colour32 (0 = unset)
+        std::vector<std::uint32_t> bg;    // packed RGBA Colour32 (0 = unset)
         std::vector<std::uint32_t> attrs; // Attrs bitmask (stored as u32 for JSON simplicity)
     };
     struct BrushPaletteState
@@ -174,7 +174,7 @@ struct SessionState
     bool window_fullscreen = false;
 
     // Tool window visibility toggles
-    bool show_color_picker_window = true;
+    bool show_colour_picker_window = true;
     bool show_character_picker_window = true;
     bool show_character_palette_window = true;
     bool show_character_sets_window = true;
@@ -228,7 +228,7 @@ struct SessionState
 
     // Per-tool UI state
     bool character_palette_settings_open = true;
-    XtermColorPickerState xterm_color_picker;
+    XtermColourPickerState xterm_colour_picker;
     AnslEditorState ansl_editor;
 
     // A couple of useful "workspace" bits

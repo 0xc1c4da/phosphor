@@ -73,7 +73,7 @@ static json ToJson(const SessionState& st)
     j["window"] = std::move(win);
 
     json ui;
-    ui["show_color_picker_window"] = st.show_color_picker_window;
+    ui["show_colour_picker_window"] = st.show_colour_picker_window;
     ui["show_character_picker_window"] = st.show_character_picker_window;
     ui["show_character_palette_window"] = st.show_character_palette_window;
     ui["show_character_sets_window"] = st.show_character_sets_window;
@@ -97,16 +97,16 @@ static json ToJson(const SessionState& st)
 
     // Xterm-256 picker UI state
     json xcp;
-    xcp["fg"] = {st.xterm_color_picker.fg[0], st.xterm_color_picker.fg[1],
-                 st.xterm_color_picker.fg[2], st.xterm_color_picker.fg[3]};
-    xcp["bg"] = {st.xterm_color_picker.bg[0], st.xterm_color_picker.bg[1],
-                 st.xterm_color_picker.bg[2], st.xterm_color_picker.bg[3]};
-    xcp["active_fb"] = st.xterm_color_picker.active_fb;
-    xcp["picker_mode"] = st.xterm_color_picker.picker_mode;
-    xcp["selected_palette"] = st.xterm_color_picker.selected_palette;
-    xcp["picker_preview_fb"] = st.xterm_color_picker.picker_preview_fb;
-    xcp["last_hue"] = st.xterm_color_picker.last_hue;
-    ui["xterm_color_picker"] = std::move(xcp);
+    xcp["fg"] = {st.xterm_colour_picker.fg[0], st.xterm_colour_picker.fg[1],
+                 st.xterm_colour_picker.fg[2], st.xterm_colour_picker.fg[3]};
+    xcp["bg"] = {st.xterm_colour_picker.bg[0], st.xterm_colour_picker.bg[1],
+                 st.xterm_colour_picker.bg[2], st.xterm_colour_picker.bg[3]};
+    xcp["active_fb"] = st.xterm_colour_picker.active_fb;
+    xcp["picker_mode"] = st.xterm_colour_picker.picker_mode;
+    xcp["selected_palette"] = st.xterm_colour_picker.selected_palette;
+    xcp["picker_preview_fb"] = st.xterm_colour_picker.picker_preview_fb;
+    xcp["last_hue"] = st.xterm_colour_picker.last_hue;
+    ui["xterm_colour_picker"] = std::move(xcp);
 
     // ANSL editor state (script text + dropdown selection + fps).
     {
@@ -291,8 +291,8 @@ static void FromJson(const json& j, SessionState& out)
     if (j.contains("ui") && j["ui"].is_object())
     {
         const json& ui = j["ui"];
-        if (ui.contains("show_color_picker_window") && ui["show_color_picker_window"].is_boolean())
-            out.show_color_picker_window = ui["show_color_picker_window"].get<bool>();
+        if (ui.contains("show_colour_picker_window") && ui["show_colour_picker_window"].is_boolean())
+            out.show_colour_picker_window = ui["show_colour_picker_window"].get<bool>();
         if (ui.contains("show_character_picker_window") && ui["show_character_picker_window"].is_boolean())
             out.show_character_picker_window = ui["show_character_picker_window"].get<bool>();
         if (ui.contains("show_character_palette_window") && ui["show_character_palette_window"].is_boolean())
@@ -361,31 +361,31 @@ static void FromJson(const json& j, SessionState& out)
         // NOTE: ANSI import settings are no longer persisted. Import is intended to be automatic
         // (file-driven via SAUCE where possible; otherwise reasonable defaults).
 
-        if (ui.contains("xterm_color_picker") && ui["xterm_color_picker"].is_object())
+        if (ui.contains("xterm_colour_picker") && ui["xterm_colour_picker"].is_object())
         {
-            const json& xcp = ui["xterm_color_picker"];
+            const json& xcp = ui["xterm_colour_picker"];
             if (xcp.contains("fg") && xcp["fg"].is_array() && xcp["fg"].size() == 4)
             {
                 for (int i = 0; i < 4; ++i)
                     if (xcp["fg"][i].is_number())
-                        out.xterm_color_picker.fg[i] = xcp["fg"][i].get<float>();
+                        out.xterm_colour_picker.fg[i] = xcp["fg"][i].get<float>();
             }
             if (xcp.contains("bg") && xcp["bg"].is_array() && xcp["bg"].size() == 4)
             {
                 for (int i = 0; i < 4; ++i)
                     if (xcp["bg"][i].is_number())
-                        out.xterm_color_picker.bg[i] = xcp["bg"][i].get<float>();
+                        out.xterm_colour_picker.bg[i] = xcp["bg"][i].get<float>();
             }
             if (xcp.contains("active_fb") && xcp["active_fb"].is_number_integer())
-                out.xterm_color_picker.active_fb = xcp["active_fb"].get<int>();
+                out.xterm_colour_picker.active_fb = xcp["active_fb"].get<int>();
             if (xcp.contains("picker_mode") && xcp["picker_mode"].is_number_integer())
-                out.xterm_color_picker.picker_mode = xcp["picker_mode"].get<int>();
+                out.xterm_colour_picker.picker_mode = xcp["picker_mode"].get<int>();
             if (xcp.contains("selected_palette") && xcp["selected_palette"].is_number_integer())
-                out.xterm_color_picker.selected_palette = xcp["selected_palette"].get<int>();
+                out.xterm_colour_picker.selected_palette = xcp["selected_palette"].get<int>();
             if (xcp.contains("picker_preview_fb") && xcp["picker_preview_fb"].is_number_integer())
-                out.xterm_color_picker.picker_preview_fb = xcp["picker_preview_fb"].get<int>();
+                out.xterm_colour_picker.picker_preview_fb = xcp["picker_preview_fb"].get<int>();
             if (xcp.contains("last_hue") && xcp["last_hue"].is_number())
-                out.xterm_color_picker.last_hue = xcp["last_hue"].get<float>();
+                out.xterm_colour_picker.last_hue = xcp["last_hue"].get<float>();
         }
 
         if (ui.contains("ansl_editor") && ui["ansl_editor"].is_object())

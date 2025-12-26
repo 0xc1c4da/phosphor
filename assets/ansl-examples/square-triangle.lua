@@ -11,11 +11,11 @@ local max = math.max
 local PI = math.pi
 
 local chars = { " ", "e", "o", "ö" }
-local colors = {
-  ansl.color.ansi16.white,
-  ansl.color.hex("527EA8"),
-  ansl.color.hex("BB2A1C"),
-  ansl.color.hex("DFA636"),
+local colours = {
+  ansl.colour.ansi16.white,
+  ansl.colour.hex("527EA8"),
+  ansl.colour.hex("BB2A1C"),
+  ansl.colour.hex("DFA636"),
 }
 
 local function len2(x, y)
@@ -44,16 +44,16 @@ function main(coord, ctx)
 
   local centerTx = stx + 0
   local centerTy = sty + cos(t * 0.0021) * 0.5
-  local colorT = polygon(centerTx, centerTy, 3, t * 0.0002)
-  local triangle = (colorT <= 0.1) and 1 or 0
+  local colourT = polygon(centerTx, centerTy, 3, t * 0.0002)
+  local triangle = (colourT <= 0.1) and 1 or 0
 
   local centerQx = stx + cos(t * 0.0023) * 0.5
   local centerQy = sty + 0
-  local colorQ = polygon(centerQx, centerQy, 4, -t * 0.0004)
-  local quadrato = (colorQ <= 0.1) and 2 or 0
+  local colourQ = polygon(centerQx, centerQy, 4, -t * 0.0004)
+  local quadrato = (colourQ <= 0.1) and 2 or 0
 
   local i0 = triangle + quadrato -- 0..3
-  return { char = chars[i0 + 1], fg = colors[i0 + 1] }
+  return { char = chars[i0 + 1], fg = colours[i0 + 1] }
 end
 
 

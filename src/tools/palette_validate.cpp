@@ -36,7 +36,7 @@ static std::string Lower(std::string s)
     return s;
 }
 
-static bool ParseHexRgb(std::string_view s, phos::color::Rgb8& out)
+static bool ParseHexRgb(std::string_view s, phos::colour::Rgb8& out)
 {
     if (!s.empty() && s[0] == '#')
         s.remove_prefix(1);
@@ -70,7 +70,7 @@ static bool ParseHexRgb(std::string_view s, phos::color::Rgb8& out)
     return true;
 }
 
-static std::string Hex(const phos::color::Rgb8& c)
+static std::string Hex(const phos::colour::Rgb8& c)
 {
     auto hex2 = [](std::uint8_t v) -> std::string {
         static const char* k = "0123456789ABCDEF";
@@ -88,9 +88,9 @@ static void PrintUsage(const char* argv0)
     std::cerr << "Usage: " << argv0 << " [--assets <dir>]\n"
               << "\n"
               << "Validates that built-in (static) palettes in src/ match any corresponding\n"
-              << "entries present in assets/color-palettes.json (colors + ordering).\n"
+              << "entries present in assets/colour-palettes.json (colours + ordering).\n"
               << "\n"
-              << "Note: builtins are no longer required to be listed in color-palettes.json;\n"
+              << "Note: builtins are no longer required to be listed in colour-palettes.json;\n"
               << "missing builtin entries are treated as OK.\n"
               << "\n"
               << "Options:\n"
@@ -100,7 +100,7 @@ static void PrintUsage(const char* argv0)
 struct JsonPalette
 {
     std::string title;
-    std::vector<phos::color::Rgb8> rgb;
+    std::vector<phos::colour::Rgb8> rgb;
 };
 
 static bool LoadJsonPalettes(const fs::path& json_path,
@@ -130,7 +130,7 @@ static bool LoadJsonPalettes(const fs::path& json_path,
 
     if (!j.is_array())
     {
-        out_error = "Expected top-level JSON array in color-palettes.json";
+        out_error = "Expected top-level JSON array in colour-palettes.json";
         return false;
     }
 
@@ -140,21 +140,21 @@ static bool LoadJsonPalettes(const fs::path& json_path,
             continue;
         if (!item.contains("title") || !item["title"].is_string())
             continue;
-        if (!item.contains("colors") || !item["colors"].is_array())
+        if (!item.contains("colours") || !item["colours"].is_array())
             continue;
 
         JsonPalette p;
         p.title = item["title"].get<std::string>();
 
-        for (const auto& c : item["colors"])
+        for (const auto& c : item["colours"])
         {
             if (!c.is_string())
                 continue;
-            phos::color::Rgb8 col{};
+            phos::colour::Rgb8 col{};
             if (!ParseHexRgb(c.get<std::string>(), col))
                 continue;
             p.rgb.push_back(col);
-            if (p.rgb.size() >= phos::color::kMaxPaletteSize)
+            if (p.rgb.size() >= phos::colour::kMaxPaletteSize)
                 break;
         }
         if (p.rgb.empty())
@@ -180,8 +180,8 @@ static std::optional<JsonPalette> FindJsonPalette(const std::unordered_map<std::
     return std::nullopt;
 }
 
-static int CompareRgb(const std::vector<phos::color::Rgb8>& expected,
-                      const std::vector<phos::color::Rgb8>& actual,
+static int CompareRgb(const std::vector<phos::colour::Rgb8>& expected,
+                      const std::vector<phos::colour::Rgb8>& actual,
                       std::vector<std::string>& out_mismatches,
                       int max_mismatches_to_print = 16)
 {
@@ -189,8 +189,8 @@ static int CompareRgb(const std::vector<phos::color::Rgb8>& expected,
 
     if (expected.size() != actual.size())
     {
-        out_mismatches.push_back("size mismatch: expected " + std::to_string(expected.size()) + " colors, got " +
-                                 std::to_string(actual.size()) + " colors");
+        out_mismatches.push_back("size mismatch: expected " + std::to_string(expected.size()) + " colours, got " +
+                                 std::to_string(actual.size()) + " colours");
         // Still compare common prefix to provide more useful diff output.
     }
 
@@ -251,7 +251,7 @@ int main(int argc, char** argv)
         }
     }
 
-    const fs::path json_path = assets_dir / "color-palettes.json";
+    const fs::path json_path = assets_dir / "colour-palettes.json";
 
     std::unordered_map<std::string, JsonPalette> json_by_title;
     std::string err;
@@ -261,21 +261,21 @@ int main(int argc, char** argv)
         return 3;
     }
 
-    phos::color::PaletteRegistry reg;
+    phos::colour::PaletteRegistry reg;
 
     struct Check
     {
         std::string label;
-        phos::color::BuiltinPalette builtin = phos::color::BuiltinPalette::None;
+        phos::colour::BuiltinPalette builtin = phos::colour::BuiltinPalette::None;
         std::initializer_list<std::string_view> json_titles;
     };
 
     const Check checks[] = {
-        {"VGA 8", phos::color::BuiltinPalette::Vga8, {"VGA 8"}},
-        {"VGA 16", phos::color::BuiltinPalette::Vga16, {"VGA 16"}},
-        {"Xterm 16", phos::color::BuiltinPalette::Xterm16, {"xterm 16", "Xterm 16"}},
-        {"Xterm 240 Safe", phos::color::BuiltinPalette::Xterm240Safe, {"xterm 240", "Xterm 240"}},
-        {"Xterm 256", phos::color::BuiltinPalette::Xterm256, {"xterm 256", "Xterm 256"}},
+        {"VGA 8", phos::colour::BuiltinPalette::Vga8, {"VGA 8"}},
+        {"VGA 16", phos::colour::BuiltinPalette::Vga16, {"VGA 16"}},
+        {"Xterm 16", phos::colour::BuiltinPalette::Xterm16, {"xterm 16", "Xterm 16"}},
+        {"Xterm 240 Safe", phos::colour::BuiltinPalette::Xterm240Safe, {"xterm 240", "Xterm 240"}},
+        {"Xterm 256", phos::colour::BuiltinPalette::Xterm256, {"xterm 256", "Xterm 256"}},
     };
 
     int total_mismatches = 0;
@@ -285,14 +285,14 @@ int main(int argc, char** argv)
         const auto json_pal = FindJsonPalette(json_by_title, c.json_titles);
         if (!json_pal.has_value())
         {
-            // Builtins are no longer required to appear in assets/color-palettes.json.
+            // Builtins are no longer required to appear in assets/colour-palettes.json.
             // We only validate parity when a corresponding entry exists.
             ++skipped_missing;
             continue;
         }
 
-        const phos::color::PaletteInstanceId id = reg.Builtin(c.builtin);
-        const phos::color::Palette* p = reg.Get(id);
+        const phos::colour::PaletteInstanceId id = reg.Builtin(c.builtin);
+        const phos::colour::Palette* p = reg.Get(id);
         if (!p)
         {
             std::cerr << "palette_validate: FAIL: builtin palette not registered: " << c.label << "\n";

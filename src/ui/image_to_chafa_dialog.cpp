@@ -359,31 +359,31 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
             conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.stretch").c_str(), &settings_.stretch);
         }
 
-        if (ImGui::CollapsingHeader((PHOS_TR("chafa.color_processing") + "###chafa_color").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.colour_processing") + "###chafa_colour").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
-            const std::string cm0 = PHOS_TR("chafa.color_mode_items.indexed_256");
-            const std::string cm1 = PHOS_TR("chafa.color_mode_items.indexed_240");
-            const std::string cm2 = PHOS_TR("chafa.color_mode_items.indexed_16");
-            const std::string cm3 = PHOS_TR("chafa.color_mode_items.indexed_16_8");
-            const std::string cm4 = PHOS_TR("chafa.color_mode_items.indexed_8");
-            const std::string cm5 = PHOS_TR("chafa.color_mode_items.default_invert");
-            const std::string cm6 = PHOS_TR("chafa.color_mode_items.default_no_codes");
+            const std::string cm0 = PHOS_TR("chafa.colour_mode_items.indexed_256");
+            const std::string cm1 = PHOS_TR("chafa.colour_mode_items.indexed_240");
+            const std::string cm2 = PHOS_TR("chafa.colour_mode_items.indexed_16");
+            const std::string cm3 = PHOS_TR("chafa.colour_mode_items.indexed_16_8");
+            const std::string cm4 = PHOS_TR("chafa.colour_mode_items.indexed_8");
+            const std::string cm5 = PHOS_TR("chafa.colour_mode_items.default_invert");
+            const std::string cm6 = PHOS_TR("chafa.colour_mode_items.default_no_codes");
             const char* mode_items[] = { cm0.c_str(), cm1.c_str(), cm2.c_str(), cm3.c_str(), cm4.c_str(), cm5.c_str(), cm6.c_str() };
-            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_mode") + "###chafa_color_mode").c_str(),
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.colour_mode") + "###chafa_colour_mode").c_str(),
                                                &settings_.canvas_mode, mode_items, IM_ARRAYSIZE(mode_items));
             settings_.canvas_mode = std::clamp(settings_.canvas_mode, 0, (int)IM_ARRAYSIZE(mode_items) - 1);
 
-            const std::string ce0 = PHOS_TR("chafa.color_extractor_items.average");
-            const std::string ce1 = PHOS_TR("chafa.color_extractor_items.median");
+            const std::string ce0 = PHOS_TR("chafa.colour_extractor_items.average");
+            const std::string ce1 = PHOS_TR("chafa.colour_extractor_items.median");
             const char* extractor_items[] = { ce0.c_str(), ce1.c_str() };
-            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_extractor") + "###chafa_color_extractor").c_str(),
-                                               &settings_.color_extractor, extractor_items, IM_ARRAYSIZE(extractor_items));
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.colour_extractor") + "###chafa_colour_extractor").c_str(),
+                                               &settings_.colour_extractor, extractor_items, IM_ARRAYSIZE(extractor_items));
 
-            const std::string cs0 = PHOS_TR("chafa.color_space_items.rgb_fast");
-            const std::string cs1 = PHOS_TR("chafa.color_space_items.din99d");
+            const std::string cs0 = PHOS_TR("chafa.colour_space_items.rgb_fast");
+            const std::string cs1 = PHOS_TR("chafa.colour_space_items.din99d");
             const char* space_items[] = { cs0.c_str(), cs1.c_str() };
-            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_space") + "###chafa_color_space").c_str(),
-                                               &settings_.color_space, space_items, IM_ARRAYSIZE(space_items));
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.colour_space") + "###chafa_colour_space").c_str(),
+                                               &settings_.colour_space, space_items, IM_ARRAYSIZE(space_items));
 
             conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.preprocessing").c_str(), &settings_.preprocessing);
             conversion_changed |= ImGui::SliderFloat((PHOS_TR("chafa.transparency_threshold") + "###chafa_alpha").c_str(),

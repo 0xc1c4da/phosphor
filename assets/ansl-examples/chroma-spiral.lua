@@ -3,14 +3,14 @@
 
 local density = "#Wabc:+-. "
 
--- Colors are indices in the active canvas palette (fg/bg).
-local colors = {
-  ansl.color.hex("#ff1493"), -- deeppink
-  ansl.color.ansi16.black,
-  ansl.color.ansi16.red,
-  ansl.color.ansi16.blue,
-  ansl.color.hex("#ffa500"), -- orange
-  ansl.color.ansi16.yellow,
+-- Colours are indices in the active canvas palette (fg/bg).
+local colours = {
+  ansl.colour.hex("#ff1493"), -- deeppink
+  ansl.colour.ansi16.black,
+  ansl.colour.ansi16.red,
+  ansl.colour.ansi16.blue,
+  ansl.colour.hex("#ffa500"), -- orange
+  ansl.colour.ansi16.yellow,
 }
 
 local sin, cos, abs, floor, min = math.sin, math.cos, math.abs, math.floor, math.min
@@ -61,9 +61,9 @@ function main(coord, ctx, cursor, buffer)
   c = clamp(c, 0, 1)
 
   local di = clamp(floor(c * (#density - 1)) + 1, 1, #density)
-  local ci = clamp(floor(c * (#colors - 1)) + 1, 1, #colors)
+  local ci = clamp(floor(c * (#colours - 1)) + 1, 1, #colours)
 
-  return { char = density:sub(di, di), fg = colors[ci] }
+  return { char = density:sub(di, di), fg = colours[ci] }
 end
 
 

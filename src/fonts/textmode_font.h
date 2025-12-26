@@ -12,7 +12,7 @@ namespace textmode_font
 // ---------------------------------------------------------------------------
 // Public surface (text-mode art font backend):
 // - Detect + parse FIGlet (.flf) and TheDraw (.tdf) fonts from bytes
-// - Render text into a cell grid (Unicode codepoints + optional per-cell colors)
+// - Render text into a cell grid (Unicode codepoints + optional per-cell colours)
 // ---------------------------------------------------------------------------
 
 enum class Kind : std::uint8_t
@@ -25,7 +25,7 @@ enum class TdfFontType : std::uint8_t
 {
     Outline = 0,
     Block   = 1,
-    Color   = 2,
+    Colour   = 2,
 };
 
 enum class RenderMode : std::uint8_t
@@ -40,18 +40,18 @@ struct RenderOptions
     // 0..18 inclusive; out-of-range falls back to CP437 placeholder bytes (Rust behavior).
     int outline_style = 0;
 
-    // If true, and the glyph stream contains per-cell colors (TDF Color fonts),
-    // the renderer emits those colors. If false, colors are left unset (0) and
+    // If true, and the glyph stream contains per-cell colours (TDF Colour fonts),
+    // the renderer emits those colours. If false, colours are left unset (0) and
     // callers can stamp their own fg/bg.
-    bool use_font_colors = true;
+    bool use_font_colours = true;
 
-    // If true, TDF blink bit is treated as "bright background" (ICE colors),
+    // If true, TDF blink bit is treated as "bright background" (ICE colours),
     // matching the rest of the editor's ANSI conventions.
-    bool icecolors = true;
+    bool icecolours = true;
 };
 
 // A rendered cell grid.
-// - `fg`/`bg` are packed 32-bit colors in Dear ImGui's IM_COL32 ABGR layout.
+// - `fg`/`bg` are packed 32-bit colours in Dear ImGui's IM_COL32 ABGR layout.
 // - 0 means "unset" (use theme default / transparent bg), matching AnsiCanvas semantics.
 struct Bitmap
 {

@@ -1,4 +1,4 @@
-#include "core/color_ops.h"
+#include "core/colour_ops.h"
 
 #include "core/xterm256_palette.h"
 
@@ -8,7 +8,7 @@
 #include <list>
 #include <unordered_map>
 
-namespace phos::color
+namespace phos::colour
 {
 namespace
 {
@@ -124,7 +124,7 @@ static inline int Dist2(const Rgb8& a, std::uint8_t r, std::uint8_t g, std::uint
     return dr * dr + dg * dg + db * db;
 }
 
-std::uint8_t ColorOps::NearestIndexRgb(const PaletteRegistry& reg,
+std::uint8_t ColourOps::NearestIndexRgb(const PaletteRegistry& reg,
                                       PaletteInstanceId pal,
                                       std::uint8_t r,
                                       std::uint8_t g,
@@ -187,18 +187,18 @@ std::uint8_t ColorOps::NearestIndexRgb(const PaletteRegistry& reg,
     return out;
 }
 
-ColorIndex ColorOps::Color32ToIndex(const PaletteRegistry& reg,
+ColourIndex ColourOps::Colour32ToIndex(const PaletteRegistry& reg,
                                   PaletteInstanceId pal,
                                   std::uint32_t c32,
                                   const QuantizePolicy& policy)
 {
     std::uint8_t r = 0, g = 0, b = 0;
     if (!UnpackImGuiAbgr(c32, r, g, b))
-        return ColorIndex{ kUnsetIndex };
-    return ColorIndex{ (std::uint16_t)NearestIndexRgb(reg, pal, r, g, b, policy) };
+        return ColourIndex{ kUnsetIndex };
+    return ColourIndex{ (std::uint16_t)NearestIndexRgb(reg, pal, r, g, b, policy) };
 }
 
-std::uint32_t ColorOps::IndexToColor32(const PaletteRegistry& reg, PaletteInstanceId pal, ColorIndex idx)
+std::uint32_t ColourOps::IndexToColour32(const PaletteRegistry& reg, PaletteInstanceId pal, ColourIndex idx)
 {
     const Palette* p = reg.Get(pal);
     if (!p || idx.IsUnset() || p->rgb.empty())
@@ -210,6 +210,6 @@ std::uint32_t ColorOps::IndexToColor32(const PaletteRegistry& reg, PaletteInstan
     return PackImGuiAbgrOpaque(c.r, c.g, c.b);
 }
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

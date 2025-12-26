@@ -53,8 +53,8 @@ static void DebugPrintCanvasStats(const char* label, const AnsiCanvas& c)
     {
         for (int col = 0; col < cols; ++col)
         {
-            AnsiCanvas::ColorIndex16 fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 bg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
             const char32_t cp = c.GetLayerCell(0, r, col);
             c.GetLayerCellIndices(0, r, col, fg, bg);
             if (cp != U' ')
@@ -154,7 +154,7 @@ static ChafaCanvasMode ToCanvasMode(int ui_value)
     }
 }
 
-static ChafaColorExtractor ToColorExtractor(int ui_value)
+static ChafaColorExtractor ToColourExtractor(int ui_value)
 {
     switch (ui_value)
     {
@@ -164,7 +164,7 @@ static ChafaColorExtractor ToColorExtractor(int ui_value)
     }
 }
 
-static ChafaColorSpace ToColorSpace(int ui_value)
+static ChafaColorSpace ToColourSpace(int ui_value)
 {
     switch (ui_value)
     {
@@ -284,8 +284,8 @@ bool ConvertRgbaToAnsiCanvas(const ImageRgba& src, const Settings& s, AnsiCanvas
 
     chafa_canvas_config_set_geometry(cfg, out_w, out_h);
     chafa_canvas_config_set_canvas_mode(cfg, ToCanvasMode(s.canvas_mode));
-    chafa_canvas_config_set_color_extractor(cfg, ToColorExtractor(s.color_extractor));
-    chafa_canvas_config_set_color_space(cfg, ToColorSpace(s.color_space));
+    chafa_canvas_config_set_color_extractor(cfg, ToColourExtractor(s.colour_extractor));
+    chafa_canvas_config_set_color_space(cfg, ToColourSpace(s.colour_space));
 
     // Work factor:
     // - CLI uses --work [1..9]

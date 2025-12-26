@@ -1,9 +1,9 @@
--- Doom Flame (full color)
+-- Doom Flame (full colour)
 
-settings = { bg = ansl.color.ansi16.black }
+settings = { bg = ansl.colour.ansi16.black }
 
 local num = ansl.num
-local color = ansl.color
+local colour = ansl.colour
 
 local floor = math.floor
 local min = math.min
@@ -22,16 +22,16 @@ local function clampi(i, lo, hi)
   return i
 end
 
--- Palette: JS named colors → canonical hex → nearest index in the active canvas palette.
+-- Palette: JS named colours → canonical hex → nearest index in the active canvas palette.
 local pal = {
-  color.hex("000000"), -- black
-  color.hex("800080"), -- purple
-  color.hex("8b0000"), -- darkred
-  color.hex("ff0000"), -- red
-  color.hex("ff4500"), -- orangered
-  color.hex("ffd700"), -- gold
-  color.hex("fffacd"), -- lemonchiffon
-  color.hex("ffffff"), -- white
+  colour.hex("000000"), -- black
+  colour.hex("800080"), -- purple
+  colour.hex("8b0000"), -- darkred
+  colour.hex("ff0000"), -- red
+  colour.hex("ff4500"), -- orangered
+  colour.hex("ffd700"), -- gold
+  colour.hex("fffacd"), -- lemonchiffon
+  colour.hex("ffffff"), -- white
 }
 
 -- Intensity ramp (JS: '011222233334444444455566667')

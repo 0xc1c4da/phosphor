@@ -212,7 +212,7 @@ static bool ContainsDisallowedAsciiEllipsis(std::string_view v)
     //
     // Current allowed cases (see i18n/root.txt notes):
     // - API filter syntax: "filter=..."
-    // - Pablo/Icy truecolor token: "...t" / "(...t)"
+    // - Pablo/Icy truecolour token: "...t" / "(...t)"
     if (v.find("...") == std::string::npos)
         return false;
     if (v.find("filter=...") != std::string::npos)

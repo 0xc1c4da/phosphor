@@ -13,7 +13,7 @@ static inline float ClampF(float v, float lo, float hi)
 }
 
 ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
-                                                         const ImVec4& color,
+                                                         const ImVec4& colour,
                                                          const ImVec2& size,
                                                          bool mark_foreground,
                                                          bool mark_background)
@@ -25,8 +25,8 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
         ImGuiColorEditFlags_NoPicker |
         ImGuiColorEditFlags_NoTooltip;
 
-    // ColorButton is keyboard-navigable; Enter/Space activates it (same as left click).
-    const bool activated = ImGui::ColorButton(label, color, palette_button_flags, size);
+    // ColourButton is keyboard-navigable; Enter/Space activates it (same as left click).
+    const bool activated = ImGui::ColorButton(label, colour, palette_button_flags, size);
 
     ImGuiIO& io = ImGui::GetIO();
     if (activated)

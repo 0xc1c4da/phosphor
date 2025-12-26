@@ -22,38 +22,38 @@
 
 using nlohmann::json;
 
-static inline AnsiCanvas::ColorIndex16 ClampIndex16(std::uint32_t v)
+static inline AnsiCanvas::ColourIndex16 ClampIndex16(std::uint32_t v)
 {
-    if (v > (std::uint32_t)std::numeric_limits<AnsiCanvas::ColorIndex16>::max())
-        return (AnsiCanvas::ColorIndex16)std::numeric_limits<AnsiCanvas::ColorIndex16>::max();
-    return (AnsiCanvas::ColorIndex16)v;
+    if (v > (std::uint32_t)std::numeric_limits<AnsiCanvas::ColourIndex16>::max())
+        return (AnsiCanvas::ColourIndex16)std::numeric_limits<AnsiCanvas::ColourIndex16>::max();
+    return (AnsiCanvas::ColourIndex16)v;
 }
 
-static inline AnsiCanvas::ColorIndex16 LegacyColor32ToIndex16(std::uint32_t legacy_c32, AnsiCanvas* active_canvas)
+static inline AnsiCanvas::ColourIndex16 LegacyColour32ToIndex16(std::uint32_t legacy_c32, AnsiCanvas* active_canvas)
 {
     if (legacy_c32 == 0)
         return AnsiCanvas::kUnsetIndex16;
 
     if (active_canvas)
-        return active_canvas->QuantizeColor32ToIndexPublic((AnsiCanvas::Color32)legacy_c32);
+        return active_canvas->QuantizeColour32ToIndexPublic((AnsiCanvas::Colour32)legacy_c32);
 
     // Fallback: quantize to xterm-256 based on RGB channels in IM_COL32 layout.
     const std::uint8_t r = (std::uint8_t)(legacy_c32 & 0xffu);
     const std::uint8_t g = (std::uint8_t)((legacy_c32 >> 8) & 0xffu);
     const std::uint8_t b = (std::uint8_t)((legacy_c32 >> 16) & 0xffu);
     const int idx = xterm256::NearestIndex(r, g, b);
-    return (AnsiCanvas::ColorIndex16)idx;
+    return (AnsiCanvas::ColourIndex16)idx;
 }
 
-static inline ImU32 Index16ToImU32(AnsiCanvas::ColorIndex16 idx, AnsiCanvas* active_canvas)
+static inline ImU32 Index16ToImU32(AnsiCanvas::ColourIndex16 idx, AnsiCanvas* active_canvas)
 {
     if (idx == AnsiCanvas::kUnsetIndex16)
         return 0;
     if (active_canvas)
-        return (ImU32)active_canvas->IndexToColor32Public(idx);
+        return (ImU32)active_canvas->IndexToColour32Public(idx);
     // Fallback: interpret as xterm-256 index.
     const int i = (int)std::clamp((int)idx, 0, 255);
-    return (ImU32)xterm256::Color32ForIndex(i);
+    return (ImU32)xterm256::Colour32ForIndex(i);
 }
 
 static std::string DefaultBrushName(int idx)
@@ -143,8 +143,8 @@ void BrushPaletteWindow::LoadFromSessionBrushPalette(SessionState* session, Ansi
         {
             const std::uint32_t v = se.cp[i];
             b.cp[i] = LegacyStoredValueToGlyphId(v, active_canvas);
-            b.fg[i] = LegacyColor32ToIndex16(se.fg[i], active_canvas);
-            b.bg[i] = LegacyColor32ToIndex16(se.bg[i], active_canvas);
+            b.fg[i] = LegacyColour32ToIndex16(se.fg[i], active_canvas);
+            b.bg[i] = LegacyColour32ToIndex16(se.bg[i], active_canvas);
             b.attrs[i] = (AnsiCanvas::Attrs)se.attrs[i];
         }
         if (!IsValidBrush(b))
@@ -263,14 +263,14 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, AnsiCanvas* active_canva
         }
 
         // Schema handling:
-        // - v2+: fg/bg are palette indices (ColorIndex16).
-        // - v1: historically fg/bg were packed Color32 (0 = unset). Some intermediate builds wrote
+        // - v2+: fg/bg are palette indices (ColourIndex16).
+        // - v1: historically fg/bg were packed Colour32 (0 = unset). Some intermediate builds wrote
         //       indices while still labeling schema_version=1. We auto-detect per-brush.
         //
         // Detection rules (for v1):
-        // - If we see an alpha byte (top 8 bits) or values > 0xffff, it's packed Color32.
+        // - If we see an alpha byte (top 8 bits) or values > 0xffff, it's packed Colour32.
         // - Else if max <= 255 and there exists a non-zero value, it's almost certainly indices.
-        // - Else (notably the common "all zeros" case), treat as packed Color32 so 0 stays "unset"
+        // - Else (notably the common "all zeros" case), treat as packed Colour32 so 0 stays "unset"
         //   instead of becoming palette index 0 (black).
         bool fg_bg_are_indices = (schema_version >= 2);
         if (!fg_bg_are_indices)
@@ -318,9 +318,9 @@ bool BrushPaletteWindow::LoadFromFile(const char* path, AnsiCanvas* active_canva
             }
             else
             {
-                // Legacy schema: fg/bg stored as packed Color32 (0 = unset).
-                b.fg[i] = LegacyColor32ToIndex16(fg[i], active_canvas);
-                b.bg[i] = LegacyColor32ToIndex16(bg[i], active_canvas);
+                // Legacy schema: fg/bg stored as packed Colour32 (0 = unset).
+                b.fg[i] = LegacyColour32ToIndex16(fg[i], active_canvas);
+                b.bg[i] = LegacyColour32ToIndex16(bg[i], active_canvas);
             }
             b.attrs[i] = (AnsiCanvas::Attrs)attrs[i];
         }
@@ -350,7 +350,7 @@ bool BrushPaletteWindow::SaveToFile(const char* path, std::string& error) const
 
     json j;
     // v3:
-    // - fg/bg are palette indices (ColorIndex16), not packed Color32.
+    // - fg/bg are palette indices (ColourIndex16), not packed Colour32.
     // - glyph[] stores GlyphId tokens (lossless).
     // - cp[] stores a best-effort Unicode representative for back-compat/debugging.
     j["schema_version"] = 3;
@@ -615,7 +615,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
                     const ImVec2 cmin(origin.x + cell * (float)x, origin.y + cell * (float)y);
                     const ImVec2 cmax(cmin.x + cell, cmin.y + cell);
 
-                    const AnsiCanvas::ColorIndex16 bg_idx = b.bg[idx];
+                    const AnsiCanvas::ColourIndex16 bg_idx = b.bg[idx];
                     const ImU32 bg_col = Index16ToImU32(bg_idx, active_canvas);
                     if (bg_idx != AnsiCanvas::kUnsetIndex16)
                         dl->AddRectFilled(cmin, cmax, bg_col);
@@ -624,7 +624,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
                     if (phos::glyph::IsBlank((phos::GlyphId)glyph) && bg_idx == AnsiCanvas::kUnsetIndex16)
                         continue;
 
-                    const AnsiCanvas::ColorIndex16 fg_idx = b.fg[idx];
+                    const AnsiCanvas::ColourIndex16 fg_idx = b.fg[idx];
                     const ImU32 fg = (fg_idx != AnsiCanvas::kUnsetIndex16) ? Index16ToImU32(fg_idx, active_canvas) : default_fg;
                     DrawGlyphPreview(dl, cmin, cell, cell, (phos::GlyphId)glyph, active_canvas, (std::uint32_t)fg);
                 }

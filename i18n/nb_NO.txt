@@ -276,12 +276,12 @@ nb_NO {
         clear_plus_home { "Clear + Home" }
       }
 
-      color_mode { "Color Mode" }
-      color_mode_items {
+      colour_mode { "Colour Mode" }
+      colour_mode_items {
         ansi16_classic { "ANSI16 (classic)" }
         xterm256 { "xterm-256 (38;5/48;5)" }
-        truecolor_sgr { "Truecolor SGR (38;2/48;2)" }
-        pablo_t { "Pablo/Icy truecolor (...t)" }
+        truecolour_sgr { "Truecolour SGR (38;2/48;2)" }
+        pablo_t { "Pablo/Icy truecolour (...t)" }
       }
 
       bright_ansi16 { "Bright ANSI16" }
@@ -290,8 +290,8 @@ nb_NO {
         sgr_90_97 { "SGR 90-97 / 100-107" }
       }
 
-      ice_colors { "iCE colors (blink => bright background)" }
-      xterm_240_safe { "240-color safe (avoid indices 0..15)" }
+      ice_colours { "iCE colours (blink => bright background)" }
+      xterm_240_safe { "240-colour safe (avoid indices 0..15)" }
       pablo_t_overlay { "Emit ANSI16 fallback + ...t overlay" }
 
       override_default_foreground { "Override default foreground" }
@@ -376,7 +376,7 @@ nb_NO {
 
     // XBin tab
     xbin_tab {
-      include_palette_chunk { "Include palette chunk (16 colors)" }
+      include_palette_chunk { "Include palette chunk (16 colours)" }
       include_embedded_font { "Include embedded font (if any)" }
       compress_rle { "Compress (XBin RLE)" }
       nonblink { "NonBlink (iCE / bright backgrounds)" }
@@ -788,9 +788,9 @@ nb_NO {
     zoom { "Zoom" }
     stretch { "Stretch" }
 
-    color_processing { "Color & processing" }
-    color_mode { "Color mode" }
-    color_mode_items {
+    colour_processing { "Colour & processing" }
+    colour_mode { "Colour mode" }
+    colour_mode_items {
       indexed_256 { "Indexed 256 (xterm)" }
       indexed_240 { "Indexed 240" }
       indexed_16 { "Indexed 16" }
@@ -799,14 +799,14 @@ nb_NO {
       default_invert { "Default fg/bg + invert" }
       default_no_codes { "Default fg/bg (no codes)" }
     }
-    color_extractor { "Color extractor" }
-    color_extractor_items { average { "Average" } median { "Median" } }
-    color_space { "Color space" }
-    color_space_items { rgb_fast { "RGB (fast)" } din99d { "DIN99d (perceptual)" } }
+    colour_extractor { "Colour extractor" }
+    colour_extractor_items { average { "Average" } median { "Median" } }
+    colour_space { "Colour space" }
+    colour_space_items { rgb_fast { "RGB (fast)" } din99d { "DIN99d (perceptual)" } }
     preprocessing { "Preprocessing" }
     transparency_threshold { "Transparency threshold" }
     foreground_only { "Foreground-only (fg-only)" }
-    custom_fg_bg { "Custom fg/bg colors" }
+    custom_fg_bg { "Custom fg/bg colours" }
     invert_fg_bg { "Invert fg/bg" }
     fg { "FG" }
     bg { "BG" }

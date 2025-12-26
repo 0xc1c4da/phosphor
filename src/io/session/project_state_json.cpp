@@ -1,6 +1,6 @@
 #include "io/session/project_state_json.h"
 
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/glyph_legacy.h"
 
 #include <algorithm>
@@ -107,23 +107,23 @@ static bool EmbeddedBitmapFontFromJson(const json& jf, AnsiCanvas::EmbeddedBitma
     return true;
 }
 
-static phos::color::Rgb8 Rgb8FromU24(std::uint32_t rgb)
+static phos::colour::Rgb8 Rgb8FromU24(std::uint32_t rgb)
 {
-    return phos::color::Rgb8{
+    return phos::colour::Rgb8{
         (std::uint8_t)((rgb >> 16) & 0xFFu),
         (std::uint8_t)((rgb >> 8) & 0xFFu),
         (std::uint8_t)((rgb >> 0) & 0xFFu),
     };
 }
 
-static std::uint32_t U24FromRgb8(const phos::color::Rgb8& c)
+static std::uint32_t U24FromRgb8(const phos::colour::Rgb8& c)
 {
     return ((std::uint32_t)c.r << 16) | ((std::uint32_t)c.g << 8) | (std::uint32_t)c.b;
 }
 
 struct PaletteUidHash
 {
-    std::size_t operator()(const phos::color::PaletteUid& u) const noexcept
+    std::size_t operator()(const phos::colour::PaletteUid& u) const noexcept
     {
         // Simple mix over 16 bytes; stable across runs.
         std::size_t h = 1469598103934665603ull;
@@ -136,8 +136,8 @@ struct PaletteUidHash
     }
 };
 
-static json PaletteRefToJson(const phos::color::PaletteRef& ref,
-                            const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
+static json PaletteRefToJson(const phos::colour::PaletteRef& ref,
+                            const std::unordered_set<phos::colour::PaletteUid, PaletteUidHash>* embedded)
 {
     json pj;
     if (ref.is_builtin)
@@ -155,15 +155,15 @@ static json PaletteRefToJson(const phos::color::PaletteRef& ref,
         return pj;
 
     // Dynamic palettes: embed the RGB table so undo history remains self-contained.
-    auto& cs = phos::color::GetColorSystem();
+    auto& cs = phos::colour::GetColourSystem();
     if (auto id = cs.Palettes().Resolve(ref))
     {
-        if (const phos::color::Palette* p = cs.Palettes().Get(*id))
+        if (const phos::colour::Palette* p = cs.Palettes().Get(*id))
         {
             if (!p->title.empty())
                 pj["title"] = p->title;
             json rgb = json::array();
-            for (const phos::color::Rgb8& c : p->rgb)
+            for (const phos::colour::Rgb8& c : p->rgb)
                 rgb.push_back(U24FromRgb8(c));
             pj["rgb_u24"] = std::move(rgb);
         }
@@ -171,10 +171,10 @@ static json PaletteRefToJson(const phos::color::PaletteRef& ref,
     return pj;
 }
 
-static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std::string& err)
+static bool PaletteRefFromJson(const json& pj, phos::colour::PaletteRef& out, std::string& err)
 {
     err.clear();
-    out = phos::color::PaletteRef{};
+    out = phos::colour::PaletteRef{};
     if (!pj.is_object())
         return true;
 
@@ -182,14 +182,14 @@ static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std
     {
         const std::uint32_t b = pj["builtin"].get<std::uint32_t>();
         out.is_builtin = true;
-        out.builtin = (phos::color::BuiltinPalette)b;
+        out.builtin = (phos::colour::BuiltinPalette)b;
         return true;
     }
 
     if (pj.contains("uid") && pj["uid"].is_string())
     {
         const std::string uid_hex = pj["uid"].get<std::string>();
-        phos::color::PaletteUid uid;
+        phos::colour::PaletteUid uid;
         if (!LowerHexToBytes(uid_hex, uid.bytes))
             return true;
 
@@ -199,7 +199,7 @@ static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std
         // If the JSON includes the dynamic palette table, register it now so the palette can be resolved.
         if (pj.contains("rgb_u24") && pj["rgb_u24"].is_array())
         {
-            std::vector<phos::color::Rgb8> rgb;
+            std::vector<phos::colour::Rgb8> rgb;
             rgb.reserve(pj["rgb_u24"].size());
             for (const auto& v : pj["rgb_u24"])
             {
@@ -222,11 +222,11 @@ static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std
                     u24 = (std::uint32_t)si;
                 }
                 rgb.push_back(Rgb8FromU24(u24));
-                if (rgb.size() >= phos::color::kMaxPaletteSize)
+                if (rgb.size() >= phos::colour::kMaxPaletteSize)
                     break;
             }
 
-            const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
+            const phos::colour::PaletteUid computed = phos::colour::ComputePaletteUid(rgb);
             if (computed != uid)
             {
                 err = "palette_ref.uid does not match the palette_ref.rgb_u24 table.";
@@ -236,7 +236,7 @@ static bool PaletteRefFromJson(const json& pj, phos::color::PaletteRef& out, std
             std::string title;
             if (pj.contains("title") && pj["title"].is_string())
                 title = pj["title"].get<std::string>();
-            (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
+            (void)phos::colour::GetColourSystem().Palettes().RegisterDynamic(title, rgb);
         }
         return true;
     }
@@ -255,14 +255,14 @@ static bool RegisterEmbeddedPaletteFromJson(const json& pj, std::string& err)
         return true;
 
     const std::string uid_hex = pj["uid"].get<std::string>();
-    phos::color::PaletteUid uid;
+    phos::colour::PaletteUid uid;
     if (!LowerHexToBytes(uid_hex, uid.bytes))
     {
         err = "embedded_palettes[].uid is not valid hex.";
         return false;
     }
 
-    std::vector<phos::color::Rgb8> rgb;
+    std::vector<phos::colour::Rgb8> rgb;
     rgb.reserve(pj["rgb_u24"].size());
     for (const auto& v : pj["rgb_u24"])
     {
@@ -285,13 +285,13 @@ static bool RegisterEmbeddedPaletteFromJson(const json& pj, std::string& err)
             u24 = (std::uint32_t)si;
         }
         rgb.push_back(Rgb8FromU24(u24));
-        if (rgb.size() >= phos::color::kMaxPaletteSize)
+        if (rgb.size() >= phos::colour::kMaxPaletteSize)
             break;
     }
     if (rgb.empty())
         return true;
 
-    const phos::color::PaletteUid computed = phos::color::ComputePaletteUid(rgb);
+    const phos::colour::PaletteUid computed = phos::colour::ComputePaletteUid(rgb);
     if (computed != uid)
     {
         err = "embedded_palettes[].uid does not match embedded_palettes[].rgb_u24.";
@@ -301,13 +301,13 @@ static bool RegisterEmbeddedPaletteFromJson(const json& pj, std::string& err)
     std::string title;
     if (pj.contains("title") && pj["title"].is_string())
         title = pj["title"].get<std::string>();
-    (void)phos::color::GetColorSystem().Palettes().RegisterDynamic(title, rgb);
+    (void)phos::colour::GetColourSystem().Palettes().RegisterDynamic(title, rgb);
     return true;
 }
 
 static bool ParseIndexPlaneFromJson(const json& arr,
-                                   std::vector<AnsiCanvas::ColorIndex16>& out,
-                                   const phos::color::PaletteRef& palette_ref,
+                                   std::vector<AnsiCanvas::ColourIndex16>& out,
+                                   const phos::colour::PaletteRef& palette_ref,
                                    int project_version,
                                    std::string& err)
 {
@@ -317,21 +317,21 @@ static bool ParseIndexPlaneFromJson(const json& arr,
         return true;
 
     out.reserve(arr.size());
-    auto& cs = phos::color::GetColorSystem();
-    phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+    auto& cs = phos::colour::GetColourSystem();
+    phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
     if (auto id = cs.Palettes().Resolve(palette_ref))
         pal = *id;
-    const phos::color::Palette* p = cs.Palettes().Get(pal);
+    const phos::colour::Palette* p = cs.Palettes().Get(pal);
     const std::uint16_t max_i = (p && !p->rgb.empty())
                                   ? (std::uint16_t)std::min<std::size_t>(p->rgb.size() - 1, 0xFFu)
                                   : (std::uint16_t)0;
 
-    const phos::color::QuantizePolicy qp = phos::color::DefaultQuantizePolicy();
+    const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
     for (const auto& v : arr)
     {
         if (!v.is_number_unsigned() && !v.is_number_integer())
         {
-            err = "Color plane contains a non-integer value.";
+            err = "Colour plane contains a non-integer value.";
             return false;
         }
 
@@ -345,7 +345,7 @@ static bool ParseIndexPlaneFromJson(const json& arr,
             }
             if (si < -1)
             {
-                err = "Color plane contains a negative value.";
+                err = "Colour plane contains a negative value.";
                 return false;
             }
         }
@@ -357,11 +357,11 @@ static bool ParseIndexPlaneFromJson(const json& arr,
             if (idx == AnsiCanvas::kUnsetIndex16)
                 out.push_back(idx);
             else
-                out.push_back((AnsiCanvas::ColorIndex16)std::clamp<std::uint16_t>(idx, 0, max_i));
+                out.push_back((AnsiCanvas::ColourIndex16)std::clamp<std::uint16_t>(idx, 0, max_i));
             continue;
         }
 
-        // Legacy packed Color32 (<= v7): 0 meant "unset".
+        // Legacy packed Colour32 (<= v7): 0 meant "unset".
         const std::uint32_t c32 = (std::uint32_t)u;
         if (project_version <= 7 && c32 == 0)
         {
@@ -369,13 +369,13 @@ static bool ParseIndexPlaneFromJson(const json& arr,
             continue;
         }
 
-        const phos::color::ColorIndex qi = phos::color::ColorOps::Color32ToIndex(cs.Palettes(), pal, c32, qp);
+        const phos::colour::ColourIndex qi = phos::colour::ColourOps::Colour32ToIndex(cs.Palettes(), pal, c32, qp);
         if (qi.IsUnset())
         {
             out.push_back(AnsiCanvas::kUnsetIndex16);
             continue;
         }
-        out.push_back((AnsiCanvas::ColorIndex16)std::clamp<std::uint16_t>(qi.v, 0, max_i));
+        out.push_back((AnsiCanvas::ColourIndex16)std::clamp<std::uint16_t>(qi.v, 0, max_i));
     }
 
     return true;
@@ -464,7 +464,7 @@ static json ProjectLayerToJson(const AnsiCanvas::ProjectLayer& l)
 
 static bool ProjectLayerFromJson(const json& jl,
                                  AnsiCanvas::ProjectLayer& out,
-                                 const phos::color::PaletteRef& palette_ref,
+                                 const phos::colour::PaletteRef& palette_ref,
                                  int embedded_glyph_count_for_migration,
                                  int project_version,
                                  std::string& err)
@@ -593,7 +593,7 @@ static bool ProjectLayerFromJson(const json& jl,
 }
 
 static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s,
-                                  const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
+                                  const std::unordered_set<phos::colour::PaletteUid, PaletteUidHash>* embedded)
 {
     json js;
     js["columns"] = s.columns;
@@ -612,7 +612,7 @@ static json ProjectSnapshotToJson(const AnsiCanvas::ProjectSnapshot& s,
 
 static bool ProjectSnapshotFromJson(const json& js,
                                     AnsiCanvas::ProjectSnapshot& out,
-                                    const phos::color::PaletteRef& palette_ref,
+                                    const phos::colour::PaletteRef& palette_ref,
                                     int embedded_glyph_count_for_migration,
                                     int project_version,
                                     std::string& err)
@@ -630,7 +630,7 @@ static bool ProjectSnapshotFromJson(const json& js,
     out.ui_palette_ref = palette_ref;
     if (js.contains("palette_ref") && js["palette_ref"].is_object())
     {
-        phos::color::PaletteRef pref;
+        phos::colour::PaletteRef pref;
         std::string perr;
         if (!PaletteRefFromJson(js["palette_ref"], pref, perr))
         {
@@ -642,7 +642,7 @@ static bool ProjectSnapshotFromJson(const json& js,
     }
     if (js.contains("ui_palette_ref") && js["ui_palette_ref"].is_object())
     {
-        phos::color::PaletteRef pref;
+        phos::colour::PaletteRef pref;
         std::string perr;
         if (!PaletteRefFromJson(js["ui_palette_ref"], pref, perr))
         {
@@ -681,7 +681,7 @@ static bool ProjectSnapshotFromJson(const json& js,
 }
 
 static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e,
-                            const std::unordered_set<phos::color::PaletteUid, PaletteUidHash>* embedded)
+                            const std::unordered_set<phos::colour::PaletteUid, PaletteUidHash>* embedded)
 {
     json je;
     if (e.kind == AnsiCanvas::ProjectState::ProjectUndoEntry::Kind::Patch)
@@ -743,7 +743,7 @@ static json UndoEntryToJson(const AnsiCanvas::ProjectState::ProjectUndoEntry& e,
 
 static bool UndoEntryFromJson(const json& je,
                               AnsiCanvas::ProjectState::ProjectUndoEntry& out,
-                              const phos::color::PaletteRef& palette_ref,
+                              const phos::colour::PaletteRef& palette_ref,
                               int embedded_glyph_count_for_migration,
                               int project_version,
                               std::string& err)
@@ -772,7 +772,7 @@ static bool UndoEntryFromJson(const json& je,
         p.ui_palette_ref = palette_ref;
         if (je.contains("palette_ref") && je["palette_ref"].is_object())
         {
-            phos::color::PaletteRef pref;
+            phos::colour::PaletteRef pref;
             std::string perr;
             if (!PaletteRefFromJson(je["palette_ref"], pref, perr))
             {
@@ -784,7 +784,7 @@ static bool UndoEntryFromJson(const json& je,
         }
         if (je.contains("ui_palette_ref") && je["ui_palette_ref"].is_object())
         {
-            phos::color::PaletteRef pref;
+            phos::colour::PaletteRef pref;
             std::string perr;
             if (!PaletteRefFromJson(je["ui_palette_ref"], pref, perr))
             {
@@ -942,8 +942,8 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     // embedded_palettes[]: dedup dynamic palette RGB tables across the entire project
     // (current state + undo/redo). PaletteRef entries can then be UID-only.
     // -----------------------------------------------------------------
-    std::unordered_set<phos::color::PaletteUid, PaletteUidHash> embedded;
-    auto add_ref = [&](const phos::color::PaletteRef& r)
+    std::unordered_set<phos::colour::PaletteUid, PaletteUidHash> embedded;
+    auto add_ref = [&](const phos::colour::PaletteRef& r)
     {
         if (!r.is_builtin && !r.uid.IsZero())
             embedded.insert(r.uid);
@@ -982,16 +982,16 @@ json ToJson(const AnsiCanvas::ProjectState& st)
     json embedded_pals = json::array();
     if (!embedded.empty())
     {
-        auto& cs = phos::color::GetColorSystem();
+        auto& cs = phos::colour::GetColourSystem();
         for (const auto& uid : embedded)
         {
-            phos::color::PaletteRef r;
+            phos::colour::PaletteRef r;
             r.is_builtin = false;
             r.uid = uid;
             const auto id = cs.Palettes().Resolve(r);
             if (!id.has_value())
                 continue;
-            const phos::color::Palette* p = cs.Palettes().Get(*id);
+            const phos::colour::Palette* p = cs.Palettes().Get(*id);
             if (!p || p->rgb.empty())
                 continue;
 
@@ -1000,7 +1000,7 @@ json ToJson(const AnsiCanvas::ProjectState& st)
             if (!p->title.empty())
                 ep["title"] = p->title;
             json rgb = json::array();
-            for (const phos::color::Rgb8& c : p->rgb)
+            for (const phos::colour::Rgb8& c : p->rgb)
                 rgb.push_back(U24FromRgb8(c));
             ep["rgb_u24"] = std::move(rgb);
             embedded_pals.push_back(std::move(ep));
@@ -1096,7 +1096,7 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     // Core palette identity (optional; defaults to xterm256).
     if (j.contains("palette_ref") && j["palette_ref"].is_object())
     {
-        phos::color::PaletteRef pref;
+        phos::colour::PaletteRef pref;
         std::string perr;
         if (!PaletteRefFromJson(j["palette_ref"], pref, perr))
         {
@@ -1111,7 +1111,7 @@ bool FromJson(const json& j, AnsiCanvas::ProjectState& out, std::string& err)
     out.ui_palette_ref = out.palette_ref;
     if (j.contains("ui_palette_ref") && j["ui_palette_ref"].is_object())
     {
-        phos::color::PaletteRef pref;
+        phos::colour::PaletteRef pref;
         std::string perr;
         if (!PaletteRefFromJson(j["ui_palette_ref"], pref, perr))
         {

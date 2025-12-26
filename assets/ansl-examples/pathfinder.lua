@@ -10,7 +10,7 @@
 
 settings = {
   fps = 30,
-  backgroundColor = "#000000",
+  backgroundColour = "#000000",
 }
 
 local utf8chars = ansl.string.utf8chars

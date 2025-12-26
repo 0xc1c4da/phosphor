@@ -100,9 +100,9 @@ private:
     bool        needs_recompile_ = true;
     std::string last_error_;
 
-    // Some scripts compute palette indices at compile time (via ansl.color.* helpers).
+    // Some scripts compute palette indices at compile time (via ansl.colour.* helpers).
     // If the canvas palette changes (e.g. Convert canvas palette), we must recompile so
     // those indices are re-quantized into the new palette index space.
     bool                  has_compiled_palette_ref_ = false;
-    phos::color::PaletteRef compiled_palette_ref_;
+    phos::colour::PaletteRef compiled_palette_ref_;
 };

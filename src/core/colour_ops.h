@@ -1,18 +1,18 @@
 #pragma once
 
-#include "core/color_index.h"
+#include "core/colour_index.h"
 #include "core/palette/palette.h"
 
 #include <cstdint>
 
-namespace phos::color
+namespace phos::colour
 {
-// Low-level color operations that will become the backbone of the indexed-canvas refactor.
+// Low-level colour operations that will become the backbone of the indexed-canvas refactor.
 // For now, this is used at a few callsites as a bridge from packed ImGui-style ABGR to indices.
-class ColorOps
+class ColourOps
 {
 public:
-    // Packed color uses ImGui ABGR (A high byte, R low byte). A value of 0 is treated as "unset".
+    // Packed colour uses ImGui ABGR (A high byte, R low byte). A value of 0 is treated as "unset".
     static inline bool UnpackImGuiAbgr(std::uint32_t c, std::uint8_t& r, std::uint8_t& g, std::uint8_t& b)
     {
         if (c == 0)
@@ -36,16 +36,16 @@ public:
                                         std::uint8_t b,
                                         const QuantizePolicy& policy);
 
-    // Packed ImGui ABGR (0==unset) -> ColorIndex (unset remains unset).
-    static ColorIndex Color32ToIndex(const PaletteRegistry& reg,
+    // Packed ImGui ABGR (0==unset) -> ColourIndex (unset remains unset).
+    static ColourIndex Colour32ToIndex(const PaletteRegistry& reg,
                                     PaletteInstanceId pal,
                                     std::uint32_t c32,
                                     const QuantizePolicy& policy);
 
     // Palette index -> packed ImGui ABGR (opaque). Caller handles fg/bg unset semantics.
-    static std::uint32_t IndexToColor32(const PaletteRegistry& reg, PaletteInstanceId pal, ColorIndex idx);
+    static std::uint32_t IndexToColour32(const PaletteRegistry& reg, PaletteInstanceId pal, ColourIndex idx);
 };
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

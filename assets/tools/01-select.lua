@@ -31,7 +31,7 @@ settings = {
   params = {
     -- Stable ordering for host UI.
     copyMode = { type = "enum", label = "Copy", ui = "segmented", section = "Clipboard", primary = true, items = { "layer", "composite" }, default = "layer" },
-    pasteMode = { type = "enum", label = "Paste", ui = "segmented", section = "Clipboard", primary = true, items = { "both", "char", "color" }, default = "both" },
+    pasteMode = { type = "enum", label = "Paste", ui = "segmented", section = "Clipboard", primary = true, items = { "both", "char", "colour" }, default = "both" },
     transparentSpaces = { type = "bool", label = "Transparent spaces", ui = "toggle", section = "Clipboard", primary = true, default = false, inline = true },
 
     -- Selection transforms (direct action buttons)

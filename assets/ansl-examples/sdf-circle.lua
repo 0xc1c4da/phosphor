@@ -32,7 +32,7 @@ function main(coord, ctx)
 
   local i = clampi(math.floor(c * #density) + 1, 1, #density)
   local ch = (coord.x % 2 == 1) and "│" or density[i]
-  return { char = ch, fg = ansl.color.ansi16.white, bg = ansl.color.ansi16.black }
+  return { char = ch, fg = ansl.colour.ansi16.white, bg = ansl.colour.ansi16.black }
 end
 
 

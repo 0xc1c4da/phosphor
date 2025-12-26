@@ -179,7 +179,7 @@ struct AnslFrameContext
     // Active palette identity for this canvas.
     // Tools should interpret ctx.fg/ctx.bg and ctx.palette as indices in this palette.
     bool          palette_is_builtin = true;
-    std::uint32_t palette_builtin = (std::uint32_t)phos::color::BuiltinPalette::Xterm256;
+    std::uint32_t palette_builtin = (std::uint32_t)phos::colour::BuiltinPalette::Xterm256;
 
     // Current single-cell glyph selection for tools (UTF-8). Empty means " " (space).
     // Provided by the host (e.g. character picker/palette selection).
@@ -212,7 +212,7 @@ struct AnslFrameContext
     const BrushStamp* brush = nullptr;
 
     // Optional restriction: list of allowed indices (in the active palette index space).
-    // If provided, tools should quantize/snap any computed colors to this list.
+    // If provided, tools should quantize/snap any computed colours to this list.
     // Host owns the vector; valid only for the duration of RunFrame().
     const std::vector<int>* allowed_indices = nullptr;
 
@@ -321,7 +321,7 @@ struct ToolCommandSink
 // Script-provided settings (optional).
 // Lua-side convention (preferred):
 //   settings = { fps = 60, once = false, fg = "#ffffff", bg = "#000000" }
-// Colors can be:
+// Colours can be:
 // - a palette index (0..paletteSize-1 in the active canvas palette), or
 // - "#RRGGBB"/"RRGGBB" string (mapped to nearest index in the active canvas palette).
 struct AnslScriptSettings
@@ -360,7 +360,7 @@ struct AnslScriptSettings
 //   - runs `main()` per cell
 //   - supports `main()` returning either:
 //       - a scalar (string/number) -> glyph
-//       - a table with `char` (+ optional `fg`/`bg` palette indices) -> per-cell colors via layer:set()
+//       - a table with `char` (+ optional `fg`/`bg` palette indices) -> per-cell colours via layer:set()
 //   - calls optional `post(context, cursor, buffer)` once per frame
 class AnslScriptEngine
 {
@@ -381,8 +381,8 @@ public:
 
     // Compiles/evaluates user script and caches the `render` function.
     //
-    // IMPORTANT: Some scripts compute color constants at load time (e.g. `local c = ansl.color.hex("#ff00ff")`).
-    // Since `ansl.color.*` depends on the active canvas palette, the host should pass the target canvas here
+    // IMPORTANT: Some scripts compute colour constants at load time (e.g. `local c = ansl.colour.hex("#ff00ff")`).
+    // Since `ansl.colour.*` depends on the active canvas palette, the host should pass the target canvas here
     // so compilation happens with the correct active palette binding.
     bool CompileUserScript(const std::string& source, std::string& error);
     bool CompileUserScript(const std::string& source, const AnsiCanvas* canvas, std::string& error);

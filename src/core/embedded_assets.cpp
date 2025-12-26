@@ -287,7 +287,7 @@ bool EnsureBundledAssetsExtracted(std::string& error)
     if (fs::exists(marker) &&
         fs::exists(dest_root / "character-palettes.json") &&
         fs::exists(dest_root / "brush-palettes.json") &&
-        fs::exists(dest_root / "color-palettes.json") &&
+        fs::exists(dest_root / "colour-palettes.json") &&
         fs::exists(dest_root / "tool-presets.json") &&
         fs::exists(dest_root / "key-bindings.json") &&
         fs::exists(dest_root / "character-sets.json") &&

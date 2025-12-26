@@ -546,7 +546,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     auto handle_gpl_palette = [&]() -> bool
     {
         // Palette import is applied by app layer (RunFrame) so that it can update
-        // assets/color-palettes.json and refresh the palette UI.
+        // assets/colour-palettes.json and refresh the palette UI.
         m_last_error.clear();
         m_open_events.push_back(OpenEvent{OpenEventKind::Palette, path, {}});
         return true;
@@ -976,7 +976,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
         }
         else
         {
-            // Goal: reasonable terminal-friendly output with xterm256 colors.
+            // Goal: reasonable terminal-friendly output with xterm256 colours.
             formats::ansi::ExportOptions opt;
             if (const auto* preset = formats::ansi::FindPreset(formats::ansi::PresetId::ModernUtf8_256))
                 opt = preset->export_;

@@ -1,7 +1,7 @@
 #include "ui/layer_manager.h"
 
 #include "core/canvas.h"
-#include "core/color_system.h"
+#include "core/colour_system.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
 #include "core/i18n.h"
@@ -62,7 +62,7 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
                                       int layer_index,
                                       int& out_gw,
                                       int& out_gh,
-                                      std::vector<std::uint32_t>& out_colors)
+                                      std::vector<std::uint32_t>& out_colours)
 {
     const int cols = canvas.GetColumns();
     const int rows = canvas.GetRows();
@@ -70,7 +70,7 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
     {
         out_gw = 0;
         out_gh = 0;
-        out_colors.clear();
+        out_colours.clear();
         return;
     }
 
@@ -231,7 +231,7 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
 
     out_gw = gw;
     out_gh = gh;
-    out_colors.assign((size_t)gw * (size_t)gh, 0u);
+    out_colours.assign((size_t)gw * (size_t)gh, 0u);
 
     // Defaults when fg is unset.
     const ImU32 default_fg = canvas.IsCanvasBackgroundWhite() ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
@@ -251,16 +251,16 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
             const float lx = std::clamp(fx - (float)src_col, 0.0f, 1.0f);
 
             const AnsiCanvas::GlyphId glyph = canvas.GetLayerGlyph(layer_index, src_row, src_col);
-            AnsiCanvas::ColorIndex16 fi = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColorIndex16 bi = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 fi = AnsiCanvas::kUnsetIndex16;
+            AnsiCanvas::ColourIndex16 bi = AnsiCanvas::kUnsetIndex16;
             (void)canvas.GetLayerCellIndices(layer_index, src_row, src_col, fi, bi);
 
-            auto& cs = phos::color::GetColorSystem();
-            phos::color::PaletteInstanceId pal = cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm256);
+            auto& cs = phos::colour::GetColourSystem();
+            phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
             if (auto id = cs.Palettes().Resolve(canvas.GetPaletteRef()))
                 pal = *id;
-            const AnsiCanvas::Color32 fg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{fi});
-            const AnsiCanvas::Color32 bg = (AnsiCanvas::Color32)phos::color::ColorOps::IndexToColor32(cs.Palettes(), pal, phos::color::ColorIndex{bi});
+            const AnsiCanvas::Colour32 fg = (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{fi});
+            const AnsiCanvas::Colour32 bg = (AnsiCanvas::Colour32)phos::colour::ColourOps::IndexToColour32(cs.Palettes(), pal, phos::colour::ColourIndex{bi});
 
             if (bg == 0 && phos::glyph::IsBlank((phos::GlyphId)glyph))
                 continue;
@@ -291,7 +291,7 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
                 const int r = (int)std::lround((double)br + ((double)fr - (double)br) * (double)t);
                 const int g = (int)std::lround((double)bgc + ((double)fgcc - (double)bgc) * (double)t);
                 const int b = (int)std::lround((double)bb + ((double)fb - (double)bb) * (double)t);
-                out_colors[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, 255);
+                out_colours[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, 255);
             }
             else
             {
@@ -301,13 +301,13 @@ static void ComputeLayerThumbnailGrid(const AnsiCanvas& canvas,
                 int r, g, b, a;
                 unpack(fg_col, r, g, b, a);
                 const int aa = (int)std::lround(255.0 * (double)t);
-                out_colors[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, aa);
+                out_colours[(size_t)y * (size_t)gw + (size_t)x] = (std::uint32_t)pack(r, g, b, aa);
             }
         }
     }
 }
 
-static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colors,
+static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colours,
                                        int gw,
                                        int gh,
                                        const ImVec2& size,
@@ -327,7 +327,7 @@ static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colors,
     const ImVec2 i1(p1.x - pad, p1.y - pad);
     DrawCheckerboard(dl, i0, i1, 6.0f);
 
-    if (gw <= 0 || gh <= 0 || colors.empty())
+    if (gw <= 0 || gh <= 0 || colours.empty())
     {
         dl->AddRect(p0, p1, IM_COL32(90, 90, 105, 255), 3.0f);
         return;
@@ -339,7 +339,7 @@ static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colors,
     const float ch = ih / (float)gh;
 
     const size_t expected = (size_t)gw * (size_t)gh;
-    const size_t n = std::min(expected, colors.size());
+    const size_t n = std::min(expected, colours.size());
     for (int y = 0; y < gh; ++y)
     {
         const float y0 = i0.y + (float)y * ch;
@@ -349,7 +349,7 @@ static void DrawLayerThumbnailFromGrid(const std::vector<std::uint32_t>& colors,
             const size_t idx = (size_t)y * (size_t)gw + (size_t)x;
             if (idx >= n)
                 break;
-            const ImU32 col = (ImU32)colors[idx];
+            const ImU32 col = (ImU32)colours[idx];
             if (col == 0)
                 continue;
             const float x0 = i0.x + (float)x * cw;
@@ -649,7 +649,7 @@ void LayerManager::Render(const char* title,
 
                     if (!tc.valid || must_refresh || should_refresh_now)
                     {
-                        ComputeLayerThumbnailGrid(*canvas, layer_index, tc.gw, tc.gh, tc.colors);
+                        ComputeLayerThumbnailGrid(*canvas, layer_index, tc.gw, tc.gh, tc.colours);
                         tc.cols = cols;
                         tc.rows = rows;
                         tc.font_id = font_id;
@@ -658,7 +658,7 @@ void LayerManager::Render(const char* title,
                         tc.valid = true;
                     }
 
-                    DrawLayerThumbnailFromGrid(tc.colors, tc.gw, tc.gh, ImVec2(64.0f, thumb_h), !is_visible);
+                    DrawLayerThumbnailFromGrid(tc.colours, tc.gw, tc.gh, ImVec2(64.0f, thumb_h), !is_visible);
                 }
 
                 // Name (top line) + controls (second line) to match standard editors.
@@ -735,8 +735,8 @@ void LayerManager::Render(const char* title,
                             phos::LayerBlendMode::Overlay,
                             phos::LayerBlendMode::Darken,
                             phos::LayerBlendMode::Lighten,
-                            phos::LayerBlendMode::ColorDodge,
-                            phos::LayerBlendMode::ColorBurn,
+                            phos::LayerBlendMode::ColourDodge,
+                            phos::LayerBlendMode::ColourBurn,
                         };
                         for (phos::LayerBlendMode m : modes)
                         {

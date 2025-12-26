@@ -10,7 +10,7 @@ settings = {
     fill = { type = "enum", label = "Fill", ui = "segmented", section = "Shape", primary = true, order = 2, inline = true, items = { "outline", "filled" }, default = "outline" },
 
     -- Rendering options
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Render", primary = true, order = 3, items = { "char", "colorize", "shading" }, default = "char" },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Render", primary = true, order = 3, items = { "char", "colourize", "shading" }, default = "char" },
     useFg = { type = "bool", label = "FG", ui = "toggle", section = "Render", primary = true, default = true, inline = true },
     useBg = { type = "bool", label = "BG", ui = "toggle", section = "Render", primary = true, default = true, inline = true },
 
@@ -189,7 +189,7 @@ local function decode_half(cur_ch, cur_fg, cur_bg)
   return is_blocky, upper, lower, cur_fg, cur_bg, cur_ch
 end
 
-local function set_half_color(ctx, layer, x, half_y, col)
+local function set_half_colour(ctx, layer, x, half_y, col)
   if type(col) ~= "number" then return end
   local rows = tonumber((ctx and ctx.rows) or 0) or 0
   if rows <= 0 then return end
@@ -243,7 +243,7 @@ local function get_paint(ctx, secondary)
   local fg = (useFg and type(ctx.fg) == "number") and math.floor(ctx.fg) or nil
   local bg = (useBg and type(ctx.bg) == "number") and math.floor(ctx.bg) or nil
 
-  -- Right button: swap colors (icy-draw style) for cell workflows.
+  -- Right button: swap colours (icy-draw style) for cell workflows.
   if secondary and fg ~= nil and bg ~= nil then
     fg, bg = bg, fg
   end
@@ -308,7 +308,7 @@ local function paint_cell(ctx, layer, x, y, glyph, fg, bg, secondary)
     return
   end
 
-  if mode == "colorize" then
+  if mode == "colourize" then
     if fg == nil and bg == nil then return end
     local ch = layer:get(x, y)
     if type(ch) ~= "string" or #ch == 0 then ch = " " end
@@ -629,7 +629,7 @@ local function draw_line_half(ctx, layer, x0, hy0, x1, hy1, col)
   bresenham(x0, hy0, x1, hy1, function(x, hy)
     i = i + 1
     if dash_ok(dash, i) then
-      set_half_color(ctx, layer, x, hy, col)
+      set_half_colour(ctx, layer, x, hy, col)
     end
   end)
 end
@@ -652,7 +652,7 @@ local function draw_rect_filled_half(ctx, layer, x0, hy0, x1, hy1, col)
   local sy, dy = reorientate(hy0, hy1)
   for hy = sy, dy do
     for x = sx, dx do
-      set_half_color(ctx, layer, x, hy, col)
+      set_half_colour(ctx, layer, x, hy, col)
     end
   end
 end
@@ -664,7 +664,7 @@ local function draw_ellipse_outline_half(ctx, layer, x0, hy0, x1, hy1, col)
     local key = tostring(pt.x) .. "," .. tostring(pt.y)
     if not seen[key] then
       seen[key] = true
-      set_half_color(ctx, layer, pt.x, pt.y, col)
+      set_half_colour(ctx, layer, pt.x, pt.y, col)
     end
   end
 end
@@ -684,7 +684,7 @@ local function draw_ellipse_filled_half(ctx, layer, x0, hy0, x1, hy1, col)
     local xhi = maxx[hy]
     if xhi ~= nil then
       for x = xlo, xhi do
-        set_half_color(ctx, layer, x, hy, col)
+        set_half_colour(ctx, layer, x, hy, col)
       end
     end
   end
@@ -710,7 +710,7 @@ local function fill_triangle_half(ctx, layer, ax, ay, bx, by, cx, cy, col)
     local xhi = maxx[hy]
     if xhi ~= nil then
       for x = xlo, xhi do
-        set_half_color(ctx, layer, x, hy, col)
+        set_half_colour(ctx, layer, x, hy, col)
       end
     end
   end
@@ -880,7 +880,7 @@ local function redraw_preview(ctx, layer)
   end
 
   if resolution == "half" then
-    -- Half mode paints with a single color into half blocks.
+    -- Half mode paints with a single colour into half blocks.
     local useFg = (p.useFg ~= false)
     local useBg = (p.useBg ~= false)
     -- IMPORTANT: like Pencil half mode, right-click selects BG (no fg/bg swap semantics here).

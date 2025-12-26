@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace phos::color
+namespace phos::colour
 {
 // Shared blend helpers (deterministic integer math; matches references/luts-refactor.md Phase D v1 formulas).
 static inline std::uint8_t LerpU8(std::uint8_t a, std::uint8_t b, std::uint8_t t)
@@ -48,11 +48,11 @@ static inline std::uint8_t BlendChannel(std::uint8_t b, std::uint8_t s, phos::La
             return (b < s) ? b : s;
         case phos::LayerBlendMode::Lighten:
             return (b > s) ? b : s;
-        case phos::LayerBlendMode::ColorDodge:
+        case phos::LayerBlendMode::ColourDodge:
             if (s == 255u)
                 return 255u;
             return (std::uint8_t)std::min<std::uint32_t>(255u, DivRound((std::uint32_t)b * 255u, 255u - (std::uint32_t)s));
-        case phos::LayerBlendMode::ColorBurn:
+        case phos::LayerBlendMode::ColourBurn:
             if (s == 0u)
                 return 0u;
             return (std::uint8_t)(255u - std::min<std::uint32_t>(255u, DivRound((255u - (std::uint32_t)b) * 255u, (std::uint32_t)s)));
@@ -86,6 +86,6 @@ static inline Rgb8 BlendOverRgb(const Rgb8& base, const Rgb8& src, phos::LayerBl
 {
     return ApplyOpacityRgb(base, BlendRgb(base, src, mode), alpha);
 }
-} // namespace phos::color
+} // namespace phos::colour
 
 

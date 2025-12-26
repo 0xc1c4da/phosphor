@@ -2,8 +2,8 @@
 -- From wingdings icons to unicode emojis
 
 settings = {
-  fg = ansl.color.ansi16.white,
-  bg = ansl.color.rgb(100, 0, 300),
+  fg = ansl.colour.ansi16.white,
+  bg = ansl.colour.rgb(100, 0, 300),
 }
 
 local floor = math.floor

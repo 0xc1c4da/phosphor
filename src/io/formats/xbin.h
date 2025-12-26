@@ -11,7 +11,7 @@
 // XBin (.XB) format module (import/export).
 //
 // XBin is an "extended BIN" container used in ANSI art tooling. It is a binary
-// textmode format with explicit width/height, optional 16-color palette, optional
+// textmode format with explicit width/height, optional 16-colour palette, optional
 // 8xN bitmap font, and optional row-wise RLE compression.
 //
 // Spec references:
@@ -63,27 +63,27 @@ struct ExportOptions
     };
     Source source = Source::Composite;
 
-    // If true, write a 16-color palette chunk (recommended for deterministic colors).
+    // If true, write a 16-colour palette chunk (recommended for deterministic colours).
     // Palette entries are stored as 6-bit (0..63) VGA-style components.
     bool include_palette = true;
 
-    // Target 16-color palette used to encode fg/bg indices.
+    // Target 16-colour palette used to encode fg/bg indices.
     // Note: if include_palette=false, consumers will assume the default (xterm16) palette,
     // so export will force the default VGA16 palette for encoding regardless of this setting.
     enum class TargetPalette : std::uint8_t
     {
         Vga16 = 0,
         Xterm16,
-        // Use the canvas palette if (and only if) it is 16-color; otherwise fall back to Xterm16.
+        // Use the canvas palette if (and only if) it is 16-colour; otherwise fall back to Xterm16.
         CanvasIf16,
-        // Use an explicit 16-color palette (builtin or dynamic uid).
+        // Use an explicit 16-colour palette (builtin or dynamic uid).
         Explicit,
     };
     TargetPalette target_palette = TargetPalette::Vga16;
-    phos::color::PaletteRef explicit_palette_ref = []{
-        phos::color::PaletteRef r;
+    phos::colour::PaletteRef explicit_palette_ref = []{
+        phos::colour::PaletteRef r;
         r.is_builtin = true;
-        r.builtin = phos::color::BuiltinPalette::None;
+        r.builtin = phos::colour::BuiltinPalette::None;
         return r;
     }();
 
@@ -95,7 +95,7 @@ struct ExportOptions
     bool compress = true;
 
     // If true, set XBin "NonBlink" flag, meaning attribute bit7 is background intensity
-    // (iCE / 16 background colors). Recommended, because it preserves 16 bg colors.
+    // (iCE / 16 background colours). Recommended, because it preserves 16 bg colours.
     bool nonblink = true;
 
     // XBin 512-character mode is not currently supported for export.

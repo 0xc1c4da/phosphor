@@ -347,49 +347,49 @@
     },
 
     {
-      "id": "color.prev_fg",
-      "title": "Previous Foreground Color",
-      "category": "Color",
+      "id": "colour.prev_fg",
+      "title": "Previous Foreground Colour",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+Up", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.next_fg",
-      "title": "Next Foreground Color",
-      "category": "Color",
+      "id": "colour.next_fg",
+      "title": "Next Foreground Colour",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+Down", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.prev_bg",
-      "title": "Previous Background Color",
-      "category": "Color",
+      "id": "colour.prev_bg",
+      "title": "Previous Background Colour",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+Left", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.next_bg",
-      "title": "Next Background Color",
-      "category": "Color",
+      "id": "colour.next_bg",
+      "title": "Next Background Colour",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+Right", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.pick_attribute",
+      "id": "colour.pick_attribute",
       "title": "Pick Attribute Under Caret",
-      "category": "Color",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Alt+U", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.default",
-      "title": "Default Color",
-      "category": "Color",
+      "id": "colour.default",
+      "title": "Default Colour",
+      "category": "Colour",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+D", "context": "editor", "platform": "any" },
         { "enabled": true, "chord": "Cmd+D", "context": "editor", "platform": "macos" }
@@ -590,7 +590,7 @@
       "id": "edit.swap_fg_bg",
       "title": "Swap Foreground/Background",
       "category": "Edit",
-      "description": "Swap the active foreground and background colors. TODO(wire).",
+      "description": "Swap the active foreground and background colours. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+Shift+X", "context": "editor", "platform": "any" },
         { "enabled": false, "chord": "Cmd+Shift+X", "context": "editor", "platform": "macos" }
@@ -791,155 +791,155 @@
       ]
     },
     {
-      "id": "color.ice_toggle",
-      "title": "Toggle iCE Colors",
-      "category": "Color",
-      "description": "Toggle iCE colors. TODO(wire).",
+      "id": "colour.ice_toggle",
+      "title": "Toggle iCE Colours",
+      "category": "Colour",
+      "description": "Toggle iCE colours. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+E", "context": "editor", "platform": "any" },
         { "enabled": false, "chord": "Cmd+E", "context": "editor", "platform": "macos" }
       ]
     },
     {
-      "id": "color.fg.set_0",
-      "title": "Set Foreground Color 0",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 0. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_0",
+      "title": "Set Foreground Colour 0",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 0. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+0", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_1",
-      "title": "Set Foreground Color 1",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 1. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_1",
+      "title": "Set Foreground Colour 1",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 1. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+1", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_2",
-      "title": "Set Foreground Color 2",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 2. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_2",
+      "title": "Set Foreground Colour 2",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 2. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+2", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_3",
-      "title": "Set Foreground Color 3",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 3. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_3",
+      "title": "Set Foreground Colour 3",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 3. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+3", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_4",
-      "title": "Set Foreground Color 4",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 4. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_4",
+      "title": "Set Foreground Colour 4",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 4. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+4", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_5",
-      "title": "Set Foreground Color 5",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 5. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_5",
+      "title": "Set Foreground Colour 5",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 5. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+5", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_6",
-      "title": "Set Foreground Color 6",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 6. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_6",
+      "title": "Set Foreground Colour 6",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 6. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+6", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.fg.set_7",
-      "title": "Set Foreground Color 7",
-      "category": "Color",
-      "description": "Set/toggle foreground color index 7. TODO(wire; conflicts with charset).",
+      "id": "colour.fg.set_7",
+      "title": "Set Foreground Colour 7",
+      "category": "Colour",
+      "description": "Set/toggle foreground colour index 7. TODO(wire; conflicts with charset).",
       "bindings": [
         { "enabled": false, "chord": "Ctrl+7", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_0",
-      "title": "Set Background Color 0",
-      "category": "Color",
-      "description": "Set/toggle background color index 0. TODO(wire).",
+      "id": "colour.bg.set_0",
+      "title": "Set Background Colour 0",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 0. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+0", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_1",
-      "title": "Set Background Color 1",
-      "category": "Color",
-      "description": "Set/toggle background color index 1. TODO(wire).",
+      "id": "colour.bg.set_1",
+      "title": "Set Background Colour 1",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 1. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+1", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_2",
-      "title": "Set Background Color 2",
-      "category": "Color",
-      "description": "Set/toggle background color index 2. TODO(wire).",
+      "id": "colour.bg.set_2",
+      "title": "Set Background Colour 2",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 2. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+2", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_3",
-      "title": "Set Background Color 3",
-      "category": "Color",
-      "description": "Set/toggle background color index 3. TODO(wire).",
+      "id": "colour.bg.set_3",
+      "title": "Set Background Colour 3",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 3. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+3", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_4",
-      "title": "Set Background Color 4",
-      "category": "Color",
-      "description": "Set/toggle background color index 4. TODO(wire).",
+      "id": "colour.bg.set_4",
+      "title": "Set Background Colour 4",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 4. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+4", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_5",
-      "title": "Set Background Color 5",
-      "category": "Color",
-      "description": "Set/toggle background color index 5. TODO(wire).",
+      "id": "colour.bg.set_5",
+      "title": "Set Background Colour 5",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 5. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+5", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_6",
-      "title": "Set Background Color 6",
-      "category": "Color",
-      "description": "Set/toggle background color index 6. TODO(wire).",
+      "id": "colour.bg.set_6",
+      "title": "Set Background Colour 6",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 6. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+6", "context": "editor", "platform": "any" }
       ]
     },
     {
-      "id": "color.bg.set_7",
-      "title": "Set Background Color 7",
-      "category": "Color",
-      "description": "Set/toggle background color index 7. TODO(wire).",
+      "id": "colour.bg.set_7",
+      "title": "Set Background Colour 7",
+      "category": "Colour",
+      "description": "Set/toggle background colour index 7. TODO(wire).",
       "bindings": [
         { "enabled": false, "chord": "Alt+7", "context": "editor", "platform": "any" }
       ]

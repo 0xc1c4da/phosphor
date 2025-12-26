@@ -8,11 +8,11 @@
 #include <string_view>
 #include <vector>
 
-namespace phos::color
+namespace phos::colour
 {
 // PaletteCatalog is a presentation/config layer on top of PaletteRegistry:
 // - Builtins are always available and always listed (stable ordering).
-// - Optional external palettes (e.g. assets/color-palettes.json) are loaded and registered
+// - Optional external palettes (e.g. assets/colour-palettes.json) are loaded and registered
 //   as dynamic palettes in the registry.
 //
 // The registry remains the single source of truth for palette RGB tables; the catalog
@@ -30,7 +30,7 @@ public:
     // On error, builtins remain available via UiPaletteList().
     bool LoadFromJsonFile(const std::string& path, std::string& out_error);
 
-    // Appends a palette to a JSON catalog file (typically assets/color-palettes.json).
+    // Appends a palette to a JSON catalog file (typically assets/colour-palettes.json).
     // - Creates the file if it does not exist.
     // - Ensures a unique "title" within the JSON (appends " (n)" suffix if needed).
     //
@@ -62,11 +62,11 @@ public:
     // - BestMatchUiByIndexOrder(): compares an explicit palette table against candidates of the same size.
     //   This is intended for formats that carry a palette table (e.g. XBin). Palette index order matters.
     //
-    // - BestMatchUiByNearestColors(): compares a set of observed RGB colors against each candidate palette,
+    // - BestMatchUiByNearestColours(): compares a set of observed RGB colours against each candidate palette,
     //   scoring by nearest-neighbor distance (order does not matter). This is intended for formats that
-    //   don't carry a palette table but do carry explicit RGB colors (e.g. truecolor ANSI sequences).
+    //   don't carry a palette table but do carry explicit RGB colours (e.g. truecolour ANSI sequences).
     std::optional<PaletteRef> BestMatchUiByIndexOrder(std::span<const Rgb8> table_rgb) const;
-    std::optional<PaletteRef> BestMatchUiByNearestColors(std::span<const Rgb8> colors) const;
+    std::optional<PaletteRef> BestMatchUiByNearestColours(std::span<const Rgb8> colours) const;
 
     // Optional load error message (empty when last load was successful).
     const std::string& LastLoadError() const { return m_last_error; }
@@ -80,6 +80,6 @@ private:
     std::string m_last_error;
 };
 
-} // namespace phos::color
+} // namespace phos::colour
 
 

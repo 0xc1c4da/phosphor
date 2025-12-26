@@ -17,7 +17,7 @@ struct Options
     int scale = 2;
 
     // If true, treat "unset background" (bg==0) as transparent in the output image.
-    // If false, use the canvas paper color (white/black).
+    // If false, use the canvas paper colour (white/black).
     bool transparent_unset_bg = false;
 };
 

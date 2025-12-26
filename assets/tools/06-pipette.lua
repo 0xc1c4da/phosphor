@@ -8,7 +8,7 @@ settings = {
     sample = { type = "enum", label = "Sample", ui = "segmented", section = "Pipette", primary = true, order = 0, items = { "composite", "layer" }, default = "composite" },
     pickBg = { type = "bool", label = "BG", ui = "toggle", section = "Pick", primary = true, order = 1, default = true },
     pickFg = { type = "bool", label = "FG", ui = "toggle", section = "Pick", primary = true, order = 2, default = true, inline = true },
-    pickChar = { type = "bool", label = "Char", ui = "toggle", section = "Pick", primary = true, order = 3, default = true, inline = true, tooltip = "Modifiers: Shift=char only, Ctrl=colors only." },
+    pickChar = { type = "bool", label = "Char", ui = "toggle", section = "Pick", primary = true, order = 3, default = true, inline = true, tooltip = "Modifiers: Shift=char only, Ctrl=colours only." },
     returnToPrev = { type = "bool", label = "Return to previous tool", ui = "toggle", section = "Pipette", default = true, tooltip = "Left click commits the pick and returns to the previous tool." },
   },
 }
@@ -83,7 +83,7 @@ local function sample_at(ctx, layer, x, y)
 
   -- Modifiers:
   -- - Shift: pick char only
-  -- - Ctrl: pick colors only
+  -- - Ctrl: pick colours only
   if mods.shift == true then
     pickFg = false
     pickBg = false

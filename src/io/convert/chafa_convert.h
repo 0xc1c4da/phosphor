@@ -31,16 +31,16 @@ struct Settings
     bool  zoom = false;
     bool  stretch = false;
 
-    // --- Color & processing ---
-    // Canvas mode (UI enum index). This project targets xterm-indexed output (<=256 colors),
-    // so we intentionally do not expose truecolor here.
+    // --- Colour & processing ---
+    // Canvas mode (UI enum index). This project targets xterm-indexed output (<=256 colours),
+    // so we intentionally do not expose truecolour here.
     // 0=Indexed 256, 1=Indexed 240, 2=Indexed 16, 3=Indexed 16/8, 4=Indexed 8, 5=Default fg/bg + invert, 6=Default fg/bg (no codes)
     int canvas_mode = 0; // default: Indexed 256 (xterm)
 
-    int color_extractor = 0; // 0=average, 1=median
-    int color_space = 0;     // 0=rgb, 1=din99d
+    int colour_extractor = 0; // 0=average, 1=median
+    int colour_space = 0;     // 0=rgb, 1=din99d
 
-    // When enabled, set explicit display fg/bg colors (packed RGB, 0xRRGGBB).
+    // When enabled, set explicit display fg/bg colours (packed RGB, 0xRRGGBB).
     bool     use_custom_fg_bg = false;
     uint32_t fg_rgb = 0xFFFFFF;
     uint32_t bg_rgb = 0x000000;
