@@ -127,13 +127,6 @@ int main(int argc, char** argv)
             std::fprintf(stderr, "[assets] %s\n", err.c_str());
     }
 
-    // Initialize ICU resource bundle i18n from extracted assets.
-    {
-        std::string err;
-        if (!phos::i18n::Init(PhosphorAssetPath("i18n"), /*locale=*/"", err) && !err.empty())
-            std::fprintf(stderr, "[i18n] %s\n", err.c_str());
-    }
-
     // Load persisted session state (window geometry + tool window toggles).
     // If no user session exists yet, this may fall back to assets/session.json.
     SessionState session_state;
@@ -141,6 +134,14 @@ int main(int argc, char** argv)
         std::string err;
         if (!LoadSessionState(session_state, err) && !err.empty())
             std::fprintf(stderr, "[session] %s\n", err.c_str());
+    }
+
+    // Initialize ICU resource bundle i18n from extracted assets.
+    // Use the persisted UI locale if present; otherwise fall back to system default.
+    {
+        std::string err;
+        if (!phos::i18n::Init(PhosphorAssetPath("i18n"), /*locale=*/session_state.ui_locale, err) && !err.empty())
+            std::fprintf(stderr, "[i18n] %s\n", err.c_str());
     }
 
     // Apply session preferences to the core LUT cache (global for now).

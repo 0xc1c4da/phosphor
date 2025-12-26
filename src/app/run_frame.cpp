@@ -730,7 +730,7 @@ void RunFrame(AppState& st)
     };
 
     // Quit confirmation modal.
-    const std::string quit_popup = PHOS_TR("confirm.quit_modal_title") + "##confirm_quit";
+    const std::string quit_popup = PHOS_TR("confirm.quit_modal_title") + "###confirm_quit";
     if (st.quit_modal_open && !ImGui::IsPopupOpen(quit_popup.c_str(), ImGuiPopupFlags_AnyPopupId))
         ImGui::OpenPopup(quit_popup.c_str());
     if (st.quit_modal_open)
@@ -1206,7 +1206,7 @@ void RunFrame(AppState& st)
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
-        const std::string title = PHOS_TR("menu.window.colour_picker") + "##Colour Picker";
+        const std::string title = PHOS_TR("menu.window.colour_picker") + "###Colour Picker";
         ImGui::Begin(title.c_str(), &show_color_picker_window, flags);
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
@@ -1589,7 +1589,7 @@ void RunFrame(AppState& st)
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, wname);
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, wname);
-            const std::string title = PHOS_TR("status_windows.tool_error_title") + "##Tool Error";
+            const std::string title = PHOS_TR("status_windows.tool_error_title") + "###Tool Error";
             ImGui::Begin(title.c_str(), nullptr, flags);
             CaptureImGuiWindowPlacement(session_state, wname);
             ApplyImGuiWindowChromeZOrder(&session_state, wname);
@@ -1606,7 +1606,7 @@ void RunFrame(AppState& st)
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, wname);
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, wname);
-            const std::string title = PHOS_TR("status_windows.tools_error_title") + "##Tools Error";
+            const std::string title = PHOS_TR("status_windows.tools_error_title") + "###Tools Error";
             ImGui::Begin(title.c_str(), nullptr, flags);
             CaptureImGuiWindowPlacement(session_state, wname);
             ApplyImGuiWindowChromeZOrder(&session_state, wname);
@@ -1635,7 +1635,7 @@ void RunFrame(AppState& st)
         if (canvas.canvas.GetBitmapGlyphAtlasProvider() != &bitmap_glyph_atlas)
             canvas.canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
         const std::string close_popup_id =
-            PHOS_TR("confirm.close_canvas_modal_title") + "##close_canvas_" + std::to_string(canvas.id);
+            PHOS_TR("confirm.close_canvas_modal_title") + "###close_canvas_" + std::to_string(canvas.id);
 
         auto queue_close = [&]() {
             canvas.open = false;
@@ -2547,7 +2547,7 @@ void RunFrame(AppState& st)
             canvas.sauce_dialog.OpenFromCanvas(canvas.canvas);
 
         const std::string sauce_popup_id =
-            PHOS_TR("sauce_editor.title") + "##sauce_" + std::to_string(canvas.id);
+            PHOS_TR("sauce_editor.title") + "###sauce_" + std::to_string(canvas.id);
         canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id.c_str());
 
         ImGui::End();
@@ -2689,7 +2689,7 @@ void RunFrame(AppState& st)
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
-        const std::string title = PHOS_TR("menu.window.ansl_editor") + "##ANSL Editor";
+        const std::string title = PHOS_TR("menu.window.ansl_editor") + "###ANSL Editor";
         ImGui::Begin(title.c_str(), &show_ansl_editor_window, flags);
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
@@ -2821,7 +2821,7 @@ void RunFrame(AppState& st)
 
     // Chafa conversion UI
     image_to_chafa_dialog.Render(&session_state,
-                                 should_apply_placement("Image \xE2\x86\x92 ANSI (Chafa)##chafa_preview"));
+                                 should_apply_placement("chafa_preview"));
     {
         AnsiCanvas converted;
         if (image_to_chafa_dialog.TakeAccepted(converted))
@@ -2840,7 +2840,7 @@ void RunFrame(AppState& st)
 
     // Markdown import UI
     markdown_to_ansi_dialog.Render(&session_state,
-                                   should_apply_placement("Markdown \xE2\x86\x92 Canvas##md_preview"));
+                                   should_apply_placement("md_preview"));
     {
         const std::string src_path = markdown_to_ansi_dialog.SourcePath();
         AnsiCanvas imported;

@@ -552,7 +552,7 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
         ImGuiWindowFlags_None |
         (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
-    const std::string win_title = PHOS_TR("menu.window.tool_palette") + "##" + std::string(title);
+    const std::string win_title = PHOS_TR("menu.window.tool_palette") + "###" + std::string(title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)

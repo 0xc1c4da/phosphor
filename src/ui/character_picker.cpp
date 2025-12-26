@@ -773,7 +773,7 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    const std::string win_title = PHOS_TR("menu.window.unicode_character_picker") + "##" + std::string(window_title);
+    const std::string win_title = PHOS_TR("menu.window.unicode_character_picker") + "###" + std::string(window_title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
@@ -816,7 +816,7 @@ void CharacterPicker::RenderTopBar()
         }
 
         ImGui::SetNextItemWidth(280.0f);
-        const std::string block_lbl = PHOS_TR("character_picker.block") + "##charpick_block";
+        const std::string block_lbl = PHOS_TR("character_picker.block") + "###charpick_block";
         if (ImGui::BeginCombo(block_lbl.c_str(), preview.c_str()))
         {
             bool sel_all = (block_index_ == 0);
@@ -873,7 +873,7 @@ void CharacterPicker::RenderTopBar()
                                phos::i18n::Arg::I64((long long)cps.size()));
 
             ImGui::SetNextItemWidth(260.0f);
-                const std::string page_lbl = PHOS_TR("character_picker.page") + "##charpick_page";
+                const std::string page_lbl = PHOS_TR("character_picker.page") + "###charpick_page";
                 if (ImGui::BeginCombo(page_lbl.c_str(), preview.c_str()))
             {
                 for (int p = 0; p < page_count; ++p)
@@ -905,7 +905,7 @@ void CharacterPicker::RenderTopBar()
                                                phos::i18n::Arg::Str(range));
 
             ImGui::SetNextItemWidth(260.0f);
-                const std::string subpage_lbl = PHOS_TR("character_picker.subpage") + "##charpick_subpage";
+                const std::string subpage_lbl = PHOS_TR("character_picker.subpage") + "###charpick_subpage";
                 if (ImGui::BeginCombo(subpage_lbl.c_str(), preview.c_str()))
             {
                 for (int p : available_planes_)
@@ -946,7 +946,7 @@ void CharacterPicker::RenderTopBar()
             std::string preview = CodePointHex(ps) + ".." + CodePointHex(pe);
 
             ImGui::SetNextItemWidth(260.0f);
-            const std::string jump_lbl = PHOS_TR("character_picker.jump") + "##charpick_jump";
+            const std::string jump_lbl = PHOS_TR("character_picker.jump") + "###charpick_jump";
             if (ImGui::BeginCombo(jump_lbl.c_str(), preview.c_str()))
             {
                 for (int p = 0; p < page_count; ++p)
@@ -980,7 +980,7 @@ void CharacterPicker::RenderTopBar()
     // Search
     {
         ImGui::SetNextItemWidth(340.0f);
-        const std::string search_lbl = PHOS_TR("common.search") + "##charpick_search";
+        const std::string search_lbl = PHOS_TR("common.search") + "###charpick_search";
         const std::string hint = PHOS_TR("character_picker.search_hint");
         if (ImGui::InputTextWithHint(search_lbl.c_str(), hint.c_str(), &search_query_,
                                      ImGuiInputTextFlags_EnterReturnsTrue))
@@ -1163,7 +1163,7 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
 
     if (ImGui::BeginTable("##unicode_table", total_cols, flags, outer_size))
     {
-        const std::string row_col = PHOS_TR("character_picker.row_col") + "##charpick_row";
+        const std::string row_col = PHOS_TR("character_picker.row_col") + "###charpick_row";
         ImGui::TableSetupColumn(row_col.c_str(), ImGuiTableColumnFlags_WidthFixed, rowhdr_w);
         for (int c = 0; c < kCols; ++c)
         {

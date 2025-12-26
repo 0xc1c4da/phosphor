@@ -13,9 +13,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
+#include <vector>
+
+#include <unicode/locid.h>
+#include <unicode/unistr.h>
 
 #ifndef PHOSPHOR_VERSION_STR
 #define PHOSPHOR_VERSION_STR "0.0.0+unknown"
@@ -23,6 +28,45 @@
 
 namespace
 {
+static std::vector<std::string> ListIcuBundleLocales(const std::string& bundle_dir)
+{
+    namespace fs = std::filesystem;
+    std::vector<std::string> out;
+    std::error_code ec;
+    for (const auto& it : fs::directory_iterator(fs::path(bundle_dir), ec))
+    {
+        if (ec)
+            break;
+        if (!it.is_regular_file(ec))
+            continue;
+        const fs::path p = it.path();
+        if (p.extension() != ".res")
+            continue;
+        const std::string stem = p.stem().string();
+        if (stem.empty())
+            continue;
+        out.push_back(stem);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+static std::string LocaleNativeDisplayName(const std::string& locale_id)
+{
+    if (locale_id.empty())
+        return {};
+    if (locale_id == "root")
+        return "English";
+
+    icu::Locale loc(locale_id.c_str());
+    icu::UnicodeString us;
+    loc.getDisplayName(loc, us); // native name
+    std::string out;
+    us.toUTF8String(out);
+    return out.empty() ? locale_id : out;
+}
+
 static std::string ToLower(std::string s)
 {
     for (char& c : s)
@@ -186,6 +230,79 @@ void SettingsWindow::RenderTab_General()
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                            "%s", PHOS_TR("settings_window.general_tab.session_state_missing").c_str());
         return;
+    }
+
+    // ---------------------------------------------------------------------
+    // Language / locale (ICU resource bundles)
+    // ---------------------------------------------------------------------
+    {
+        const std::string bundle_dir = PhosphorAssetPath("i18n");
+        std::vector<std::string> locales = ListIcuBundleLocales(bundle_dir);
+
+        // Ensure the current selection is visible even if the bundle is missing.
+        if (!session_->ui_locale.empty())
+        {
+            if (std::find(locales.begin(), locales.end(), session_->ui_locale) == locales.end())
+                locales.push_back(session_->ui_locale);
+        }
+        std::sort(locales.begin(), locales.end());
+        locales.erase(std::unique(locales.begin(), locales.end()), locales.end());
+
+        // Build labels.
+        struct Item { std::string id; std::string label; };
+        std::vector<Item> items;
+        items.reserve(locales.size() + 1);
+        items.push_back(Item{
+            .id = "",
+            .label = PHOS_TR("settings_window.general_tab.language_system_default"),
+        });
+
+        for (const std::string& id : locales)
+        {
+            // Only show valid ICU bundle locale ids (including "root").
+            if (id.empty())
+                continue;
+            items.push_back(Item{ .id = id, .label = LocaleNativeDisplayName(id) });
+        }
+
+        auto current_label = [&]() -> std::string {
+            if (session_->ui_locale.empty())
+                return PHOS_TR("settings_window.general_tab.language_system_default");
+            for (const auto& it : items)
+                if (it.id == session_->ui_locale)
+                    return it.label;
+            return session_->ui_locale;
+        };
+
+        ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.language").c_str());
+        ImGui::Separator();
+
+        ImGui::SetNextItemWidth(320.0f);
+        const std::string label = current_label();
+        if (ImGui::BeginCombo("##ui_locale", label.c_str()))
+        {
+            for (const auto& it : items)
+            {
+                const bool selected = (session_->ui_locale == it.id);
+                if (ImGui::Selectable(it.label.c_str(), selected))
+                {
+                    session_->ui_locale = it.id; // empty => system default
+
+                    // Live refresh: re-init i18n. Next frame will render with new strings.
+                    std::string err;
+                    if (!phos::i18n::Init(bundle_dir, session_->ui_locale, err) && !err.empty())
+                        std::fprintf(stderr, "[i18n] %s\n", err.c_str());
+                }
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.general_tab.language_help").c_str());
+
+        ImGui::Spacing();
+        ImGui::Spacing();
     }
 
     ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.undo_history").c_str());
@@ -457,7 +574,7 @@ void SettingsWindow::RenderTab_General()
     }
 }
 
-void SettingsWindow::Render(const char* title, SessionState* session, bool apply_placement_this_frame)
+void SettingsWindow::Render(const char* persist_key, SessionState* session, bool apply_placement_this_frame)
 {
     if (!open_)
         return;
@@ -465,10 +582,13 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
     EnsureDefaultTabsRegistered();
     session_ = session;
 
+    // Localized visible title + stable ImGui ID (stable across language changes).
+    const std::string win_title = PHOS_TR("common.settings") + "###" + std::string(persist_key ? persist_key : "Settings");
+
     // Provide a reasonable default size for first-time users, but prefer persisted placements.
     if (session && apply_placement_this_frame)
     {
-        auto it = session->imgui_windows.find(title);
+        auto it = session->imgui_windows.find(persist_key);
         const bool has = (it != session->imgui_windows.end() && it->second.valid);
         if (!has)
             ImGui::SetNextWindowSize(ImVec2(860, 560), ImGuiCond_Always);
@@ -479,26 +599,26 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
     }
 
     if (session)
-        ApplyImGuiWindowPlacement(*session, title, apply_placement_this_frame);
+        ApplyImGuiWindowPlacement(*session, persist_key, apply_placement_this_frame);
 
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_None |
-        (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
-    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
-    if (!ImGui::Begin(title, &open_, flags))
+        (session ? GetImGuiWindowChromeExtraFlags(*session, persist_key) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, persist_key);
+    if (!ImGui::Begin(win_title.c_str(), &open_, flags))
     {
         if (session)
-            CaptureImGuiWindowPlacement(*session, title);
+            CaptureImGuiWindowPlacement(*session, persist_key);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
     if (session)
-        CaptureImGuiWindowPlacement(*session, title);
+        CaptureImGuiWindowPlacement(*session, persist_key);
     if (session)
     {
-        ApplyImGuiWindowChromeZOrder(session, title);
-        RenderImGuiWindowChromeMenu(session, title);
+        ApplyImGuiWindowChromeZOrder(session, persist_key);
+        RenderImGuiWindowChromeMenu(session, persist_key);
     }
 
     if (ImGui::BeginTabBar("##settings_tabs"))
@@ -507,7 +627,8 @@ void SettingsWindow::Render(const char* title, SessionState* session, bool apply
         {
             // Don't force selection every frame: doing so prevents the user from switching tabs.
             // Let ImGui manage selection; we just observe which tab is active.
-            if (ImGui::BeginTabItem(tab.title.c_str()))
+            const std::string tab_title = tab.title + "###settings_tab_" + tab.id;
+            if (ImGui::BeginTabItem(tab_title.c_str()))
             {
                 active_tab_id_ = tab.id;
                 if (tab.render)
@@ -631,10 +752,12 @@ void SettingsWindow::RenderTab_KeyBindings()
     ImGui::Separator();
 
     // Record binding modal (UI only; writes chord string into the selected binding).
+    const std::string record_popup =
+        PHOS_TR("settings_window.key_bindings_tab.record_key_binding") + "###kb_record_binding";
     if (capture_active_)
-        ImGui::OpenPopup(PHOS_TR("settings_window.key_bindings_tab.record_key_binding").c_str());
+        ImGui::OpenPopup(record_popup.c_str());
 
-    if (ImGui::BeginPopupModal(PHOS_TR("settings_window.key_bindings_tab.record_key_binding").c_str(),
+    if (ImGui::BeginPopupModal(record_popup.c_str(),
                                nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize))
     {
@@ -1034,8 +1157,8 @@ void SettingsWindow::RenderTab_KeyBindings()
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         // Action column was previously too wide; keep it compact.
-        const std::string action_col = PHOS_TR("settings_window.key_bindings_tab.action_col") + "##kb_action";
-        const std::string bindings_col = PHOS_TR("settings_window.key_bindings_tab.bindings_col") + "##kb_bindings";
+        const std::string action_col = PHOS_TR("settings_window.key_bindings_tab.action_col") + "###kb_action";
+        const std::string bindings_col = PHOS_TR("settings_window.key_bindings_tab.bindings_col") + "###kb_bindings";
         ImGui::TableSetupColumn(action_col.c_str(), ImGuiTableColumnFlags_WidthStretch, 0.34f);
         ImGui::TableSetupColumn(bindings_col.c_str(), ImGuiTableColumnFlags_WidthStretch, 0.66f);
         ImGui::TableHeadersRow();

@@ -1028,13 +1028,14 @@ void IoManager::RenderStatusWindows(SessionState* session, bool apply_placement_
 {
     if (!m_last_error.empty())
     {
-        const std::string wname = PHOS_TR("io.status_windows.file_error_title") + "##io_file_error";
+        const char* persist_key = "io_file_error";
+        const std::string title = PHOS_TR("io.status_windows.file_error_title") + "###io_file_error";
         if (session)
-            ApplyImGuiWindowPlacement(*session, wname.c_str(), apply_placement_this_frame);
+            ApplyImGuiWindowPlacement(*session, persist_key, apply_placement_this_frame);
 
-        ImGui::Begin(wname.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         if (session)
-            CaptureImGuiWindowPlacement(*session, wname.c_str());
+            CaptureImGuiWindowPlacement(*session, persist_key);
 
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_last_error.c_str());
         const std::string dismiss = PHOS_TR("io.status_windows.dismiss");

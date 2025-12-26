@@ -685,7 +685,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    const std::string win_title = PHOS_TR("menu.window.character_sets") + "##" + std::string(window_title);
+    const std::string win_title = PHOS_TR("menu.window.character_sets") + "###" + std::string(window_title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)

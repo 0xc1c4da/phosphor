@@ -19,6 +19,10 @@ struct State
     std::string locale;
     UResourceBundle* bundle = nullptr; // owned
 
+    // Captured once (first Init call) so we can return to "system default" even after calling
+    // ICU Locale::setDefault() for a user-selected UI language.
+    std::string system_default_locale;
+
     std::string missing_suffix;
 
     std::unordered_map<std::string, std::string> str_cache;
@@ -281,9 +285,22 @@ bool Init(const std::string& bundle_dir, const std::string& locale, std::string&
         // Best-effort existence check only.
     }
 
+    // Capture the process/system default locale once so it remains available as a stable
+    // "system default" target even after we override ICU's default locale later.
+    if (st.system_default_locale.empty())
+        st.system_default_locale = std::string(icu::Locale::getDefault().getName());
+
     const std::string chosen_locale = st.locale.empty()
-        ? std::string(icu::Locale::getDefault().getName())
+        ? st.system_default_locale
         : st.locale;
+
+    // Ensure MessageFormat/plural rules follow the selected UI locale (best effort).
+    {
+        UErrorCode s = U_ZERO_ERROR;
+        icu::Locale loc(chosen_locale.c_str());
+        icu::Locale::setDefault(loc, s);
+        // Ignore failure; bundle lookup will still fall back to root if needed.
+    }
 
     // ICU resource bundle files are named by locale: root.res, en.res, fr.res, ...
     // We try the chosen locale first, then fall back to "root".

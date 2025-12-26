@@ -548,7 +548,7 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    const std::string win_title = PHOS_TR("menu.window.character_palette") + "##" + std::string(window_title);
+    const std::string win_title = PHOS_TR("menu.window.character_palette") + "###" + std::string(window_title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
@@ -743,15 +743,15 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         open_new_popup_ = false;
         const std::string def = PHOS_TR("character_palette.new_palette_default_title");
         std::snprintf(new_title_buf_, sizeof(new_title_buf_), "%s", def.c_str());
-        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "##charpal_new";
+        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "###charpal_new";
         ImGui::OpenPopup(popup.c_str());
     }
     {
-        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "##charpal_new";
+        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "###charpal_new";
         if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(PHOS_TR("character_palette.create_new_palette_help").c_str());
-        const std::string title_lbl = PHOS_TR("character_palette.title") + "##charpal_new_title";
+        const std::string title_lbl = PHOS_TR("character_palette.title") + "###charpal_new_title";
         ImGui::InputText(title_lbl.c_str(), new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
         if (ImGui::Button(PHOS_TR("character_palette.create").c_str()))
         {
@@ -784,15 +784,15 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         const int pi = std::clamp(selected_palette_, 0, std::max(0, (int)palettes_.size() - 1));
         const std::string cur = palettes_.empty() ? std::string() : palettes_[pi].title;
         std::snprintf(rename_buf_, sizeof(rename_buf_), "%s", cur.c_str());
-        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "##charpal_rename";
+        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "###charpal_rename";
         ImGui::OpenPopup(popup.c_str());
     }
     {
-        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "##charpal_rename";
+        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "###charpal_rename";
         if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(PHOS_TR("character_palette.rename_palette_help").c_str());
-        const std::string title_lbl = PHOS_TR("character_palette.title") + "##charpal_rename_title";
+        const std::string title_lbl = PHOS_TR("character_palette.title") + "###charpal_rename_title";
         ImGui::InputText(title_lbl.c_str(), rename_buf_, IM_ARRAYSIZE(rename_buf_));
         if (ImGui::Button(PHOS_TR("common.ok").c_str()))
         {
@@ -815,11 +815,11 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
     if (open_delete_popup_)
     {
         open_delete_popup_ = false;
-        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "##charpal_delete";
+        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "###charpal_delete";
         ImGui::OpenPopup(popup.c_str());
     }
     {
-        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "##charpal_delete";
+        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "###charpal_delete";
         if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(PHOS_TR("character_palette.delete_palette_help").c_str());

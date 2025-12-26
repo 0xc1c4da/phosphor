@@ -14,7 +14,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-static constexpr int kSessionSchemaVersion = 19;
+static constexpr int kSessionSchemaVersion = 20;
 
 static std::string EnvOrEmpty(const char* name)
 {
@@ -86,6 +86,8 @@ static json ToJson(const SessionState& st)
     ui["show_16colors_browser_window"] = st.show_16colors_browser_window;
     if (!st.ui_theme.empty())
         ui["theme"] = st.ui_theme;
+    if (!st.ui_locale.empty())
+        ui["locale"] = st.ui_locale;
     ui["undo_limit"] = st.undo_limit;
     ui["zoom_snap_mode"] = st.zoom_snap_mode;
     ui["lut_cache_budget_bytes"] = st.lut_cache_budget_bytes;
@@ -316,6 +318,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_16colors_browser_window = ui["show_16colors_browser_window"].get<bool>();
         if (ui.contains("theme") && ui["theme"].is_string())
             out.ui_theme = ui["theme"].get<std::string>();
+        if (ui.contains("locale") && ui["locale"].is_string())
+            out.ui_locale = ui["locale"].get<std::string>();
         if (ui.contains("undo_limit") && ui["undo_limit"].is_number_unsigned())
             out.undo_limit = ui["undo_limit"].get<size_t>();
         else if (ui.contains("undo_limit") && ui["undo_limit"].is_number_integer())

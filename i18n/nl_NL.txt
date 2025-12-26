@@ -412,6 +412,10 @@ nl_NL {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Taal" }
+      language_system_default { "Systeemstandaard" }
+      language_help { "Wordt direct toegepast." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

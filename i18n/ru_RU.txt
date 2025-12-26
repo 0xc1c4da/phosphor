@@ -412,6 +412,10 @@ ru_RU {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Язык" }
+      language_system_default { "Системный по умолчанию" }
+      language_help { "Применяется сразу." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

@@ -220,21 +220,23 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
     // ---------------------------------------------------------------------
     // Preview window
     // ---------------------------------------------------------------------
-    const std::string preview_title = PHOS_TR("markdown_import.preview_title") + "##md_preview";
+    // Use a stable persistence key across language changes (session placement + chrome state).
+    const char* preview_key = "md_preview";
+    const std::string preview_title = PHOS_TR("markdown_import.preview_title") + "###" + preview_key;
     if (session)
-        ApplyImGuiWindowPlacement(*session, preview_title.c_str(), apply_placement_this_frame);
+        ApplyImGuiWindowPlacement(*session, preview_key, apply_placement_this_frame);
     ImGui::SetNextWindowSize(ImVec2(1100.0f, 720.0f), ImGuiCond_Appearing);
 
     const ImGuiWindowFlags preview_flags =
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
-        (session ? GetImGuiWindowChromeExtraFlags(*session, preview_title.c_str()) : ImGuiWindowFlags_None);
-    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, preview_title.c_str());
+        (session ? GetImGuiWindowChromeExtraFlags(*session, preview_key) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, preview_key);
 
     if (!ImGui::Begin(preview_title.c_str(), &open_, preview_flags))
     {
         if (session)
-            CaptureImGuiWindowPlacement(*session, preview_title.c_str());
+            CaptureImGuiWindowPlacement(*session, preview_key);
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         if (!open_)
@@ -251,9 +253,9 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
     {
         if (session)
         {
-            CaptureImGuiWindowPlacement(*session, preview_title.c_str());
-            ApplyImGuiWindowChromeZOrder(session, preview_title.c_str());
-            RenderImGuiWindowChromeMenu(session, preview_title.c_str());
+            CaptureImGuiWindowPlacement(*session, preview_key);
+            ApplyImGuiWindowChromeZOrder(session, preview_key);
+            RenderImGuiWindowChromeMenu(session, preview_key);
         }
 
         const ImVec2 wp = ImGui::GetWindowPos();
@@ -300,7 +302,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
     // ---------------------------------------------------------------------
     // Settings window
     // ---------------------------------------------------------------------
-    const std::string settings_title = PHOS_TR("markdown_import.settings_title") + "##md_settings";
+    const std::string settings_title = PHOS_TR("markdown_import.settings_title") + "###md_settings";
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const float pad = 8.0f;
 
@@ -351,19 +353,19 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
     {
         bool changed = false;
 
-        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.canvas") + "##md_canvas_hdr").c_str(),
+        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.canvas") + "###md_canvas_hdr").c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
-            changed |= ImGui::InputInt((PHOS_TR("markdown_import.width_columns") + "##md_width").c_str(), &settings_.columns);
+            changed |= ImGui::InputInt((PHOS_TR("markdown_import.width_columns") + "###md_width").c_str(), &settings_.columns);
             settings_.columns = std::clamp(settings_.columns, 20, 400);
 
-            changed |= ImGui::InputInt((PHOS_TR("markdown_import.max_rows") + "##md_max_rows").c_str(), &settings_.max_rows);
+            changed |= ImGui::InputInt((PHOS_TR("markdown_import.max_rows") + "###md_max_rows").c_str(), &settings_.max_rows);
             settings_.max_rows = std::clamp(settings_.max_rows, 100, 200000);
 
             changed |= ImGui::Checkbox(PHOS_TR("markdown_import.preserve_blank_lines").c_str(), &settings_.preserve_blank_lines);
         }
 
-        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.wrapping") + "##md_wrap_hdr").c_str(),
+        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.wrapping") + "###md_wrap_hdr").c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
             changed |= ImGui::Checkbox(PHOS_TR("markdown_import.wrap_paragraphs").c_str(), &settings_.wrap_paragraphs);
@@ -371,7 +373,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
             const std::string sb1 = PHOS_TR("markdown_import.soft_break_items.newline");
             const char* sb_items[] = { sb0.c_str(), sb1.c_str() };
             int sb = (settings_.soft_break == Settings::SoftBreak::Space) ? 0 : 1;
-            if (ImGui::Combo((PHOS_TR("markdown_import.soft_breaks") + "##md_soft_breaks").c_str(),
+            if (ImGui::Combo((PHOS_TR("markdown_import.soft_breaks") + "###md_soft_breaks").c_str(),
                              &sb, sb_items, IM_ARRAYSIZE(sb_items)))
             {
                 settings_.soft_break = (sb == 0) ? Settings::SoftBreak::Space : Settings::SoftBreak::Newline;
@@ -379,7 +381,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
             }
         }
 
-        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.theme") + "##md_theme_hdr").c_str(),
+        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.theme") + "###md_theme_hdr").c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
             if (themes_.empty())
@@ -394,7 +396,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
                     preview += " \xE2\x80\x94 ";
                     preview += themes_[theme_index_].author;
                 }
-                if (ImGui::BeginCombo((PHOS_TR("markdown_import.theme") + "##md_theme_combo").c_str(), preview.c_str()))
+                if (ImGui::BeginCombo((PHOS_TR("markdown_import.theme") + "###md_theme_combo").c_str(), preview.c_str()))
                 {
                     for (int i = 0; i < (int)themes_.size(); ++i)
                     {
@@ -423,14 +425,14 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
             }
         }
 
-        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.links") + "##md_links_hdr").c_str(),
+        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.links") + "###md_links_hdr").c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
             const std::string l0 = PHOS_TR("markdown_import.link_mode_items.text_only");
             const std::string l1 = PHOS_TR("markdown_import.link_mode_items.inline_url");
             const char* link_items[] = { l0.c_str(), l1.c_str() };
             int lm = (settings_.link_mode == Settings::LinkMode::TextOnly) ? 0 : 1;
-            if (ImGui::Combo((PHOS_TR("markdown_import.render_mode") + "##md_link_mode").c_str(),
+            if (ImGui::Combo((PHOS_TR("markdown_import.render_mode") + "###md_link_mode").c_str(),
                              &lm, link_items, IM_ARRAYSIZE(link_items)))
             {
                 settings_.link_mode = (lm == 0) ? Settings::LinkMode::TextOnly : Settings::LinkMode::InlineUrl;
@@ -438,7 +440,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
             }
         }
 
-        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.code_blocks") + "##md_code_hdr").c_str(),
+        if (ImGui::CollapsingHeader((PHOS_TR("markdown_import.code_blocks") + "###md_code_hdr").c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen))
         {
             changed |= ImGui::Checkbox(PHOS_TR("markdown_import.show_language_label").c_str(), &settings_.show_code_language);
@@ -462,7 +464,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
     const bool can_accept = has_preview_ && error_.empty() && up_to_date;
     if (!can_accept)
         ImGui::BeginDisabled();
-    if (ImGui::Button((PHOS_TR("common.ok") + "##md_ok").c_str()))
+    if (ImGui::Button((PHOS_TR("common.ok") + "###md_ok").c_str()))
     {
         accepted_canvas_ = std::move(preview_);
         accepted_ = true;
@@ -472,7 +474,7 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
         ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Button((PHOS_TR("common.cancel") + "##md_cancel").c_str()))
+    if (ImGui::Button((PHOS_TR("common.cancel") + "###md_cancel").c_str()))
     {
         open_ = false;
     }

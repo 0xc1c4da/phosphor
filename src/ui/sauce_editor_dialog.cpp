@@ -358,7 +358,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
 
         if (show_custom)
         {
-            const std::string tinfos_lbl = PHOS_TR("sauce_editor.field_tinfos") + "##sauce_tinfos";
+            const std::string tinfos_lbl = PHOS_TR("sauce_editor.field_tinfos") + "###sauce_tinfos";
             InputTextUtf8Clamped(tinfos_lbl.c_str(), m_tinfos, 22);
             sauce::FilterControlChars(m_tinfos);
             sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
@@ -385,7 +385,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     }
 
     // Advanced/raw fields (hide low-value internals like FileSize by default).
-    if (ImGui::CollapsingHeader((PHOS_TR("sauce_editor.advanced") + "##sauce_advanced").c_str(),
+    if (ImGui::CollapsingHeader((PHOS_TR("sauce_editor.advanced") + "###sauce_advanced").c_str(),
                                 ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::InputInt(PHOS_TR("sauce_editor.datatype_u8").c_str(), &m_data_type);

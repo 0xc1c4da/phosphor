@@ -412,6 +412,10 @@ pl_PL {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Język" }
+      language_system_default { "Domyślne systemu" }
+      language_help { "Zastosuje się natychmiast." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

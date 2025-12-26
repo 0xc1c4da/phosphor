@@ -412,6 +412,10 @@ nb_NO {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Språk" }
+      language_system_default { "Systemstandard" }
+      language_help { "Gjelder umiddelbart." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

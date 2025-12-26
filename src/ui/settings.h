@@ -56,8 +56,10 @@ public:
     void RegisterTab(const Tab& tab);
 
     // Main render call. Safe to call every frame; does nothing if closed.
+    // - `persist_key` must be stable (non-localized) because it is used for SessionState placement/chrome keys.
+    // - The visible window title is localized internally and uses "##persist_key" to keep ImGui IDs stable.
     // If session is provided, window placement (pos/size/collapsed) is captured/restored via SessionState.
-    void Render(const char* title = "Settings", SessionState* session = nullptr, bool apply_placement_this_frame = false);
+    void Render(const char* persist_key = "Settings", SessionState* session = nullptr, bool apply_placement_this_frame = false);
 
 private:
     void EnsureDefaultTabsRegistered();

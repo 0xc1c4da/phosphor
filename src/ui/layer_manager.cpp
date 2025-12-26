@@ -380,7 +380,8 @@ void LayerManager::Render(const char* title,
         ImGuiWindowFlags_None |
         (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
-    const std::string win_title = PHOS_TR("menu.window.layer_manager") + "##" + std::string(title);
+    // Localized visible title + stable ImGui ID (stable across language changes).
+    const std::string win_title = PHOS_TR("menu.window.layer_manager") + "###" + std::string(title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
@@ -465,7 +466,7 @@ void LayerManager::Render(const char* title,
     if (rename_popup_requested_open_)
     {
         ImGui::PushID(rename_popup_active_serial_);
-        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "##rename_layer_modal";
+        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "###rename_layer_modal";
         ImGui::OpenPopup(rename_modal.c_str());
         ImGui::PopID();
         rename_popup_requested_open_ = false;
@@ -474,7 +475,7 @@ void LayerManager::Render(const char* title,
     // Always try to render the modal for the active rename serial; if it's not open, BeginPopupModal returns false.
     ImGui::PushID(rename_popup_active_serial_);
     {
-        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "##rename_layer_modal";
+        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "###rename_layer_modal";
         if (ImGui::BeginPopupModal(rename_modal.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         // Verify the target canvas still exists this frame (avoid dangling pointer).

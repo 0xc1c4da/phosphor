@@ -190,6 +190,12 @@ struct SessionState
     // Stable ids are defined in ui/skin.h (e.g. "moonlight", "cherry").
     std::string ui_theme = "cherry";
 
+    // UI language / locale for ICU i18n bundles.
+    // - Empty: use system default locale (ICU default at startup).
+    // - Non-empty: ICU locale id matching an available bundle (e.g. "de_DE", "fr_FR", "root").
+    // Persisted in session.json.
+    std::string ui_locale;
+
     // Undo history retention limit for canvases.
     // 0 = unlimited (default).
     size_t undo_limit = 0;

@@ -412,6 +412,10 @@ de_DE {
     general_tab {
       session_state_missing { "Session State nicht angehängt; Einstellungen können nicht gespeichert werden." }
 
+      language { "Sprache" }
+      language_system_default { "Systemstandard" }
+      language_help { "Wird sofort angewendet." }
+
       undo_history { "Undo-Verlauf" }
       unlimited_undo { "Unbegrenzter Undo-Verlauf" }
       max_undo_steps { "Max. Undo-Schritte" }

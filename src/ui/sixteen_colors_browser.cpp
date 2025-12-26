@@ -1054,7 +1054,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     if (m_left_view == LeftView::PacksList && (m_mode == BrowseMode::Groups || m_mode == BrowseMode::Artists || m_mode == BrowseMode::Years))
     {
         ImGui::SameLine();
-        if (ImGui::Button(("< " + PHOS_TR("sixteen_colors.back") + "##16c_back").c_str()))
+        if (ImGui::Button(("< " + PHOS_TR("sixteen_colors.back") + "###16c_back").c_str()))
         {
             m_left_view = LeftView::RootList;
             m_drill_packs_json.clear();
@@ -1093,23 +1093,23 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     {
         if (m_mode == BrowseMode::Groups)
         {
-            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "##16c_group_sort";
+            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "###16c_group_sort";
             if (ImGui::Combo(sort_lbl.c_str(), &m_group_sort, "name\0packs\0"))
                 list_settings_changed = true;
             ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
-            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "##16c_group_order";
+            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "###16c_group_order";
             if (ImGui::Combo(order_lbl.c_str(), &m_group_order, "asc\0desc\0"))
                 list_settings_changed = true;
         }
         else
         {
-            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "##16c_artist_sort";
+            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "###16c_artist_sort";
             if (ImGui::Combo(sort_lbl.c_str(), &m_artist_sort, "name\0releases\0"))
                 list_settings_changed = true;
             ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
-            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "##16c_artist_order";
+            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "###16c_artist_order";
             if (ImGui::Combo(order_lbl.c_str(), &m_artist_order, "asc\0desc\0"))
                 list_settings_changed = true;
         }

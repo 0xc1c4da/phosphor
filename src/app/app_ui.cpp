@@ -223,11 +223,11 @@ void RenderMainMenuBar(SDL_Window* window,
     if (!ImGui::BeginMainMenuBar())
         return;
 
-    // Localized labels + stable ImGui IDs (keep IDs out of translations).
-    const std::string m_file = PHOS_TR("menu.top.file") + "##menu_file";
-    const std::string m_edit = PHOS_TR("menu.top.edit") + "##menu_edit";
-    const std::string m_view = PHOS_TR("menu.top.view") + "##menu_view";
-    const std::string m_window = PHOS_TR("menu.top.window") + "##menu_window";
+    // Localized visible labels + stable ImGui IDs (stable across language changes).
+    const std::string m_file = PHOS_TR("menu.top.file") + "###menu_file";
+    const std::string m_edit = PHOS_TR("menu.top.edit") + "###menu_edit";
+    const std::string m_view = PHOS_TR("menu.top.view") + "###menu_view";
+    const std::string m_window = PHOS_TR("menu.top.window") + "###menu_window";
 
     if (requested_top_menu == 1)
         ImGui::OpenPopup(m_file.c_str());
@@ -244,7 +244,7 @@ void RenderMainMenuBar(SDL_Window* window,
         });
 
         // Recent file list (persisted in session.json).
-        const std::string m_recent = PHOS_TR("menu.file.recent") + "##menu_recent";
+        const std::string m_recent = PHOS_TR("menu.file.recent") + "###menu_recent";
         if (ImGui::BeginMenu(m_recent.c_str()))
         {
             auto sanitize = [](std::string s) -> std::string
@@ -298,7 +298,7 @@ void RenderMainMenuBar(SDL_Window* window,
         }
 
         // Tutorials (bundled assets/ansi-tutorials/* + assets/ansi-tutorials.json).
-        const std::string m_tutorials = PHOS_TR("menu.file.tutorials") + "##menu_tutorials";
+        const std::string m_tutorials = PHOS_TR("menu.file.tutorials") + "###menu_tutorials";
         if (ImGui::BeginMenu(m_tutorials.c_str()))
         {
             auto sanitize = [](std::string s) -> std::string
@@ -373,7 +373,7 @@ void RenderMainMenuBar(SDL_Window* window,
         }
 
         // Unified Export menu (all formats share one tabbed dialog).
-        const std::string m_export = PHOS_TR("menu.file.export") + "##menu_export";
+        const std::string m_export = PHOS_TR("menu.file.export") + "###menu_export";
         if (ImGui::BeginMenu(m_export.c_str()))
         {
             const std::string sc_e_ansi = ShortcutForAction(keybinds, "app.file.export_ansi", "global");

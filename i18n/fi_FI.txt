@@ -412,6 +412,10 @@ fi_FI {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Kieli" }
+      language_system_default { "Järjestelmän oletus" }
+      language_help { "Tulee voimaan heti." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

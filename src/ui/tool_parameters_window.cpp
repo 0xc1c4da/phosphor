@@ -74,10 +74,10 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
                                               SessionState& session,
                                               ImGuiWindowFlags flags)
 {
-    const std::string popup_presets = PHOS_TR("tool_parameters.presets_popup_title") + "##tool_param_presets_popup";
-    const std::string popup_new = PHOS_TR("tool_parameters.new_preset_modal") + "##tool_param_new";
-    const std::string popup_rename = PHOS_TR("tool_parameters.rename_preset_modal") + "##tool_param_rename";
-    const std::string popup_delete = PHOS_TR("tool_parameters.delete_preset_modal") + "##tool_param_delete";
+    const std::string popup_presets = PHOS_TR("tool_parameters.presets_popup_title") + "###tool_param_presets_popup";
+    const std::string popup_new = PHOS_TR("tool_parameters.new_preset_modal") + "###tool_param_new";
+    const std::string popup_rename = PHOS_TR("tool_parameters.rename_preset_modal") + "###tool_param_rename";
+    const std::string popup_delete = PHOS_TR("tool_parameters.delete_preset_modal") + "###tool_param_delete";
 
     // Filter presets for current tool_id.
     std::vector<int> idxs;
@@ -232,7 +232,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
     if (ImGui::BeginPopupModal(popup_new.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(PHOS_TR("tool_parameters.new_preset_help").c_str());
-        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "##tool_param_new_title";
+        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "###tool_param_new_title";
         ImGui::InputText(title_lbl.c_str(), new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
         if (ImGui::Button(PHOS_TR("tool_parameters.create").c_str()))
         {
@@ -270,7 +270,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
     if (ImGui::BeginPopupModal(popup_rename.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(PHOS_TR("tool_parameters.rename_preset_help").c_str());
-        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "##tool_param_rename_title";
+        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "###tool_param_rename_title";
         ImGui::InputText(title_lbl.c_str(), rename_title_buf_, IM_ARRAYSIZE(rename_title_buf_));
         if (ImGui::Button(PHOS_TR("common.ok").c_str()))
         {

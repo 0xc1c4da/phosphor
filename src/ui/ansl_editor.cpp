@@ -237,19 +237,19 @@ void AnslEditor::Render(const char* id,
         // FPS control + measured script FPS.
         if (target_fps_ < 1) target_fps_ = 1;
         ImGui::SetNextItemWidth(-FLT_MIN);
-        const std::string fps_lbl = PHOS_TR("ansl_editor.script_fps") + "##ansl_script_fps";
+        const std::string fps_lbl = PHOS_TR("ansl_editor.script_fps") + "###ansl_script_fps";
         ImGui::SliderInt(fps_lbl.c_str(), &target_fps_, 1, 240);
         ImGui::TextUnformatted(PHOS_TRF("ansl_editor.measured_script_fps_fmt",
                                         phos::i18n::Arg::F64(measured_script_fps_)).c_str());
 
         // Compile/run controls.
-        bool compile_clicked = ImGui::Button((PHOS_TR("ansl_editor.compile") + "##ansl_compile").c_str());
+        bool compile_clicked = ImGui::Button((PHOS_TR("ansl_editor.compile") + "###ansl_compile").c_str());
         ImGui::SameLine();
-        bool run_once_clicked = ImGui::Button((PHOS_TR("ansl_editor.run_once") + "##ansl_run_once").c_str());
+        bool run_once_clicked = ImGui::Button((PHOS_TR("ansl_editor.run_once") + "###ansl_run_once").c_str());
 
         // Examples dropdown.
         ImGui::Separator();
-        if (ImGui::SmallButton((PHOS_TR("ansl_editor.refresh_examples") + "##ansl_refresh_examples").c_str()))
+        if (ImGui::SmallButton((PHOS_TR("ansl_editor.refresh_examples") + "###ansl_refresh_examples").c_str()))
         {
             examples_loaded_ = false;
             examples_error_.clear();
@@ -322,7 +322,7 @@ void AnslEditor::Render(const char* id,
 
             int combo_index = selected_example_index_ + 1; // -1 -> 0 ("<none>")
             ImGui::SetNextItemWidth(-FLT_MIN);
-            const std::string example_lbl = PHOS_TR("ansl_editor.example") + "##ansl_example";
+            const std::string example_lbl = PHOS_TR("ansl_editor.example") + "###ansl_example";
             if (ImGui::Combo(example_lbl.c_str(), &combo_index, labels.data(), (int)labels.size()))
             {
                 selected_example_index_ = combo_index - 1;

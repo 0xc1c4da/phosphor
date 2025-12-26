@@ -412,6 +412,10 @@ root {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "Language" }
+      language_system_default { "System default" }
+      language_help { "Applies immediately." }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }

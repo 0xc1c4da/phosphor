@@ -412,6 +412,10 @@ zh_TW {
     general_tab {
       session_state_missing { "Session state not attached; cannot persist settings." }
 
+      language { "語言" }
+      language_system_default { "系統預設" }
+      language_help { "會立即套用。" }
+
       undo_history { "Undo History" }
       unlimited_undo { "Unlimited undo history" }
       max_undo_steps { "Max undo steps" }
