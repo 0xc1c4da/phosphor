@@ -1,4 +1,4 @@
-root {
+zh_TW {
   // ---------------------------------------------------------------------------
   // Phosphor ICU4C resource bundle (English / root locale)
   //
@@ -20,42 +20,42 @@ root {
   }
 
   common {
-    ok { "OK" }
-    cancel { "Cancel" }
-    close { "Close" }
-    save { "Save" }
-    save_all { "Save All" }
-    dont_save { "Don't Save" }
-    reload { "Reload" }
-    delete { "Delete" }
-    remove { "Remove" }
-    add { "Add" }
-    new { "New" }
-    rename { "Rename" }
-    clear { "Clear" }
-    settings { "Settings" }
-    file { "File" }
-    source { "Source" }
-    preset { "Preset" }
-    palette { "Palette" }
-    picker { "Picker" }
-    search { "Search" }
-    go { "Go" }
-    filter_actions_ellipsis { "Filter actions…" }
+    ok { "確定" }
+    cancel { "取消" }
+    close { "關閉" }
+    save { "儲存" }
+    save_all { "全部儲存" }
+    dont_save { "不儲存" }
+    reload { "重新載入" }
+    delete { "刪除" }
+    remove { "移除" }
+    add { "新增" }
+    new { "新增" }
+    rename { "重新命名" }
+    clear { "清除" }
+    settings { "設定" }
+    file { "檔案" }
+    source { "來源" }
+    preset { "預設" }
+    palette { "調色盤" }
+    picker { "選擇器" }
+    search { "搜尋" }
+    go { "前往" }
+    filter_actions_ellipsis { "篩選動作…" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    filter_colon { "Filter" }
-    search_filter_api { "Search (filter=...)" }
+    filter_colon { "篩選" }
+    search_filter_api { "搜尋 (filter=...)" }
     help_marker { "(?)" }
-    error_fmt { "Error: {0}" }
-    unknown { "Unknown" }
+    error_fmt { "錯誤：{0}" }
+    unknown { "未知" }
     unknown_short { "?" }
-    unnamed { "(unnamed)" }
-    untitled { "Untitled" }
-    empty_parens { "(empty)" }
-    custom_parens { "(custom)" }
-    none_parens { "(none)" }
-    no_fonts_parens { "(no fonts)" }
-    no_parameters { "No parameters." }
+    unnamed { "（未命名）" }
+    untitled { "未命名" }
+    empty_parens { "（空）" }
+    custom_parens { "（自訂）" }
+    none_parens { "（無）" }
+    no_fonts_parens { "（沒有字型）" }
+    no_parameters { "沒有參數。" }
   }
 
   // ---------------------------------------------------------------------------
@@ -63,24 +63,24 @@ root {
   // ---------------------------------------------------------------------------
   menu {
     top {
-      file { "File" }
-      edit { "Edit" }
-      view { "View" }
-      window { "Window" }
+      file { "檔案" }
+      edit { "編輯" }
+      view { "檢視" }
+      window { "視窗" }
     }
 
     file {
-      new_canvas { "New Canvas" }
-      save { "Save" }
-      save_as_ellipsis { "Save As…" }
-      load_ellipsis { "Load…" }
-      recent { "Recent" }
-      recent_empty { "(Empty)" }
-      recent_clear { "Clear Recent" }
+      new_canvas { "新建畫布" }
+      save { "儲存" }
+      save_as_ellipsis { "另存新檔…" }
+      load_ellipsis { "開啟…" }
+      recent { "最近使用" }
+      recent_empty { "（空）" }
+      recent_clear { "清除最近使用" }
 
-      tutorials { "Tutorials" }
-      tutorials_failed { "(Failed to load tutorials)" }
-      tutorials_empty { "(Empty)" }
+      tutorials { "教學" }
+      tutorials_failed { "（教學載入失敗）" }
+      tutorials_empty { "（空）" }
       tutorial_entry_fmt { "{0} by {1} ({2})" }
       tutorials_errors {
         failed_to_open_fmt { "Failed to open {0}" }
@@ -88,31 +88,31 @@ root {
         no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
       }
 
-      export { "Export" }
+      export { "匯出" }
       export_ansi_ellipsis { "ANSI…" }
-      export_plaintext_ellipsis { "Plaintext…" }
-      export_image_ellipsis { "Image…" }
+      export_plaintext_ellipsis { "純文字…" }
+      export_image_ellipsis { "影像…" }
       export_xbin_ellipsis { "XBin…" }
 
-      settings_ellipsis { "Settings…" }
-      quit { "Quit" }
+      settings_ellipsis { "設定…" }
+      quit { "結束" }
     }
 
     edit {
-      undo { "Undo" }
-      redo { "Redo" }
-      copy { "Copy" }
-      cut { "Cut" }
-      paste { "Paste" }
-      select_all { "Select All" }
-      select_none { "Select None" }
-      mirror_mode { "Mirror Mode" }
+      undo { "復原" }
+      redo { "重做" }
+      copy { "複製" }
+      cut { "剪下" }
+      paste { "貼上" }
+      select_all { "全選" }
+      select_none { "取消全選" }
+      mirror_mode { "鏡像模式" }
     }
 
     view {
-      zoom_in { "Zoom In" }
-      zoom_out { "Zoom Out" }
-      reset_zoom_1_1 { "Reset Zoom (1:1)" }
+      zoom_in { "放大" }
+      zoom_out { "縮小" }
+      reset_zoom_1_1 { "重設縮放 (1:1)" }
     }
 
     window {
@@ -126,7 +126,7 @@ root {
       brush_palette { "Brush Palette" }
       minimap { "Minimap" }
       sixteen_colors_browser { "16colo.rs Browser" }
-      fullscreen { "Fullscreen" }
+      fullscreen { "全螢幕" }
     }
   }
 
@@ -397,10 +397,10 @@ root {
   // ---------------------------------------------------------------------------
   settings_window {
     tabs {
-      general { "General" }
-      skin { "Skin" }
-      key_bindings { "Key Bindings" }
-      about { "About" }
+      general { "一般" }
+      skin { "主題" }
+      key_bindings { "按鍵綁定" }
+      about { "關於" }
     }
 
     about {
@@ -871,9 +871,9 @@ root {
     }
 
     // Buttons
-    cancel { "Cancel" }
-    clear { "Clear" }
-    save { "Save" }
+    cancel { "取消" }
+    clear { "清除" }
+    save { "儲存" }
 
     // Advanced fields labels
     datatype_u8 { "DataType (u8)" }

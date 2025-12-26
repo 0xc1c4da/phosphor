@@ -151,10 +151,10 @@ OBJS     = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 ASSETS_ARCHIVE = $(BUILD_DIR)/phosphor_assets.tar.zst
 ASSETS_OBJ     = $(BUILD_DIR)/phosphor_assets_blob.o
 
-# ICU resource bundles (i18n/root.txt -> root.res)
-I18N_SRC       = i18n/root.txt
+# ICU resource bundles (i18n/*.txt -> build/i18n/*.res)
 I18N_BUILD_DIR = $(BUILD_DIR)/i18n
-I18N_RES       = $(I18N_BUILD_DIR)/root.res
+I18N_SRCS      = $(sort $(wildcard i18n/*.txt))
+I18N_RES       = $(patsubst i18n/%.txt,$(I18N_BUILD_DIR)/%.res,$(I18N_SRCS))
 ASSETS_STAGE   = $(BUILD_DIR)/assets_stage
 
 OBJS += $(ASSETS_OBJ)
@@ -189,9 +189,9 @@ $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
-$(I18N_RES): $(I18N_SRC)
+$(I18N_BUILD_DIR)/%.res: i18n/%.txt
 	@mkdir -p $(dir $@)
-	genrb -k -d $(I18N_BUILD_DIR) $(I18N_SRC)
+	genrb -k -d $(I18N_BUILD_DIR) $<
 
 $(ASSETS_ARCHIVE): $(shell find assets -type f) $(I18N_RES)
 	@mkdir -p $(dir $@)
@@ -202,7 +202,7 @@ $(ASSETS_ARCHIVE): $(shell find assets -type f) $(I18N_RES)
 	mkdir -p "$$stage"; \
 	cp -a assets/. "$$stage/"; \
 	mkdir -p "$$stage/i18n"; \
-	cp -f $(I18N_RES) "$$stage/i18n/root.res"; \
+	cp -f $(I18N_RES) "$$stage/i18n/"; \
 	tar --format=ustar -C "$$stage" -cf - . | zstd -q -19 -o "$$tmp"; \
 	mv -f "$$tmp" "$@"
 

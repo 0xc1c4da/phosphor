@@ -1,5 +1,6 @@
 #include "core/i18n.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <unordered_map>
 #include <vector>
@@ -149,6 +150,104 @@ static std::string MissingSuffix()
     }
     return st.missing_suffix;
 }
+
+static bool PseudoEnabled()
+{
+    // Pseudo-localization is intended for layout testing / missing-i18n spotting.
+    // Enable with: PHOS_PSEUDO_LOCALE=1
+    static int cached = -1; // -1=unknown, 0=false, 1=true
+    if (cached != -1)
+        return cached == 1;
+
+    const char* v = std::getenv("PHOS_PSEUDO_LOCALE");
+    if (!v || !*v)
+    {
+        cached = 0;
+        return false;
+    }
+    cached = (std::string_view(v) == "0") ? 0 : 1;
+    return cached == 1;
+}
+
+static void AppendPseudoChar(std::string& out, unsigned char c)
+{
+    // ASCII-only mapping (simple + fast). Non-ASCII bytes are handled by copying through.
+    switch (c)
+    {
+        // Note: avoid `u8"..."` literals here; they are `char8_t*` in C++20 and won't append to std::string.
+        case 'A': out += "Å"; break;
+        case 'B': out += "ß"; break;
+        case 'C': out += "Ç"; break;
+        case 'D': out += "Ð"; break;
+        case 'E': out += "Ë"; break;
+        case 'F': out += "Ƒ"; break;
+        case 'G': out += "Ğ"; break;
+        case 'H': out += "Ħ"; break;
+        case 'I': out += "Ï"; break;
+        case 'J': out += "Ĵ"; break;
+        case 'K': out += "Ҡ"; break;
+        case 'L': out += "Ŀ"; break;
+        case 'M': out += "Μ"; break;
+        case 'N': out += "Ñ"; break;
+        case 'O': out += "Ö"; break;
+        case 'P': out += "Þ"; break;
+        case 'Q': out += "Ǫ"; break;
+        case 'R': out += "Ŕ"; break;
+        case 'S': out += "Š"; break;
+        case 'T': out += "Ŧ"; break;
+        case 'U': out += "Û"; break;
+        case 'V': out += "Ṽ"; break;
+        case 'W': out += "Ŵ"; break;
+        case 'X': out += "Ẍ"; break;
+        case 'Y': out += "Ÿ"; break;
+        case 'Z': out += "Ž"; break;
+        case 'a': out += "å"; break;
+        case 'b': out += "ƀ"; break;
+        case 'c': out += "ç"; break;
+        case 'd': out += "ð"; break;
+        case 'e': out += "ë"; break;
+        case 'f': out += "ƒ"; break;
+        case 'g': out += "ğ"; break;
+        case 'h': out += "ħ"; break;
+        case 'i': out += "ï"; break;
+        case 'j': out += "ĵ"; break;
+        case 'k': out += "ķ"; break;
+        case 'l': out += "ŀ"; break;
+        case 'm': out += "ɱ"; break;
+        case 'n': out += "ñ"; break;
+        case 'o': out += "ö"; break;
+        case 'p': out += "þ"; break;
+        case 'q': out += "ʠ"; break;
+        case 'r': out += "ŕ"; break;
+        case 's': out += "š"; break;
+        case 't': out += "ŧ"; break;
+        case 'u': out += "û"; break;
+        case 'v': out += "ṽ"; break;
+        case 'w': out += "ŵ"; break;
+        case 'x': out += "ẍ"; break;
+        case 'y': out += "ÿ"; break;
+        case 'z': out += "ž"; break;
+        default: out.push_back((char)c); break;
+    }
+}
+
+static std::string PseudoLocalizeUtf8(std::string_view s)
+{
+    // Wrap + lightly "accent" ASCII letters. Also add small padding to simulate expansion.
+    std::string out;
+    out.reserve(s.size() * 2 + 8);
+    out.push_back('[');
+    for (size_t i = 0; i < s.size(); ++i)
+        AppendPseudoChar(out, (unsigned char)s[i]);
+    out.push_back(']');
+
+    // Add small expansion padding (kept conservative to avoid totally breaking UI).
+    const size_t pad = std::min<size_t>(6, out.size() / 12);
+    for (size_t i = 0; i < pad; ++i)
+        out.push_back('~');
+
+    return out;
+}
 } // namespace
 
 bool Init(const std::string& bundle_dir, const std::string& locale, std::string& error)
@@ -240,6 +339,8 @@ std::string T(std::string_view key)
 
     std::string out;
     us.toUTF8String(out);
+    if (PseudoEnabled())
+        out = PseudoLocalizeUtf8(out);
     st.str_cache.emplace(k, out);
     return out;
 }
@@ -306,6 +407,8 @@ std::string F(std::string_view key, std::initializer_list<Arg> args)
 
     std::string out;
     out_us.toUTF8String(out);
+    if (PseudoEnabled())
+        out = PseudoLocalizeUtf8(out);
     return out;
 }
 

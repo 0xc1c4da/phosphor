@@ -330,15 +330,17 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
                                             const std::string& cur_value,
                                             std::string& inout_filter)
 {
+    static constexpr const char* kNoFontsSentinel = "(no fonts)";
+
     // Returns true if selection changed.
     const textmode_font::Registry* reg_c = engine.GetFontRegistry();
     textmode_font::Registry* reg = const_cast<textmode_font::Registry*>(reg_c);
 
     auto display_name_for_value = [&](const std::string& v) -> std::string {
         if (v.empty())
-            return "(none)";
-        if (v == "(no fonts)")
-            return "(no fonts)";
+            return PHOS_TR("common.none_parens");
+        if (v == kNoFontsSentinel)
+            return PHOS_TR("common.no_fonts_parens");
         if (reg)
         {
             if (const auto* e = reg->Find(v))
@@ -352,7 +354,7 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
     };
 
     auto kind_suffix_for_value = [&](const std::string& v) -> const char* {
-        if (v.empty() || v == "(no fonts)")
+        if (v.empty() || v == kNoFontsSentinel)
             return "";
         if (reg)
         {
@@ -480,7 +482,7 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
             const ImVec2 pv1(r1.x - 8.0f, r1.y - 8.0f);
 
             // Render/cached preview bitmap (skip sentinel).
-            if (v != "(no fonts)" && reg)
+            if (v != kNoFontsSentinel && reg)
             {
                 const auto* e = reg->Find(v);
                 const std::string preferred_text = (e && !e->meta.name.empty()) ? e->meta.name : disp;
@@ -547,11 +549,11 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
                 dl->AddRectFilled(pv0, pv1, col_bg, 3.0f);
                 dl->AddRect(pv0, pv1, col_border, 3.0f);
                 const ImVec2 tpos(pv0.x + 10.0f, pv0.y + 10.0f);
-                dl->AddText(tpos, ImGui::GetColorU32(ImGuiCol_TextDisabled), "(no fonts)");
+                dl->AddText(tpos, ImGui::GetColorU32(ImGuiCol_TextDisabled), PHOS_TR("common.no_fonts_parens").c_str());
             }
 
             // Bottom-right overlay label: "<name> (Figlet/TDF)".
-            if (v != "(no fonts)")
+            if (v != kNoFontsSentinel)
             {
                 std::string overlay = disp;
                 overlay += kind_suffix_for_value(v);

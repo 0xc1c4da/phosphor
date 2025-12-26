@@ -87,8 +87,11 @@ static void PrintUsage(const char* argv0)
 {
     std::cerr << "Usage: " << argv0 << " [--assets <dir>]\n"
               << "\n"
-              << "Validates that built-in (static) palettes in src/ exactly match\n"
-              << "assets/color-palettes.json (colors + ordering).\n"
+              << "Validates that built-in (static) palettes in src/ match any corresponding\n"
+              << "entries present in assets/color-palettes.json (colors + ordering).\n"
+              << "\n"
+              << "Note: builtins are no longer required to be listed in color-palettes.json;\n"
+              << "missing builtin entries are treated as OK.\n"
               << "\n"
               << "Options:\n"
               << "  --assets <dir>  Project assets dir (default: ./assets)\n";
@@ -276,16 +279,15 @@ int main(int argc, char** argv)
     };
 
     int total_mismatches = 0;
+    int skipped_missing = 0;
     for (const auto& c : checks)
     {
         const auto json_pal = FindJsonPalette(json_by_title, c.json_titles);
         if (!json_pal.has_value())
         {
-            std::cerr << "palette_validate: FAIL: missing JSON palette for builtin " << c.label << " (tried titles:";
-            for (std::string_view t : c.json_titles)
-                std::cerr << " \"" << t << "\"";
-            std::cerr << ")\n";
-            ++total_mismatches;
+            // Builtins are no longer required to appear in assets/color-palettes.json.
+            // We only validate parity when a corresponding entry exists.
+            ++skipped_missing;
             continue;
         }
 
@@ -313,7 +315,10 @@ int main(int argc, char** argv)
 
     if (total_mismatches == 0)
     {
-        std::cout << "palette_validate: OK\n";
+        std::cout << "palette_validate: OK";
+        if (skipped_missing > 0)
+            std::cout << " (" << skipped_missing << " builtin palettes not present in JSON; skipped)";
+        std::cout << "\n";
         return 0;
     }
 

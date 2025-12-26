@@ -601,6 +601,66 @@ void RunFrame(AppState& st)
         markdown_to_ansi_dialog.Open(std::move(p));
     };
 
+    // CLI startup open/import.
+    // If main() provided paths, open them once on the first frame (skipping session workspace restore).
+    if (!st.startup.open_paths_consumed && !st.startup.open_paths.empty())
+    {
+        for (const std::string& p : st.startup.open_paths)
+            (void)io_manager.OpenPath(p, io_cbs, &session_state);
+        st.startup.open_paths.clear();
+        st.startup.open_paths_consumed = true;
+
+        // We opened/created canvases *after* `active_canvas` was computed near the top of RunFrame.
+        // Re-resolve now so the rest of the frame (colour picker sync, tool palette, etc) reflects
+        // the newly opened document immediately (instead of defaulting to xterm256 for one frame).
+        if (!active_canvas)
+        {
+            if (last_active_canvas_id != -1)
+            {
+                for (auto& cptr : canvases)
+                {
+                    if (!cptr) continue;
+                    CanvasWindow& c = *cptr;
+                    if (c.open && c.id == last_active_canvas_id)
+                    {
+                        active_canvas = &c.canvas;
+                        active_canvas_window = &c;
+                        break;
+                    }
+                }
+            }
+            if (!active_canvas)
+            {
+                for (auto& cptr : canvases)
+                {
+                    if (!cptr) continue;
+                    CanvasWindow& c = *cptr;
+                    if (c.open)
+                    {
+                        active_canvas = &c.canvas;
+                        active_canvas_window = &c;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Sync global brush selection to the now-active canvas (mirrors the earlier active-canvas-change sync).
+        if (active_canvas)
+        {
+            tool_brush_glyph = (std::uint32_t)active_canvas->GetActiveGlyph();
+            tool_brush_cp = (std::uint32_t)phos::glyph::ToUnicodeRepresentative((phos::GlyphId)tool_brush_glyph);
+            if (tool_brush_cp == 0)
+                tool_brush_cp = (std::uint32_t)U' ';
+            tool_brush_utf8 = active_canvas->GetActiveGlyphUtf8();
+            if (tool_brush_utf8.empty())
+                tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
+
+            character_picker.RestoreSelectedCodePoint(tool_brush_cp);
+            character_palette.SyncSelectionFromActiveGlyph((phos::GlyphId)tool_brush_glyph, tool_brush_utf8, active_canvas);
+        }
+    }
+
     appui::RenderMainMenuBar(window, keybinds, session_state, io_manager, file_dialogs, io_cbs,
                              export_dialog, settings_window,
                              active_canvas, st.done, window_fullscreen,
@@ -2511,7 +2571,7 @@ void RunFrame(AppState& st)
 
             if (has_path)
             {
-                const std::string s = PHOS_TR("confirm.close_canvas_question_with_path");
+                const std::string s = PHOS_TR("confirm.close_canvas_question_with_path") + ":";
                 ImGui::TextUnformatted(s.c_str());
             }
             else

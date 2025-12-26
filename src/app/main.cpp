@@ -73,8 +73,49 @@ static void check_vk_result(VkResult err)
         std::abort();
 }
 
-int main(int, char**)
+int main(int argc, char** argv)
 {
+    // Basic CLI:
+    // - `phosphor` (no args): restore workspace from session.json (default behavior).
+    // - `phosphor <paths...>`: open/import the given paths on startup (skips session workspace restore).
+    std::vector<std::string> cli_open_paths;
+    {
+        auto print_help = [&]() {
+            std::fprintf(stderr,
+                         "Usage:\n"
+                         "  phosphor                # restore previous workspace\n"
+                         "  phosphor <file> [...]   # open/import files on startup\n"
+                         "\n"
+                         "Examples:\n"
+                         "  phosphor artwork/us-glitchmancer.xb\n"
+                         "  phosphor artwork/test.ans\n");
+        };
+
+        bool end_of_flags = false;
+        for (int i = 1; i < argc; ++i)
+        {
+            const char* a = argv[i] ? argv[i] : "";
+            if (!end_of_flags && (std::strcmp(a, "--help") == 0 || std::strcmp(a, "-h") == 0))
+            {
+                print_help();
+                return 0;
+            }
+            if (!end_of_flags && std::strcmp(a, "--") == 0)
+            {
+                end_of_flags = true;
+                continue;
+            }
+            if (!end_of_flags && !std::string_view(a).empty() && a[0] == '-')
+            {
+                std::fprintf(stderr, "[cli] unknown option: %s\n", a);
+                print_help();
+                return 2;
+            }
+            if (a[0] != '\0')
+                cli_open_paths.emplace_back(a);
+        }
+    }
+
     // Arrange for Ctrl+C in the terminal to request a graceful shutdown instead
     // of abruptly killing the process (which can upset Vulkan/SDL).
     std::signal(SIGINT, HandleInterruptSignal);
@@ -465,10 +506,13 @@ int main(int, char**)
         catch (...) { io_manager.SetLastDir("."); }
     }
 
-    // Restore workspace content (open canvases + images).
-    workspace_persist::RestoreWorkspaceFromSession(session_state, keybinds,
-                                                  canvases, next_canvas_id, last_active_canvas_id,
-                                                  images, next_image_id);
+    if (cli_open_paths.empty())
+    {
+        // Restore workspace content (open canvases + images).
+        workspace_persist::RestoreWorkspaceFromSession(session_state, keybinds,
+                                                      canvases, next_canvas_id, last_active_canvas_id,
+                                                      images, next_image_id);
+    }
 
     // Seed the global tool brush glyph from the active canvas (per-canvas state),
     // and synchronize the picker/palette selections for a consistent startup state.
@@ -493,6 +537,8 @@ int main(int, char**)
     // Main loop (per-frame logic lives in app::RunFrame)
     // ---------------------------------------------------------------------
     AppState st;
+    st.startup.open_paths = std::move(cli_open_paths);
+    st.startup.open_paths_consumed = false;
     st.platform.window = window;
     st.vulkan.vk = &vk;
     st.vulkan.wd = wd;

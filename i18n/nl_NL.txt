@@ -1,4 +1,4 @@
-root {
+nl_NL {
   // ---------------------------------------------------------------------------
   // Phosphor ICU4C resource bundle (English / root locale)
   //
@@ -21,41 +21,41 @@ root {
 
   common {
     ok { "OK" }
-    cancel { "Cancel" }
-    close { "Close" }
-    save { "Save" }
-    save_all { "Save All" }
-    dont_save { "Don't Save" }
-    reload { "Reload" }
-    delete { "Delete" }
-    remove { "Remove" }
-    add { "Add" }
-    new { "New" }
-    rename { "Rename" }
-    clear { "Clear" }
-    settings { "Settings" }
-    file { "File" }
-    source { "Source" }
-    preset { "Preset" }
-    palette { "Palette" }
-    picker { "Picker" }
-    search { "Search" }
-    go { "Go" }
-    filter_actions_ellipsis { "Filter actions…" }
+    cancel { "Annuleren" }
+    close { "Sluiten" }
+    save { "Opslaan" }
+    save_all { "Alles opslaan" }
+    dont_save { "Niet opslaan" }
+    reload { "Opnieuw laden" }
+    delete { "Verwijderen" }
+    remove { "Verwijderen" }
+    add { "Toevoegen" }
+    new { "Nieuw" }
+    rename { "Hernoemen" }
+    clear { "Wissen" }
+    settings { "Instellingen" }
+    file { "Bestand" }
+    source { "Bron" }
+    preset { "Voorinstelling" }
+    palette { "Palet" }
+    picker { "Kiezer" }
+    search { "Zoeken" }
+    go { "Ga" }
+    filter_actions_ellipsis { "Acties filteren…" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
     filter_colon { "Filter" }
-    search_filter_api { "Search (filter=...)" }
+    search_filter_api { "Zoeken (filter=...)" }
     help_marker { "(?)" }
-    error_fmt { "Error: {0}" }
-    unknown { "Unknown" }
+    error_fmt { "Fout: {0}" }
+    unknown { "Onbekend" }
     unknown_short { "?" }
-    unnamed { "(unnamed)" }
-    untitled { "Untitled" }
-    empty_parens { "(empty)" }
-    custom_parens { "(custom)" }
-    none_parens { "(none)" }
-    no_fonts_parens { "(no fonts)" }
-    no_parameters { "No parameters." }
+    unnamed { "(naamloos)" }
+    untitled { "Naamloos" }
+    empty_parens { "(leeg)" }
+    custom_parens { "(aangepast)" }
+    none_parens { "(geen)" }
+    no_fonts_parens { "(geen lettertypen)" }
+    no_parameters { "Geen parameters." }
   }
 
   // ---------------------------------------------------------------------------
@@ -63,24 +63,24 @@ root {
   // ---------------------------------------------------------------------------
   menu {
     top {
-      file { "File" }
-      edit { "Edit" }
-      view { "View" }
-      window { "Window" }
+      file { "Bestand" }
+      edit { "Bewerken" }
+      view { "Beeld" }
+      window { "Venster" }
     }
 
     file {
-      new_canvas { "New Canvas" }
-      save { "Save" }
-      save_as_ellipsis { "Save As…" }
-      load_ellipsis { "Load…" }
+      new_canvas { "Nieuw canvas" }
+      save { "Opslaan" }
+      save_as_ellipsis { "Opslaan als…" }
+      load_ellipsis { "Openen…" }
       recent { "Recent" }
-      recent_empty { "(Empty)" }
-      recent_clear { "Clear Recent" }
+      recent_empty { "(Leeg)" }
+      recent_clear { "Recent wissen" }
 
       tutorials { "Tutorials" }
-      tutorials_failed { "(Failed to load tutorials)" }
-      tutorials_empty { "(Empty)" }
+      tutorials_failed { "(Tutorials laden mislukt)" }
+      tutorials_empty { "(Leeg)" }
       tutorial_entry_fmt { "{0} by {1} ({2})" }
       tutorials_errors {
         failed_to_open_fmt { "Failed to open {0}" }
@@ -88,31 +88,31 @@ root {
         no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
       }
 
-      export { "Export" }
+      export { "Exporteren" }
       export_ansi_ellipsis { "ANSI…" }
-      export_plaintext_ellipsis { "Plaintext…" }
-      export_image_ellipsis { "Image…" }
+      export_plaintext_ellipsis { "Platte tekst…" }
+      export_image_ellipsis { "Afbeelding…" }
       export_xbin_ellipsis { "XBin…" }
 
-      settings_ellipsis { "Settings…" }
-      quit { "Quit" }
+      settings_ellipsis { "Instellingen…" }
+      quit { "Afsluiten" }
     }
 
     edit {
-      undo { "Undo" }
-      redo { "Redo" }
-      copy { "Copy" }
-      cut { "Cut" }
-      paste { "Paste" }
-      select_all { "Select All" }
-      select_none { "Select None" }
-      mirror_mode { "Mirror Mode" }
+      undo { "Ongedaan maken" }
+      redo { "Opnieuw" }
+      copy { "Kopiëren" }
+      cut { "Knippen" }
+      paste { "Plakken" }
+      select_all { "Alles selecteren" }
+      select_none { "Niets selecteren" }
+      mirror_mode { "Spiegelmodus" }
     }
 
     view {
-      zoom_in { "Zoom In" }
-      zoom_out { "Zoom Out" }
-      reset_zoom_1_1 { "Reset Zoom (1:1)" }
+      zoom_in { "Inzoomen" }
+      zoom_out { "Uitzoomen" }
+      reset_zoom_1_1 { "Zoom resetten (1:1)" }
     }
 
     window {
@@ -126,7 +126,7 @@ root {
       brush_palette { "Brush Palette" }
       minimap { "Minimap" }
       sixteen_colors_browser { "16colo.rs Browser" }
-      fullscreen { "Fullscreen" }
+      fullscreen { "Volledig scherm" }
     }
   }
 
@@ -397,10 +397,10 @@ root {
   // ---------------------------------------------------------------------------
   settings_window {
     tabs {
-      general { "General" }
-      skin { "Skin" }
-      key_bindings { "Key Bindings" }
-      about { "About" }
+      general { "Algemeen" }
+      skin { "Thema" }
+      key_bindings { "Toetsen" }
+      about { "Over" }
     }
 
     about {
@@ -871,9 +871,9 @@ root {
     }
 
     // Buttons
-    cancel { "Cancel" }
-    clear { "Clear" }
-    save { "Save" }
+    cancel { "Annuleren" }
+    clear { "Wissen" }
+    save { "Opslaan" }
 
     // Advanced fields labels
     datatype_u8 { "DataType (u8)" }

@@ -1,4 +1,4 @@
-root {
+sv_SE {
   // ---------------------------------------------------------------------------
   // Phosphor ICU4C resource bundle (English / root locale)
   //
@@ -21,41 +21,41 @@ root {
 
   common {
     ok { "OK" }
-    cancel { "Cancel" }
-    close { "Close" }
-    save { "Save" }
-    save_all { "Save All" }
-    dont_save { "Don't Save" }
-    reload { "Reload" }
-    delete { "Delete" }
-    remove { "Remove" }
-    add { "Add" }
-    new { "New" }
-    rename { "Rename" }
-    clear { "Clear" }
-    settings { "Settings" }
-    file { "File" }
-    source { "Source" }
-    preset { "Preset" }
-    palette { "Palette" }
-    picker { "Picker" }
-    search { "Search" }
-    go { "Go" }
-    filter_actions_ellipsis { "Filter actions…" }
+    cancel { "Avbryt" }
+    close { "Stäng" }
+    save { "Spara" }
+    save_all { "Spara alla" }
+    dont_save { "Spara inte" }
+    reload { "Ladda om" }
+    delete { "Ta bort" }
+    remove { "Ta bort" }
+    add { "Lägg till" }
+    new { "Ny" }
+    rename { "Byt namn" }
+    clear { "Rensa" }
+    settings { "Inställningar" }
+    file { "Fil" }
+    source { "Källa" }
+    preset { "Förinställning" }
+    palette { "Palett" }
+    picker { "Väljare" }
+    search { "Sök" }
+    go { "Gå" }
+    filter_actions_ellipsis { "Filtrera åtgärder…" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
     filter_colon { "Filter" }
-    search_filter_api { "Search (filter=...)" }
+    search_filter_api { "Sök (filter=...)" }
     help_marker { "(?)" }
-    error_fmt { "Error: {0}" }
-    unknown { "Unknown" }
+    error_fmt { "Fel: {0}" }
+    unknown { "Okänd" }
     unknown_short { "?" }
-    unnamed { "(unnamed)" }
-    untitled { "Untitled" }
-    empty_parens { "(empty)" }
-    custom_parens { "(custom)" }
-    none_parens { "(none)" }
-    no_fonts_parens { "(no fonts)" }
-    no_parameters { "No parameters." }
+    unnamed { "(namnlös)" }
+    untitled { "Utan titel" }
+    empty_parens { "(tom)" }
+    custom_parens { "(anpassad)" }
+    none_parens { "(ingen)" }
+    no_fonts_parens { "(inga typsnitt)" }
+    no_parameters { "Inga parametrar." }
   }
 
   // ---------------------------------------------------------------------------
@@ -63,24 +63,24 @@ root {
   // ---------------------------------------------------------------------------
   menu {
     top {
-      file { "File" }
-      edit { "Edit" }
-      view { "View" }
-      window { "Window" }
+      file { "Fil" }
+      edit { "Redigera" }
+      view { "Visa" }
+      window { "Fönster" }
     }
 
     file {
-      new_canvas { "New Canvas" }
-      save { "Save" }
-      save_as_ellipsis { "Save As…" }
-      load_ellipsis { "Load…" }
-      recent { "Recent" }
-      recent_empty { "(Empty)" }
-      recent_clear { "Clear Recent" }
+      new_canvas { "Ny duk" }
+      save { "Spara" }
+      save_as_ellipsis { "Spara som…" }
+      load_ellipsis { "Öppna…" }
+      recent { "Senaste" }
+      recent_empty { "(Tom)" }
+      recent_clear { "Rensa senaste" }
 
-      tutorials { "Tutorials" }
-      tutorials_failed { "(Failed to load tutorials)" }
-      tutorials_empty { "(Empty)" }
+      tutorials { "Handledningar" }
+      tutorials_failed { "(Misslyckades att ladda handledningar)" }
+      tutorials_empty { "(Tom)" }
       tutorial_entry_fmt { "{0} by {1} ({2})" }
       tutorials_errors {
         failed_to_open_fmt { "Failed to open {0}" }
@@ -88,31 +88,31 @@ root {
         no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
       }
 
-      export { "Export" }
+      export { "Exportera" }
       export_ansi_ellipsis { "ANSI…" }
-      export_plaintext_ellipsis { "Plaintext…" }
-      export_image_ellipsis { "Image…" }
+      export_plaintext_ellipsis { "Klartext…" }
+      export_image_ellipsis { "Bild…" }
       export_xbin_ellipsis { "XBin…" }
 
-      settings_ellipsis { "Settings…" }
-      quit { "Quit" }
+      settings_ellipsis { "Inställningar…" }
+      quit { "Avsluta" }
     }
 
     edit {
-      undo { "Undo" }
-      redo { "Redo" }
-      copy { "Copy" }
-      cut { "Cut" }
-      paste { "Paste" }
-      select_all { "Select All" }
-      select_none { "Select None" }
-      mirror_mode { "Mirror Mode" }
+      undo { "Ångra" }
+      redo { "Gör om" }
+      copy { "Kopiera" }
+      cut { "Klipp ut" }
+      paste { "Klistra in" }
+      select_all { "Markera allt" }
+      select_none { "Markera inget" }
+      mirror_mode { "Spegel-läge" }
     }
 
     view {
-      zoom_in { "Zoom In" }
-      zoom_out { "Zoom Out" }
-      reset_zoom_1_1 { "Reset Zoom (1:1)" }
+      zoom_in { "Zooma in" }
+      zoom_out { "Zooma ut" }
+      reset_zoom_1_1 { "Återställ zoom (1:1)" }
     }
 
     window {
@@ -126,7 +126,7 @@ root {
       brush_palette { "Brush Palette" }
       minimap { "Minimap" }
       sixteen_colors_browser { "16colo.rs Browser" }
-      fullscreen { "Fullscreen" }
+      fullscreen { "Helskärm" }
     }
   }
 
@@ -397,10 +397,10 @@ root {
   // ---------------------------------------------------------------------------
   settings_window {
     tabs {
-      general { "General" }
-      skin { "Skin" }
-      key_bindings { "Key Bindings" }
-      about { "About" }
+      general { "Allmänt" }
+      skin { "Tema" }
+      key_bindings { "Kortkommandon" }
+      about { "Om" }
     }
 
     about {
@@ -871,9 +871,9 @@ root {
     }
 
     // Buttons
-    cancel { "Cancel" }
-    clear { "Clear" }
-    save { "Save" }
+    cancel { "Avbryt" }
+    clear { "Rensa" }
+    save { "Spara" }
 
     // Advanced fields labels
     datatype_u8 { "DataType (u8)" }

@@ -961,6 +961,7 @@ void SettingsWindow::RenderTab_KeyBindings()
             if (!rows.empty())
             {
                 conflicts_report += PHOS_TR("settings_window.key_bindings_tab.report_conflicts_header");
+                conflicts_report += ":";
                 conflicts_report += "\n";
                 for (const auto& r : rows)
                 {
@@ -989,6 +990,7 @@ void SettingsWindow::RenderTab_KeyBindings()
             {
                 if (!conflicts_report.empty()) conflicts_report += "\n";
                 conflicts_report += PHOS_TR("settings_window.key_bindings_tab.report_invalid_header");
+                conflicts_report += ":";
                 conflicts_report += "\n";
                 std::sort(invalid.begin(), invalid.end());
                 invalid.erase(std::unique(invalid.begin(), invalid.end()), invalid.end());

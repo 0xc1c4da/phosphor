@@ -470,7 +470,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     ImGui::Separator();
 
     // Buttons
-    if (ImGui::Button(PHOS_TR("sauce_editor.cancel").c_str()))
+    if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
     {
         ImGui::CloseCurrentPopup();
         m_open = false;
@@ -478,7 +478,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         return;
     }
     ImGui::SameLine();
-    if (ImGui::Button(PHOS_TR("sauce_editor.clear").c_str()))
+    if (ImGui::Button(PHOS_TR("common.clear").c_str()))
     {
         m_meta = AnsiCanvas::ProjectState::SauceMeta{};
         m_title.clear();
@@ -498,7 +498,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button(PHOS_TR("sauce_editor.save").c_str()))
+    if (ImGui::Button(PHOS_TR("common.save").c_str()))
     {
         // Rebuild meta from working buffers.
         AnsiCanvas::ProjectState::SauceMeta meta = m_meta;

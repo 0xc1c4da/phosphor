@@ -393,14 +393,6 @@ static inline int ClampColumns(int columns)
     return columns;
 }
 
-[[maybe_unused]] static bool ContainsEsc(const std::vector<std::uint8_t>& bytes)
-{
-    for (std::uint8_t b : bytes)
-        if (b == ESC)
-            return true;
-    return false;
-}
-
 static bool LooksLikeUtf8Text(const std::vector<std::uint8_t>& bytes)
 {
     // Heuristic:
@@ -1775,8 +1767,59 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         st.palette_ref.is_builtin = true;
         st.palette_ref.builtin = builtin;
         // UI palette selection:
-        // For now, default to following the core palette identity. (Best-match inference can be added later.)
+        // Default to following the core palette identity, but for truecolor payloads we attempt a best-match
+        // inference against the UI catalog (builtins + JSON palettes) based on observed RGB usage.
         st.ui_palette_ref = st.palette_ref;
+
+        // Build a bounded unique set of observed colors (RGB24) from the import.
+        // Note: this uses the *rendered* RGB colors (Phase A) before index quantization.
+        std::vector<phos::color::Rgb8> observed;
+        observed.reserve(256);
+        std::unordered_set<std::uint32_t> seen_u24;
+        seen_u24.reserve(512);
+        auto add_c32 = [&](AnsiCanvas::Color32 c32) {
+            if (c32 == 0)
+                return;
+            std::uint8_t r = 0, g = 0, b = 0;
+            UnpackImGuiCol32(c32, r, g, b);
+            const std::uint32_t u24 = (std::uint32_t)r | ((std::uint32_t)g << 8) | ((std::uint32_t)b << 16);
+            if (seen_u24.emplace(u24).second)
+            {
+                observed.push_back(phos::color::Rgb8{r, g, b});
+            }
+        };
+        // Keep this bounded: enough for stable inference, but not large enough to be expensive.
+        const size_t kMaxObserved = 768;
+        for (size_t i2 = 0; i2 < fg32.size() && observed.size() < kMaxObserved; ++i2)
+            add_c32((AnsiCanvas::Color32)fg32[i2]);
+        for (size_t i2 = 0; i2 < bg32.size() && observed.size() < kMaxObserved; ++i2)
+            add_c32((AnsiCanvas::Color32)bg32[i2]);
+
+        // Only attempt inference when we have a meaningful signal and the core palette is not already
+        // an exact representation of the observed colors.
+        bool core_has_all_exact = false;
+        if (builtin == phos::color::BuiltinPalette::Xterm256 && !observed.empty())
+        {
+            const phos::color::Palette* core = cs.Palettes().Get(cs.Palettes().Builtin(builtin));
+            if (core)
+            {
+                core_has_all_exact = true;
+                for (const phos::color::Rgb8& c : observed)
+                {
+                    const std::uint32_t u24 = (std::uint32_t)c.r | ((std::uint32_t)c.g << 8) | ((std::uint32_t)c.b << 16);
+                    if (core->exact_u24_to_index.find(u24) == core->exact_u24_to_index.end())
+                    {
+                        core_has_all_exact = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!observed.empty() && !core_has_all_exact)
+        {
+            if (auto inferred = cs.Catalog().BestMatchUiByNearestColors(observed))
+                st.ui_palette_ref = *inferred;
+        }
         // Bold semantics default:
         // - VGA16 (classic ANSI art): SGR1/Attr_Bold is intensity/bright fg (libansilove semantics)
         // - xterm256/truecolor: SGR1 is typographic emphasis (colors are explicit)

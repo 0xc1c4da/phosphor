@@ -1,0 +1,977 @@
+de_DE {
+  // ---------------------------------------------------------------------------
+  // Phosphor ICU4C resource bundle (German / de-DE)
+  //
+  // Notes / conventions (kept aligned with root.txt):
+  // - Keys are stable API: prefer adding new keys over renaming existing ones.
+  // - Keep Dear ImGui IDs (## / ### suffixes) OUT of translations; build IDs in code.
+  // - Ellipsis convention: use Unicode ellipsis "…" for UI continuation / opens-dialog labels.
+  // - Punctuation ownership: prefer translating words only; compose glue punctuation in code
+  //   for field-label colons ":" and decorative UI affordances (e.g. "< " back chevron).
+  // - Translator safety: file dialog / export filter strings are label-only (no embedded
+  //   pattern blobs like "(*.png;*.jpg;...)"); patterns are supplied by code.
+  // - Prefer message-style placeholders ("{0}") for formatted strings (MessageFormat).
+  // - We keep UI grouped by module/window to match the codebase layout.
+  // - Run `make i18n-validate` to enforce key coverage + MessageFormat safety checks.
+  // ---------------------------------------------------------------------------
+
+  meta {
+    app_name { "Phosphor" }
+  }
+
+  common {
+    ok { "OK" }
+    cancel { "Abbrechen" }
+    close { "Schließen" }
+    save { "Speichern" }
+    save_all { "Alle speichern" }
+    dont_save { "Nicht speichern" }
+    reload { "Neu laden" }
+    delete { "Löschen" }
+    remove { "Entfernen" }
+    add { "Hinzufügen" }
+    new { "Neu" }
+    rename { "Umbenennen" }
+    clear { "Leeren" }
+    settings { "Einstellungen" }
+    file { "Datei" }
+    source { "Quelle" }
+    preset { "Voreinstellung" }
+    palette { "Palette" }
+    picker { "Auswahl" }
+    search { "Suchen" }
+    go { "Los" }
+    filter_actions_ellipsis { "Aktionen filtern…" }
+    // NOTE: historical key retained for stability; punctuation (":") is owned by code.
+    filter_colon { "Filter" }
+    search_filter_api { "Suche (filter=...)" }
+    help_marker { "(?)" }
+    error_fmt { "Fehler: {0}" }
+    unknown { "Unbekannt" }
+    unknown_short { "?" }
+    unnamed { "(unbenannt)" }
+    untitled { "Unbenannt" }
+    empty_parens { "(leer)" }
+    custom_parens { "(benutzerdefiniert)" }
+    none_parens { "(keine)" }
+    no_fonts_parens { "(keine Schriftarten)" }
+    no_parameters { "Keine Parameter." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main menu bar (src/app/app_ui.cpp)
+  // ---------------------------------------------------------------------------
+  menu {
+    top {
+      file { "Datei" }
+      edit { "Bearbeiten" }
+      view { "Ansicht" }
+      window { "Fenster" }
+    }
+
+    file {
+      new_canvas { "Neue Leinwand" }
+      save { "Speichern" }
+      save_as_ellipsis { "Speichern unter…" }
+      load_ellipsis { "Laden…" }
+      recent { "Zuletzt verwendet" }
+      recent_empty { "(Leer)" }
+      recent_clear { "Zuletzt verwendete löschen" }
+
+      tutorials { "Tutorials" }
+      tutorials_failed { "(Tutorials konnten nicht geladen werden)" }
+      tutorials_empty { "(Leer)" }
+      tutorial_entry_fmt { "{0} von {1} ({2})" }
+      tutorials_errors {
+        failed_to_open_fmt { "{0} konnte nicht geöffnet werden" }
+        expected_top_level_array { "Top-Level-JSON-Array in ansi-tutorials.json erwartet" }
+        no_valid_tutorials { "Keine gültigen Tutorials in ansi-tutorials.json gefunden" }
+      }
+
+      export { "Export" }
+      export_ansi_ellipsis { "ANSI…" }
+      export_plaintext_ellipsis { "Klartext…" }
+      export_image_ellipsis { "Bild…" }
+      export_xbin_ellipsis { "XBin…" }
+
+      settings_ellipsis { "Einstellungen…" }
+      quit { "Beenden" }
+    }
+
+    edit {
+      undo { "Rückgängig" }
+      redo { "Wiederholen" }
+      copy { "Kopieren" }
+      cut { "Ausschneiden" }
+      paste { "Einfügen" }
+      select_all { "Alles auswählen" }
+      select_none { "Nichts auswählen" }
+      mirror_mode { "Spiegelmodus" }
+    }
+
+    view {
+      zoom_in { "Hineinzoomen" }
+      zoom_out { "Herauszoomen" }
+      reset_zoom_1_1 { "Zoom zurücksetzen (1:1)" }
+    }
+
+    window {
+      colour_picker { "Farbwähler" }
+      unicode_character_picker { "Unicode-Zeichenauswahl" }
+      character_palette { "Zeichenpalette" }
+      character_sets { "Zeichensätze" }
+      layer_manager { "Ebenenverwaltung" }
+      ansl_editor { "ANSL-Editor" }
+      tool_palette { "Werkzeugpalette" }
+      brush_palette { "Pinselpalette" }
+      minimap { "Minikarte" }
+      sixteen_colors_browser { "16colo.rs-Browser" }
+      fullscreen { "Vollbild" }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Generic/errors/status strings shared across multiple windows
+  // ---------------------------------------------------------------------------
+  app_strings {
+    missing_suffix { " (fehlt)" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Quit / close confirmation (src/app/run_frame.cpp)
+  // ---------------------------------------------------------------------------
+  confirm {
+    quit_modal_title { "Beenden" }
+    quit_question { "Phosphor beenden?" }
+    unsaved_count { "Du hast {0, plural, one{# Leinwand} other{# Leinwände}} mit ungespeicherten Änderungen." }
+    save_before_quit { "Möchtest du deine Änderungen vor dem Beenden speichern?" }
+
+    close_canvas_modal_title { "Änderungen speichern?" }
+    // NOTE: historical key retained for stability; punctuation (":") is owned by code.
+    close_canvas_question_with_path { "Änderungen speichern an" }
+    close_canvas_question_no_path { "Änderungen an dieser Leinwand speichern?" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // IO / file dialogs (src/io/io_manager.cpp)
+  // ---------------------------------------------------------------------------
+  io {
+    errors {
+      failed_open_for_reading { "Datei konnte nicht zum Lesen geöffnet werden." }
+      failed_read_file_size { "Dateigröße konnte nicht gelesen werden." }
+      file_too_large { "Datei ist zu groß." }
+      failed_read_contents { "Dateiinhalt konnte nicht gelesen werden." }
+      no_canvas_to_save { "Keine Leinwand zum Speichern." }
+      save_failed { "Speichern fehlgeschlagen." }
+      export_failed { "Export fehlgeschlagen." }
+
+      unsupported_file_type_or_failed_load { "Nicht unterstützter Dateityp oder Datei konnte nicht geladen werden." }
+      failed_to_open_n_of_n_last_error_fmt {
+        "{0}/{1} {1, plural, one{Datei} other{Dateien}} konnten nicht geöffnet werden. Letzter Fehler: {2}"
+      }
+
+      no_focused_canvas_to_export { "Keine fokussierte Leinwand zum Exportieren." }
+
+      internal_error_create_canvas_callback { "Interner Fehler: create_canvas-Callback ist nicht gesetzt." }
+      internal_error_create_image_callback { "Interner Fehler: create_image-Callback ist nicht gesetzt." }
+      internal_error_open_markdown_import_dialog_callback { "Interner Fehler: open_markdown_import_dialog-Callback ist nicht gesetzt." }
+      multiple_markdown_selected { "Mehrere Markdown-Dateien ausgewählt; es kann nur ein Markdown-Import gleichzeitig geöffnet werden." }
+    }
+
+    // File extensions should be dynamically generated from formats/, not hard coded
+    file_dialog_filters {
+      all_files { "Alle Dateien" }
+      // Historical keys retained for stability; do not embed extension patterns in translatable text.
+      phosphor_project { "Phosphor-Projekt" }
+      phosphor_project_base { "Phosphor-Projekt" }
+      supported_files { "Unterstützte Dateien" }
+      supported_files_base { "Unterstützte Dateien" }
+      ansi_text { "ANSI / Text" }
+      ansi_text_base { "ANSI / Text" }
+      gimp_palette { "GIMP-Palette" }
+      gimp_palette_base { "GIMP-Palette" }
+      markdown { "Markdown" }
+      markdown_base { "Markdown" }
+      xbin { "XBin" }
+      xbin_base { "XBin" }
+      images { "Bilder" }
+      images_base { "Bilder" }
+      export_base { "Export" }
+      image_base { "Bild" }
+    }
+
+    status_windows {
+      file_error_title { "Dateifehler" }
+      dismiss { "Schließen" }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Export dialog (src/ui/export_dialog.cpp)
+  // ---------------------------------------------------------------------------
+  export_dialog {
+    unnamed_preset { "(unbenannt)" }
+    no_active_canvas { "Keine aktive Leinwand zum Exportieren." }
+
+    tabs {
+      ansi { "ANSI" }
+      plaintext { "Klartext" }
+      image { "Bild" }
+      xbin { "XBin" }
+    }
+
+    // Common controls
+    preset { "Voreinstellung" }
+    source { "Quelle" }
+    source_items {
+      composite { "Komposit (was du siehst)" }
+      active_layer { "Aktive Ebene" }
+    }
+
+    // ANSI tab
+    ansi_tab {
+      text_encoding { "Textkodierung" }
+      text_encoding_items {
+        eight_bit { "8-bit (Codepage-Bytes)" }
+        utf8 { "UTF-8" }
+        utf8_bom { "UTF-8 (BOM)" }
+      }
+      byte_encoding { "Bytekodierung" }
+      byte_encoding_default_preview { "CP437 (IBM PC OEM)" }
+      byte_encoding_items {
+        cp437 { "CP437 (IBM PC OEM)" }
+        cp775 { "CP775" }
+        cp737 { "CP737" }
+        cp850 { "CP850" }
+        cp852 { "CP852" }
+        cp855 { "CP855" }
+        cp857 { "CP857" }
+        cp860 { "CP860" }
+        cp861 { "CP861" }
+        cp862 { "CP862" }
+        cp863 { "CP863" }
+        cp865 { "CP865" }
+        cp866 { "CP866" }
+        cp869 { "CP869" }
+        amiga_latin1 { "Amiga Latin-1 (Topaz 0x7F house)" }
+        amiga_iso8859_15 { "Amiga ISO-8859-15 (Topaz 0x7F house)" }
+        amiga_iso8859_2 { "Amiga ISO-8859-2 (Topaz 0x7F house)" }
+        amiga_1251 { "Amiga-1251" }
+      }
+      byte_encoding_help {
+        "Wird beim Export eines 8-bit-ANSI-Bytestreams verwendet. BitmapIndex-Glyph-Token werden, wenn möglich, verlustfrei als Bytewert exportiert."
+      }
+
+      newlines { "Zeilenenden" }
+      newlines_items {
+        crlf_scene_friendly { "CRLF (szene-freundlich)" }
+        lf_terminal_friendly { "LF (terminal-freundlich)" }
+      }
+
+      screen_prep { "Screen Prep" }
+      screen_prep_items {
+        none { "Keine" }
+        clear_screen { "Bildschirm löschen (ESC[2J)" }
+        home { "Home (ESC[H)" }
+        clear_plus_home { "Löschen + Home" }
+      }
+
+      color_mode { "Farbmodus" }
+      color_mode_items {
+        ansi16_classic { "ANSI16 (klassisch)" }
+        xterm256 { "xterm-256 (38;5/48;5)" }
+        truecolor_sgr { "Truecolor SGR (38;2/48;2)" }
+        pablo_t { "Pablo/Icy Truecolor (...t)" }
+      }
+
+      bright_ansi16 { "Helles ANSI16" }
+      bright_ansi16_items {
+        bold_ice { "Fett + iCE Blink (Szene-Klassiker)" }
+        sgr_90_97 { "SGR 90-97 / 100-107" }
+      }
+
+      ice_colors { "iCE-Farben (Blink => heller Hintergrund)" }
+      xterm_240_safe { "240-Farben-sicher (Indizes 0..15 vermeiden)" }
+      pablo_t_overlay { "ANSI16-Fallback + ...t-Overlay ausgeben" }
+
+      override_default_foreground { "Standard-Vordergrund überschreiben" }
+      override_default_background { "Standard-Hintergrund überschreiben" }
+      prefer_sgr39 { "SGR 39 für ungesetzten Vordergrund bevorzugen" }
+      prefer_sgr49 { "SGR 49 für ungesetzten Hintergrund bevorzugen" }
+
+      output_policy { "Ausgaberichtlinie" }
+      preserve_full_line_length { "Vollständige Zeilenlänge beibehalten (feste Breite)" }
+      compress_output { "Ausgabe komprimieren" }
+      use_cursor_forward { "Cursor-Vorwärts für Leerzeichen verwenden (CSI Ps C)" }
+      final_reset { "Final reset (ESC[0m)" }
+
+      sauce { "SAUCE" }
+      append_sauce { "SAUCE-Metadaten anhängen" }
+      sauce_include_eof { "EOF-Byte (0x1A) einschließen" }
+      sauce_include_comnt { "COMNT-Block einschließen (falls Kommentare existieren)" }
+      sauce_encode_cp437 { "SAUCE-Festfelder als CP437 kodieren" }
+      sauce_fields_hint { "SAUCE-Felder werden aus den Leinwand-Metadaten übernommen (Bearbeiten über den SAUCE-Editor)." }
+
+      export_ansi_ellipsis { "ANSI exportieren…" }
+
+      export_filters {
+        // Labels only; patterns are supplied by code (translator-safe).
+        ansi_ans { "ANSI" }
+        all_files { "Alle Dateien" }
+      }
+    }
+
+    // Plaintext tab
+    plaintext_tab {
+      text_encoding { "Textkodierung" }
+      text_encoding_items {
+        ascii { "ASCII" }
+        utf8 { "UTF-8" }
+        utf8_bom { "UTF-8 (BOM)" }
+      }
+      newlines { "Zeilenenden" }
+      newlines_items {
+        crlf { "CRLF" }
+        lf { "LF" }
+      }
+      preserve_full_line_length { "Vollständige Zeilenlänge beibehalten (feste Breite)" }
+      final_newline { "Abschließender Zeilenumbruch" }
+      export_text_ellipsis { "Text exportieren…" }
+      // File extensions should be dynamically generated from formats/, not hard coded
+      export_filters {
+        // Labels only; patterns are supplied by code (translator-safe).
+        text_txt { "Text" }
+        ascii_asc { "ASCII" }
+        all_files { "Alle Dateien" }
+      }
+    }
+
+    // Image tab
+    image_tab {
+      scale { "Skalierung" }
+      output_px { "Ausgabe: {0}x{1} px" }
+      output_na { "Ausgabe: (n/v)" }
+      transparent_unset_bg { "Ungesetzten Hintergrund transparent" }
+      transparent_unset_bg_help {
+        "Wenn aktiviert, werden Zellen mit bg==0 transparent exportiert.\nJPEG unterstützt keine Transparenz.\nPNG-Modi ohne Alpha (RGB/Indexed) lehnen diese Option ab."
+      }
+      png_format { "PNG-Format" }
+      png_format_items {
+        rgb24 { "RGB 24-bit" }
+        rgba32 { "RGBA 32-bit" }
+        indexed8 { "Indexed 8-bit (xterm-256)" }
+        indexed4 { "Indexed 4-bit (ANSI16)" }
+      }
+      png_compression { "PNG-Komprimierung" }
+      jpeg_quality { "JPEG-Qualität" }
+      export_image_ellipsis { "Bild exportieren…" }
+      // File extensions should be dynamically generated from formats/, not hard coded
+      export_filters {
+        // Labels only; patterns are supplied by code (translator-safe).
+        png { "PNG" }
+        jpeg { "JPEG" }
+        all_files { "Alle Dateien" }
+      }
+    }
+
+    // XBin tab
+    xbin_tab {
+      include_palette_chunk { "Paletten-Chunk einschließen (16 Farben)" }
+      include_embedded_font { "Eingebettete Schriftart einschließen (falls vorhanden)" }
+      compress_rle { "Komprimieren (XBin RLE)" }
+      nonblink { "NonBlink (iCE / helle Hintergründe)" }
+      mode_512_not_supported { "512-Zeichen-Modus (nicht unterstützt)" }
+      sauce { "SAUCE" }
+      append_sauce { "SAUCE-Metadaten anhängen" }
+      export_xbin_ellipsis { "XBin exportieren…" }
+      export_filters {
+        // Labels only; patterns are supplied by code (translator-safe).
+        xbin_xb { "XBin" }
+        all_files { "Alle Dateien" }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings window (src/ui/settings.cpp)
+  // ---------------------------------------------------------------------------
+  settings_window {
+    tabs {
+      general { "Allgemein" }
+      skin { "Design" }
+      key_bindings { "Tastenkürzel" }
+      about { "Über" }
+    }
+
+    about {
+      byline { "von 0xc1c4da" }
+      blurb { "Ein nativer UTF-8-ANSI-/Textmodus-Editor basierend auf der Unscii-8x16-Schrift." }
+      version_fmt { "Phosphor {0}" }
+    }
+
+    general_tab {
+      session_state_missing { "Session State nicht angehängt; Einstellungen können nicht gespeichert werden." }
+
+      undo_history { "Undo-Verlauf" }
+      unlimited_undo { "Unbegrenzter Undo-Verlauf" }
+      max_undo_steps { "Max. Undo-Schritte" }
+      undo_tip { "Tipp: große Werte können bei großen Leinwänden viel Speicher verwenden." }
+      undo_unlimited_note { "Unbegrenzt hält alle Undo-Snapshots im Speicher (kann groß werden)." }
+
+      zoom { "Zoom" }
+      zoom_snapping { "Zoom-Einrasten" }
+      zoom_snapping_items {
+        integer_scale { "Ganzzahlige Skalierung (N×)" }
+        pixel_aligned { "Pixel-ausgerichtete Zellenbreite" }
+      }
+      zoom_snapping_help {
+        "Ganzzahlig: immer auf ganzzahlige Zoom-Schritte einrasten.\nPixel-ausgerichtet: immer nach Zellenbreite einrasten (kann Artefakte bei Bitmap-Schriften erzeugen)."
+      }
+
+      lut_cache { "LUT-Cache" }
+      unlimited_lut_cache { "Unbegrenzter LUT-Cache" }
+      max_lut_cache_mib { "Max. LUT-Cache (MiB)" }
+      budget_pressure { "Budgetdruck" }
+      budget_pressure_used_of_budget_fmt { "{0} / {1} MiB ({2}%)" }
+      unlimited_budget_used { "{0} MiB verwendet (unbegrenztes Budget)" }
+
+      glyph_atlas_cache { "Glyph-Atlas-Cache" }
+      unlimited_glyph_atlas_cache { "Unbegrenzter Glyph-Atlas-Cache" }
+      max_glyph_atlas_cache_mib { "Max. Glyph-Atlas-Cache (MiB)" }
+      glyph_atlas_tip { "Tipp: dies cached Bitmap-Font-Atlanten für schnelles/korrektes Rendering über viele offene Leinwände." }
+    }
+
+    skin_tab {
+      session_state_missing { "Session State nicht angehängt; Theme kann nicht gespeichert werden." }
+      theme { "Theme" }
+      theme_saved_note { "Das Theme wird in session.json gespeichert und beim Start wiederhergestellt." }
+      reset_to_default_fmt { "Auf Standard zurücksetzen ({0})" }
+    }
+
+    key_bindings_tab {
+      engine_missing { "Tastenkürzel-Engine nicht angehängt." }
+      file_fmt { "Datei: {0}" }
+      modified_dot { "• Geändert" }
+
+      show_ids { "IDs anzeigen" }
+      filter_actions_ellipsis { "Aktionen filtern…" }
+      record_ellipsis { "Aufzeichnen…" }
+
+      record_key_binding { "Tastenkürzel aufzeichnen" }
+      record_prompt { "Drücke eine Taste, um dieses Kürzel zuzuweisen." }
+      record_modifiers_included { "Gehaltene Modifikatoren werden einbezogen (Strg/Umschalt/Alt/Super)." }
+      record_escape_backspace { "Escape: abbrechen   Backspace/Delete: löschen" }
+      modifiers_fmt { "Modifikatoren: {0}" }
+      no_modifiers { "(keine Modifikatoren)" }
+
+      conflicts_header { "Tastenkürzel-Konflikte" }
+      chord_hint { "z.B. Strg+Z" }
+      // NOTE: historical keys retained for stability; punctuation (":") is owned by code.
+      report_conflicts_header { "Konflikte" }
+      report_invalid_header { "Ungültige Akkorde" }
+
+      repeat_tooltip_long {
+        "Wiederholen solange gehalten.\nWenn aktiviert, wird das Kürzel beim Halten nach kurzer Verzögerung\nund danach mit konstanter Rate wiederholt (nutzt ImGui-Key-Repeat-Timing)."
+      }
+      repeat_tooltip_short {
+        "Wiederholen solange gehalten.\nAktivieren für Navigation/Backspace/Delete; deaktivieren für Einmal-Aktionen."
+      }
+      rpt_abbrev { "Rpt" }
+
+      action_col { "Aktion" }
+      bindings_col { "Belegungen" }
+      enabled_any_windows_linux_macos {
+        "Beliebig"
+      }
+      platform_items {
+        any { "Beliebig" }
+        windows { "Windows" }
+        linux { "Linux" }
+        macos { "macOS" }
+      }
+      context_items {
+        global { "Global" }
+        editor { "Editor" }
+        selection { "Auswahl" }
+        canvas { "Leinwand" }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Layer manager (src/ui/layer_manager.cpp)
+  // ---------------------------------------------------------------------------
+  layer_manager {
+    no_active_canvas { "Keine aktive Leinwand." }
+    no_layers_unexpected { "Leinwand hat keine Ebenen (unerwartet)." }
+
+    add_layer { "+ Hinzufügen" }
+    remove_layer { "- Entfernen" }
+    rename_ellipsis { "Umbenennen…" }
+    rename_layer_modal { "Ebene umbenennen" }
+    target_canvas_missing { "Zielleinwand existiert nicht mehr." }
+    // NOTE: historical key retained for stability; punctuation (":") is owned by code.
+    layer_name_fmt { "Ebene {0} Name" }
+    layers_header { "Ebenen" }
+
+    ctx_set_active { "Aktiv setzen" }
+    ctx_rename_ellipsis { "Umbenennen…" }
+    ctx_move_to_front { "In den Vordergrund" }
+    ctx_move_to_back { "In den Hintergrund" }
+    ctx_remove_layer { "Ebene entfernen" }
+    drag_move_fmt { "Verschieben: {0}" }
+
+    visible { "Sichtbar" }
+    lock_transparency { "Transparenz sperren" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool palette (src/ui/tool_palette.cpp)
+  // ---------------------------------------------------------------------------
+  tool_palette {
+    titlebar_tools { "Werkzeuge" }
+    count_fmt { "Anzahl: {0}" }
+    dir_fmt { "Verz.: {0}" }
+    active_fmt { "Aktiv: {0}" }
+    refresh_tools { "Werkzeuge aktualisieren" }
+    no_tools_loaded { "Keine Werkzeuge geladen." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ANSL editor (src/ui/ansl_editor.cpp)
+  // ---------------------------------------------------------------------------
+  ansl_editor {
+    play { "Play" }
+    pause { "Pause" }
+    playing { "Wird abgespielt" }
+    paused { "Pausiert" }
+    once { "(einmal)" }
+    once_ran { "(einmal: ausgeführt)" }
+
+    open_canvas_to_run { "Öffne ein Leinwandfenster, um Skripte auszuführen." }
+    target_layer_active_fmt { "Zielebene: {0} (aktiv)" }
+    clear_layer_each_frame { "Ebene pro Frame löschen" }
+    script_fps { "Skript-FPS" }
+    measured_script_fps_fmt { "Gemessene Skript-FPS: {0}" }
+    compile { "Kompilieren" }
+    run_once { "Einmal ausführen" }
+
+    refresh_examples { "Beispiele aktualisieren" }
+    no_examples_found_in_fmt { "Keine Beispiele in {0} gefunden" }
+    example { "Beispiel" }
+    example_none { "<keins>" }
+    failed_to_read_example_fmt { "Beispiel konnte nicht gelesen werden: {0}" }
+
+    parameters { "Parameter" }
+    examples_dir_not_found_fmt { "Beispielverzeichnis nicht gefunden: {0}" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Status/error windows surfaced from the main frame (src/app/run_frame.cpp)
+  // ---------------------------------------------------------------------------
+  status_windows {
+    tool_error_title { "Werkzeugfehler" }
+    tools_error_title { "Werkzeugfehler" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Colour Picker window (src/app/run_frame.cpp)
+  // ---------------------------------------------------------------------------
+  colour_picker_window {
+    default_palette_title { "Standard-HSV" }
+    palette_load_error_fmt { "Paletten-Ladefehler: {0}" }
+    picker_mode_items {
+      hue_bar { "Farbtonleiste" }
+      hue_wheel { "Farbtonrad" }
+    }
+    set_canvas_palette { "Leinwand-Palette setzen" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool parameters window (src/ui/tool_parameters_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_parameters {
+    window_title { "Werkzeugparameter" }
+    presets_popup_title { "Voreinstellungen" }
+    advanced { "Erweitert" }
+
+    file { "Datei" }
+    tool { "Werkzeug" }
+    tool_unknown { "(unbekannt)" }
+    no_presets_yet { "(Noch keine Voreinstellungen für dieses Werkzeug)" }
+    preset { "Voreinstellung" }
+
+    overwrite_selected { "Ausgewähltes überschreiben" }
+    save_current_as_ellipsis { "Aktuelles speichern als…" }
+    rename_ellipsis { "Umbenennen…" }
+    delete_ellipsis { "Löschen…" }
+
+    add_preset_button { "+ Voreinstellung" }
+    add_preset_tooltip { "Aktuelle Werkzeugparameter als neue Voreinstellung speichern." }
+
+    new_preset_modal { "Neue Werkzeug-Voreinstellung" }
+    new_preset_help { "Aktuelle Parameterwerte als Voreinstellung speichern." }
+    title { "Titel" }
+    create { "Erstellen" }
+    untitled { "Unbenannt" }
+
+    rename_preset_modal { "Werkzeug-Voreinstellung umbenennen" }
+    rename_preset_help { "Die ausgewählte Voreinstellung umbenennen." }
+
+    delete_preset_modal { "Werkzeug-Voreinstellung löschen?" }
+    delete_preset_help { "Die ausgewählte Voreinstellung löschen? Dies kann nicht rückgängig gemacht werden." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Brush palette (src/ui/brush_palette_window.cpp)
+  // ---------------------------------------------------------------------------
+  brush_palette {
+    name_optional { "Name (optional)" }
+    add_from_selection { "Aus Auswahl hinzufügen" }
+    delete { "Löschen" }
+    select_region_hint { "Wähle einen Bereich auf der Leinwand, um einen Pinsel zu erfassen." }
+    default_brush_name_fmt { "Pinsel {0}" }
+    composite { "Komposit" }
+    no_brushes_yet { "(Noch keine Pinsel)" }
+    thumb_px { "Vorschau" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Character sets (src/ui/character_set.cpp)
+  // ---------------------------------------------------------------------------
+  character_sets {
+    active_set { "Aktiver Satz" }
+    make_default { "Als Standard setzen" }
+    edit_mode_explainer { "Bearbeitungsmodus (Picker/Palette weist den ausgewählten Slot zu)" }
+    previous_set { "Vorheriger Satz" }
+    next_set { "Nächster Satz" }
+    slot_fmt { "Slot F{0}  {1}" }
+    clear_slot_space { "Slot leeren (Leertaste)" }
+    insert_slot { "Slot einfügen" }
+    tooltip_set_fmt { "Satz {0}" }
+    tooltip_fn_fmt { "F{0}" }
+    tooltip_control { "(Steuer)" }
+    tooltip_glyph_preview_matches { "Glyph-Vorschau entspricht der Leinwand-Schrift." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Character palette (src/ui/character_palette.cpp)
+  // ---------------------------------------------------------------------------
+  character_palette {
+    source_items {
+      json_palettes { "JSON-Paletten" }
+      embedded_font_active_canvas { "Eingebettete Schrift (aktive Leinwand)" }
+      bitmap_indices_0_255 { "Bitmap-Indizes (0..255)" }
+    }
+    embedded_readonly { "Eingebettete Palette wird generiert und ist schreibgeschützt." }
+    bitmap_indices_readonly { "Bitmap-Index-Palette wird generiert und ist schreibgeschützt." }
+    picker_edits_palette { "Picker bearbeitet Palette (ausgewählte Zelle ersetzen)" }
+    embedded_label { "(eingebettet)" }
+    bitmap_indices_label { "(Bitmap-Indizes)" }
+
+    new_palette_modal { "Neue Palette" }
+    new_palette_default_title { "Neue Palette" }
+    create_new_palette_help { "Eine neue Palette erstellen." }
+    title { "Titel" }
+    create { "Erstellen" }
+
+    rename_palette_modal { "Palette umbenennen" }
+    rename_palette_help { "Die aktuelle Palette umbenennen." }
+    delete_palette_modal { "Palette löschen?" }
+    delete_palette_help { "Die aktuelle Palette löschen? Dies kann nicht rückgängig gemacht werden." }
+
+    idx_fmt { "Idx: {0}" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Unicode character picker (src/ui/character_picker.cpp)
+  // ---------------------------------------------------------------------------
+  character_picker {
+    block { "Block" }
+    all_unicode_by_plane { "Alle Unicode (nach Ebene)" }
+    page { "Seite" }
+    subpage { "Unterseite" }
+    jump { "Springen" }
+
+    unknown_block { "Unbekannter Block" }
+
+    search_hint { "Unicode-Name (z.B. greek small letter eta)" }
+    no_results { "Keine Ergebnisse." }
+    results_range_fmt { "{0}–{1}" }
+    results_range_of_total_fmt { "{0}–{1} von {2}" }
+    plane_preview_fmt { "Ebene {0}: {1}" }
+    row_col { "Zeile/Spalte" }
+    no_drawable_glyphs { "Keine zeichnbaren Glyphen in diesem Bereich." }
+
+    selected { "Ausgewählt" }
+    glyph_prefix { "Glyph: {0}" }
+    name_prefix { "Name: {0}" }
+    block_prefix { "Block: {0}" }
+
+    copy_character { "Zeichen kopieren" }
+    copy_u_plus { "U+XXXX kopieren" }
+
+    confusables_header { "Verwechslungsgefahr (ICU Spoof)" }
+    limit_fmt { "(Limit {0})" }
+    no_confusables { "Keine Verwechslungen gefunden (oder ICU-Daten nicht verfügbar)." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Markdown -> ANSI import dialog (src/ui/markdown_to_ansi_dialog.cpp)
+  // ---------------------------------------------------------------------------
+  markdown_import {
+    preview_title { "Markdown → Leinwand" }
+    settings_title { "Markdown-Importeinstellungen" }
+
+    source_fmt { "Quelle: {0}" }
+    markdown_label { "(Markdown)" }
+    bytes_fmt { "({0} {0, plural, one{Byte} other{Bytes}})" }
+    preview_updating_ellipsis { "Vorschau wird aktualisiert…" }
+    themes_error_fmt { "Themes: {0}" }
+    no_preview { "(keine Vorschau)" }
+
+    pin_to_preview { "An Vorschau anheften" }
+
+    canvas { "Leinwand" }
+    width_columns { "Breite (Spalten)" }
+    max_rows { "Max. Zeilen" }
+    preserve_blank_lines { "Leere Zeilen beibehalten" }
+
+    wrapping { "Umbruch" }
+    wrap_paragraphs { "Absätze umbrechen" }
+    soft_breaks { "Weiche Zeilenumbrüche" }
+    soft_break_items {
+      space { "Leerzeichen" }
+      newline { "Zeilenumbruch" }
+    }
+
+    theme { "Theme" }
+    no_themes_loaded { "(keine Themes geladen)" }
+
+    links { "Links" }
+    render_mode { "Render-Modus" }
+    link_mode_items {
+      text_only { "Nur Text" }
+      inline_url { "URL inline" }
+    }
+
+    code_blocks { "Code-Blöcke" }
+    show_language_label { "Sprachlabel anzeigen" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Image -> ANSI (Chafa) dialog (src/ui/image_to_chafa_dialog.cpp)
+  // ---------------------------------------------------------------------------
+  chafa {
+    preview_title { "Bild → ANSI (Chafa)" }
+    settings_title { "Chafa-Einstellungen" }
+
+    no_image_data { "Keine Bilddaten." }
+    source_fmt { "Quelle: {0}" }
+    image_label { "(Bild)" }
+    dims_fmt { "({0}x{1})" }
+    preview_updating_ellipsis { "Vorschau wird aktualisiert…" }
+    no_preview { "(keine Vorschau)" }
+
+    pin_to_preview { "An Vorschau anheften" }
+
+    size_layout { "Größe & Layout" }
+    columns { "Spalten" }
+    auto_rows { "Auto-Zeilen" }
+    rows { "Zeilen" }
+    rows_auto { "Zeilen: auto" }
+    font_ratio { "Schriftverhältnis (b/h)" }
+    zoom { "Zoom" }
+    stretch { "Strecken" }
+
+    color_processing { "Farbe & Verarbeitung" }
+    color_mode { "Farbmodus" }
+    color_mode_items {
+      indexed_256 { "Indexed 256 (xterm)" }
+      indexed_240 { "Indexed 240" }
+      indexed_16 { "Indexed 16" }
+      indexed_16_8 { "Indexed 16/8" }
+      indexed_8 { "Indexed 8" }
+      default_invert { "Standard fg/bg + invertieren" }
+      default_no_codes { "Standard fg/bg (keine Codes)" }
+    }
+    color_extractor { "Farbauszug" }
+    color_extractor_items { average { "Durchschnitt" } median { "Median" } }
+    color_space { "Farbraum" }
+    color_space_items { rgb_fast { "RGB (schnell)" } din99d { "DIN99d (perzeptiv)" } }
+    preprocessing { "Vorverarbeitung" }
+    transparency_threshold { "Transparenzschwelle" }
+    foreground_only { "Nur Vordergrund (fg-only)" }
+    custom_fg_bg { "Benutzerdefinierte fg/bg-Farben" }
+    invert_fg_bg { "fg/bg invertieren" }
+    fg { "FG" }
+    bg { "BG" }
+    work { "Work" }
+    work_help { "Höheres Work verbessert die Qualität auf Kosten von CPU/Zeit (entspricht libchafa work_factor 0..1)." }
+    threads { "Threads (-1=auto)" }
+
+    symbols { "Symbole" }
+    symbols_class { "Symbolklasse" }
+    symbols_selectors { "Symbol-Selektoren" }
+    symbols_selectors_hint { "z.B. block+border-diagonal" }
+    fill_class { "Füllklasse" }
+    fill_selectors_same_as_symbols { "(wie Symbole)" }
+    fill_selectors { "Füll-Selektoren" }
+    fill_selectors_hint { "(leer = wie Symbole)" }
+    selectors_help { "Selektoren folgen der chafa-CLI-Syntax: kombinieren mit + und -, z.B. all-wide oder block+border-diagonal." }
+
+    dithering { "Dithering" }
+    dither_mode { "Modus" }
+    dither_mode_items { none { "Keine" } ordered { "Geordnet" } diffusion { "Diffusion" } noise { "Rauschen" } }
+    grain { "Körnung" }
+    grain_items { g1 { "1x1" } g2 { "2x2" } g4 { "4x4" } g8 { "8x8" } }
+    intensity { "Intensität" }
+
+    debug { "Debug" }
+    debug_stdout { "Debug nach stdout" }
+    dump_raw_ansi_danger { "RAW ANSI ausgeben (gefährlich)" }
+    raw_tip { "Tipp: RAW aus lassen; verwende Escaped-Dump, um Terminal-Müll zu vermeiden." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Image window (src/ui/image_window.cpp)
+  // ---------------------------------------------------------------------------
+  image_window {
+    title { "Bild" }
+    no_image_data { "Keine Bilddaten." }
+    ctx_convert_to_ansi { "In ANSI konvertieren…" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SAUCE editor (src/ui/sauce_editor_dialog.cpp)
+  // ---------------------------------------------------------------------------
+  sauce_editor {
+    title { "SAUCE-Editor" }
+    field_title { "Titel" }
+    field_author { "Autor" }
+    field_group { "Gruppe" }
+    field_date { "Datum" }
+    field_font { "Schrift" }
+    custom { "Benutzerdefiniert" }
+    unknown { "(Unbekannt)" }
+    known_fonts_header { "Bekannte Schriften (SAUCE FontName)" }
+    field_tinfos { "TInfoS" }
+    comments { "Kommentare" }
+    advanced { "Erweitert" }
+
+    help_title { "SAUCE Title (35 Zeichen): der Titel der Datei/des Artworks. Feld fester Breite im 128-Byte-SAUSE-Record (beim Schreiben mit Leerzeichen aufgefüllt)." }
+    help_author { "SAUCE Author (20 Zeichen): der (Nick)Name des Erstellers der Datei/des Artworks. Feld fester Breite im SAUCE-Record." }
+    help_group { "SAUCE Group (20 Zeichen): der Name der Gruppe/Firma, der der Ersteller angehört. Feld fester Breite im SAUCE-Record." }
+    help_date { "SAUCE Date (8 Zeichen): Erstellungsdatum im Format CCYYMMDD. Beispiel: 4. Mai 2013 wird als \"20130504\" gespeichert." }
+    help_tinfos {
+      "SAUCE TInfoS (22 Bytes, ZString): typabhängiges String-Informationsfeld.\nFür DataType=Character wird dies häufig als FontName verwendet."
+    }
+    help_comments {
+      "SAUCE Comment Block: optional zusätzliche Kommentarzeilen. Bis zu 255 Zeilen, je 64 Zeichen breit. Wenn in einer Datei vorhanden, wird es als \"COMNT\" + (Zeilen*64) direkt vor dem 128-Byte-SAUSE-Record gespeichert."
+    }
+
+    // Buttons
+    cancel { "Abbrechen" }
+    clear { "Leeren" }
+    save { "Speichern" }
+
+    // Advanced fields labels
+    datatype_u8 { "DataType (u8)" }
+    filetype_u8 { "FileType (u8)" }
+    tinfo1_u16 { "TInfo1 (u16)" }
+    tinfo2_u16 { "TInfo2 (u16)" }
+    tinfo3_u16 { "TInfo3 (u16)" }
+    tinfo4_u16 { "TInfo4 (u16)" }
+    tflags_u8 { "TFlags (u8)" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 16colo.rs browser (src/ui/sixteen_colors_browser.cpp)
+  // ---------------------------------------------------------------------------
+  sixteen_colors {
+    title { "16colo.rs-Browser" }
+
+    browse { "Durchsuchen" }
+    browse_items {
+      packs { "Packs" }
+      groups { "Gruppen" }
+      artists { "Künstler" }
+      years { "Jahre" }
+      latest { "Neueste" }
+    }
+
+    datahoarder { "Datahoarder" }
+    datahoarder_tooltip {
+      "Dies ist ein langsamer Hintergrund-Spider von 16colo.rs.\nEr wird verwendet, um den Cache vorab zu befüllen, um 16colo.rs für Offline-Nutzung zu archivieren.\nDu musst dies zwischen Läufen bewusst einschalten, um mit dem Archivieren fortzufahren.\n\nEingereiht: {0}\nAbgeschlossen: {1}\nFehler: {2}\nAusstehend: {3}\n"
+    }
+
+    back { "Zurück" }
+
+    filter_hint_default { "Suche (filter=...)" }
+    filter_hint_packs { "Packs suchen (filter=...)" }
+    filter_hint_groups { "Gruppen suchen (filter=...)" }
+    filter_hint_artists { "Künstler suchen (filter=...)" }
+    filter_hint_years_optional { "Optional: Packs im Jahr filtern (filter=...)" }
+
+    include_groups { "Gruppen einbeziehen" }
+    include_artists { "Künstler einbeziehen" }
+    include_mags { "Mags einbeziehen" }
+    sort { "Sortieren" }
+    order { "Reihenfolge" }
+
+    loading_pack { "Pack wird geladen…" }
+    loading { "Laden…" }
+    downloading_n_fmt { "Lade {0} herunter…" }
+    error_fmt { "Fehler: {0}" }
+
+    left_title_packs { "Packs" }
+    left_title_groups { "Gruppen" }
+    left_title_artists { "Künstler" }
+    left_title_years { "Jahre" }
+    left_title_latest_packs { "Neueste Packs" }
+
+    no_pack_list_yet { "Noch keine Packliste geladen." }
+    no_latest_list_yet { "Noch keine Neueste-Liste geladen." }
+    no_group_list_yet { "Noch keine Gruppenliste geladen." }
+    no_artist_list_yet { "Noch keine Künstlerliste geladen." }
+    no_year_index_yet { "Noch kein Jahresindex geladen." }
+    unexpected_response { "Unerwartete Antwort." }
+    no_packs_loaded_yet { "Noch keine Packs geladen." }
+
+    pack_fmt { "Pack: {0}" }
+    pack_none { "(keins)" }
+    filter_files_hint { "Dateien filtern (Substring)" }
+    filter_tag_hint { "Tags filtern (Substring)" }
+    no_thumbnail { "kein Thumbnail" }
+    thumb_failed { "Thumbnail fehlgeschlagen" }
+    thumb_loading { "lädt…" }
+    no_files_for_pack { "Keine Dateien für dieses Pack." }
+    unexpected_pack_details { "Unerwartete Antwort für Pack-Details." }
+    no_pack_details_yet { "Noch keine Pack-Details geladen." }
+    select_pack_left { "Wähle links ein Pack aus." }
+    unsupported_file_type_fmt { "Nicht unterstützter Dateityp für Import: {0}" }
+    internal_error_create_image { "Interner Fehler: create_image-Callback ist nicht gesetzt." }
+    internal_error_create_canvas { "Interner Fehler: create_canvas-Callback ist nicht gesetzt." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Window chrome (src/ui/imgui_window_chrome.cpp)
+  // ---------------------------------------------------------------------------
+  window_chrome {
+    z_normal { "Z-Reihenfolge: Normal" }
+    z_front { "Z-Reihenfolge: Nach vorne anheften" }
+    z_back { "Z-Reihenfolge: Nach hinten anheften" }
+    opacity { "Deckkraft" }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Colour palette swatch tooltip (src/ui/colour_palette.cpp)
+  // ---------------------------------------------------------------------------
+  colour_palette {
+    swatch_tooltip {
+      "Enter/LMB: aktiv setzen (FG/BG)\nShift+Enter/RMB: anderes setzen (BG/FG)"
+    }
+  }
+}
+
+

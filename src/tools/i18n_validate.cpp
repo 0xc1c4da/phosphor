@@ -20,6 +20,7 @@ struct Issues
     int missing_keys = 0;
     int msgfmt_errors = 0;
     int ellipsis_inconsistencies = 0;
+    int ascii_ellipsis_in_translation = 0;
     int imgui_id_in_translation = 0;
     int file_pattern_in_translation = 0;
 };
@@ -204,6 +205,23 @@ static bool EndsWith(std::string_view s, std::string_view suf)
     return s.size() >= suf.size() && s.substr(s.size() - suf.size()) == suf;
 }
 
+static bool ContainsDisallowedAsciiEllipsis(std::string_view v)
+{
+    // We prefer the Unicode ellipsis "…" for UI strings.
+    // ASCII "..." is allowed only in a few clearly-technical contexts (not a UI continuation marker).
+    //
+    // Current allowed cases (see i18n/root.txt notes):
+    // - API filter syntax: "filter=..."
+    // - Pablo/Icy truecolor token: "...t" / "(...t)"
+    if (v.find("...") == std::string::npos)
+        return false;
+    if (v.find("filter=...") != std::string::npos)
+        return false;
+    if (v.find("...t") != std::string::npos)
+        return false;
+    return true;
+}
+
 int main(int argc, char** argv)
 {
     // Default expected location from this repo's Makefile: build/i18n/root.res
@@ -288,6 +306,14 @@ int main(int argc, char** argv)
             ++issues.file_pattern_in_translation;
             std::cerr << "FILE_PATTERN_IN_TRANSLATION " << k << " = " << v << "\n";
         }
+
+        // Guardrail: avoid ASCII "..." for UI ellipsis outside known technical contexts.
+        // Note: *_ellipsis is handled separately below for clearer error messages.
+        if (!EndsWith(k, "_ellipsis") && ContainsDisallowedAsciiEllipsis(v))
+        {
+            ++issues.ascii_ellipsis_in_translation;
+            std::cerr << "ELLIPSIS_ASCII " << k << " = " << v << "\n";
+        }
     }
 
     // Ellipsis consistency: *_ellipsis should use Unicode ellipsis (…)
@@ -331,6 +357,7 @@ int main(int argc, char** argv)
     if (issues.missing_keys ||
         issues.msgfmt_errors ||
         issues.ellipsis_inconsistencies ||
+        issues.ascii_ellipsis_in_translation ||
         issues.imgui_id_in_translation ||
         issues.file_pattern_in_translation)
     {
@@ -338,6 +365,7 @@ int main(int argc, char** argv)
                   << " missing_keys=" << issues.missing_keys
                   << " msgfmt_errors=" << issues.msgfmt_errors
                   << " ellipsis_ascii=" << issues.ellipsis_inconsistencies
+                  << " ellipsis_ascii_in_translation=" << issues.ascii_ellipsis_in_translation
                   << " imgui_id_in_translation=" << issues.imgui_id_in_translation
                   << " file_pattern_in_translation=" << issues.file_pattern_in_translation
                   << "\n";

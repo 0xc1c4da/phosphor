@@ -729,6 +729,11 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             rgb.push_back(phos::color::Rgb8{r, g, b});
         }
 
+        // Best-match UI palette inference (registry-backed via PaletteCatalog).
+        // This allows XBin imports with a non-builtin palette table to still snap the UI selection
+        // to a known catalog palette when it's a confident match.
+        const auto inferred_ui = cs.Catalog().BestMatchUiByIndexOrder(rgb);
+
         // Prefer builtins when the palette matches exactly (better UX + smaller identity).
         const phos::color::Palette* vga = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Vga16));
         const phos::color::Palette* x16 = cs.Palettes().Get(cs.Palettes().Builtin(phos::color::BuiltinPalette::Xterm16));
@@ -736,15 +741,11 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
         {
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-            // UI palette selection: follow the core palette identity.
-            st.ui_palette_ref = st.palette_ref;
         }
         else if (PaletteEquals16(rgb, x16))
         {
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Xterm16;
-            // UI palette selection: follow the core palette identity.
-            st.ui_palette_ref = st.palette_ref;
         }
         else if (hdr.has_palette)
         {
@@ -753,15 +754,11 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             if (const phos::color::Palette* p = cs.Palettes().Get(pid))
             {
                 st.palette_ref = p->ref;
-                // UI palette selection: follow the core palette identity.
-                st.ui_palette_ref = st.palette_ref;
             }
             else
             {
                 st.palette_ref.is_builtin = true;
                 st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-                // UI palette selection: follow the core palette identity.
-                st.ui_palette_ref = st.palette_ref;
             }
         }
         else
@@ -769,9 +766,14 @@ bool ImportBytesToCanvas(const std::vector<std::uint8_t>& bytes,
             // No palette chunk => default VGA16.
             st.palette_ref.is_builtin = true;
             st.palette_ref.builtin = phos::color::BuiltinPalette::Vga16;
-            // UI palette selection: follow the core palette identity.
-            st.ui_palette_ref = st.palette_ref;
         }
+
+        // UI palette selection:
+        // Default to following the imported core palette identity, but if we have a confident catalog
+        // match, prefer that for the picker dropdown (titles/ordering).
+        st.ui_palette_ref = st.palette_ref;
+        if (inferred_ui.has_value())
+            st.ui_palette_ref = *inferred_ui;
 
         // IMPORTANT: snapshot fields drive rendering; keep them in sync.
         st.current.palette_ref = st.palette_ref;

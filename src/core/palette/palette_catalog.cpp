@@ -6,10 +6,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string_view>
 
 namespace phos::color
@@ -356,6 +358,145 @@ std::optional<PaletteInstanceId> PaletteCatalog::EnsureUiIncludes(const PaletteR
     // Append unknown (but resolvable) palettes so the UI can reflect the active canvas palette.
     m_ui_list.push_back(want);
     return want;
+}
+
+std::optional<PaletteRef> PaletteCatalog::BestMatchUiByIndexOrder(std::span<const Rgb8> table_rgb) const
+{
+    // Score: average absolute channel difference per entry.
+    // Range: [0..255]. Lower is better.
+    // Confidence gating:
+    // - Always accept exact match (0).
+    // - Otherwise accept only if it's quite close AND clearly better than the runner-up.
+    if (table_rgb.empty())
+        return std::nullopt;
+
+    auto& cs = phos::color::GetColorSystem();
+
+    double best = std::numeric_limits<double>::infinity();
+    double second = std::numeric_limits<double>::infinity();
+    PaletteRef best_ref{};
+    bool have_best = false;
+
+    for (PaletteInstanceId id : m_ui_list)
+    {
+        const Palette* p = cs.Palettes().Get(id);
+        if (!p)
+            continue;
+        if (p->rgb.size() != table_rgb.size())
+            continue;
+
+        std::uint64_t sum_abs = 0;
+        for (size_t i = 0; i < table_rgb.size(); ++i)
+        {
+            const int dr = (int)p->rgb[i].r - (int)table_rgb[i].r;
+            const int dg = (int)p->rgb[i].g - (int)table_rgb[i].g;
+            const int db = (int)p->rgb[i].b - (int)table_rgb[i].b;
+            sum_abs += (std::uint64_t)std::abs(dr) + (std::uint64_t)std::abs(dg) + (std::uint64_t)std::abs(db);
+        }
+        const double avg_abs = (double)sum_abs / (double)(3.0 * (double)table_rgb.size());
+
+        if (avg_abs < best)
+        {
+            second = best;
+            best = avg_abs;
+            best_ref = p->ref;
+            have_best = true;
+        }
+        else if (avg_abs < second)
+        {
+            second = avg_abs;
+        }
+    }
+
+    if (!have_best)
+        return std::nullopt;
+    if (best <= 0.0)
+        return best_ref;
+
+    // Heuristics tuned for "same palette with minor rounding" cases.
+    // - avg_abs <= 6: very close
+    // - also require a margin vs runner-up to avoid snapping to an arbitrary palette when ambiguous.
+    const bool clear_winner = !std::isfinite(second) || (second - best) >= 2.0;
+    if (best <= 6.0 && clear_winner)
+        return best_ref;
+
+    return std::nullopt;
+}
+
+std::optional<PaletteRef> PaletteCatalog::BestMatchUiByNearestColors(std::span<const Rgb8> colors) const
+{
+    // Score: mean squared nearest-neighbor RGB distance for the observed colors.
+    // Lower is better.
+    //
+    // Confidence gating:
+    // - Always accept perfect match (0).
+    // - Otherwise accept only if the match is reasonably tight AND clearly better than runner-up.
+    if (colors.empty())
+        return std::nullopt;
+
+    auto& cs = phos::color::GetColorSystem();
+
+    std::uint64_t best = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t second = std::numeric_limits<std::uint64_t>::max();
+    size_t best_size = 0;
+    PaletteRef best_ref{};
+    bool have_best = false;
+
+    for (PaletteInstanceId id : m_ui_list)
+    {
+        const Palette* p = cs.Palettes().Get(id);
+        if (!p || p->rgb.empty())
+            continue;
+
+        std::uint64_t sum = 0;
+        for (const Rgb8& c : colors)
+        {
+            std::uint32_t best_d = 0xFFFFFFFFu;
+            for (const Rgb8& pc : p->rgb)
+            {
+                const int dr = (int)pc.r - (int)c.r;
+                const int dg = (int)pc.g - (int)c.g;
+                const int db = (int)pc.b - (int)c.b;
+                const std::uint32_t d = (std::uint32_t)(dr * dr + dg * dg + db * db);
+                if (d < best_d)
+                    best_d = d;
+            }
+            sum += (std::uint64_t)best_d;
+            // Conservative cap to avoid pathological costs on huge inputs.
+            if (sum > best && have_best)
+                break;
+        }
+
+        // Tie-break: prefer smaller palettes when the score is identical (more "specific").
+        if (sum < best || (sum == best && (!have_best || p->rgb.size() < best_size)))
+        {
+            second = best;
+            best = sum;
+            best_ref = p->ref;
+            best_size = p->rgb.size();
+            have_best = true;
+        }
+        else if (sum < second)
+        {
+            second = sum;
+        }
+    }
+
+    if (!have_best)
+        return std::nullopt;
+    if (best == 0)
+        return best_ref;
+
+    const double mean = (double)best / (double)colors.size();
+    const double rms = std::sqrt(mean); // RMS distance in RGB space (0..~441)
+
+    // "Reasonably tight": within ~24 RMS, and a clear winner.
+    const bool clear_winner = (second == std::numeric_limits<std::uint64_t>::max()) ||
+                              ((double)best <= 0.70 * (double)second);
+    if (rms <= 24.0 && clear_winner)
+        return best_ref;
+
+    return std::nullopt;
 }
 
 } // namespace phos::color

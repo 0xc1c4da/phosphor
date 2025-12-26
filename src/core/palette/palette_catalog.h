@@ -54,6 +54,20 @@ public:
     // on success, or nullopt if the ref cannot be resolved.
     std::optional<PaletteInstanceId> EnsureUiIncludes(const PaletteRef& ref);
 
+    // Best-match inference helpers for importers.
+    //
+    // These return a PaletteRef from the current UiPaletteList() when a confident match is found.
+    // If no confident match exists, they return nullopt (callers should fall back to "follow core palette").
+    //
+    // - BestMatchUiByIndexOrder(): compares an explicit palette table against candidates of the same size.
+    //   This is intended for formats that carry a palette table (e.g. XBin). Palette index order matters.
+    //
+    // - BestMatchUiByNearestColors(): compares a set of observed RGB colors against each candidate palette,
+    //   scoring by nearest-neighbor distance (order does not matter). This is intended for formats that
+    //   don't carry a palette table but do carry explicit RGB colors (e.g. truecolor ANSI sequences).
+    std::optional<PaletteRef> BestMatchUiByIndexOrder(std::span<const Rgb8> table_rgb) const;
+    std::optional<PaletteRef> BestMatchUiByNearestColors(std::span<const Rgb8> colors) const;
+
     // Optional load error message (empty when last load was successful).
     const std::string& LastLoadError() const { return m_last_error; }
 

@@ -48,6 +48,14 @@ class ImageWindow;
 // and stores pointers to the heavier subsystems that are initialized in `main()`.
 struct AppState
 {
+    struct Startup
+    {
+        // Optional CLI-driven open requests (e.g. `phosphor path/to/file.ans`).
+        // When non-empty, RunFrame will open these paths once using IoManager, then clear the list.
+        std::vector<std::string> open_paths;
+        bool open_paths_consumed = false;
+    } startup;
+
     struct Platform
     {
         SDL_Window* window = nullptr;
