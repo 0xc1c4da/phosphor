@@ -1,5 +1,6 @@
 #include "io/formats/markdown.h"
 
+#include "core/colour_system.h"
 #include "core/paths.h"
 
 #include <md4c.h>
@@ -168,6 +169,11 @@ struct Theme
 {
     std::string name;
     std::string author;
+    // Canvas "paper" colour preference (background behind cells).
+    // - nullopt: leave canvas default (user preference)
+    // - true: white paper
+    // - false: black paper
+    std::optional<bool> paper_white;
     std::unordered_map<std::string, std::string> colours;            // token -> colour string
     std::optional<StyleSpec> defaults;
     std::unordered_map<std::string, StyleSpec> elements;            // element name -> style
@@ -311,9 +317,39 @@ static bool LoadThemeFromJson(const Json& j, Theme& out, std::string& err)
     if (auto it = j.find("author"); it != j.end() && it->is_string())
         out.author = it->get<std::string>();
 
-    if (auto it = j.find("colours"); it != j.end() && it->is_object())
+    // Optional canvas paper colour preference.
+    // Accepted values:
+    // - "white" / "light" => white paper
+    // - "black" / "dark"  => black paper
+    // - "auto" / "default" / "either" => leave unset (theme works on either paper)
+    if (auto it = j.find("paper"); it != j.end())
     {
-        for (auto it2 = it->begin(); it2 != it->end(); ++it2)
+        if (it->is_string())
+        {
+            const std::string v = ToLowerAscii(it->get<std::string>());
+            if (v == "white" || v == "light")
+                out.paper_white = true;
+            else if (v == "black" || v == "dark")
+                out.paper_white = false;
+            // else: ignore unknown values (tolerant).
+        }
+        else if (it->is_boolean())
+        {
+            // True => white, false => black.
+            out.paper_white = it->get<bool>();
+        }
+    }
+
+    // Allow both spellings: "colours" (preferred, matches bundled themes) and "colors" (schema/US spelling).
+    const Json* colours_obj = nullptr;
+    if (auto it = j.find("colours"); it != j.end() && it->is_object())
+        colours_obj = &(*it);
+    else if (auto it = j.find("colors"); it != j.end() && it->is_object())
+        colours_obj = &(*it);
+
+    if (colours_obj)
+    {
+        for (auto it2 = colours_obj->begin(); it2 != colours_obj->end(); ++it2)
         {
             if (!it2.value().is_string())
                 continue;
@@ -1860,18 +1896,37 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
     st.current.layers[0].name = "Base";
     st.current.layers[0].visible = true;
 
-    const size_t total = (size_t)st.current.rows * (size_t)st.current.columns;
-    st.current.layers[0].cells.assign(total, U' ');
-    st.current.layers[0].fg.assign(total, 0);
-    st.current.layers[0].bg.assign(total, 0);
-    st.current.layers[0].attrs.assign(total, 0);
+    // Markdown import is a "modern text" mode: bold is typographic, not ANSI16 bright.
+    st.bold_semantics = (int)AnsiCanvas::BoldSemantics::Typographic;
 
     // Phase-B/index-native defaults: xterm256 core palette, UI selection follows core.
     st.palette_ref.is_builtin = true;
     st.palette_ref.builtin = phos::colour::BuiltinPalette::Xterm256;
     st.ui_palette_ref = st.palette_ref;
+    // IMPORTANT: snapshot fields drive rendering; keep them in sync.
     st.current.palette_ref = st.palette_ref;
     st.current.ui_palette_ref = st.ui_palette_ref;
+
+    // IMPORTANT:
+    // ProjectState stores fg/bg as palette indices (Phase B), where 0 is a real colour (black).
+    // "Unset" must be represented as kUnsetIndex16 so the renderer uses theme defaults /
+    // transparent bg instead of painting black cells.
+    const size_t total = (size_t)st.current.rows * (size_t)st.current.columns;
+    st.current.layers[0].cells.assign(total, phos::glyph::MakeUnicodeScalar(U' '));
+    st.current.layers[0].fg.assign(total, AnsiCanvas::kUnsetIndex16);
+    st.current.layers[0].bg.assign(total, AnsiCanvas::kUnsetIndex16);
+    st.current.layers[0].attrs.assign(total, 0);
+
+    auto& cs = phos::colour::GetColourSystem();
+    const phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
+    const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
+
+    auto quantize = [&](AnsiCanvas::Colour32 c32) -> AnsiCanvas::ColourIndex16 {
+        if (c32 == 0)
+            return AnsiCanvas::kUnsetIndex16;
+        const phos::colour::ColourIndex idx = phos::colour::ColourOps::Colour32ToIndex(cs.Palettes(), pal, (std::uint32_t)c32, qp);
+        return idx.IsUnset() ? AnsiCanvas::kUnsetIndex16 : (AnsiCanvas::ColourIndex16)idx.v;
+    };
 
     auto at = [&](int r, int c) -> size_t {
         return (size_t)r * (size_t)cols + (size_t)c;
@@ -1885,9 +1940,9 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
         {
             const Cell& cell = ln.cells[(size_t)c];
             const size_t idx = at(r, c);
-            st.current.layers[0].cells[idx] = cell.cp;
-            st.current.layers[0].fg[idx] = cell.fg;
-            st.current.layers[0].bg[idx] = cell.bg;
+            st.current.layers[0].cells[idx] = phos::glyph::MakeUnicodeScalar(cell.cp);
+            st.current.layers[0].fg[idx] = quantize(cell.fg);
+            st.current.layers[0].bg[idx] = quantize(cell.bg);
             st.current.layers[0].attrs[idx] = cell.attrs;
         }
     }
@@ -1899,6 +1954,11 @@ static bool LayoutAndPaint(const Block& doc, const Theme& theme, const ImportOpt
         err = apply_err.empty() ? "Failed to apply Markdown import state." : apply_err;
         return false;
     }
+
+    // Apply optional theme "paper" colour preference (background behind cells).
+    if (theme.paper_white.has_value())
+        canvas.SetCanvasBackgroundWhite(*theme.paper_white);
+
     out = std::move(canvas);
     return true;
 }

@@ -8,7 +8,18 @@
   "properties": {
     "name": { "type": "string", "minLength": 1 },
     "author": { "type": "string" },
+    "paper": {
+      "description": "Canvas paper colour (background behind cells). If omitted, the theme works with either paper colour and the app/user preference is used.",
+      "oneOf": [
+        { "type": "string", "enum": ["auto", "default", "either", "white", "light", "black", "dark"] },
+        { "type": "boolean", "description": "true => white paper, false => black paper" }
+      ]
+    },
     "colors": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "colours": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/color" }
     },

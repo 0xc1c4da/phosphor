@@ -1,5 +1,6 @@
 {
   "name": "light",
+  "paper": "white",
   "elements": {
     "document": {
       "fg": "#1c1c1c",
