@@ -66,6 +66,25 @@ static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
     return out;
 }
 
+static std::string JoinExtsForLabel(const std::vector<std::string_view>& exts)
+{
+    std::string out;
+    for (size_t i = 0; i < exts.size(); ++i)
+    {
+        if (i) out.push_back(';');
+        out.append("*.");
+        out.append(exts[i].begin(), exts[i].end());
+    }
+    return out;
+}
+
+static std::string MakeFilterLabel(std::string_view base, const std::vector<std::string_view>& exts)
+{
+    if (exts.empty())
+        return std::string(base);
+    return std::string(base) + " (" + JoinExtsForLabel(exts) + ")";
+}
+
 static bool ReadAllBytesLimited(const std::string& path,
                                 std::vector<std::uint8_t>& out,
                                 std::string& err,
@@ -195,8 +214,9 @@ void IoManager::RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialo
 {
     m_last_error.clear();
     m_pending_save_canvas = target_canvas;
+    const std::vector<std::string_view> project_exts_v = {"phos"};
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Phosphor Project (*.phos)", "phos"},
+        {MakeFilterLabel("Phosphor Project", project_exts_v), "phos"},
         {"All files", "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
@@ -226,8 +246,9 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(xbin_exts_v, formats::xbin::ImportExtensions());
     const std::string xbin_exts = JoinExtsForDialog(xbin_exts_v);
 
-    const std::string image_exts = JoinExtsForDialog(std::vector<std::string_view>(formats::image::ImportExtensions().begin(),
-                                                                                   formats::image::ImportExtensions().end()));
+    std::vector<std::string_view> image_exts_v;
+    AppendUnique(image_exts_v, formats::image::ImportExtensions());
+    const std::string image_exts = JoinExtsForDialog(image_exts_v);
 
     std::vector<std::string_view> supported_exts_v;
     supported_exts_v.push_back("phos");
@@ -236,17 +257,18 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
     AppendUnique(supported_exts_v, md_exts_v);
     AppendUnique(supported_exts_v, xbin_exts_v);
     // Keep the same image list for "Supported files".
-    AppendUnique(supported_exts_v, formats::image::ImportExtensions());
+    AppendUnique(supported_exts_v, image_exts_v);
     const std::string supported_exts = JoinExtsForDialog(supported_exts_v);
 
+    const std::vector<std::string_view> project_exts_v = {"phos"};
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.gpl;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)", supported_exts},
-        {"Phosphor Project (*.phos)", "phos"},
-        {"ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)", text_exts},
-        {"GIMP Palette (*.gpl)", pal_exts},
-        {"Markdown (*.md;*.markdown;*.mdown;*.mkd)", md_exts},
-        {"XBin (*.xb)", xbin_exts},
-        {"Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)", image_exts},
+        {MakeFilterLabel("Supported files", supported_exts_v), supported_exts},
+        {MakeFilterLabel("Phosphor Project", project_exts_v), "phos"},
+        {MakeFilterLabel("ANSI / Text", text_exts_v), text_exts},
+        {MakeFilterLabel("GIMP Palette", pal_exts_v), pal_exts},
+        {MakeFilterLabel("Markdown", md_exts_v), md_exts},
+        {MakeFilterLabel("XBin", xbin_exts_v), xbin_exts},
+        {MakeFilterLabel("Images", image_exts_v), image_exts},
         {"All files", "*"},
     };
     dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, true);
@@ -263,7 +285,7 @@ void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialog
     const std::string exts = JoinExtsForDialog(exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Export (*.ans;*.txt;*.asc;*.xb)", exts},
+        {MakeFilterLabel("Export", exts_v), exts},
         {"All files", "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
@@ -280,7 +302,7 @@ void IoManager::RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialo
     const std::string exts = JoinExtsForDialog(exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {"Image (*.png;*.jpg;*.jpeg)", exts},
+        {MakeFilterLabel("Image", exts_v), exts},
         {"All files", "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);

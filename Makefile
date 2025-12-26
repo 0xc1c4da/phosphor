@@ -254,3 +254,8 @@ release-check:
 	fi; \
 	echo "release-check: OK (VERSION=$$base tag=$$tag)"
 
+.PHONY: release
+release:
+	@./scripts/release.sh
+	@$(MAKE) release-check
+

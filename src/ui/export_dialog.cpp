@@ -19,6 +19,36 @@ namespace
 {
 namespace fs = std::filesystem;
 
+static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
+{
+    std::string out;
+    for (size_t i = 0; i < exts.size(); ++i)
+    {
+        if (i) out.push_back(';');
+        out.append(exts[i].begin(), exts[i].end());
+    }
+    return out;
+}
+
+static std::string JoinExtsForLabel(const std::vector<std::string_view>& exts)
+{
+    std::string out;
+    for (size_t i = 0; i < exts.size(); ++i)
+    {
+        if (i) out.push_back(';');
+        out.append("*.");
+        out.append(exts[i].begin(), exts[i].end());
+    }
+    return out;
+}
+
+static std::string MakeFilterLabel(std::string_view base, const std::vector<std::string_view>& exts)
+{
+    if (exts.empty())
+        return std::string(base);
+    return std::string(base) + " (" + JoinExtsForLabel(exts) + ")";
+}
+
 static bool IsUri(const std::string& s)
 {
     return s.find("://") != std::string::npos;
@@ -377,8 +407,9 @@ void ExportDialog::Render(const char* title,
             if (ImGui::Button("Export ANSI…"))
             {
                 io.ClearLastError();
+                const std::vector<std::string_view> exts_v = formats::ansi::ExportExtensions();
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {"ANSI (*.ans)", "ans"},
+                    {MakeFilterLabel("ANSI", exts_v), JoinExtsForDialog(exts_v)},
                     {"All files", "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Ansi, window, filters,
@@ -441,9 +472,11 @@ void ExportDialog::Render(const char* title,
             if (ImGui::Button("Export Text…"))
             {
                 io.ClearLastError();
+                const std::vector<std::string_view> txt_exts_v = {"txt"};
+                const std::vector<std::string_view> asc_exts_v = {"asc"};
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {"Text (*.txt)", "txt"},
-                    {"ASCII (*.asc)", "asc"},
+                    {MakeFilterLabel("Text", txt_exts_v), JoinExtsForDialog(txt_exts_v)},
+                    {MakeFilterLabel("ASCII", asc_exts_v), JoinExtsForDialog(asc_exts_v)},
                     {"All files", "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Plaintext, window, filters,
@@ -514,9 +547,11 @@ void ExportDialog::Render(const char* title,
             if (ImGui::Button("Export Image…"))
             {
                 io.ClearLastError();
+                const std::vector<std::string_view> png_exts_v = {"png"};
+                const std::vector<std::string_view> jpg_exts_v = {"jpg", "jpeg"};
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {"PNG (*.png)", "png"},
-                    {"JPEG (*.jpg;*.jpeg)", "jpg;jpeg"},
+                    {MakeFilterLabel("PNG", png_exts_v), JoinExtsForDialog(png_exts_v)},
+                    {MakeFilterLabel("JPEG", jpg_exts_v), JoinExtsForDialog(jpg_exts_v)},
                     {"All files", "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Image, window, filters,
@@ -566,8 +601,9 @@ void ExportDialog::Render(const char* title,
             if (ImGui::Button("Export XBin…"))
             {
                 io.ClearLastError();
+                const std::vector<std::string_view> exts_v = formats::xbin::ExportExtensions();
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {"XBin (*.xb)", "xb"},
+                    {MakeFilterLabel("XBin", exts_v), JoinExtsForDialog(exts_v)},
                     {"All files", "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_XBin, window, filters,
