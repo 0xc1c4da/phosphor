@@ -1,6 +1,7 @@
 #include "ui/sauce_editor_dialog.h"
 
 #include "core/fonts.h"
+#include "core/i18n.h"
 #include "io/formats/sauce.h"
 #include "ui/ImGuiDatePicker.hpp"
 
@@ -253,22 +254,25 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     }
 
     // Fixed text fields (with spec lengths)
-    InputTextUtf8Clamped("Title", m_title, 35);
-    TooltipLastItem("SAUCE Title (35 chars): the title of the file/artwork. Fixed-width field in the 128-byte SAUCE record (space-padded when written).");
+    const std::string title_lbl = PHOS_TR("sauce_editor.field_title") + "##sauce_title";
+    InputTextUtf8Clamped(title_lbl.c_str(), m_title, 35);
+    TooltipLastItem(PHOS_TR("sauce_editor.help_title").c_str());
     sauce::FilterControlChars(m_title);
     sauce::TrimUtf8ToCodepoints(m_title, 35);
     ImGui::SameLine();
     ImGui::TextDisabled("%zu/35", sauce::Utf8CodepointCount(m_title));
 
-    InputTextUtf8Clamped("Author", m_author, 20);
-    TooltipLastItem("SAUCE Author (20 chars): the (nick)name or handle of the creator of the file/artwork. Fixed-width field in the SAUCE record.");
+    const std::string author_lbl = PHOS_TR("sauce_editor.field_author") + "##sauce_author";
+    InputTextUtf8Clamped(author_lbl.c_str(), m_author, 20);
+    TooltipLastItem(PHOS_TR("sauce_editor.help_author").c_str());
     sauce::FilterControlChars(m_author);
     sauce::TrimUtf8ToCodepoints(m_author, 20);
     ImGui::SameLine();
     ImGui::TextDisabled("%zu/20", sauce::Utf8CodepointCount(m_author));
 
-    InputTextUtf8Clamped("Group", m_group, 20);
-    TooltipLastItem("SAUCE Group (20 chars): the name of the group or company the creator is affiliated with. Fixed-width field in the SAUCE record.");
+    const std::string group_lbl = PHOS_TR("sauce_editor.field_group") + "##sauce_group";
+    InputTextUtf8Clamped(group_lbl.c_str(), m_group, 20);
+    TooltipLastItem(PHOS_TR("sauce_editor.help_group").c_str());
     sauce::FilterControlChars(m_group);
     sauce::TrimUtf8ToCodepoints(m_group, 20);
     ImGui::SameLine();
@@ -277,12 +281,12 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     // Date picker: calendar-style dropdown (stores SAUCE as CCYYMMDD).
     {
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Date:");
+        ImGui::TextUnformatted(PHOS_TR("sauce_editor.field_date").c_str());
         ImGui::SameLine();
         ClampSauceDateTm(m_date);
         ImGui::SetNextItemWidth(220.0f);
         ImGui::DatePicker("##sauce_date", m_date, false, 0.0f);
-        TooltipLastItem("SAUCE Date (8 chars): creation date in the format CCYYMMDD. Example: May 4, 2013 is stored as \"20130504\".");
+        TooltipLastItem(PHOS_TR("sauce_editor.help_date").c_str());
         ClampSauceDateTm(m_date);
 
         // Show exact SAUCE-encoded value for clarity/debugging.
@@ -300,19 +304,19 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         // Keep the dropdown preview compact.
         const char* preview = nullptr;
         if (show_custom)
-            preview = "Custom";
+            preview = PHOS_TR("sauce_editor.custom").c_str();
         else if (match && match->label && *match->label)
             preview = match->label;
         else
-            preview = "(Unknown)";
+            preview = PHOS_TR("sauce_editor.unknown").c_str();
 
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Font:");
+        ImGui::TextUnformatted(PHOS_TR("sauce_editor.field_font").c_str());
         ImGui::SameLine();
         ImGui::SetNextItemWidth(320.0f);
         if (ImGui::BeginCombo("##sauce_font", preview))
         {
-            if (ImGui::Selectable("Custom", show_custom))
+            if (ImGui::Selectable(PHOS_TR("sauce_editor.custom").c_str(), show_custom))
             {
                 m_tinfos_custom_mode = true;
                 // If we have a previous custom value, restore it so the user doesn't have to retype.
@@ -320,14 +324,15 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
                     m_tinfos = m_tinfos_custom_backup;
             }
 
-            ImGui::SeparatorText("Known fonts (SAUCE FontName)");
+            ImGui::SeparatorText(PHOS_TR("sauce_editor.known_fonts_header").c_str());
             for (const auto& f : fonts::AllFonts())
             {
                 if (!f.sauce_name || !*f.sauce_name)
                     continue;
 
                 const bool selected = (!show_custom && match && (match->id == f.id));
-                const char* item = (f.label && *f.label) ? f.label : "(unnamed)";
+                const std::string unnamed = PHOS_TR("common.unnamed");
+                const char* item = (f.label && *f.label) ? f.label : unnamed.c_str();
                 if (ImGui::Selectable(item, selected))
                 {
                     // If we were in custom mode, preserve what the user typed so toggling
@@ -341,19 +346,18 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
                     m_tinfos_custom_mode = false;
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                    ImGui::SetTooltip("SAUCE TInfoS: %s", f.sauce_name);
+                    ImGui::SetTooltip("%s: %s", PHOS_TR("sauce_editor.field_tinfos").c_str(), f.sauce_name);
                 if (selected)
                     ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
         }
-        TooltipLastItem(
-            "SAUCE TInfoS (22 bytes, ZString): type-dependent string information field.\n"
-            "For DataType=Character, this is commonly used as the FontName.");
+        TooltipLastItem(PHOS_TR("sauce_editor.help_tinfos").c_str());
 
         if (show_custom)
         {
-            InputTextUtf8Clamped("TInfoS", m_tinfos, 22);
+            const std::string tinfos_lbl = PHOS_TR("sauce_editor.field_tinfos") + "##sauce_tinfos";
+            InputTextUtf8Clamped(tinfos_lbl.c_str(), m_tinfos, 22);
             sauce::FilterControlChars(m_tinfos);
             sauce::TrimUtf8ToCodepoints(m_tinfos, 22);
             m_tinfos_custom_backup = m_tinfos;
@@ -369,18 +373,19 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
 
     ImGui::Separator();
 
-    ImGui::TextUnformatted("Comments:");
+    ImGui::TextUnformatted(PHOS_TR("sauce_editor.comments").c_str());
     {
         // Fill available width so the right edge aligns with the window content region.
         const float w = ImGui::GetContentRegionAvail().x;
         ImGui::InputTextMultiline("##sauce_comments", &m_comments_text, ImVec2(w, 180.0f));
-        TooltipLastItem("SAUCE Comment Block: optional extra comment lines. Up to 255 lines, each 64 characters wide. When present in a file, it is stored as \"COMNT\" + (lines*64) right before the 128-byte SAUCE record.");
+        TooltipLastItem(PHOS_TR("sauce_editor.help_comments").c_str());
     }
 
     // Advanced/raw fields (hide low-value internals like FileSize by default).
-    if (ImGui::CollapsingHeader("Advanced", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader((PHOS_TR("sauce_editor.advanced") + "##sauce_advanced").c_str(),
+                                ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::InputInt("DataType (u8)", &m_data_type);
+        ImGui::InputInt(PHOS_TR("sauce_editor.datatype_u8").c_str(), &m_data_type);
         TooltipLastItem(
             "SAUCE DataType: what kind of content this file is.\n"
             "\n"
@@ -392,7 +397,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "- 7: Archive, 8: Executable (metadata is usually not meaningful for rendering)\n"
             "\n"
             "This selection changes how viewers interpret FileType/TInfo/TFlags/TInfoS.");
-        ImGui::InputInt("FileType (u8)", &m_file_type);
+        ImGui::InputInt(PHOS_TR("sauce_editor.filetype_u8").c_str(), &m_file_type);
         TooltipLastItem(
             "SAUCE FileType: subtype for the chosen DataType.\n"
             "\n"
@@ -405,7 +410,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "For DataType=Bitmap, FileType selects the bitmap format (GIF/PNG/JPG/etc.).\n"
             "For DataType=BinaryText, FileType is special: it encodes the character width (see tooltip on TInfo1/TInfo2).\n"
             "This helps viewers/editors choose sensible defaults when rendering.");
-        ImGui::InputInt("TInfo1 (u16)", &m_tinfo1);
+        ImGui::InputInt(PHOS_TR("sauce_editor.tinfo1_u16").c_str(), &m_tinfo1);
         TooltipLastItem(
             "SAUCE TInfo1: type-dependent numeric info.\n"
             "\n"
@@ -419,7 +424,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "  (So FileType=40 implies 80 columns.)\n"
             "\n"
             "If you don't know, leaving 0 is usually safe (many files in the wild are inconsistent).");
-        ImGui::InputInt("TInfo2 (u16)", &m_tinfo2);
+        ImGui::InputInt(PHOS_TR("sauce_editor.tinfo2_u16").c_str(), &m_tinfo2);
         TooltipLastItem(
             "SAUCE TInfo2: type-dependent numeric info.\n"
             "\n"
@@ -432,7 +437,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "- DataType=BinaryText: height is typically inferred from file size and FileType (width/2).\n"
             "\n"
             "If you don't know, leaving 0 is usually safe.");
-        ImGui::InputInt("TInfo3 (u16)", &m_tinfo3);
+        ImGui::InputInt(PHOS_TR("sauce_editor.tinfo3_u16").c_str(), &m_tinfo3);
         TooltipLastItem(
             "SAUCE TInfo3: extra type-dependent numeric info.\n"
             "\n"
@@ -440,13 +445,13 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
             "- DataType=Bitmap: pixel depth (bits per pixel)\n"
             "\n"
             "For most Character/XBin/BinaryText files this is unused and typically 0.");
-        ImGui::InputInt("TInfo4 (u16)", &m_tinfo4);
+        ImGui::InputInt(PHOS_TR("sauce_editor.tinfo4_u16").c_str(), &m_tinfo4);
         TooltipLastItem(
             "SAUCE TInfo4: extra type-dependent numeric info.\n"
             "\n"
             "Most common art formats leave this as 0.\n"
             "Some DataTypes reserve it for additional subtype details, but it is rarely used in practice.");
-        ImGui::InputInt("TFlags (u8)", &m_tflags);
+        ImGui::InputInt(PHOS_TR("sauce_editor.tflags_u8").c_str(), &m_tflags);
         TooltipLastItem(
             "SAUCE TFlags: type-dependent flags.\n"
             "\n"
@@ -462,7 +467,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     ImGui::Separator();
 
     // Buttons
-    if (ImGui::Button("Cancel"))
+    if (ImGui::Button(PHOS_TR("sauce_editor.cancel").c_str()))
     {
         ImGui::CloseCurrentPopup();
         m_open = false;
@@ -470,7 +475,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         return;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Clear"))
+    if (ImGui::Button(PHOS_TR("sauce_editor.clear").c_str()))
     {
         m_meta = AnsiCanvas::ProjectState::SauceMeta{};
         m_title.clear();
@@ -490,7 +495,7 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Save"))
+    if (ImGui::Button(PHOS_TR("sauce_editor.save").c_str()))
     {
         // Rebuild meta from working buffers.
         AnsiCanvas::ProjectState::SauceMeta meta = m_meta;

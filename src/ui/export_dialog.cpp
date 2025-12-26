@@ -1,6 +1,7 @@
 #include "ui/export_dialog.h"
 
 #include "imgui.h"
+#include "core/i18n.h"
 #include "io/file_dialog_tags.h"
 #include "io/io_manager.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -106,7 +107,7 @@ static std::string SuggestedPath(const IoManager& io, const AnsiCanvas* canvas, 
 
 static void HelpMarker(const char* text)
 {
-    ImGui::TextDisabled("(?)");
+    ImGui::TextDisabled("%s", PHOS_TR("common.help_marker").c_str());
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
     {
         ImGui::BeginTooltip();
@@ -190,7 +191,8 @@ void ExportDialog::Render(const char* title,
     const bool has_canvas = (focused_canvas != nullptr);
     if (!has_canvas)
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No active canvas to export.");
+        const std::string s = PHOS_TR("export_dialog.no_active_canvas");
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s.c_str());
         ImGui::Separator();
     }
 
@@ -210,19 +212,21 @@ void ExportDialog::Render(const char* title,
         // ---------------------------------------------------------------------
         // ANSI
         // ---------------------------------------------------------------------
-        if (begin_tab(Tab::Ansi, "ANSI"))
+        if (begin_tab(Tab::Ansi, PHOS_TR("export_dialog.tabs.ansi").c_str()))
         {
             // Preset selector (applies immediately)
             {
                 const auto& presets = formats::ansi::Presets();
+                const std::string unnamed = PHOS_TR("export_dialog.unnamed_preset");
                 std::vector<const char*> items;
                 items.reserve(presets.size());
                 for (const auto& p : presets)
-                    items.push_back(p.name ? p.name : "(unnamed)");
+                    items.push_back(p.name ? p.name : unnamed.c_str());
 
                 int idx = std::clamp(ansi_preset_idx_, 0, (int)items.size() - 1);
                 ImGui::SetNextItemWidth(420.0f);
-                if (ImGui::Combo("Preset", &idx, items.data(), (int)items.size()))
+                const std::string preset_lbl = PHOS_TR("export_dialog.preset");
+                if (ImGui::Combo(preset_lbl.c_str(), &idx, items.data(), (int)items.size()))
                 {
                     ansi_preset_idx_ = idx;
                     ansi_opt_ = presets[(size_t)idx].export_;
@@ -239,18 +243,25 @@ void ExportDialog::Render(const char* title,
 
             // Source
             {
-                const char* items[] = { "Composite (what you see)", "Active Layer" };
+                const std::string src0 = PHOS_TR("export_dialog.source_items.composite");
+                const std::string src1 = PHOS_TR("export_dialog.source_items.active_layer");
+                const char* items[] = { src0.c_str(), src1.c_str() };
                 int v = (ansi_opt_.source == formats::ansi::ExportOptions::Source::Composite) ? 0 : 1;
-                if (ImGui::Combo("Source", &v, items, IM_ARRAYSIZE(items)))
+                const std::string source_lbl = PHOS_TR("export_dialog.source");
+                if (ImGui::Combo(source_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.source = (v == 0) ? formats::ansi::ExportOptions::Source::Composite
                                                 : formats::ansi::ExportOptions::Source::ActiveLayer;
             }
 
             // Encoding / newline
             {
-                const char* items[] = { "8-bit (codepage bytes)", "UTF-8", "UTF-8 (BOM)" };
+                const std::string e0 = PHOS_TR("export_dialog.ansi_tab.text_encoding_items.eight_bit");
+                const std::string e1 = PHOS_TR("export_dialog.ansi_tab.text_encoding_items.utf8");
+                const std::string e2 = PHOS_TR("export_dialog.ansi_tab.text_encoding_items.utf8_bom");
+                const char* items[] = { e0.c_str(), e1.c_str(), e2.c_str() };
                 int v = (int)ansi_opt_.text_encoding;
-                if (ImGui::Combo("Text Encoding", &v, items, IM_ARRAYSIZE(items)))
+                const std::string te_lbl = PHOS_TR("export_dialog.ansi_tab.text_encoding");
+                if (ImGui::Combo(te_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.text_encoding = (formats::ansi::ExportOptions::TextEncoding)v;
             }
             if (ansi_opt_.text_encoding == formats::ansi::ExportOptions::TextEncoding::Cp437)
@@ -259,47 +270,49 @@ void ExportDialog::Render(const char* title,
                 struct Item
                 {
                     phos::encodings::EncodingId id;
-                    const char*                 name;
+                    std::string                 name;
                 };
-                static constexpr Item kItems[] = {
-                    {phos::encodings::EncodingId::Cp437, "CP437 (IBM PC OEM)"},
-                    {phos::encodings::EncodingId::Cp775, "CP775"},
-                    {phos::encodings::EncodingId::Cp737, "CP737"},
-                    {phos::encodings::EncodingId::Cp850, "CP850"},
-                    {phos::encodings::EncodingId::Cp852, "CP852"},
-                    {phos::encodings::EncodingId::Cp855, "CP855"},
-                    {phos::encodings::EncodingId::Cp857, "CP857"},
-                    {phos::encodings::EncodingId::Cp860, "CP860"},
-                    {phos::encodings::EncodingId::Cp861, "CP861"},
-                    {phos::encodings::EncodingId::Cp862, "CP862"},
-                    {phos::encodings::EncodingId::Cp863, "CP863"},
-                    {phos::encodings::EncodingId::Cp865, "CP865"},
-                    {phos::encodings::EncodingId::Cp866, "CP866"},
-                    {phos::encodings::EncodingId::Cp869, "CP869"},
-                    {phos::encodings::EncodingId::AmigaLatin1, "Amiga Latin-1 (Topaz 0x7F house)"},
-                    {phos::encodings::EncodingId::AmigaIso8859_15, "Amiga ISO-8859-15 (Topaz 0x7F house)"},
-                    {phos::encodings::EncodingId::AmigaIso8859_2, "Amiga ISO-8859-2 (Topaz 0x7F house)"},
-                    {phos::encodings::EncodingId::Amiga1251, "Amiga-1251"},
+                const std::vector<Item> kItems = {
+                    {phos::encodings::EncodingId::Cp437, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp437")},
+                    {phos::encodings::EncodingId::Cp775, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp775")},
+                    {phos::encodings::EncodingId::Cp737, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp737")},
+                    {phos::encodings::EncodingId::Cp850, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp850")},
+                    {phos::encodings::EncodingId::Cp852, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp852")},
+                    {phos::encodings::EncodingId::Cp855, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp855")},
+                    {phos::encodings::EncodingId::Cp857, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp857")},
+                    {phos::encodings::EncodingId::Cp860, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp860")},
+                    {phos::encodings::EncodingId::Cp861, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp861")},
+                    {phos::encodings::EncodingId::Cp862, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp862")},
+                    {phos::encodings::EncodingId::Cp863, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp863")},
+                    {phos::encodings::EncodingId::Cp865, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp865")},
+                    {phos::encodings::EncodingId::Cp866, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp866")},
+                    {phos::encodings::EncodingId::Cp869, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.cp869")},
+                    {phos::encodings::EncodingId::AmigaLatin1, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.amiga_latin1")},
+                    {phos::encodings::EncodingId::AmigaIso8859_15, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.amiga_iso8859_15")},
+                    {phos::encodings::EncodingId::AmigaIso8859_2, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.amiga_iso8859_2")},
+                    {phos::encodings::EncodingId::Amiga1251, PHOS_TR("export_dialog.ansi_tab.byte_encoding_items.amiga_1251")},
                 };
 
-                const char* preview = "CP437 (IBM PC OEM)";
+                const std::string byte_default_preview = PHOS_TR("export_dialog.ansi_tab.byte_encoding_default_preview");
+                const char* preview = byte_default_preview.c_str();
                 int current_idx = 0;
-                for (int ii = 0; ii < (int)IM_ARRAYSIZE(kItems); ++ii)
+                for (int ii = 0; ii < (int)kItems.size(); ++ii)
                 {
                     if (kItems[ii].id == ansi_opt_.byte_encoding)
                     {
-                        preview = kItems[ii].name;
+                        preview = kItems[ii].name.c_str();
                         current_idx = ii;
                         break;
                     }
                 }
 
-                if (ImGui::BeginCombo("Byte Encoding", preview))
+                const std::string be_lbl = PHOS_TR("export_dialog.ansi_tab.byte_encoding");
+                if (ImGui::BeginCombo(be_lbl.c_str(), preview))
                 {
-                    for (int ii = 0; ii < (int)IM_ARRAYSIZE(kItems); ++ii)
+                    for (int ii = 0; ii < (int)kItems.size(); ++ii)
                     {
                         const bool selected = (ii == current_idx);
-                        if (ImGui::Selectable(kItems[ii].name, selected))
+                        if (ImGui::Selectable(kItems[ii].name.c_str(), selected))
                             ansi_opt_.byte_encoding = kItems[ii].id;
                         if (selected)
                             ImGui::SetItemDefaultFocus();
@@ -307,49 +320,70 @@ void ExportDialog::Render(const char* title,
                     ImGui::EndCombo();
                 }
                 ImGui::SameLine();
-                HelpMarker("Used when exporting an 8-bit ANSI byte stream. BitmapIndex glyph tokens export losslessly as their byte value when possible.");
+                const std::string help = PHOS_TR("export_dialog.ansi_tab.byte_encoding_help");
+                HelpMarker(help.c_str());
             }
             {
-                const char* items[] = { "CRLF (scene-friendly)", "LF (terminal-friendly)" };
+                const std::string n0 = PHOS_TR("export_dialog.ansi_tab.newlines_items.crlf_scene_friendly");
+                const std::string n1 = PHOS_TR("export_dialog.ansi_tab.newlines_items.lf_terminal_friendly");
+                const char* items[] = { n0.c_str(), n1.c_str() };
                 int v = (int)ansi_opt_.newline;
-                if (ImGui::Combo("Newlines", &v, items, IM_ARRAYSIZE(items)))
+                const std::string nl_lbl = PHOS_TR("export_dialog.ansi_tab.newlines");
+                if (ImGui::Combo(nl_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.newline = (formats::ansi::ExportOptions::Newline)v;
             }
             {
-                const char* items[] = { "None", "Clear Screen (ESC[2J)", "Home (ESC[H)", "Clear + Home" };
+                const std::string sp0 = PHOS_TR("export_dialog.ansi_tab.screen_prep_items.none");
+                const std::string sp1 = PHOS_TR("export_dialog.ansi_tab.screen_prep_items.clear_screen");
+                const std::string sp2 = PHOS_TR("export_dialog.ansi_tab.screen_prep_items.home");
+                const std::string sp3 = PHOS_TR("export_dialog.ansi_tab.screen_prep_items.clear_plus_home");
+                const char* items[] = { sp0.c_str(), sp1.c_str(), sp2.c_str(), sp3.c_str() };
                 int v = (int)ansi_opt_.screen_prep;
-                if (ImGui::Combo("Screen Prep", &v, items, IM_ARRAYSIZE(items)))
+                const std::string sp_lbl = PHOS_TR("export_dialog.ansi_tab.screen_prep");
+                if (ImGui::Combo(sp_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.screen_prep = (formats::ansi::ExportOptions::ScreenPrep)v;
             }
 
             // Colors
             {
-                const char* items[] = { "ANSI16 (classic)", "xterm-256 (38;5/48;5)", "Truecolor SGR (38;2/48;2)", "Pablo/Icy truecolor (...t)" };
+                const std::string cm0 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.ansi16_classic");
+                const std::string cm1 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.xterm256");
+                const std::string cm2 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.truecolor_sgr");
+                const std::string cm3 = PHOS_TR("export_dialog.ansi_tab.color_mode_items.pablo_t");
+                const char* items[] = { cm0.c_str(), cm1.c_str(), cm2.c_str(), cm3.c_str() };
                 int v = (int)ansi_opt_.color_mode;
-                if (ImGui::Combo("Color Mode", &v, items, IM_ARRAYSIZE(items)))
+                const std::string cm_lbl = PHOS_TR("export_dialog.ansi_tab.color_mode");
+                if (ImGui::Combo(cm_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.color_mode = (formats::ansi::ExportOptions::ColorMode)v;
             }
 
             if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::Ansi16)
             {
-                const char* items[] = { "Bold + iCE Blink (scene classic)", "SGR 90-97 / 100-107" };
+                const std::string ba0 = PHOS_TR("export_dialog.ansi_tab.bright_ansi16_items.bold_ice");
+                const std::string ba1 = PHOS_TR("export_dialog.ansi_tab.bright_ansi16_items.sgr_90_97");
+                const char* items[] = { ba0.c_str(), ba1.c_str() };
                 int v = (int)ansi_opt_.ansi16_bright;
-                if (ImGui::Combo("Bright ANSI16", &v, items, IM_ARRAYSIZE(items)))
+                const std::string ba_lbl = PHOS_TR("export_dialog.ansi_tab.bright_ansi16");
+                if (ImGui::Combo(ba_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     ansi_opt_.ansi16_bright = (formats::ansi::ExportOptions::Ansi16Bright)v;
-                ImGui::Checkbox("iCE colors (blink => bright background)", &ansi_opt_.icecolors);
+                const std::string ice = PHOS_TR("export_dialog.ansi_tab.ice_colors");
+                ImGui::Checkbox(ice.c_str(), &ansi_opt_.icecolors);
             }
             else if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::Xterm256)
             {
-                ImGui::Checkbox("240-color safe (avoid indices 0..15)", &ansi_opt_.xterm_240_safe);
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.xterm_240_safe");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.xterm_240_safe);
             }
             else if (ansi_opt_.color_mode == formats::ansi::ExportOptions::ColorMode::TrueColorPabloT)
             {
-                ImGui::Checkbox("Emit ANSI16 fallback + ...t overlay", &ansi_opt_.pablo_t_with_ansi16_fallback);
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.pablo_t_overlay");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.pablo_t_with_ansi16_fallback);
             }
 
             // Default fg/bg override
             {
-                ImGui::Checkbox("Override default foreground", &ansi_override_default_fg_);
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.override_default_foreground");
+                ImGui::Checkbox(s.c_str(), &ansi_override_default_fg_);
                 if (ansi_override_default_fg_)
                 {
                     ImGui::SameLine();
@@ -363,7 +397,8 @@ void ExportDialog::Render(const char* title,
                 }
             }
             {
-                ImGui::Checkbox("Override default background", &ansi_override_default_bg_);
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.override_default_background");
+                ImGui::Checkbox(s.c_str(), &ansi_override_default_bg_);
                 if (ansi_override_default_bg_)
                 {
                     ImGui::SameLine();
@@ -377,40 +412,62 @@ void ExportDialog::Render(const char* title,
                 }
             }
 
-            ImGui::Checkbox("Prefer SGR 39 for unset foreground", &ansi_opt_.use_default_fg_39);
-            ImGui::Checkbox("Prefer SGR 49 for unset background", &ansi_opt_.use_default_bg_49);
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.prefer_sgr39");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.use_default_fg_39);
+            }
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.prefer_sgr49");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.use_default_bg_49);
+            }
 
             // Geometry + compression
-            ImGui::SeparatorText("Output policy");
-            ImGui::Checkbox("Preserve full line length (fixed width)", &ansi_opt_.preserve_line_length);
-            ImGui::Checkbox("Compress output", &ansi_opt_.compress);
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.output_policy");
+                ImGui::SeparatorText(s.c_str());
+            }
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.preserve_full_line_length");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.preserve_line_length);
+            }
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.compress_output");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.compress);
+            }
             if (!ansi_opt_.compress) ImGui::BeginDisabled();
-            ImGui::Checkbox("Use cursor-forward for spaces (CSI Ps C)", &ansi_opt_.use_cursor_forward);
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.use_cursor_forward");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.use_cursor_forward);
+            }
             if (!ansi_opt_.compress) ImGui::EndDisabled();
-            ImGui::Checkbox("Final reset (ESC[0m)", &ansi_opt_.final_reset);
+            {
+                const std::string s = PHOS_TR("export_dialog.ansi_tab.final_reset");
+                ImGui::Checkbox(s.c_str(), &ansi_opt_.final_reset);
+            }
 
             // SAUCE
-            ImGui::SeparatorText("SAUCE");
-            ImGui::Checkbox("Append SAUCE metadata", &ansi_opt_.write_sauce);
+            ImGui::SeparatorText(PHOS_TR("export_dialog.ansi_tab.sauce").c_str());
+            ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.append_sauce").c_str(), &ansi_opt_.write_sauce);
             if (ansi_opt_.write_sauce)
             {
                 ImGui::Indent();
-                ImGui::Checkbox("Include EOF byte (0x1A)", &ansi_opt_.sauce_write_options.include_eof_byte);
-                ImGui::Checkbox("Include COMNT block (if comments exist)", &ansi_opt_.sauce_write_options.include_comments);
-                ImGui::Checkbox("Encode SAUCE fixed fields as CP437", &ansi_opt_.sauce_write_options.encode_cp437);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_include_eof").c_str(), &ansi_opt_.sauce_write_options.include_eof_byte);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_include_comnt").c_str(), &ansi_opt_.sauce_write_options.include_comments);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_encode_cp437").c_str(), &ansi_opt_.sauce_write_options.encode_cp437);
                 ImGui::Unindent();
-                ImGui::TextDisabled("SAUCE fields are taken from the canvas metadata (Edit via the SAUCE editor).");
+                ImGui::TextDisabled("%s", PHOS_TR("export_dialog.ansi_tab.sauce_fields_hint").c_str());
             }
 
             ImGui::Separator();
             if (!has_canvas) ImGui::BeginDisabled();
-            if (ImGui::Button("Export ANSI…"))
+            const std::string export_btn = PHOS_TR("export_dialog.ansi_tab.export_ansi_ellipsis");
+            if (ImGui::Button(export_btn.c_str()))
             {
                 io.ClearLastError();
                 const std::vector<std::string_view> exts_v = formats::ansi::ExportExtensions();
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {MakeFilterLabel("ANSI", exts_v), JoinExtsForDialog(exts_v)},
-                    {"All files", "*"},
+                    {PHOS_TR("export_dialog.ansi_tab.export_filters.ansi_ans"), JoinExtsForDialog(exts_v)},
+                    {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Ansi, window, filters,
                                            SuggestedPath(io, focused_canvas, "ans"));
@@ -423,19 +480,21 @@ void ExportDialog::Render(const char* title,
         // ---------------------------------------------------------------------
         // Plaintext
         // ---------------------------------------------------------------------
-        if (begin_tab(Tab::Plaintext, "Plaintext"))
+        if (begin_tab(Tab::Plaintext, PHOS_TR("export_dialog.tabs.plaintext").c_str()))
         {
             // Preset selector
             {
                 const auto& presets = formats::plaintext::Presets();
+                const std::string unnamed = PHOS_TR("export_dialog.unnamed_preset");
                 std::vector<const char*> items;
                 items.reserve(presets.size());
                 for (const auto& p : presets)
-                    items.push_back(p.name ? p.name : "(unnamed)");
+                    items.push_back(p.name ? p.name : unnamed.c_str());
 
                 int idx = std::clamp(text_preset_idx_, 0, (int)items.size() - 1);
                 ImGui::SetNextItemWidth(420.0f);
-                if (ImGui::Combo("Preset", &idx, items.data(), (int)items.size()))
+                const std::string preset_lbl = PHOS_TR("export_dialog.preset");
+                if (ImGui::Combo(preset_lbl.c_str(), &idx, items.data(), (int)items.size()))
                 {
                     text_preset_idx_ = idx;
                     text_opt_ = presets[(size_t)idx].export_;
@@ -446,38 +505,49 @@ void ExportDialog::Render(const char* title,
 
             ImGui::Separator();
             {
-                const char* items[] = { "Composite (what you see)", "Active Layer" };
+                const std::string src0 = PHOS_TR("export_dialog.source_items.composite");
+                const std::string src1 = PHOS_TR("export_dialog.source_items.active_layer");
+                const char* items[] = { src0.c_str(), src1.c_str() };
                 int v = (text_opt_.source == formats::plaintext::ExportOptions::Source::Composite) ? 0 : 1;
-                if (ImGui::Combo("Source", &v, items, IM_ARRAYSIZE(items)))
+                const std::string source_lbl = PHOS_TR("export_dialog.source");
+                if (ImGui::Combo(source_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     text_opt_.source = (v == 0) ? formats::plaintext::ExportOptions::Source::Composite
                                                 : formats::plaintext::ExportOptions::Source::ActiveLayer;
             }
             {
-                const char* items[] = { "ASCII", "UTF-8", "UTF-8 (BOM)" };
+                const std::string e0 = PHOS_TR("export_dialog.plaintext_tab.text_encoding_items.ascii");
+                const std::string e1 = PHOS_TR("export_dialog.plaintext_tab.text_encoding_items.utf8");
+                const std::string e2 = PHOS_TR("export_dialog.plaintext_tab.text_encoding_items.utf8_bom");
+                const char* items[] = { e0.c_str(), e1.c_str(), e2.c_str() };
                 int v = (int)text_opt_.text_encoding;
-                if (ImGui::Combo("Text Encoding", &v, items, IM_ARRAYSIZE(items)))
+                const std::string te_lbl = PHOS_TR("export_dialog.plaintext_tab.text_encoding");
+                if (ImGui::Combo(te_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     text_opt_.text_encoding = (formats::plaintext::ExportOptions::TextEncoding)v;
             }
             {
-                const char* items[] = { "CRLF", "LF" };
+                const std::string n0 = PHOS_TR("export_dialog.plaintext_tab.newlines_items.crlf");
+                const std::string n1 = PHOS_TR("export_dialog.plaintext_tab.newlines_items.lf");
+                const char* items[] = { n0.c_str(), n1.c_str() };
                 int v = (int)text_opt_.newline;
-                if (ImGui::Combo("Newlines", &v, items, IM_ARRAYSIZE(items)))
+                const std::string nl_lbl = PHOS_TR("export_dialog.plaintext_tab.newlines");
+                if (ImGui::Combo(nl_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     text_opt_.newline = (formats::plaintext::ExportOptions::Newline)v;
             }
-            ImGui::Checkbox("Preserve full line length (fixed width)", &text_opt_.preserve_line_length);
-            ImGui::Checkbox("Final newline", &text_opt_.final_newline);
+            ImGui::Checkbox(PHOS_TR("export_dialog.plaintext_tab.preserve_full_line_length").c_str(), &text_opt_.preserve_line_length);
+            ImGui::Checkbox(PHOS_TR("export_dialog.plaintext_tab.final_newline").c_str(), &text_opt_.final_newline);
 
             ImGui::Separator();
             if (!has_canvas) ImGui::BeginDisabled();
-            if (ImGui::Button("Export Text…"))
+            const std::string export_btn = PHOS_TR("export_dialog.plaintext_tab.export_text_ellipsis");
+            if (ImGui::Button(export_btn.c_str()))
             {
                 io.ClearLastError();
                 const std::vector<std::string_view> txt_exts_v = {"txt"};
                 const std::vector<std::string_view> asc_exts_v = {"asc"};
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {MakeFilterLabel("Text", txt_exts_v), JoinExtsForDialog(txt_exts_v)},
-                    {MakeFilterLabel("ASCII", asc_exts_v), JoinExtsForDialog(asc_exts_v)},
-                    {"All files", "*"},
+                    {PHOS_TR("export_dialog.plaintext_tab.export_filters.text_txt"), JoinExtsForDialog(txt_exts_v)},
+                    {PHOS_TR("export_dialog.plaintext_tab.export_filters.ascii_asc"), JoinExtsForDialog(asc_exts_v)},
+                    {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Plaintext, window, filters,
                                            SuggestedPath(io, focused_canvas, "txt"));
@@ -490,22 +560,26 @@ void ExportDialog::Render(const char* title,
         // ---------------------------------------------------------------------
         // Image
         // ---------------------------------------------------------------------
-        if (begin_tab(Tab::Image, "Image"))
+        if (begin_tab(Tab::Image, PHOS_TR("export_dialog.tabs.image").c_str()))
         {
             // Scale + computed output dimensions.
             ImGui::SetNextItemWidth(200.0f);
-            ImGui::SliderInt("Scale", &image_opt_.scale, 1, 8);
+            const std::string scale_lbl = PHOS_TR("export_dialog.image_tab.scale");
+            ImGui::SliderInt(scale_lbl.c_str(), &image_opt_.scale, 1, 8);
             ImGui::SameLine();
             {
                 int ow = 0, oh = 0;
                 std::string derr;
                 if (has_canvas && formats::image::ComputeExportDimensionsPx(*focused_canvas, ow, oh, derr, image_opt_))
                 {
-                    ImGui::TextDisabled("Output: %dx%d px", ow, oh);
+                    const std::string s = PHOS_TRF("export_dialog.image_tab.output_px",
+                                                  phos::i18n::Arg::I64(ow),
+                                                  phos::i18n::Arg::I64(oh));
+                    ImGui::TextDisabled("%s", s.c_str());
                 }
                 else
                 {
-                    ImGui::TextDisabled("Output: (n/a)");
+                    ImGui::TextDisabled("%s", PHOS_TR("export_dialog.image_tab.output_na").c_str());
                     if (!derr.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     {
                         ImGui::BeginTooltip();
@@ -516,18 +590,23 @@ void ExportDialog::Render(const char* title,
                     }
                 }
             }
-            ImGui::Checkbox("Transparent unset background", &image_opt_.transparent_unset_bg);
+            ImGui::Checkbox(PHOS_TR("export_dialog.image_tab.transparent_unset_bg").c_str(), &image_opt_.transparent_unset_bg);
             ImGui::SameLine();
-            HelpMarker("When enabled, cells with bg==0 export as transparent.\nJPEG does not support transparency.\nPNG modes without alpha (RGB/Indexed) will reject this option.");
+            HelpMarker(PHOS_TR("export_dialog.image_tab.transparent_unset_bg_help").c_str());
 
             {
-                const char* items[] = { "RGB 24-bit", "RGBA 32-bit", "Indexed 8-bit (xterm-256)", "Indexed 4-bit (ANSI16)" };
+                const std::string p0 = PHOS_TR("export_dialog.image_tab.png_format_items.rgb24");
+                const std::string p1 = PHOS_TR("export_dialog.image_tab.png_format_items.rgba32");
+                const std::string p2 = PHOS_TR("export_dialog.image_tab.png_format_items.indexed8");
+                const std::string p3 = PHOS_TR("export_dialog.image_tab.png_format_items.indexed4");
+                const char* items[] = { p0.c_str(), p1.c_str(), p2.c_str(), p3.c_str() };
                 int v = 0;
                 if (image_opt_.png_format == formats::image::ExportOptions::PngFormat::Rgb24) v = 0;
                 else if (image_opt_.png_format == formats::image::ExportOptions::PngFormat::Rgba32) v = 1;
                 else if (image_opt_.png_format == formats::image::ExportOptions::PngFormat::Indexed8) v = 2;
                 else if (image_opt_.png_format == formats::image::ExportOptions::PngFormat::Indexed4) v = 3;
-                if (ImGui::Combo("PNG format", &v, items, IM_ARRAYSIZE(items)))
+                const std::string fmt_lbl = PHOS_TR("export_dialog.image_tab.png_format");
+                if (ImGui::Combo(fmt_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                 {
                     if (v == 0) image_opt_.png_format = formats::image::ExportOptions::PngFormat::Rgb24;
                     if (v == 1) image_opt_.png_format = formats::image::ExportOptions::PngFormat::Rgba32;
@@ -537,22 +616,29 @@ void ExportDialog::Render(const char* title,
             }
 
             if (image_opt_.png_format == formats::image::ExportOptions::PngFormat::Indexed8)
-                ImGui::Checkbox("240-color safe (avoid indices 0..15)", &image_opt_.xterm_240_safe);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.xterm_240_safe").c_str(), &image_opt_.xterm_240_safe);
 
-            ImGui::SliderInt("PNG compression", &image_opt_.png_compression, 0, 9);
-            ImGui::SliderInt("JPEG quality", &image_opt_.jpg_quality, 1, 100);
+            {
+                const std::string s = PHOS_TR("export_dialog.image_tab.png_compression");
+                ImGui::SliderInt(s.c_str(), &image_opt_.png_compression, 0, 9);
+            }
+            {
+                const std::string s = PHOS_TR("export_dialog.image_tab.jpeg_quality");
+                ImGui::SliderInt(s.c_str(), &image_opt_.jpg_quality, 1, 100);
+            }
 
             ImGui::Separator();
             if (!has_canvas) ImGui::BeginDisabled();
-            if (ImGui::Button("Export Image…"))
+            const std::string export_btn = PHOS_TR("export_dialog.image_tab.export_image_ellipsis");
+            if (ImGui::Button(export_btn.c_str()))
             {
                 io.ClearLastError();
                 const std::vector<std::string_view> png_exts_v = {"png"};
                 const std::vector<std::string_view> jpg_exts_v = {"jpg", "jpeg"};
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {MakeFilterLabel("PNG", png_exts_v), JoinExtsForDialog(png_exts_v)},
-                    {MakeFilterLabel("JPEG", jpg_exts_v), JoinExtsForDialog(jpg_exts_v)},
-                    {"All files", "*"},
+                    {PHOS_TR("export_dialog.image_tab.export_filters.png"), JoinExtsForDialog(png_exts_v)},
+                    {PHOS_TR("export_dialog.image_tab.export_filters.jpeg"), JoinExtsForDialog(jpg_exts_v)},
+                    {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_Image, window, filters,
                                            SuggestedPath(io, focused_canvas, "png"));
@@ -565,46 +651,50 @@ void ExportDialog::Render(const char* title,
         // ---------------------------------------------------------------------
         // XBin
         // ---------------------------------------------------------------------
-        if (begin_tab(Tab::XBin, "XBin"))
+        if (begin_tab(Tab::XBin, PHOS_TR("export_dialog.tabs.xbin").c_str()))
         {
             {
-                const char* items[] = { "Composite (what you see)", "Active Layer" };
+                const std::string src0 = PHOS_TR("export_dialog.source_items.composite");
+                const std::string src1 = PHOS_TR("export_dialog.source_items.active_layer");
+                const char* items[] = { src0.c_str(), src1.c_str() };
                 int v = (xbin_opt_.source == formats::xbin::ExportOptions::Source::Composite) ? 0 : 1;
-                if (ImGui::Combo("Source", &v, items, IM_ARRAYSIZE(items)))
+                const std::string source_lbl = PHOS_TR("export_dialog.source");
+                if (ImGui::Combo(source_lbl.c_str(), &v, items, IM_ARRAYSIZE(items)))
                     xbin_opt_.source = (v == 0) ? formats::xbin::ExportOptions::Source::Composite
                                                 : formats::xbin::ExportOptions::Source::ActiveLayer;
             }
 
-            ImGui::Checkbox("Include palette chunk (16 colors)", &xbin_opt_.include_palette);
-            ImGui::Checkbox("Include embedded font (if any)", &xbin_opt_.include_font);
-            ImGui::Checkbox("Compress (XBin RLE)", &xbin_opt_.compress);
-            ImGui::Checkbox("NonBlink (iCE / bright backgrounds)", &xbin_opt_.nonblink);
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.include_palette_chunk").c_str(), &xbin_opt_.include_palette);
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.include_embedded_font").c_str(), &xbin_opt_.include_font);
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.compress_rle").c_str(), &xbin_opt_.compress);
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.nonblink").c_str(), &xbin_opt_.nonblink);
 
             // Exposed for completeness; exporter currently doesn't support 512.
             ImGui::BeginDisabled();
-            ImGui::Checkbox("512-character mode (not supported)", &xbin_opt_.mode_512);
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.mode_512_not_supported").c_str(), &xbin_opt_.mode_512);
             ImGui::EndDisabled();
 
-            ImGui::SeparatorText("SAUCE");
-            ImGui::Checkbox("Append SAUCE metadata", &xbin_opt_.write_sauce);
+            ImGui::SeparatorText(PHOS_TR("export_dialog.xbin_tab.sauce").c_str());
+            ImGui::Checkbox(PHOS_TR("export_dialog.xbin_tab.append_sauce").c_str(), &xbin_opt_.write_sauce);
             if (xbin_opt_.write_sauce)
             {
                 ImGui::Indent();
-                ImGui::Checkbox("Include EOF byte (0x1A)", &xbin_opt_.sauce_write_options.include_eof_byte);
-                ImGui::Checkbox("Include COMNT block (if comments exist)", &xbin_opt_.sauce_write_options.include_comments);
-                ImGui::Checkbox("Encode SAUCE fixed fields as CP437", &xbin_opt_.sauce_write_options.encode_cp437);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_include_eof").c_str(), &xbin_opt_.sauce_write_options.include_eof_byte);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_include_comnt").c_str(), &xbin_opt_.sauce_write_options.include_comments);
+                ImGui::Checkbox(PHOS_TR("export_dialog.ansi_tab.sauce_encode_cp437").c_str(), &xbin_opt_.sauce_write_options.encode_cp437);
                 ImGui::Unindent();
             }
 
             ImGui::Separator();
             if (!has_canvas) ImGui::BeginDisabled();
-            if (ImGui::Button("Export XBin…"))
+            const std::string export_btn = PHOS_TR("export_dialog.xbin_tab.export_xbin_ellipsis");
+            if (ImGui::Button(export_btn.c_str()))
             {
                 io.ClearLastError();
                 const std::vector<std::string_view> exts_v = formats::xbin::ExportExtensions();
                 std::vector<SdlFileDialogQueue::FilterPair> filters = {
-                    {MakeFilterLabel("XBin", exts_v), JoinExtsForDialog(exts_v)},
-                    {"All files", "*"},
+                    {PHOS_TR("export_dialog.xbin_tab.export_filters.xbin_xb"), JoinExtsForDialog(exts_v)},
+                    {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
                 };
                 dialogs.ShowSaveFileDialog(kDialog_ExportDlg_XBin, window, filters,
                                            SuggestedPath(io, focused_canvas, "xb"));
@@ -639,7 +729,7 @@ bool ExportDialog::HandleDialogResult(const SdlFileDialogResult& r, IoManager& i
         return true;
     if (!focused_canvas)
     {
-        io.SetLastError("No focused canvas to export.");
+        io.SetLastError(PHOS_TR("io.errors.no_focused_canvas_to_export"));
         return true;
     }
 
@@ -663,7 +753,7 @@ bool ExportDialog::HandleDialogResult(const SdlFileDialogResult& r, IoManager& i
     {
         path = EnsureExtension(path, "ans");
         const bool ok = formats::ansi::ExportCanvasToFile(path, *focused_canvas, err, ansi_opt_);
-        if (!ok) io.SetLastError(err.empty() ? "ANSI export failed." : err);
+        if (!ok) io.SetLastError(err.empty() ? PHOS_TR("io.errors.export_failed") : err);
         else io.ClearLastError();
         return true;
     }
@@ -672,7 +762,7 @@ bool ExportDialog::HandleDialogResult(const SdlFileDialogResult& r, IoManager& i
         // Default to .txt when extension omitted.
         path = EnsureExtension(path, "txt");
         const bool ok = formats::plaintext::ExportCanvasToFile(path, *focused_canvas, err, text_opt_);
-        if (!ok) io.SetLastError(err.empty() ? "Text export failed." : err);
+        if (!ok) io.SetLastError(err.empty() ? PHOS_TR("io.errors.export_failed") : err);
         else io.ClearLastError();
         return true;
     }
@@ -681,7 +771,7 @@ bool ExportDialog::HandleDialogResult(const SdlFileDialogResult& r, IoManager& i
         // Default to .png when extension omitted.
         path = EnsureExtension(path, "png");
         const bool ok = formats::image::ExportCanvasToFile(path, *focused_canvas, err, image_opt_);
-        if (!ok) io.SetLastError(err.empty() ? "Image export failed." : err);
+        if (!ok) io.SetLastError(err.empty() ? PHOS_TR("io.errors.export_failed") : err);
         else io.ClearLastError();
         return true;
     }
@@ -689,7 +779,7 @@ bool ExportDialog::HandleDialogResult(const SdlFileDialogResult& r, IoManager& i
     {
         path = EnsureExtension(path, "xb");
         const bool ok = formats::xbin::ExportCanvasToFile(path, *focused_canvas, err, xbin_opt_);
-        if (!ok) io.SetLastError(err.empty() ? "XBin export failed." : err);
+        if (!ok) io.SetLastError(err.empty() ? PHOS_TR("io.errors.export_failed") : err);
         else io.ClearLastError();
         return true;
     }

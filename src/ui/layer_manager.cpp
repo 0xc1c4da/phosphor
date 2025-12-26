@@ -4,6 +4,7 @@
 #include "core/color_system.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
+#include "core/i18n.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -379,7 +380,8 @@ void LayerManager::Render(const char* title,
         ImGuiWindowFlags_None |
         (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
-    if (!ImGui::Begin(title, p_open, flags))
+    const std::string win_title = PHOS_TR("menu.window.layer_manager") + "##" + std::string(title);
+    if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, title);
@@ -397,7 +399,7 @@ void LayerManager::Render(const char* title,
 
     if (!active_canvas)
     {
-        ImGui::TextUnformatted("No active canvas.");
+        ImGui::TextUnformatted(PHOS_TR("layer_manager.no_active_canvas").c_str());
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
@@ -415,7 +417,7 @@ void LayerManager::Render(const char* title,
     const int layer_count = canvas->GetLayerCount();
     if (layer_count <= 0)
     {
-        ImGui::TextUnformatted("Canvas has no layers (unexpected).");
+        ImGui::TextUnformatted(PHOS_TR("layer_manager.no_layers_unexpected").c_str());
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
@@ -438,13 +440,13 @@ void LayerManager::Render(const char* title,
     }
 
     // Header controls (apply to active layer unless stated).
-    if (ImGui::Button("+ Add"))
+    if (ImGui::Button(PHOS_TR("layer_manager.add_layer").c_str()))
         canvas->AddLayer("");
     ImGui::SameLine();
-    if (ImGui::Button("- Remove"))
+    if (ImGui::Button(PHOS_TR("layer_manager.remove_layer").c_str()))
         canvas->RemoveLayer(canvas->GetActiveLayerIndex());
     ImGui::SameLine();
-    if (ImGui::Button("Rename..."))
+    if (ImGui::Button(PHOS_TR("layer_manager.rename_ellipsis").c_str()))
     {
         rename_target_canvas_ = canvas;
         rename_target_layer_index_ = canvas->GetActiveLayerIndex();
@@ -463,31 +465,35 @@ void LayerManager::Render(const char* title,
     if (rename_popup_requested_open_)
     {
         ImGui::PushID(rename_popup_active_serial_);
-        ImGui::OpenPopup("Rename Layer");
+        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "##rename_layer_modal";
+        ImGui::OpenPopup(rename_modal.c_str());
         ImGui::PopID();
         rename_popup_requested_open_ = false;
     }
 
     // Always try to render the modal for the active rename serial; if it's not open, BeginPopupModal returns false.
     ImGui::PushID(rename_popup_active_serial_);
-    if (ImGui::BeginPopupModal("Rename Layer", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        const std::string rename_modal = PHOS_TR("layer_manager.rename_layer_modal") + "##rename_layer_modal";
+        if (ImGui::BeginPopupModal(rename_modal.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         // Verify the target canvas still exists this frame (avoid dangling pointer).
         const bool target_alive = (rename_target_canvas_ != nullptr) && (rename_target_canvas_ == active_canvas);
         if (!target_alive)
         {
-            ImGui::TextUnformatted("Target canvas no longer exists.");
+            ImGui::TextUnformatted(PHOS_TR("layer_manager.target_canvas_missing").c_str());
         }
         else
         {
-            ImGui::Text("Layer %d name:", rename_target_layer_index_);
+            const std::string s = PHOS_TRF("layer_manager.layer_name_fmt", phos::i18n::Arg::I64((long long)rename_target_layer_index_));
+            ImGui::TextUnformatted(s.c_str());
             ImGui::SetNextItemWidth(420.0f);
             if (ImGui::IsWindowAppearing())
                 ImGui::SetKeyboardFocusHere();
             ImGui::InputText("##rename_layer_name", rename_buf_, IM_ARRAYSIZE(rename_buf_));
         }
 
-        if (ImGui::Button("OK"))
+        if (ImGui::Button(PHOS_TR("common.ok").c_str()))
         {
             if (target_alive && rename_target_layer_index_ >= 0)
                 rename_target_canvas_->SetLayerName(rename_target_layer_index_, std::string(rename_buf_));
@@ -496,7 +502,7 @@ void LayerManager::Render(const char* title,
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
         {
             rename_target_canvas_ = nullptr;
             rename_target_layer_index_ = -1;
@@ -505,9 +511,10 @@ void LayerManager::Render(const char* title,
 
         ImGui::EndPopup();
     }
+    }
     ImGui::PopID();
 
-    ImGui::SeparatorText("Layers");
+    ImGui::SeparatorText(PHOS_TR("layer_manager.layers_header").c_str());
 
     // Standard art-editor UX:
     // - Top of list = front (higher layer index).
@@ -540,7 +547,7 @@ void LayerManager::Render(const char* title,
                 const bool is_locked = canvas->IsLayerTransparencyLocked(layer_index);
 
                 const std::string raw_name = canvas->GetLayerName(layer_index);
-                const std::string display_name = raw_name.empty() ? std::string("(unnamed)") : raw_name;
+                const std::string display_name = raw_name.empty() ? PHOS_TR("common.unnamed") : raw_name;
 
                 ImGui::PushID(layer_index);
 
@@ -560,9 +567,9 @@ void LayerManager::Render(const char* title,
                 // Context menu should work on the whole row.
                 if (ImGui::BeginPopupContextItem("##layer_ctx"))
                 {
-                    if (ImGui::MenuItem("Set Active", nullptr, is_active))
+                    if (ImGui::MenuItem(PHOS_TR("layer_manager.ctx_set_active").c_str(), nullptr, is_active))
                         canvas->SetActiveLayerIndex(layer_index);
-                    if (ImGui::MenuItem("Rename..."))
+                    if (ImGui::MenuItem(PHOS_TR("layer_manager.ctx_rename_ellipsis").c_str()))
                     {
                         rename_target_canvas_ = canvas;
                         rename_target_layer_index_ = layer_index;
@@ -573,12 +580,12 @@ void LayerManager::Render(const char* title,
                         rename_popup_requested_open_ = true;
                     }
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Move to Front"))
+                    if (ImGui::MenuItem(PHOS_TR("layer_manager.ctx_move_to_front").c_str()))
                         canvas->MoveLayer(layer_index, layer_count - 1);
-                    if (ImGui::MenuItem("Move to Back"))
+                    if (ImGui::MenuItem(PHOS_TR("layer_manager.ctx_move_to_back").c_str()))
                         canvas->MoveLayer(layer_index, 0);
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Remove Layer"))
+                    if (ImGui::MenuItem(PHOS_TR("layer_manager.ctx_remove_layer").c_str()))
                         canvas->RemoveLayer(layer_index);
                     ImGui::EndPopup();
                 }
@@ -587,7 +594,8 @@ void LayerManager::Render(const char* title,
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
                 {
                     ImGui::SetDragDropPayload("PHOS_LAYER_INDEX", &layer_index, sizeof(int));
-                    ImGui::Text("Move: %s", display_name.c_str());
+                    const std::string s = PHOS_TRF("layer_manager.drag_move_fmt", phos::i18n::Arg::Str(display_name));
+                    ImGui::TextUnformatted(s.c_str());
                     ImGui::EndDragDropSource();
                 }
 
@@ -700,14 +708,14 @@ void LayerManager::Render(const char* title,
                 if (ImGui::Checkbox("##vis", &vis))
                     canvas->SetLayerVisible(layer_index, vis);
                 ImGui::SameLine();
-                ImGui::TextUnformatted("Visible");
+                ImGui::TextUnformatted(PHOS_TR("layer_manager.visible").c_str());
 
                 ImGui::SameLine();
                 bool lock_transparency = is_locked;
                 if (ImGui::Checkbox("##lock", &lock_transparency))
                     canvas->SetLayerTransparencyLocked(layer_index, lock_transparency);
                 ImGui::SameLine();
-                ImGui::TextUnformatted("Lock Transparency");
+                ImGui::TextUnformatted(PHOS_TR("layer_manager.lock_transparency").c_str());
 
                 // Controls line 2: blend mode + opacity (widgets only).
                 const float y_controls_2 = y_controls_1 + frame_h + 2.0f;

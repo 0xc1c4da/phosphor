@@ -1,5 +1,6 @@
 #include "ui/imgui_window_chrome.h"
 
+#include "core/i18n.h"
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -78,15 +79,19 @@ void RenderImGuiWindowChromeMenu(SessionState* session, const char* window_name)
     st.z_order = std::clamp(st.z_order, 0, 2);
 
     int z = st.z_order;
-    if (ImGui::RadioButton("Z-order: Normal", z == 0)) z = 0;
-    if (ImGui::RadioButton("Z-order: Pin to Front", z == 1)) z = 1;
-    if (ImGui::RadioButton("Z-order: Pin to Back", z == 2)) z = 2;
+    const std::string z0 = PHOS_TR("window_chrome.z_normal");
+    const std::string z1 = PHOS_TR("window_chrome.z_front");
+    const std::string z2 = PHOS_TR("window_chrome.z_back");
+    if (ImGui::RadioButton(z0.c_str(), z == 0)) z = 0;
+    if (ImGui::RadioButton(z1.c_str(), z == 1)) z = 1;
+    if (ImGui::RadioButton(z2.c_str(), z == 2)) z = 2;
     st.z_order = z;
 
     ImGui::Separator();
 
     int op = (int)std::lround(st.opacity * 100.0f);
-    if (ImGui::SliderInt("Opacity", &op, 5, 100, "%d%%"))
+    const std::string opacity = PHOS_TR("window_chrome.opacity");
+    if (ImGui::SliderInt(opacity.c_str(), &op, 5, 100, "%d%%"))
         st.opacity = std::clamp(op / 100.0f, kMinWindowOpacity, 1.0f);
 
     ImGui::Separator();

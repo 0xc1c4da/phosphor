@@ -292,6 +292,7 @@ bool EnsureBundledAssetsExtracted(std::string& error)
         fs::exists(dest_root / "key-bindings.json") &&
         fs::exists(dest_root / "character-sets.json") &&
         fs::exists(dest_root / "session.json") &&
+        fs::exists(dest_root / "i18n" / "root.res") &&
         // Ensure font assets exist too (older installs may have the marker but no fonts).
         dir_has_any_with_ext(dest_root / "fonts" / "flf", ".flf") &&
         dir_has_any_with_ext(dest_root / "fonts" / "tdf", ".tdf"))

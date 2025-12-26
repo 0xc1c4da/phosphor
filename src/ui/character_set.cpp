@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "core/canvas.h"
 #include "core/fonts.h"
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -438,7 +439,7 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
     active_canvas_ = active_canvas;
 
     // File
-    ImGui::TextUnformatted("File");
+    ImGui::TextUnformatted(PHOS_TR("common.file").c_str());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputText("##charset_file", &file_path_);
@@ -446,16 +447,16 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
     if (!last_error_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
 
-    if (ImGui::Button("Reload"))
+    if (ImGui::Button(PHOS_TR("common.reload").c_str()))
         request_reload_ = true;
     ImGui::SameLine();
-    if (ImGui::Button("Save"))
+    if (ImGui::Button(PHOS_TR("common.save").c_str()))
         request_save_ = true;
 
     ImGui::Separator();
 
     // Active set controls
-    ImGui::TextUnformatted("Active Set");
+    ImGui::TextUnformatted(PHOS_TR("character_sets.active_set").c_str());
     ImGui::SameLine();
 
     const int set_count = (int)sets_.size();
@@ -476,7 +477,7 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
     items.reserve(sets_.size());
     for (int i = 0; i < (int)sets_.size(); ++i)
     {
-        labels.push_back("Set " + std::to_string(i + 1));
+        labels.push_back(PHOS_TRF("character_sets.tooltip_set_fmt", phos::i18n::Arg::I64((long long)i + 1)));
         items.push_back(labels.back().c_str());
     }
 
@@ -485,11 +486,11 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
         ImGui::Combo("##set_combo", &active_set_index_, items.data(), (int)items.size());
 
     ImGui::SameLine();
-    if (ImGui::Button("Make Default"))
+    if (ImGui::Button(PHOS_TR("character_sets.make_default").c_str()))
         default_set_index_ = active_set_index_;
 
     ImGui::SameLine();
-    ImGui::Checkbox("Edit mode (picker/palette assigns selected slot)", &edit_mode_);
+    ImGui::Checkbox(PHOS_TR("character_sets.edit_mode_explainer").c_str(), &edit_mode_);
 }
 
 void CharacterSetWindow::RenderSettingsContents(AnsiCanvas* active_canvas)
@@ -508,11 +509,14 @@ void CharacterSetWindow::RenderSettingsContents(AnsiCanvas* active_canvas)
 
         ImGui::Separator();
         const uint32_t scp = cps[(size_t)selected_slot_];
-        ImGui::Text("Slot F%d  %s", selected_slot_ + 1, CodePointHex(scp).c_str());
-        if (ImGui::Button("Clear slot (space)"))
+        const std::string slot = PHOS_TRF("character_sets.slot_fmt",
+                                          phos::i18n::Arg::I64((long long)selected_slot_ + 1),
+                                          phos::i18n::Arg::Str(CodePointHex(scp)));
+        ImGui::TextUnformatted(slot.c_str());
+        if (ImGui::Button(PHOS_TR("character_sets.clear_slot_space").c_str()))
             cps[(size_t)selected_slot_] = (uint32_t)U' ';
         ImGui::SameLine();
-        if (ImGui::Button("Insert slot"))
+        if (ImGui::Button(PHOS_TR("character_sets.insert_slot").c_str()))
         {
             insert_requested_ = true;
             insert_requested_cp_ = scp;
@@ -641,14 +645,16 @@ void CharacterSetWindow::RenderSlots()
         if (hovered)
         {
             ImGui::BeginTooltip();
-            ImGui::Text("Set %d", active_set_index_ + 1);
-            ImGui::Text("F%d", i + 1);
-            ImGui::Text("%s", CodePointHex(cp).c_str());
+            const std::string s0 = PHOS_TRF("character_sets.tooltip_set_fmt", phos::i18n::Arg::I64((long long)active_set_index_ + 1));
+            const std::string s1 = PHOS_TRF("character_sets.tooltip_fn_fmt", phos::i18n::Arg::I64((long long)i + 1));
+            ImGui::TextUnformatted(s0.c_str());
+            ImGui::TextUnformatted(s1.c_str());
+            ImGui::TextUnformatted(CodePointHex(cp).c_str());
             // Show something even for control chars
             if (cp < 0x20u || cp == 0x7Fu)
-                ImGui::TextUnformatted("(control)");
+                ImGui::TextUnformatted(PHOS_TR("character_sets.tooltip_control").c_str());
             else
-                ImGui::TextUnformatted("Glyph preview matches canvas font.");
+                ImGui::TextUnformatted(PHOS_TR("character_sets.tooltip_glyph_preview_matches").c_str());
             ImGui::EndTooltip();
         }
 
@@ -679,7 +685,8 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    if (!ImGui::Begin(window_title, p_open, flags))
+    const std::string win_title = PHOS_TR("menu.window.character_sets") + "##" + std::string(window_title);
+    if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, window_title);
@@ -712,7 +719,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         {
             ImGui::BeginTooltip();
-            ImGui::TextUnformatted("Previous set");
+            ImGui::TextUnformatted(PHOS_TR("character_sets.previous_set").c_str());
             ImGui::EndTooltip();
         }
 
@@ -726,7 +733,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         {
             ImGui::BeginTooltip();
-            ImGui::TextUnformatted("Next set");
+            ImGui::TextUnformatted(PHOS_TR("character_sets.next_set").c_str());
             ImGui::EndTooltip();
         }
 
@@ -741,11 +748,11 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
         ImGui::SetNextWindowSizeConstraints(ImVec2(360.0f, 0.0f), ImVec2(620.0f, 520.0f));
         if (ImGui::BeginPopup("##charset_settings"))
         {
-            ImGui::TextUnformatted("Settings");
+            ImGui::TextUnformatted(PHOS_TR("common.settings").c_str());
             ImGui::Separator();
             RenderSettingsContents(active_canvas);
             ImGui::Separator();
-            if (ImGui::Button("Close"))
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }

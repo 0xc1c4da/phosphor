@@ -12,6 +12,7 @@
 #include "io/sdl_file_dialog_queue.h"
 #include "io/session/session_state.h"
 
+#include "core/i18n.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 
@@ -95,19 +96,19 @@ static bool ReadAllBytesLimited(const std::string& path,
     std::ifstream in(path, std::ios::binary);
     if (!in)
     {
-        err = "Failed to open file for reading.";
+        err = PHOS_TR("io.errors.failed_open_for_reading");
         return false;
     }
     in.seekg(0, std::ios::end);
     std::streamoff sz = in.tellg();
     if (sz < 0)
     {
-        err = "Failed to read file size.";
+        err = PHOS_TR("io.errors.failed_read_file_size");
         return false;
     }
     if ((std::uint64_t)sz > (std::uint64_t)limit_bytes)
     {
-        err = "File too large.";
+        err = PHOS_TR("io.errors.file_too_large");
         return false;
     }
     in.seekg(0, std::ios::beg);
@@ -116,7 +117,7 @@ static bool ReadAllBytesLimited(const std::string& path,
         in.read(reinterpret_cast<char*>(out.data()), sz);
     if (!in && sz > 0)
     {
-        err = "Failed to read file contents.";
+        err = PHOS_TR("io.errors.failed_read_contents");
         return false;
     }
     return true;
@@ -177,7 +178,7 @@ void IoManager::SaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs, Ans
 {
     if (!target_canvas)
     {
-        m_last_error = "No canvas to save.";
+        m_last_error = PHOS_TR("io.errors.no_canvas_to_save");
         return;
     }
 
@@ -192,7 +193,7 @@ void IoManager::SaveProject(SDL_Window* window, SdlFileDialogQueue& dialogs, Ans
         std::string err;
         if (SaveProjectToPath(target_canvas->GetFilePath(), *target_canvas, err))
             return;
-        m_last_error = err.empty() ? "Save failed." : err;
+        m_last_error = err.empty() ? PHOS_TR("io.errors.save_failed") : err;
 
         SaveEvent ev;
         ev.kind = SaveEventKind::Failed;
@@ -216,8 +217,8 @@ void IoManager::RequestSaveProject(SDL_Window* window, SdlFileDialogQueue& dialo
     m_pending_save_canvas = target_canvas;
     const std::vector<std::string_view> project_exts_v = {"phos"};
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {MakeFilterLabel("Phosphor Project", project_exts_v), "phos"},
-        {"All files", "*"},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.phosphor_project_base"), project_exts_v), "phos"},
+        {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
     fs::path suggested = base / "project.phos";
@@ -262,14 +263,14 @@ void IoManager::RequestLoadFile(SDL_Window* window, SdlFileDialogQueue& dialogs)
 
     const std::vector<std::string_view> project_exts_v = {"phos"};
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {MakeFilterLabel("Supported files", supported_exts_v), supported_exts},
-        {MakeFilterLabel("Phosphor Project", project_exts_v), "phos"},
-        {MakeFilterLabel("ANSI / Text", text_exts_v), text_exts},
-        {MakeFilterLabel("GIMP Palette", pal_exts_v), pal_exts},
-        {MakeFilterLabel("Markdown", md_exts_v), md_exts},
-        {MakeFilterLabel("XBin", xbin_exts_v), xbin_exts},
-        {MakeFilterLabel("Images", image_exts_v), image_exts},
-        {"All files", "*"},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.supported_files_base"), supported_exts_v), supported_exts},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.phosphor_project_base"), project_exts_v), "phos"},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.ansi_text_base"), text_exts_v), text_exts},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.gimp_palette_base"), pal_exts_v), pal_exts},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.markdown_base"), md_exts_v), md_exts},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.xbin_base"), xbin_exts_v), xbin_exts},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.images_base"), image_exts_v), image_exts},
+        {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
     };
     dialogs.ShowOpenFileDialog(kDialog_LoadFile, window, filters, m_last_dir, true);
 }
@@ -285,8 +286,8 @@ void IoManager::RequestExportAnsi(SDL_Window* window, SdlFileDialogQueue& dialog
     const std::string exts = JoinExtsForDialog(exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {MakeFilterLabel("Export", exts_v), exts},
-        {"All files", "*"},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.export_base"), exts_v), exts},
+        {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
     fs::path suggested = base / "export.ans";
@@ -302,8 +303,8 @@ void IoManager::RequestExportImage(SDL_Window* window, SdlFileDialogQueue& dialo
     const std::string exts = JoinExtsForDialog(exts_v);
 
     std::vector<SdlFileDialogQueue::FilterPair> filters = {
-        {MakeFilterLabel("Image", exts_v), exts},
-        {"All files", "*"},
+        {MakeFilterLabel(PHOS_TR("io.file_dialog_filters.image_base"), exts_v), exts},
+        {PHOS_TR("io.file_dialog_filters.all_files"), "*"},
     };
     fs::path base = m_last_dir.empty() ? fs::path(".") : fs::path(m_last_dir);
     fs::path suggested = base / "export.png";
@@ -322,7 +323,8 @@ void IoManager::RenderFileMenu(SDL_Window* window,
     if (!has_focus_canvas)
         ImGui::BeginDisabled();
     const std::string sc_save = shortcut_for_action ? shortcut_for_action("app.file.save") : std::string{};
-    if (ImGui::MenuItem("Save", sc_save.empty() ? nullptr : sc_save.c_str()))
+    const std::string mi_save = PHOS_TR("menu.file.save");
+    if (ImGui::MenuItem(mi_save.c_str(), sc_save.empty() ? nullptr : sc_save.c_str()))
         SaveProject(window, dialogs, focused_canvas);
     if (!has_focus_canvas)
         ImGui::EndDisabled();
@@ -330,12 +332,14 @@ void IoManager::RenderFileMenu(SDL_Window* window,
     if (has_focus_canvas)
     {
         const std::string sc_save_as = shortcut_for_action ? shortcut_for_action("app.file.save_as") : std::string{};
-        if (ImGui::MenuItem("Save As...", sc_save_as.empty() ? nullptr : sc_save_as.c_str()))
+        const std::string mi_save_as = PHOS_TR("menu.file.save_as_ellipsis");
+        if (ImGui::MenuItem(mi_save_as.c_str(), sc_save_as.empty() ? nullptr : sc_save_as.c_str()))
             SaveProjectAs(window, dialogs, focused_canvas);
     }
 
     const std::string sc_load = shortcut_for_action ? shortcut_for_action("app.file.open") : std::string{};
-    if (ImGui::MenuItem("Load...", sc_load.empty() ? nullptr : sc_load.c_str()))
+    const std::string mi_load = PHOS_TR("menu.file.load_ellipsis");
+    if (ImGui::MenuItem(mi_load.c_str(), sc_load.empty() ? nullptr : sc_load.c_str()))
     {
         RequestLoadFile(window, dialogs);
     }
@@ -403,7 +407,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.create_canvas)
         {
-            m_last_error = "Internal error: create_canvas callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_create_canvas_callback");
             return true;
         }
         AnsiCanvas loaded;
@@ -423,7 +427,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.create_canvas)
         {
-            m_last_error = "Internal error: create_canvas callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_create_canvas_callback");
             return true;
         }
         AnsiCanvas imported;
@@ -446,7 +450,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.create_canvas)
         {
-            m_last_error = "Internal error: create_canvas callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_create_canvas_callback");
             return true;
         }
         AnsiCanvas imported;
@@ -471,7 +475,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.create_canvas)
         {
-            m_last_error = "Internal error: create_canvas callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_create_canvas_callback");
             return true;
         }
         AnsiCanvas imported;
@@ -493,7 +497,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.create_image)
         {
-            m_last_error = "Internal error: create_image callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_create_image_callback");
             return true;
         }
         int iw = 0, ih = 0;
@@ -519,7 +523,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
     {
         if (!cb.open_markdown_import_dialog)
         {
-            m_last_error = "Internal error: open_markdown_import_dialog callback not set.";
+            m_last_error = PHOS_TR("io.errors.internal_error_open_markdown_import_dialog_callback");
             return true; // handled (as error)
         }
         std::vector<std::uint8_t> bytes;
@@ -568,7 +572,7 @@ bool IoManager::OpenPath(const std::string& path, const Callbacks& cb, const Ses
 
     if (!handled)
     {
-        m_last_error = err.empty() ? "Unsupported file type or failed to load file." : err;
+        m_last_error = err.empty() ? PHOS_TR("io.errors.unsupported_file_type_or_failed_load") : err;
         return true;
     }
     return true;
@@ -640,7 +644,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
 
         if (!target)
         {
-            m_last_error = "No focused canvas to save.";
+            m_last_error = PHOS_TR("io.errors.no_canvas_to_save");
             SaveEvent ev;
             ev.kind = SaveEventKind::Failed;
             ev.canvas = nullptr;
@@ -672,7 +676,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
         }
         else
         {
-            m_last_error = err.empty() ? "Save failed." : err;
+            m_last_error = err.empty() ? PHOS_TR("io.errors.save_failed") : err;
 
             SaveEvent ev;
             ev.kind = SaveEventKind::Failed;
@@ -730,7 +734,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (!cb.create_canvas)
                 {
-                    perr = "Internal error: create_canvas callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_create_canvas_callback");
                     return true; // handled (as error)
                 }
                 AnsiCanvas loaded;
@@ -749,7 +753,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (!cb.create_canvas)
                 {
-                    perr = "Internal error: create_canvas callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_create_canvas_callback");
                     return true; // handled (as error)
                 }
                 AnsiCanvas imported;
@@ -771,7 +775,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (!cb.create_canvas)
                 {
-                    perr = "Internal error: create_canvas callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_create_canvas_callback");
                     return true; // handled (as error)
                 }
                 AnsiCanvas imported;
@@ -796,7 +800,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (!cb.create_canvas)
                 {
-                    perr = "Internal error: create_canvas callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_create_canvas_callback");
                     return true; // handled (as error)
                 }
                 AnsiCanvas imported;
@@ -817,7 +821,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (!cb.create_image)
                 {
-                    perr = "Internal error: create_image callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_create_image_callback");
                     return true; // handled (as error)
                 }
                 int iw = 0, ih = 0;
@@ -842,12 +846,12 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             {
                 if (markdown_opened)
                 {
-                    perr = "Multiple Markdown files selected; only one Markdown import can be opened at a time.";
+                    perr = PHOS_TR("io.errors.multiple_markdown_selected");
                     return true; // handled (as error)
                 }
                 if (!cb.open_markdown_import_dialog)
                 {
-                    perr = "Internal error: open_markdown_import_dialog callback not set.";
+                    perr = PHOS_TR("io.errors.internal_error_open_markdown_import_dialog_callback");
                     return true; // handled (as error)
                 }
                 std::vector<std::uint8_t> bytes;
@@ -895,7 +899,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
             if (!handled)
             {
                 ++fail_count;
-                last_fail = perr.empty() ? "Unsupported file type or failed to load file." : perr;
+                last_fail = perr.empty() ? PHOS_TR("io.errors.unsupported_file_type_or_failed_load") : perr;
             }
             else if (!perr.empty())
             {
@@ -907,10 +911,12 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
 
         if (fail_count > 0)
         {
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "Failed to open %d/%d files. Last error: %s",
-                          fail_count, (int)r.paths.size(), last_fail.c_str());
-            m_last_error = buf;
+            const std::string msg =
+                PHOS_TRF("io.errors.failed_to_open_n_of_n_last_error_fmt",
+                         phos::i18n::Arg::I64(fail_count),
+                         phos::i18n::Arg::I64((int)r.paths.size()),
+                         phos::i18n::Arg::Str(last_fail));
+            m_last_error = msg;
         }
         else
         {
@@ -921,7 +927,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
     {
         if (!focused_canvas)
         {
-            m_last_error = "No focused canvas to export.";
+            m_last_error = PHOS_TR("io.errors.no_focused_canvas_to_export");
             return;
         }
 
@@ -983,14 +989,14 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
         }
         else
         {
-            m_last_error = err.empty() ? "Export failed." : err;
+            m_last_error = err.empty() ? PHOS_TR("io.errors.export_failed") : err;
         }
     }
     else if (r.tag == kDialog_ExportImage)
     {
         if (!focused_canvas)
         {
-            m_last_error = "No focused canvas to export.";
+            m_last_error = PHOS_TR("io.errors.no_focused_canvas_to_export");
             return;
         }
 
@@ -1014,7 +1020,7 @@ void IoManager::HandleDialogResult(const SdlFileDialogResult& r,
         if (ok)
             m_last_error.clear();
         else
-            m_last_error = err.empty() ? "Export failed." : err;
+            m_last_error = err.empty() ? PHOS_TR("io.errors.export_failed") : err;
     }
 }
 
@@ -1022,16 +1028,17 @@ void IoManager::RenderStatusWindows(SessionState* session, bool apply_placement_
 {
     if (!m_last_error.empty())
     {
-        const char* wname = "File Error";
+        const std::string wname = PHOS_TR("io.status_windows.file_error_title") + "##io_file_error";
         if (session)
-            ApplyImGuiWindowPlacement(*session, wname, apply_placement_this_frame);
+            ApplyImGuiWindowPlacement(*session, wname.c_str(), apply_placement_this_frame);
 
-        ImGui::Begin(wname, nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::Begin(wname.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize);
         if (session)
-            CaptureImGuiWindowPlacement(*session, wname);
+            CaptureImGuiWindowPlacement(*session, wname.c_str());
 
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", m_last_error.c_str());
-        if (ImGui::Button("Dismiss"))
+        const std::string dismiss = PHOS_TR("io.status_windows.dismiss");
+        if (ImGui::Button(dismiss.c_str()))
             m_last_error.clear();
         ImGui::End();
     }

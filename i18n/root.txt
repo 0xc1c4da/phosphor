@@ -36,7 +36,16 @@ root {
     search { "Search" }
     go { "Go" }
     filter_actions_ellipsis { "Filter actions…" }
+    filter_colon { "Filter:" }
     search_filter_api { "Search (filter=...)" }
+    help_marker { "(?)" }
+    unknown { "Unknown" }
+    unknown_short { "?" }
+    unnamed { "(unnamed)" }
+    untitled { "Untitled" }
+    empty_parens { "(empty)" }
+    custom_parens { "(custom)" }
+    no_parameters { "No parameters." }
   }
 
   // ---------------------------------------------------------------------------
@@ -52,6 +61,9 @@ root {
 
     file {
       new_canvas { "New Canvas" }
+      save { "Save" }
+      save_as_ellipsis { "Save As..." }
+      load_ellipsis { "Load..." }
       recent { "Recent" }
       recent_empty { "(Empty)" }
       recent_clear { "Clear Recent" }
@@ -59,6 +71,12 @@ root {
       tutorials { "Tutorials" }
       tutorials_failed { "(Failed to load tutorials)" }
       tutorials_empty { "(Empty)" }
+      tutorial_entry_fmt { "{0} by {1} ({2})" }
+      tutorials_errors {
+        failed_to_open_fmt { "Failed to open {0}" }
+        expected_top_level_array { "Expected top-level JSON array in ansi-tutorials.json" }
+        no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
+      }
 
       export { "Export" }
       export_ansi_ellipsis { "ANSI…" }
@@ -118,6 +136,7 @@ root {
     unsaved_count { "You have {0} canvas{1} with unsaved changes." }
     save_before_quit { "Do you want to save your changes before quitting?" }
 
+    close_canvas_modal_title { "Save changes?" }
     close_canvas_question_with_path { "Save changes to:" }
     close_canvas_question_no_path { "Save changes to this canvas?" }
   }
@@ -150,12 +169,21 @@ root {
     file_dialog_filters {
       all_files { "All files" }
       phosphor_project { "Phosphor Project (*.phos)" }
+      phosphor_project_base { "Phosphor Project" }
       supported_files { "Supported files (*.phos;*.ans;*.asc;*.txt;*.nfo;*.diz;*.gpl;*.md;*.markdown;*.xb;*.png;*.jpg;*.jpeg;*.gif;*.bmp)" }
+      supported_files_base { "Supported files" }
       ansi_text { "ANSI / Text (*.ans;*.asc;*.txt;*.nfo;*.diz)" }
+      ansi_text_base { "ANSI / Text" }
       gimp_palette { "GIMP Palette (*.gpl)" }
+      gimp_palette_base { "GIMP Palette" }
       markdown { "Markdown (*.md;*.markdown;*.mdown;*.mkd)" }
+      markdown_base { "Markdown" }
       xbin { "XBin (*.xb)" }
+      xbin_base { "XBin" }
       images { "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)" }
+      images_base { "Images" }
+      export_base { "Export" }
+      image_base { "Image" }
     }
 
     status_windows {
@@ -168,6 +196,7 @@ root {
   // Export dialog (src/ui/export_dialog.cpp)
   // ---------------------------------------------------------------------------
   export_dialog {
+    unnamed_preset { "(unnamed)" }
     no_active_canvas { "No active canvas to export." }
 
     tabs {
@@ -195,6 +224,26 @@ root {
       }
       byte_encoding { "Byte Encoding" }
       byte_encoding_default_preview { "CP437 (IBM PC OEM)" }
+      byte_encoding_items {
+        cp437 { "CP437 (IBM PC OEM)" }
+        cp775 { "CP775" }
+        cp737 { "CP737" }
+        cp850 { "CP850" }
+        cp852 { "CP852" }
+        cp855 { "CP855" }
+        cp857 { "CP857" }
+        cp860 { "CP860" }
+        cp861 { "CP861" }
+        cp862 { "CP862" }
+        cp863 { "CP863" }
+        cp865 { "CP865" }
+        cp866 { "CP866" }
+        cp869 { "CP869" }
+        amiga_latin1 { "Amiga Latin-1 (Topaz 0x7F house)" }
+        amiga_iso8859_15 { "Amiga ISO-8859-15 (Topaz 0x7F house)" }
+        amiga_iso8859_2 { "Amiga ISO-8859-2 (Topaz 0x7F house)" }
+        amiga_1251 { "Amiga-1251" }
+      }
       byte_encoding_help {
         "Used when exporting an 8-bit ANSI byte stream. BitmapIndex glyph tokens export losslessly as their byte value when possible."
       }
@@ -365,6 +414,7 @@ root {
       unlimited_lut_cache { "Unlimited LUT cache" }
       max_lut_cache_mib { "Max LUT cache (MiB)" }
       budget_pressure { "Budget pressure" }
+      budget_pressure_used_of_budget_fmt { "{0} / {1} MiB ({2}%)" }
       unlimited_budget_used { "{0} MiB used (unlimited budget)" }
 
       glyph_atlas_cache { "Glyph Atlas Cache" }
@@ -387,6 +437,7 @@ root {
 
       show_ids { "Show IDs" }
       filter_actions_ellipsis { "Filter actions…" }
+      record_ellipsis { "Record…" }
 
       record_key_binding { "Record Key Binding" }
       record_prompt { "Press a key to assign this binding." }
@@ -397,6 +448,8 @@ root {
 
       conflicts_header { "Keybinding Conflicts" }
       chord_hint { "e.g. Ctrl+Z" }
+      report_conflicts_header { "Conflicts:" }
+      report_invalid_header { "Invalid chords:" }
 
       repeat_tooltip_long {
         "Repeat while held.\nWhen enabled, holding the chord will retrigger after a short delay\nand then repeat at a steady rate (uses ImGui key repeat timing)."
@@ -505,6 +558,7 @@ root {
   // Colour Picker window (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   colour_picker_window {
+    default_palette_title { "Default HSV" }
     palette_load_error_fmt { "Palette load error: {0}" }
     picker_mode_items {
       hue_bar { "Hue Bar" }
@@ -525,6 +579,7 @@ root {
     tool { "Tool" }
     tool_unknown { "(unknown)" }
     no_presets_yet { "(No presets for this tool yet)" }
+    preset { "Preset" }
 
     overwrite_selected { "Overwrite selected" }
     save_current_as_ellipsis { "Save current as…" }
@@ -555,6 +610,7 @@ root {
     add_from_selection { "Add from Selection" }
     delete { "Delete" }
     select_region_hint { "Select a region on the canvas to capture a brush." }
+    default_brush_name_fmt { "Brush {0}" }
     composite { "Composite" }
     no_brushes_yet { "(No brushes yet)" }
     thumb_px { "Thumb" }
@@ -596,11 +652,15 @@ root {
     new_palette_modal { "New Palette" }
     new_palette_default_title { "New Palette" }
     create_new_palette_help { "Create a new palette." }
+    title { "Title" }
+    create { "Create" }
 
     rename_palette_modal { "Rename Palette" }
     rename_palette_help { "Rename the current palette." }
     delete_palette_modal { "Delete Palette?" }
     delete_palette_help { "Delete the current palette? This cannot be undone." }
+
+    idx_fmt { "Idx: {0}" }
   }
 
   // ---------------------------------------------------------------------------
@@ -613,7 +673,14 @@ root {
     subpage { "Subpage" }
     jump { "Jump" }
 
+    unknown_block { "Unknown block" }
+
     search_hint { "unicode name (e.g. greek small letter eta)" }
+    no_results { "No results." }
+    results_range_fmt { "{0}–{1}" }
+    results_range_of_total_fmt { "{0}–{1} of {2}" }
+    plane_preview_fmt { "Plane {0}: {1}" }
+    row_col { "Row/Col" }
     no_drawable_glyphs { "No drawable glyphs in this range." }
 
     selected { "Selected" }
@@ -728,6 +795,7 @@ root {
     symbols_selectors { "Symbols Selectors" }
     symbols_selectors_hint { "e.g. block+border-diagonal" }
     fill_class { "Fill Class" }
+    fill_selectors_same_as_symbols { "(same as symbols)" }
     fill_selectors { "Fill Selectors" }
     fill_selectors_hint { "(blank = same as symbols)" }
     selectors_help { "Selectors follow chafa CLI syntax: combine with + and -, e.g. all-wide or block+border-diagonal." }

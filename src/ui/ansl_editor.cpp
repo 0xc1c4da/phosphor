@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "core/paths.h"
 #include "core/canvas.h"
+#include "core/i18n.h"
 #include "core/xterm256_palette.h"
 #include "ui/ansl_params_ui.h"
 
@@ -77,7 +78,7 @@ bool AnslEditor::LoadExamplesFromDirectory(std::string& error)
     fs::path dir(examples_dir_);
     if (!fs::exists(dir) || !fs::is_directory(dir))
     {
-        error = "Examples dir not found: " + examples_dir_;
+        error = PHOS_TRF("ansl_editor.examples_dir_not_found_fmt", phos::i18n::Arg::Str(examples_dir_));
         return false;
     }
 
@@ -197,11 +198,11 @@ void AnslEditor::Render(const char* id,
     // Always expose a stable Play/Pause button label.
     // (Changing this label to "Run Once" caused an ImGui ID collision with the dedicated
     // "Run Once" button below when scripts use `settings.once = true`.)
-    const char* play_label = playing_ ? "Pause" : "Play";
+    const std::string play_label = playing_ ? PHOS_TR("ansl_editor.pause") : PHOS_TR("ansl_editor.play");
     bool request_play = false;
     bool request_pause = false;
     bool request_run_once = false;
-    if (ImGui::Button(play_label))
+    if (ImGui::Button((play_label + "##ansl_play_pause").c_str()))
     {
         if (playing_)
             request_pause = true;
@@ -210,42 +211,45 @@ void AnslEditor::Render(const char* id,
     }
 
     ImGui::SameLine();
-    ImGui::TextUnformatted(playing_ ? "Playing" : "Paused");
+    ImGui::TextUnformatted((playing_ ? PHOS_TR("ansl_editor.playing") : PHOS_TR("ansl_editor.paused")).c_str());
     if (script_once_)
     {
         ImGui::SameLine();
-        ImGui::TextUnformatted(script_once_ran_ ? "(once: ran)" : "(once)");
+        ImGui::TextUnformatted((script_once_ran_ ? PHOS_TR("ansl_editor.once_ran") : PHOS_TR("ansl_editor.once")).c_str());
     }
 
     ImGui::Separator();
 
     if (!active_canvas)
     {
-        ImGui::TextUnformatted("Open a Canvas window to run scripts.");
+        ImGui::TextUnformatted(PHOS_TR("ansl_editor.open_canvas_to_run").c_str());
     }
     else
     {
         AnsiCanvas* canvas = active_canvas;
         // Always target the canvas's active ("current") layer.
         const int active_layer = canvas ? canvas->GetActiveLayerIndex() : 0;
-        ImGui::Text("Target Layer: %d (active)", active_layer);
+        ImGui::TextUnformatted(PHOS_TRF("ansl_editor.target_layer_active_fmt",
+                                        phos::i18n::Arg::I64((long long)active_layer)).c_str());
 
-        ImGui::Checkbox("Clear layer each frame", &clear_layer_each_frame_);
+        ImGui::Checkbox(PHOS_TR("ansl_editor.clear_layer_each_frame").c_str(), &clear_layer_each_frame_);
 
         // FPS control + measured script FPS.
         if (target_fps_ < 1) target_fps_ = 1;
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::SliderInt("Script FPS", &target_fps_, 1, 240);
-        ImGui::Text("Measured script FPS: %.1f", measured_script_fps_);
+        const std::string fps_lbl = PHOS_TR("ansl_editor.script_fps") + "##ansl_script_fps";
+        ImGui::SliderInt(fps_lbl.c_str(), &target_fps_, 1, 240);
+        ImGui::TextUnformatted(PHOS_TRF("ansl_editor.measured_script_fps_fmt",
+                                        phos::i18n::Arg::F64(measured_script_fps_)).c_str());
 
         // Compile/run controls.
-        bool compile_clicked = ImGui::Button("Compile");
+        bool compile_clicked = ImGui::Button((PHOS_TR("ansl_editor.compile") + "##ansl_compile").c_str());
         ImGui::SameLine();
-        bool run_once_clicked = ImGui::Button("Run Once");
+        bool run_once_clicked = ImGui::Button((PHOS_TR("ansl_editor.run_once") + "##ansl_run_once").c_str());
 
         // Examples dropdown.
         ImGui::Separator();
-        if (ImGui::SmallButton("Refresh Examples"))
+        if (ImGui::SmallButton((PHOS_TR("ansl_editor.refresh_examples") + "##ansl_refresh_examples").c_str()))
         {
             examples_loaded_ = false;
             examples_error_.clear();
@@ -257,7 +261,9 @@ void AnslEditor::Render(const char* id,
         {
             std::string err;
             if (!LoadExamplesFromDirectory(err))
-                examples_error_ = err.empty() ? ("No examples found in " + examples_dir_) : err;
+                examples_error_ = err.empty()
+                    ? PHOS_TRF("ansl_editor.no_examples_found_in_fmt", phos::i18n::Arg::Str(examples_dir_))
+                    : err;
             else
                 examples_error_.clear();
 
@@ -309,13 +315,15 @@ void AnslEditor::Render(const char* id,
         {
             std::vector<const char*> labels;
             labels.reserve(examples_.size() + 1);
-            labels.push_back("<none>");
+            const std::string none = PHOS_TR("ansl_editor.example_none");
+            labels.push_back(none.c_str());
             for (const auto& ex : examples_)
                 labels.push_back(ex.label.c_str());
 
             int combo_index = selected_example_index_ + 1; // -1 -> 0 ("<none>")
             ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::Combo("Example", &combo_index, labels.data(), (int)labels.size()))
+            const std::string example_lbl = PHOS_TR("ansl_editor.example") + "##ansl_example";
+            if (ImGui::Combo(example_lbl.c_str(), &combo_index, labels.data(), (int)labels.size()))
             {
                 selected_example_index_ = combo_index - 1;
                 if (selected_example_index_ >= 0 && selected_example_index_ < (int)examples_.size())
@@ -323,7 +331,8 @@ void AnslEditor::Render(const char* id,
                     const std::string src = ReadFileToString(examples_[(size_t)selected_example_index_].path);
                     if (src.empty())
                     {
-                        last_error_ = "Failed to read example: " + examples_[(size_t)selected_example_index_].path;
+                        last_error_ = PHOS_TRF("ansl_editor.failed_to_read_example_fmt",
+                                               phos::i18n::Arg::Str(examples_[(size_t)selected_example_index_].path));
                     }
                     else
                     {

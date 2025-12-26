@@ -2,6 +2,7 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
+#include "core/i18n.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -201,21 +202,21 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     // ---------------------------------------------------------------------
     // Preview window (regular resizable window; the canvas itself handles scrolling)
     // ---------------------------------------------------------------------
-    const char* preview_title = "Image \xE2\x86\x92 ANSI (Chafa)##chafa_preview";
+    const std::string preview_title = PHOS_TR("chafa.preview_title") + "##chafa_preview";
     if (session)
-        ApplyImGuiWindowPlacement(*session, preview_title, apply_placement_this_frame);
+        ApplyImGuiWindowPlacement(*session, preview_title.c_str(), apply_placement_this_frame);
     ImGui::SetNextWindowSize(ImVec2(1100.0f, 720.0f), ImGuiCond_Appearing);
 
     const ImGuiWindowFlags preview_flags =
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
-        (session ? GetImGuiWindowChromeExtraFlags(*session, preview_title) : ImGuiWindowFlags_None);
-    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, preview_title);
+        (session ? GetImGuiWindowChromeExtraFlags(*session, preview_title.c_str()) : ImGuiWindowFlags_None);
+    const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, preview_title.c_str());
 
-    if (!ImGui::Begin(preview_title, &open_, preview_flags))
+    if (!ImGui::Begin(preview_title.c_str(), &open_, preview_flags))
     {
         if (session)
-            CaptureImGuiWindowPlacement(*session, preview_title);
+            CaptureImGuiWindowPlacement(*session, preview_title.c_str());
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         // If the window was closed via the titlebar, also close the attached settings.
@@ -232,9 +233,9 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     {
         if (session)
         {
-            CaptureImGuiWindowPlacement(*session, preview_title);
-            ApplyImGuiWindowChromeZOrder(session, preview_title);
-            RenderImGuiWindowChromeMenu(session, preview_title);
+            CaptureImGuiWindowPlacement(*session, preview_title.c_str());
+            ApplyImGuiWindowChromeZOrder(session, preview_title.c_str());
+            RenderImGuiWindowChromeMenu(session, preview_title.c_str());
         }
 
         // Track preview window rect for settings pinning.
@@ -245,20 +246,24 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
         preview_win_w_ = ws.x;
         preview_win_h_ = ws.y;
 
-        ImGui::Text("Source: %s", src_.label.empty() ? "(image)" : src_.label.c_str());
+        const std::string src_label = src_.label.empty() ? PHOS_TR("chafa.image_label") : src_.label;
+        ImGui::TextUnformatted(PHOS_TRF("chafa.source_fmt", phos::i18n::Arg::Str(src_label)).c_str());
         ImGui::SameLine();
-        ImGui::TextDisabled("(%dx%d)", src_.width, src_.height);
+        ImGui::TextDisabled("%s",
+                            PHOS_TRF("chafa.dims_fmt",
+                                     phos::i18n::Arg::I64((long long)src_.width),
+                                     phos::i18n::Arg::I64((long long)src_.height)).c_str());
         ImGui::Separator();
 
         if (preview_inflight_ || dirty_)
-            ImGui::TextDisabled("Preview updating\u2026");
+            ImGui::TextDisabled("%s", PHOS_TR("chafa.preview_updating_ellipsis").c_str());
         if (!error_.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error_.c_str());
 
         if (has_preview_)
             preview_.Render("##chafa_preview_canvas", std::function<void(AnsiCanvas&, int)>{});
         else
-            ImGui::TextUnformatted("(no preview)");
+            ImGui::TextUnformatted(PHOS_TR("chafa.no_preview").c_str());
     }
     ImGui::End();
     PopImGuiWindowChromeAlpha(alpha_pushed);
@@ -277,7 +282,7 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     // ---------------------------------------------------------------------
     // Settings window (separate floating window, pinned next to preview by default)
     // ---------------------------------------------------------------------
-    const char* settings_title = "Chafa Settings##chafa_settings";
+    const std::string settings_title = PHOS_TR("chafa.settings_title") + "##chafa_settings";
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const float pad = 8.0f;
 
@@ -300,7 +305,7 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     ImGui::SetNextWindowSize(approx_size, ImGuiCond_Appearing);
 
     bool settings_open = open_;
-    if (!ImGui::Begin(settings_title, &settings_open, ImGuiWindowFlags_None))
+    if (!ImGui::Begin(settings_title.c_str(), &settings_open, ImGuiWindowFlags_None))
     {
         ImGui::End();
         open_ = settings_open;
@@ -321,7 +326,7 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     }
 
     bool chrome_changed = false;
-    chrome_changed |= ImGui::Checkbox("Pin to preview", &settings_pinned_);
+    chrome_changed |= ImGui::Checkbox(PHOS_TR("chafa.pin_to_preview").c_str(), &settings_pinned_);
     ImGui::Separator();
 
     // Scrollable settings body (so the window can stay a reasonable size).
@@ -330,57 +335,64 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     {
         bool conversion_changed = false;
 
-        if (ImGui::CollapsingHeader("Size & layout", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.size_layout") + "##chafa_size").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
-            conversion_changed |= ImGui::InputInt("Columns", &settings_.out_cols);
+            conversion_changed |= ImGui::InputInt((PHOS_TR("chafa.columns") + "##chafa_cols").c_str(), &settings_.out_cols);
             settings_.out_cols = std::clamp(settings_.out_cols, 1, 400);
 
-            conversion_changed |= ImGui::Checkbox("Auto rows", &settings_.auto_rows);
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.auto_rows").c_str(), &settings_.auto_rows);
             if (!settings_.auto_rows)
             {
-                conversion_changed |= ImGui::InputInt("Rows", &settings_.out_rows);
+                conversion_changed |= ImGui::InputInt((PHOS_TR("chafa.rows") + "##chafa_rows").c_str(), &settings_.out_rows);
                 settings_.out_rows = std::clamp(settings_.out_rows, 1, 400);
             }
             else
             {
-                ImGui::TextDisabled("Rows: auto");
+                ImGui::TextDisabled("%s", PHOS_TR("chafa.rows_auto").c_str());
             }
 
-            conversion_changed |= ImGui::SliderFloat("Font ratio (w/h)", &settings_.font_ratio, 0.2f, 2.0f, "%.3f");
-            conversion_changed |= ImGui::Checkbox("Zoom", &settings_.zoom);
-            conversion_changed |= ImGui::Checkbox("Stretch", &settings_.stretch);
+            conversion_changed |= ImGui::SliderFloat((PHOS_TR("chafa.font_ratio") + "##chafa_font_ratio").c_str(),
+                                                     &settings_.font_ratio, 0.2f, 2.0f, "%.3f");
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.zoom").c_str(), &settings_.zoom);
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.stretch").c_str(), &settings_.stretch);
         }
 
-        if (ImGui::CollapsingHeader("Color & processing", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.color_processing") + "##chafa_color").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
-            const char* mode_items[] =
-            {
-                "Indexed 256 (xterm)",
-                "Indexed 240",
-                "Indexed 16",
-                "Indexed 16/8",
-                "Indexed 8",
-                "Default fg/bg + invert",
-                "Default fg/bg (no codes)",
-            };
-            conversion_changed |= ImGui::Combo("Color mode", &settings_.canvas_mode, mode_items, IM_ARRAYSIZE(mode_items));
+            const std::string cm0 = PHOS_TR("chafa.color_mode_items.indexed_256");
+            const std::string cm1 = PHOS_TR("chafa.color_mode_items.indexed_240");
+            const std::string cm2 = PHOS_TR("chafa.color_mode_items.indexed_16");
+            const std::string cm3 = PHOS_TR("chafa.color_mode_items.indexed_16_8");
+            const std::string cm4 = PHOS_TR("chafa.color_mode_items.indexed_8");
+            const std::string cm5 = PHOS_TR("chafa.color_mode_items.default_invert");
+            const std::string cm6 = PHOS_TR("chafa.color_mode_items.default_no_codes");
+            const char* mode_items[] = { cm0.c_str(), cm1.c_str(), cm2.c_str(), cm3.c_str(), cm4.c_str(), cm5.c_str(), cm6.c_str() };
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_mode") + "##chafa_color_mode").c_str(),
+                                               &settings_.canvas_mode, mode_items, IM_ARRAYSIZE(mode_items));
             settings_.canvas_mode = std::clamp(settings_.canvas_mode, 0, (int)IM_ARRAYSIZE(mode_items) - 1);
 
-            const char* extractor_items[] = {"Average", "Median"};
-            conversion_changed |= ImGui::Combo("Color extractor", &settings_.color_extractor, extractor_items, IM_ARRAYSIZE(extractor_items));
+            const std::string ce0 = PHOS_TR("chafa.color_extractor_items.average");
+            const std::string ce1 = PHOS_TR("chafa.color_extractor_items.median");
+            const char* extractor_items[] = { ce0.c_str(), ce1.c_str() };
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_extractor") + "##chafa_color_extractor").c_str(),
+                                               &settings_.color_extractor, extractor_items, IM_ARRAYSIZE(extractor_items));
 
-            const char* space_items[] = {"RGB (fast)", "DIN99d (perceptual)"};
-            conversion_changed |= ImGui::Combo("Color space", &settings_.color_space, space_items, IM_ARRAYSIZE(space_items));
+            const std::string cs0 = PHOS_TR("chafa.color_space_items.rgb_fast");
+            const std::string cs1 = PHOS_TR("chafa.color_space_items.din99d");
+            const char* space_items[] = { cs0.c_str(), cs1.c_str() };
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.color_space") + "##chafa_color_space").c_str(),
+                                               &settings_.color_space, space_items, IM_ARRAYSIZE(space_items));
 
-            conversion_changed |= ImGui::Checkbox("Preprocessing", &settings_.preprocessing);
-            conversion_changed |= ImGui::SliderFloat("Transparency threshold", &settings_.transparency_threshold, 0.0f, 1.0f, "%.2f");
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.preprocessing").c_str(), &settings_.preprocessing);
+            conversion_changed |= ImGui::SliderFloat((PHOS_TR("chafa.transparency_threshold") + "##chafa_alpha").c_str(),
+                                                     &settings_.transparency_threshold, 0.0f, 1.0f, "%.2f");
 
-            conversion_changed |= ImGui::Checkbox("Foreground-only (fg-only)", &settings_.fg_only);
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.foreground_only").c_str(), &settings_.fg_only);
 
-            conversion_changed |= ImGui::Checkbox("Custom fg/bg colors", &settings_.use_custom_fg_bg);
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.custom_fg_bg").c_str(), &settings_.use_custom_fg_bg);
             if (settings_.use_custom_fg_bg)
             {
-                conversion_changed |= ImGui::Checkbox("Invert fg/bg", &settings_.invert_fg_bg);
+                conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.invert_fg_bg").c_str(), &settings_.invert_fg_bg);
 
                 auto rgb_to_f3 = [](uint32_t rgb, float out[3])
                 {
@@ -401,21 +413,21 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
                 rgb_to_f3(settings_.fg_rgb, fg);
                 rgb_to_f3(settings_.bg_rgb, bg);
 
-                bool fg_changed = ImGui::ColorEdit3("FG", fg, ImGuiColorEditFlags_NoInputs);
-                bool bg_changed = ImGui::ColorEdit3("BG", bg, ImGuiColorEditFlags_NoInputs);
+                bool fg_changed = ImGui::ColorEdit3(PHOS_TR("chafa.fg").c_str(), fg, ImGuiColorEditFlags_NoInputs);
+                bool bg_changed = ImGui::ColorEdit3(PHOS_TR("chafa.bg").c_str(), bg, ImGuiColorEditFlags_NoInputs);
                 if (fg_changed) settings_.fg_rgb = f3_to_rgb(fg);
                 if (bg_changed) settings_.bg_rgb = f3_to_rgb(bg);
                 conversion_changed |= (fg_changed || bg_changed);
             }
 
-            conversion_changed |= ImGui::SliderInt("Work", &settings_.work, 1, 9, "%d");
-            ImGui::TextDisabled("Higher work improves quality at the cost of CPU/time (maps to libchafa work_factor 0..1).");
+            conversion_changed |= ImGui::SliderInt((PHOS_TR("chafa.work") + "##chafa_work").c_str(), &settings_.work, 1, 9, "%d");
+            ImGui::TextDisabled("%s", PHOS_TR("chafa.work_help").c_str());
 
-            conversion_changed |= ImGui::InputInt("Threads (-1=auto)", &settings_.threads);
+            conversion_changed |= ImGui::InputInt((PHOS_TR("chafa.threads") + "##chafa_threads").c_str(), &settings_.threads);
             settings_.threads = std::clamp(settings_.threads, -1, 256);
         }
 
-        if (ImGui::CollapsingHeader("Symbols", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.symbols") + "##chafa_symbols").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
             // Chafa selector helper: selecting from a dropdown writes into the text field so
             // the active selector is always visible, and editing the text triggers re-render.
@@ -438,11 +450,13 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
             // Symbols Class
             {
                 const int idx = selector_index_for_value(settings_.symbols_selectors, kSelectorClasses, IM_ARRAYSIZE(kSelectorClasses));
-                const char* preview = (settings_.symbols_selectors.empty()) ? "(empty)" : (idx >= 0 ? kSelectorClasses[idx] : "(custom)");
+                const std::string empty = PHOS_TR("common.empty_parens");
+                const std::string custom = PHOS_TR("common.custom_parens");
+                const char* preview = (settings_.symbols_selectors.empty()) ? empty.c_str() : (idx >= 0 ? kSelectorClasses[idx] : custom.c_str());
 
-                if (ImGui::BeginCombo("Symbols Class", preview))
+                if (ImGui::BeginCombo((PHOS_TR("chafa.symbols_class") + "##chafa_symbols_class").c_str(), preview))
                 {
-                    if (ImGui::Selectable("(empty)", settings_.symbols_selectors.empty()))
+                    if (ImGui::Selectable(empty.c_str(), settings_.symbols_selectors.empty()))
                     {
                         settings_.symbols_selectors.clear();
                         conversion_changed = true;
@@ -463,16 +477,20 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
             }
 
             // Symbols Selectors
-            conversion_changed |= ImGui::InputTextWithHint("Symbols Selectors", "e.g. block+border-diagonal", &settings_.symbols_selectors);
+            conversion_changed |= ImGui::InputTextWithHint(PHOS_TR("chafa.symbols_selectors").c_str(),
+                                                          PHOS_TR("chafa.symbols_selectors_hint").c_str(),
+                                                          &settings_.symbols_selectors);
 
             // Fill Class
             {
                 const int idx = selector_index_for_value(settings_.fill_selectors, kSelectorClasses, IM_ARRAYSIZE(kSelectorClasses));
-                const char* preview = (settings_.fill_selectors.empty()) ? "(same as symbols)" : (idx >= 0 ? kSelectorClasses[idx] : "(custom)");
+                const std::string same = PHOS_TR("chafa.fill_selectors_same_as_symbols");
+                const std::string custom = PHOS_TR("common.custom_parens");
+                const char* preview = (settings_.fill_selectors.empty()) ? same.c_str() : (idx >= 0 ? kSelectorClasses[idx] : custom.c_str());
 
-                if (ImGui::BeginCombo("Fill Class", preview))
+                if (ImGui::BeginCombo((PHOS_TR("chafa.fill_class") + "##chafa_fill_class").c_str(), preview))
                 {
-                    if (ImGui::Selectable("(same as symbols)", settings_.fill_selectors.empty()))
+                    if (ImGui::Selectable(same.c_str(), settings_.fill_selectors.empty()))
                     {
                         settings_.fill_selectors.clear();
                         conversion_changed = true;
@@ -493,37 +511,50 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
             }
 
             // Fill Selectors
-            conversion_changed |= ImGui::InputTextWithHint("Fill Selectors", "(blank = same as symbols)", &settings_.fill_selectors);
-            ImGui::TextDisabled("Selectors follow chafa CLI syntax: combine with + and -, e.g. all-wide or block+border-diagonal.");
+            conversion_changed |= ImGui::InputTextWithHint(PHOS_TR("chafa.fill_selectors").c_str(),
+                                                          PHOS_TR("chafa.fill_selectors_hint").c_str(),
+                                                          &settings_.fill_selectors);
+            ImGui::TextDisabled("%s", PHOS_TR("chafa.selectors_help").c_str());
         }
 
-        if (ImGui::CollapsingHeader("Dithering", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.dithering") + "##chafa_dither").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
-            const char* dither_items[] = {"None", "Ordered", "Diffusion", "Noise"};
-            conversion_changed |= ImGui::Combo("Mode", &settings_.dither_mode, dither_items, IM_ARRAYSIZE(dither_items));
+            const std::string dm0 = PHOS_TR("chafa.dither_mode_items.none");
+            const std::string dm1 = PHOS_TR("chafa.dither_mode_items.ordered");
+            const std::string dm2 = PHOS_TR("chafa.dither_mode_items.diffusion");
+            const std::string dm3 = PHOS_TR("chafa.dither_mode_items.noise");
+            const char* dither_items[] = { dm0.c_str(), dm1.c_str(), dm2.c_str(), dm3.c_str() };
+            conversion_changed |= ImGui::Combo((PHOS_TR("chafa.dither_mode") + "##chafa_dither_mode").c_str(),
+                                               &settings_.dither_mode, dither_items, IM_ARRAYSIZE(dither_items));
 
             int grain_idx = 2;
             if (settings_.dither_grain <= 1) grain_idx = 0;
             else if (settings_.dither_grain == 2) grain_idx = 1;
             else if (settings_.dither_grain == 4) grain_idx = 2;
             else grain_idx = 3;
-            const char* grain_items[] = {"1x1", "2x2", "4x4", "8x8"};
-            if (ImGui::Combo("Grain", &grain_idx, grain_items, IM_ARRAYSIZE(grain_items)))
+            const std::string g0 = PHOS_TR("chafa.grain_items.g1");
+            const std::string g1 = PHOS_TR("chafa.grain_items.g2");
+            const std::string g2 = PHOS_TR("chafa.grain_items.g4");
+            const std::string g3 = PHOS_TR("chafa.grain_items.g8");
+            const char* grain_items[] = { g0.c_str(), g1.c_str(), g2.c_str(), g3.c_str() };
+            if (ImGui::Combo((PHOS_TR("chafa.grain") + "##chafa_grain").c_str(),
+                             &grain_idx, grain_items, IM_ARRAYSIZE(grain_items)))
             {
                 settings_.dither_grain = (grain_idx == 0) ? 1 : (grain_idx == 1) ? 2 : (grain_idx == 2) ? 4 : 8;
                 conversion_changed = true;
             }
 
-            conversion_changed |= ImGui::DragFloat("Intensity", &settings_.dither_intensity, 0.05f, 0.0f, 4.0f, "%.2f");
+            conversion_changed |= ImGui::DragFloat((PHOS_TR("chafa.intensity") + "##chafa_intensity").c_str(),
+                                                   &settings_.dither_intensity, 0.05f, 0.0f, 4.0f, "%.2f");
         }
 
-        if (ImGui::CollapsingHeader("Debug"))
+        if (ImGui::CollapsingHeader((PHOS_TR("chafa.debug") + "##chafa_debug").c_str()))
         {
-            conversion_changed |= ImGui::Checkbox("Debug to stdout", &settings_.debug_stdout);
+            conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.debug_stdout").c_str(), &settings_.debug_stdout);
             if (settings_.debug_stdout)
             {
-                conversion_changed |= ImGui::Checkbox("Dump RAW ANSI (danger)", &settings_.debug_dump_raw_ansi);
-                ImGui::TextDisabled("Tip: keep RAW off; use escaped dump to avoid terminal garbage.");
+                conversion_changed |= ImGui::Checkbox(PHOS_TR("chafa.dump_raw_ansi_danger").c_str(), &settings_.debug_dump_raw_ansi);
+                ImGui::TextDisabled("%s", PHOS_TR("chafa.raw_tip").c_str());
             }
         }
 
@@ -545,7 +576,7 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
     const bool can_accept = has_preview_ && error_.empty() && up_to_date;
     if (!can_accept)
         ImGui::BeginDisabled();
-    if (ImGui::Button("OK"))
+    if (ImGui::Button((PHOS_TR("common.ok") + "##chafa_ok").c_str()))
     {
         accepted_canvas_ = std::move(preview_);
         accepted_ = true;
@@ -555,7 +586,7 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
         ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Button("Cancel"))
+    if (ImGui::Button((PHOS_TR("common.cancel") + "##chafa_cancel").c_str()))
     {
         open_ = false;
     }

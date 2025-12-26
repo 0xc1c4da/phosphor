@@ -4,6 +4,7 @@
 #include "core/canvas.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -547,7 +548,8 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    if (!ImGui::Begin(window_title, p_open, flags))
+    const std::string win_title = PHOS_TR("menu.window.character_palette") + "##" + std::string(window_title);
+    if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, window_title);
@@ -576,14 +578,14 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f, 0.0f), ImVec2(780.0f, 560.0f));
         if (ImGui::BeginPopup("##charpal_settings"))
         {
-            ImGui::TextUnformatted("Settings");
+            ImGui::TextUnformatted(PHOS_TR("common.settings").c_str());
             ImGui::Separator();
             // Use a scrollable child to avoid huge popups for long palette lists.
             ImGui::BeginChild("##charpal_settings_scroll", ImVec2(720.0f, 420.0f), false, ImGuiWindowFlags_None);
             RenderTopBar(active_canvas);
             ImGui::EndChild();
             ImGui::Separator();
-            if (ImGui::Button("Close"))
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -633,10 +635,13 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
 
     // Source selection
     {
-        ImGui::TextUnformatted("Source");
+        ImGui::TextUnformatted(PHOS_TR("common.source").c_str());
         ImGui::SameLine();
 
-        const char* items[] = { "JSON Palettes", "Embedded Font (active canvas)", "Bitmap Indices (0..255)" };
+        const std::string src0 = PHOS_TR("character_palette.source_items.json_palettes");
+        const std::string src1 = PHOS_TR("character_palette.source_items.embedded_font_active_canvas");
+        const std::string src2 = PHOS_TR("character_palette.source_items.bitmap_indices_0_255");
+        const char* items[] = { src0.c_str(), src1.c_str(), src2.c_str() };
         int src = (int)source_;
         if (!has_embedded && src == (int)Source::EmbeddedFont)
             src = (int)Source::JsonFile;
@@ -659,17 +664,17 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
 
     if (source_ == Source::EmbeddedFont)
     {
-        ImGui::TextUnformatted("Embedded palette is generated and read-only.");
+        ImGui::TextUnformatted(PHOS_TR("character_palette.embedded_readonly").c_str());
         ImGui::Separator();
     }
     if (source_ == Source::BitmapFontIndices)
     {
-        ImGui::TextUnformatted("Bitmap index palette is generated and read-only.");
+        ImGui::TextUnformatted(PHOS_TR("character_palette.bitmap_indices_readonly").c_str());
         ImGui::Separator();
     }
 
     // File row
-    ImGui::TextUnformatted("File");
+    ImGui::TextUnformatted(PHOS_TR("common.file").c_str());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::BeginDisabled(source_ != Source::JsonFile);
@@ -680,36 +685,36 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
 
     ImGui::BeginDisabled(source_ != Source::JsonFile);
-    if (ImGui::Button("Reload"))
+    if (ImGui::Button(PHOS_TR("common.reload").c_str()))
         request_reload_ = true;
     ImGui::SameLine();
-    if (ImGui::Button("Save"))
+    if (ImGui::Button(PHOS_TR("common.save").c_str()))
         request_save_ = true;
     ImGui::EndDisabled();
 
     ImGui::Separator();
 
     // Picker integration (side panel removed, keep a single toggle here).
-    ImGui::TextUnformatted("Picker");
+    ImGui::TextUnformatted(PHOS_TR("common.picker").c_str());
     ImGui::SameLine();
     ImGui::BeginDisabled(source_ != Source::JsonFile);
-    ImGui::Checkbox("Picker edits palette (replace selected cell)", &picker_replaces_selected_cell_);
+    ImGui::Checkbox(PHOS_TR("character_palette.picker_edits_palette").c_str(), &picker_replaces_selected_cell_);
     ImGui::EndDisabled();
 
     ImGui::Separator();
 
     // Palette selection
-    ImGui::TextUnformatted("Palette");
+    ImGui::TextUnformatted(PHOS_TR("common.palette").c_str());
     ImGui::SameLine();
 
     if (source_ == Source::EmbeddedFont)
     {
-        ImGui::TextUnformatted("(embedded)");
+        ImGui::TextUnformatted(PHOS_TR("character_palette.embedded_label").c_str());
         return;
     }
     if (source_ == Source::BitmapFontIndices)
     {
-        ImGui::TextUnformatted("(bitmap indices)");
+        ImGui::TextUnformatted(PHOS_TR("character_palette.bitmap_indices_label").c_str());
         return;
     }
 
@@ -724,31 +729,36 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         ImGui::Combo("##palette_combo", &selected_palette_, names.data(), (int)names.size());
 
     ImGui::SameLine();
-    if (ImGui::Button("New"))
+    if (ImGui::Button(PHOS_TR("common.new").c_str()))
         open_new_popup_ = true;
     ImGui::SameLine();
-    if (ImGui::Button("Rename"))
+    if (ImGui::Button(PHOS_TR("common.rename").c_str()))
         open_rename_popup_ = true;
     ImGui::SameLine();
-    if (ImGui::Button("Delete"))
+    if (ImGui::Button(PHOS_TR("common.delete").c_str()))
         open_delete_popup_ = true;
 
     if (open_new_popup_)
     {
         open_new_popup_ = false;
-        std::snprintf(new_title_buf_, sizeof(new_title_buf_), "New Palette");
-        ImGui::OpenPopup("New Palette");
+        const std::string def = PHOS_TR("character_palette.new_palette_default_title");
+        std::snprintf(new_title_buf_, sizeof(new_title_buf_), "%s", def.c_str());
+        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "##charpal_new";
+        ImGui::OpenPopup(popup.c_str());
     }
-    if (ImGui::BeginPopupModal("New Palette", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Create a new palette.");
-        ImGui::InputText("Title", new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
-        if (ImGui::Button("Create"))
+        const std::string popup = PHOS_TR("character_palette.new_palette_modal") + "##charpal_new";
+        if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted(PHOS_TR("character_palette.create_new_palette_help").c_str());
+        const std::string title_lbl = PHOS_TR("character_palette.title") + "##charpal_new_title";
+        ImGui::InputText(title_lbl.c_str(), new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
+        if (ImGui::Button(PHOS_TR("character_palette.create").c_str()))
         {
             Palette p;
             p.title = TrimCopy(new_title_buf_);
             if (p.title.empty())
-                p.title = "Untitled";
+                p.title = PHOS_TR("common.untitled");
             // Start with 256 blanks to feel like a "grid".
             p.glyphs.resize(256);
             for (auto& g : p.glyphs)
@@ -762,9 +772,10 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
+    }
     }
 
     if (open_rename_popup_)
@@ -773,13 +784,17 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
         const int pi = std::clamp(selected_palette_, 0, std::max(0, (int)palettes_.size() - 1));
         const std::string cur = palettes_.empty() ? std::string() : palettes_[pi].title;
         std::snprintf(rename_buf_, sizeof(rename_buf_), "%s", cur.c_str());
-        ImGui::OpenPopup("Rename Palette");
+        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "##charpal_rename";
+        ImGui::OpenPopup(popup.c_str());
     }
-    if (ImGui::BeginPopupModal("Rename Palette", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Rename the current palette.");
-        ImGui::InputText("Title", rename_buf_, IM_ARRAYSIZE(rename_buf_));
-        if (ImGui::Button("OK"))
+        const std::string popup = PHOS_TR("character_palette.rename_palette_modal") + "##charpal_rename";
+        if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted(PHOS_TR("character_palette.rename_palette_help").c_str());
+        const std::string title_lbl = PHOS_TR("character_palette.title") + "##charpal_rename_title";
+        ImGui::InputText(title_lbl.c_str(), rename_buf_, IM_ARRAYSIZE(rename_buf_));
+        if (ImGui::Button(PHOS_TR("common.ok").c_str()))
         {
             if (!palettes_.empty())
             {
@@ -791,20 +806,24 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
+    }
     }
 
     if (open_delete_popup_)
     {
         open_delete_popup_ = false;
-        ImGui::OpenPopup("Delete Palette?");
+        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "##charpal_delete";
+        ImGui::OpenPopup(popup.c_str());
     }
-    if (ImGui::BeginPopupModal("Delete Palette?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Delete the current palette? This cannot be undone.");
-        if (ImGui::Button("Delete"))
+        const std::string popup = PHOS_TR("character_palette.delete_palette_modal") + "##charpal_delete";
+        if (ImGui::BeginPopupModal(popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted(PHOS_TR("character_palette.delete_palette_help").c_str());
+        if (ImGui::Button(PHOS_TR("common.delete").c_str()))
         {
             if (!palettes_.empty())
             {
@@ -818,9 +837,10 @@ void CharacterPalette::RenderTopBar(AnsiCanvas* active_canvas)
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
+    }
     }
 }
 
@@ -1057,19 +1077,20 @@ void CharacterPalette::RenderGrid()
         if (source_ == Source::EmbeddedFont && has_embedded)
         {
             glyph_to_draw = phos::glyph::MakeEmbeddedIndex((std::uint16_t)idx);
-            tmp = "IDX " + std::to_string(idx);
+            tmp = PHOS_TRF("character_palette.idx_fmt", phos::i18n::Arg::I64((long long)idx));
             tooltip_utf8 = tmp.c_str();
         }
         else if (source_ == Source::BitmapFontIndices)
         {
             glyph_to_draw = phos::glyph::MakeBitmapIndex((std::uint16_t)idx);
-            tmp = "IDX " + std::to_string(idx);
+            tmp = PHOS_TRF("character_palette.idx_fmt", phos::i18n::Arg::I64((long long)idx));
             tooltip_utf8 = tmp.c_str();
         }
         else if (glyphs_ptr)
         {
             glyph_to_draw = phos::glyph::MakeUnicodeScalar((char32_t)(*glyphs_ptr)[(size_t)idx].first_cp);
-            tooltip_utf8 = (*glyphs_ptr)[(size_t)idx].utf8.empty() ? "(empty)" : (*glyphs_ptr)[(size_t)idx].utf8.c_str();
+            const std::string empty_label = PHOS_TR("common.empty_parens");
+            tooltip_utf8 = (*glyphs_ptr)[(size_t)idx].utf8.empty() ? empty_label.c_str() : (*glyphs_ptr)[(size_t)idx].utf8.c_str();
         }
 
         // Fit glyph preview into the square while preserving aspect.
@@ -1088,13 +1109,8 @@ void CharacterPalette::RenderGrid()
         if (hovered)
         {
             ImGui::BeginTooltip();
-            if (source_ == Source::EmbeddedFont && has_embedded)
+            if (source_ == Source::BitmapFontIndices)
             {
-                ImGui::Text("IDX %d", idx);
-            }
-            else if (source_ == Source::BitmapFontIndices)
-            {
-                ImGui::Text("IDX %d", idx);
                 const char32_t rep = phos::glyph::ToUnicodeRepresentative(phos::glyph::MakeBitmapIndex((std::uint16_t)idx));
                 ImGui::Text("%s", CodePointHex((uint32_t)rep).c_str());
             }

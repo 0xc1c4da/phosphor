@@ -57,6 +57,7 @@
           stb
           curl
           glib
+          icu67
           icu67.dev
           luajit
           zstd

@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/ansl_params_ui.h"
@@ -73,6 +74,11 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
                                               SessionState& session,
                                               ImGuiWindowFlags flags)
 {
+    const std::string popup_presets = PHOS_TR("tool_parameters.presets_popup_title") + "##tool_param_presets_popup";
+    const std::string popup_new = PHOS_TR("tool_parameters.new_preset_modal") + "##tool_param_new";
+    const std::string popup_rename = PHOS_TR("tool_parameters.rename_preset_modal") + "##tool_param_rename";
+    const std::string popup_delete = PHOS_TR("tool_parameters.delete_preset_modal") + "##tool_param_delete";
+
     // Filter presets for current tool_id.
     std::vector<int> idxs;
     idxs.reserve(presets_.size());
@@ -89,24 +95,25 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
 
     auto render_presets_panel = [&]() {
         // File
-        ImGui::TextUnformatted("File");
+        ImGui::TextUnformatted(PHOS_TR("tool_parameters.file").c_str());
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputText("##tool_param_presets_file", &presets_path_);
         if (!presets_error_.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", presets_error_.c_str());
-        if (ImGui::Button("Reload"))
+        if (ImGui::Button(PHOS_TR("common.reload").c_str()))
             request_reload_ = true;
         ImGui::SameLine();
-        if (ImGui::Button("Save"))
+        if (ImGui::Button(PHOS_TR("common.save").c_str()))
             request_save_ = true;
 
         ImGui::Separator();
 
         // Preset management for current tool id
-        ImGui::TextUnformatted("Tool");
+        ImGui::TextUnformatted(PHOS_TR("tool_parameters.tool").c_str());
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", tool_id.empty() ? "(unknown)" : tool_id.c_str());
+        const std::string tool_id_label = tool_id.empty() ? PHOS_TR("tool_parameters.tool_unknown") : tool_id;
+        ImGui::TextDisabled("%s", tool_id_label.c_str());
 
         int sel_local = 0;
         const auto it_sel = selected_by_tool_.find(tool_id);
@@ -125,7 +132,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
         tool_params::ToolParamPreset* cur = nullptr;
         if (!idxs.empty())
         {
-            ImGui::TextUnformatted("Preset");
+            ImGui::TextUnformatted(PHOS_TR("tool_parameters.preset").c_str());
             ImGui::SameLine();
             ImGui::SetNextItemWidth(260.0f);
             if (ImGui::Combo("##tool_param_preset_combo", &sel_local, titles.data(), (int)titles.size()))
@@ -139,7 +146,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             cur = (gi >= 0 && gi < (int)presets_.size()) ? &presets_[(size_t)gi] : nullptr;
 
             ImGui::SameLine();
-            if (ImGui::Button("Overwrite selected") && cur)
+            if (ImGui::Button(PHOS_TR("tool_parameters.overwrite_selected").c_str()) && cur)
             {
                 (void)tool_params::CaptureToolParams(tool_engine, cur->values);
                 request_save_ = true;
@@ -148,19 +155,19 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
         }
         else
         {
-            ImGui::TextDisabled("(No presets for this tool yet)");
+            ImGui::TextDisabled("%s", PHOS_TR("tool_parameters.no_presets_yet").c_str());
         }
 
         ImGui::Separator();
 
-        if (ImGui::Button("Save current as…"))
+        if (ImGui::Button(PHOS_TR("tool_parameters.save_current_as_ellipsis").c_str()))
             open_new_popup_ = true;
         ImGui::SameLine();
         ImGui::BeginDisabled(idxs.empty() || !cur);
-        if (ImGui::Button("Rename…"))
+        if (ImGui::Button(PHOS_TR("tool_parameters.rename_ellipsis").c_str()))
             open_rename_popup_ = true;
         ImGui::SameLine();
-        if (ImGui::Button("Delete…"))
+        if (ImGui::Button(PHOS_TR("tool_parameters.delete_ellipsis").c_str()))
             open_delete_popup_ = true;
         ImGui::EndDisabled();
     };
@@ -171,20 +178,20 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
         const bool has_close = false; // this window has no close button
         const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
         if (RenderImGuiWindowChromeTitleBarButton("##tool_params_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
-            ImGui::OpenPopup("##tool_param_presets_popup");
+            ImGui::OpenPopup(popup_presets.c_str());
 
-        if (ImGui::IsPopupOpen("##tool_param_presets_popup"))
+        if (ImGui::IsPopupOpen(popup_presets.c_str()))
             ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
         ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f, 0.0f), ImVec2(820.0f, 620.0f));
-        if (ImGui::BeginPopup("##tool_param_presets_popup"))
+        if (ImGui::BeginPopup(popup_presets.c_str()))
         {
-            ImGui::TextUnformatted("Presets");
+            ImGui::TextUnformatted(PHOS_TR("tool_parameters.presets_popup_title").c_str());
             ImGui::Separator();
             render_presets_panel();
             ImGui::Separator();
 
             // Advanced tool params live here (formerly the "More…" section in the main window).
-            ImGui::TextUnformatted("Advanced");
+            ImGui::TextUnformatted(PHOS_TR("tool_parameters.advanced").c_str());
             ImGui::Separator();
             // Skip params that are deliberately surfaced in the main window's reserved rows
             // (e.g. color row). IMPORTANT: don't skip non-primary versions of these keys (e.g. Font fallback),
@@ -205,7 +212,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             (void)RenderAnslParamsUIAdvanced("tool_params_advanced_popup", tool_engine, &skip);
 
             ImGui::Separator();
-            if (ImGui::Button("Close"))
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -218,20 +225,22 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
     if (open_new_popup_)
     {
         open_new_popup_ = false;
-        std::snprintf(new_title_buf_, sizeof(new_title_buf_), "Preset");
-        ImGui::OpenPopup("New Tool Param Preset");
+        const std::string def = PHOS_TR("tool_parameters.untitled");
+        std::snprintf(new_title_buf_, sizeof(new_title_buf_), "%s", def.c_str());
+        ImGui::OpenPopup(popup_new.c_str());
     }
-    if (ImGui::BeginPopupModal("New Tool Param Preset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal(popup_new.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Save current parameter values as a preset.");
-        ImGui::InputText("Title", new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
-        if (ImGui::Button("Create"))
+        ImGui::TextUnformatted(PHOS_TR("tool_parameters.new_preset_help").c_str());
+        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "##tool_param_new_title";
+        ImGui::InputText(title_lbl.c_str(), new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
+        if (ImGui::Button(PHOS_TR("tool_parameters.create").c_str()))
         {
             tool_params::ToolParamPreset p;
             p.tool_id = tool_id;
             p.title = TrimCopyLocal(new_title_buf_);
             if (p.title.empty())
-                p.title = "Untitled";
+                p.title = PHOS_TR("tool_parameters.untitled");
             (void)tool_params::CaptureToolParams(tool_engine, p.values);
             if (!p.tool_id.empty() && !p.values.empty())
             {
@@ -242,7 +251,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -256,13 +265,14 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
         if (it != selected_by_tool_.end())
             cur_title = it->second;
         std::snprintf(rename_title_buf_, sizeof(rename_title_buf_), "%s", cur_title.c_str());
-        ImGui::OpenPopup("Rename Tool Param Preset");
+        ImGui::OpenPopup(popup_rename.c_str());
     }
-    if (ImGui::BeginPopupModal("Rename Tool Param Preset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal(popup_rename.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Rename the selected preset.");
-        ImGui::InputText("Title", rename_title_buf_, IM_ARRAYSIZE(rename_title_buf_));
-        if (ImGui::Button("OK"))
+        ImGui::TextUnformatted(PHOS_TR("tool_parameters.rename_preset_help").c_str());
+        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "##tool_param_rename_title";
+        ImGui::InputText(title_lbl.c_str(), rename_title_buf_, IM_ARRAYSIZE(rename_title_buf_));
+        if (ImGui::Button(PHOS_TR("common.ok").c_str()))
         {
             if (!idxs.empty())
             {
@@ -287,7 +297,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -296,12 +306,12 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
     if (open_delete_popup_)
     {
         open_delete_popup_ = false;
-        ImGui::OpenPopup("Delete Tool Param Preset?");
+        ImGui::OpenPopup(popup_delete.c_str());
     }
-    if (ImGui::BeginPopupModal("Delete Tool Param Preset?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal(popup_delete.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Delete the selected preset? This cannot be undone.");
-        if (ImGui::Button("Delete"))
+        ImGui::TextUnformatted(PHOS_TR("tool_parameters.delete_preset_help").c_str());
+        if (ImGui::Button(PHOS_TR("common.delete").c_str()))
         {
             if (!idxs.empty())
             {
@@ -321,7 +331,7 @@ void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -479,7 +489,8 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
 
     const char* base_id = "Tool Parameters";
     // Show tool label in the visible title, but keep a stable window ID for persistence.
-    std::string wname = std::string(active_tool ? active_tool->label : "Tool Parameters") + "###" + base_id;
+    const std::string fallback_title = PHOS_TR("tool_parameters.window_title");
+    std::string wname = std::string(active_tool ? active_tool->label : fallback_title.c_str()) + "###" + base_id;
 
     ApplyImGuiWindowPlacement(session, base_id, apply_placement_this_frame);
     const ImGuiWindowFlags flags =
@@ -506,10 +517,10 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
         else
         {
             // Always provide an obvious entry point to create a preset, even when none exist yet.
-            if (ImGui::SmallButton("+ Preset"))
+            if (ImGui::SmallButton(PHOS_TR("tool_parameters.add_preset_button").c_str()))
                 open_new_popup_ = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Save the current tool parameter values as a new preset.");
+                ImGui::SetTooltip("%s", PHOS_TR("tool_parameters.add_preset_tooltip").c_str());
         }
     }
     ImGui::Separator();

@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/i18n.h"
 #include "imgui.h"
 
 #include <cmath>
@@ -105,7 +106,7 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) || ImGui::IsItemFocused())
     {
         // Keep this tooltip simple; the surrounding UI can provide the full legend.
-        ImGui::SetTooltip("Enter/LMB: set active (FG/BG)\nShift+Enter/RMB: set other (BG/FG)");
+        ImGui::SetTooltip("%s", PHOS_TR("colour_palette.swatch_tooltip").c_str());
     }
 
     return out;

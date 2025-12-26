@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include "core/i18n.h"
 #include "fonts/textmode_font_registry.h"
 
 #include <algorithm>
@@ -368,7 +369,7 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
 
     // Filter input (make it obvious + auto-focus).
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Filter:");
+    ImGui::TextUnformatted(PHOS_TR("common.filter_colon").c_str());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     char buf[256] = {};
@@ -816,7 +817,7 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                     {
                         // Filter input (make it obvious + auto-focus).
                         ImGui::AlignTextToFramePadding();
-                        ImGui::TextUnformatted("Filter:");
+                        ImGui::TextUnformatted(PHOS_TR("common.filter_colon").c_str());
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         char buf[256] = {};
@@ -943,7 +944,7 @@ bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, cons
 
     if (!engine.HasParams())
     {
-        ImGui::TextDisabled("No parameters.");
+        ImGui::TextDisabled("%s", PHOS_TR("common.no_parameters").c_str());
         ImGui::PopID();
         return false;
     }
@@ -987,7 +988,7 @@ bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const 
 
     if (!engine.HasParams())
     {
-        ImGui::TextDisabled("No parameters.");
+        ImGui::TextDisabled("%s", PHOS_TR("common.no_parameters").c_str());
         ImGui::PopID();
         return false;
     }

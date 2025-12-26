@@ -31,6 +31,7 @@
 #include "core/color_system.h"
 #include "core/glyph_id.h"
 #include "core/glyph_resolve.h"
+#include "core/i18n.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
 
@@ -83,6 +84,13 @@ int main(int, char**)
         std::string err;
         if (!EnsureBundledAssetsExtracted(err))
             std::fprintf(stderr, "[assets] %s\n", err.c_str());
+    }
+
+    // Initialize ICU resource bundle i18n from extracted assets.
+    {
+        std::string err;
+        if (!phos::i18n::Init(PhosphorAssetPath("i18n"), /*locale=*/"", err) && !err.empty())
+            std::fprintf(stderr, "[i18n] %s\n", err.c_str());
     }
 
     // Load persisted session state (window geometry + tool window toggles).

@@ -76,6 +76,7 @@ SOURCES  = \
            src/core/deform/deform_engine.cpp \
            src/core/deform/glyph_mask_cache.cpp \
            src/core/embedded_assets.cpp \
+           src/core/i18n.cpp \
            src/core/key_bindings.cpp \
            src/core/paths.cpp \
            src/core/color_system.cpp \
@@ -149,6 +150,12 @@ OBJS     = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SOURCES))
 ASSETS_ARCHIVE = $(BUILD_DIR)/phosphor_assets.tar.zst
 ASSETS_OBJ     = $(BUILD_DIR)/phosphor_assets_blob.o
 
+# ICU resource bundles (i18n/root.txt -> root.res)
+I18N_SRC       = i18n/root.txt
+I18N_BUILD_DIR = $(BUILD_DIR)/i18n
+I18N_RES       = $(I18N_BUILD_DIR)/root.res
+ASSETS_STAGE   = $(BUILD_DIR)/assets_stage
+
 OBJS += $(ASSETS_OBJ)
 
 CXXFLAGS ?= -std=c++20 -O3
@@ -169,7 +176,7 @@ DEPS     = $(OBJS:.o=.d)
 # SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
 # TODO: add libsixel
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json luajit libzstd libcurl md4c libblake3)
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json icu-uc icu-i18n luajit libzstd libcurl md4c libblake3)
 LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl md4c libblake3) -ldl
 
 # Optional, provided by the Nix dev shell (see flake.nix).
@@ -181,11 +188,21 @@ $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
-$(ASSETS_ARCHIVE): $(shell find assets -type f)
+$(I18N_RES): $(I18N_SRC)
+	@mkdir -p $(dir $@)
+	genrb -k -d $(I18N_BUILD_DIR) $(I18N_SRC)
+
+$(ASSETS_ARCHIVE): $(shell find assets -type f) $(I18N_RES)
 	@mkdir -p $(dir $@)
 	@tmp="$@.tmp"; \
+	stage="$(ASSETS_STAGE)"; \
 	rm -f "$$tmp"; \
-	tar --format=ustar -C assets -cf - . | zstd -q -19 -o "$$tmp"; \
+	rm -rf "$$stage"; \
+	mkdir -p "$$stage"; \
+	cp -a assets/. "$$stage/"; \
+	mkdir -p "$$stage/i18n"; \
+	cp -f $(I18N_RES) "$$stage/i18n/root.res"; \
+	tar --format=ustar -C "$$stage" -cf - . | zstd -q -19 -o "$$tmp"; \
 	mv -f "$$tmp" "$@"
 
 $(ASSETS_OBJ): $(ASSETS_ARCHIVE)

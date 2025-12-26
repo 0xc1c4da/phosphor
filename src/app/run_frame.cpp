@@ -30,6 +30,7 @@
 #include "core/fonts.h"
 #include "core/color_system.h"
 #include "core/glyph_resolve.h"
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 
@@ -196,7 +197,7 @@ void RunFrame(AppState& st)
         if (!palettes_error.empty() || palettes.empty())
         {
             ColourPaletteDef def;
-            def.title = "Default HSV";
+            def.title = PHOS_TR("colour_picker_window.default_palette_title");
             for (int n = 0; n < 32; ++n)
             {
                 ImVec4 c;
@@ -692,29 +693,33 @@ void RunFrame(AppState& st)
     };
 
     // Quit confirmation modal.
-    if (st.quit_modal_open && !ImGui::IsPopupOpen("Quit##confirm_quit", ImGuiPopupFlags_AnyPopupId))
-        ImGui::OpenPopup("Quit##confirm_quit");
+    const std::string quit_popup = PHOS_TR("confirm.quit_modal_title") + "##confirm_quit";
+    if (st.quit_modal_open && !ImGui::IsPopupOpen(quit_popup.c_str(), ImGuiPopupFlags_AnyPopupId))
+        ImGui::OpenPopup(quit_popup.c_str());
     if (st.quit_modal_open)
     {
         // Ensure consistent modal placement (center of the application viewport).
         if (ImGuiViewport* vp = ImGui::GetMainViewport())
             ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     }
-    if (ImGui::BeginPopupModal("Quit##confirm_quit", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal(quit_popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         const int dirty_n = count_dirty_canvases();
         if (dirty_n <= 0)
         {
-            ImGui::Text("Quit Phosphor?");
+            const std::string q = PHOS_TR("confirm.quit_question");
+            ImGui::TextUnformatted(q.c_str());
             ImGui::Separator();
-            if (ImGui::Button("Quit"))
+            const std::string b_quit = PHOS_TR("menu.file.quit");
+            const std::string b_cancel = PHOS_TR("common.cancel");
+            if (ImGui::Button(b_quit.c_str()))
             {
                 st.quit_modal_open = false;
                 st.done = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button(b_cancel.c_str()))
             {
                 st.quit_modal_open = false;
                 ImGui::CloseCurrentPopup();
@@ -722,11 +727,19 @@ void RunFrame(AppState& st)
         }
         else
         {
-            ImGui::Text("You have %d canvas%s with unsaved changes.", dirty_n, dirty_n == 1 ? "" : "es");
-            ImGui::Text("Do you want to save your changes before quitting?");
+            const std::string unsaved = PHOS_TRF("confirm.unsaved_count",
+                                                phos::i18n::Arg::I64(dirty_n),
+                                                phos::i18n::Arg::Str(dirty_n == 1 ? "" : "es"));
+            const std::string q = PHOS_TR("confirm.save_before_quit");
+            ImGui::TextUnformatted(unsaved.c_str());
+            ImGui::TextUnformatted(q.c_str());
             ImGui::Separator();
 
-            if (!st.quit_waiting_on_save && ImGui::Button("Save All"))
+            const std::string b_save_all = PHOS_TR("common.save_all");
+            const std::string b_dont_save = PHOS_TR("common.dont_save");
+            const std::string b_cancel = PHOS_TR("common.cancel");
+
+            if (!st.quit_waiting_on_save && ImGui::Button(b_save_all.c_str()))
             {
                 st.quit_save_queue_ids.clear();
                 st.quit_save_queue_index = 0;
@@ -743,14 +756,14 @@ void RunFrame(AppState& st)
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (!st.quit_waiting_on_save && ImGui::Button("Don't Save"))
+            if (!st.quit_waiting_on_save && ImGui::Button(b_dont_save.c_str()))
             {
                 st.quit_modal_open = false;
                 st.done = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button(b_cancel.c_str()))
             {
                 st.quit_modal_open = false;
                 st.quit_save_queue_ids.clear();
@@ -1154,12 +1167,13 @@ void RunFrame(AppState& st)
     // Colour picker showcase window
     if (show_color_picker_window)
     {
-        const char* name = "Colour Picker";
+        const char* name = "Colour Picker"; // persistence key (stable, non-localized)
         ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
-        ImGui::Begin("Colour Picker", &show_color_picker_window, flags);
+        const std::string title = PHOS_TR("menu.window.colour_picker") + "##Colour Picker";
+        ImGui::Begin(title.c_str(), &show_color_picker_window, flags);
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
@@ -1171,8 +1185,10 @@ void RunFrame(AppState& st)
 
         if (!palettes_error.empty())
         {
+            const std::string s = PHOS_TRF("colour_picker_window.palette_load_error_fmt",
+                                           phos::i18n::Arg::Str(palettes_error));
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                               "Palette load error: %s", palettes_error.c_str());
+                               "%s", s.c_str());
         }
 
         // If the active canvas has a stored palette title, sync the picker to it when switching canvases.
@@ -1216,7 +1232,9 @@ void RunFrame(AppState& st)
         ImGui::Separator();
 
         // Picker mode combo (Hue Bar / Hue Wheel) and picker UI
-        const char* picker_items[] = { "Hue Bar", "Hue Wheel" };
+        const std::string pm0 = PHOS_TR("colour_picker_window.picker_mode_items.hue_bar");
+        const std::string pm1 = PHOS_TR("colour_picker_window.picker_mode_items.hue_wheel");
+        const char* picker_items[] = { pm0.c_str(), pm1.c_str() };
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::Combo("##Mode", &xterm_picker_mode, picker_items, IM_ARRAYSIZE(picker_items));
 
@@ -1282,7 +1300,7 @@ void RunFrame(AppState& st)
             const bool can_apply = (xterm_selected_palette >= 0 && xterm_selected_palette < (int)palettes.size());
             if (!can_apply)
                 ImGui::BeginDisabled();
-            if (ImGui::Button("Set Canvas Palette"))
+            if (ImGui::Button(PHOS_TR("colour_picker_window.set_canvas_palette").c_str()))
             {
                 const ColourPaletteDef& sel = palettes[xterm_selected_palette];
                 std::vector<phos::color::Rgb8> rgb;
@@ -1513,7 +1531,8 @@ void RunFrame(AppState& st)
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, wname);
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, wname);
-            ImGui::Begin("Tool Error", nullptr, flags);
+            const std::string title = PHOS_TR("status_windows.tool_error_title") + "##Tool Error";
+            ImGui::Begin(title.c_str(), nullptr, flags);
             CaptureImGuiWindowPlacement(session_state, wname);
             ApplyImGuiWindowChromeZOrder(&session_state, wname);
             RenderImGuiWindowChromeMenu(&session_state, wname);
@@ -1529,7 +1548,8 @@ void RunFrame(AppState& st)
             const ImGuiWindowFlags flags =
                 ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session_state, wname);
             const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, wname);
-            ImGui::Begin("Tools Error", nullptr, flags);
+            const std::string title = PHOS_TR("status_windows.tools_error_title") + "##Tools Error";
+            ImGui::Begin(title.c_str(), nullptr, flags);
             CaptureImGuiWindowPlacement(session_state, wname);
             ApplyImGuiWindowChromeZOrder(&session_state, wname);
             RenderImGuiWindowChromeMenu(&session_state, wname);
@@ -1556,9 +1576,8 @@ void RunFrame(AppState& st)
         // Ensure atlas provider is attached for restored canvases (session restore happens in main()).
         if (canvas.canvas.GetBitmapGlyphAtlasProvider() != &bitmap_glyph_atlas)
             canvas.canvas.SetBitmapGlyphAtlasProvider(&bitmap_glyph_atlas);
-        char close_popup_id[96];
-        std::snprintf(close_popup_id, sizeof(close_popup_id),
-                      "Save changes?##close_canvas_%d", canvas.id);
+        const std::string close_popup_id =
+            PHOS_TR("confirm.close_canvas_modal_title") + "##close_canvas_" + std::to_string(canvas.id);
 
         auto queue_close = [&]() {
             canvas.open = false;
@@ -1571,7 +1590,7 @@ void RunFrame(AppState& st)
                 // Veto the close, re-open, and ask.
                 canvas.open = true;
                 canvas.close_modal_open = true;
-                ImGui::OpenPopup(close_popup_id);
+                ImGui::OpenPopup(close_popup_id.c_str());
             }
             else
             {
@@ -1818,7 +1837,7 @@ void RunFrame(AppState& st)
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
             {
                 ImGui::BeginTooltip();
-                ImGui::TextUnformatted("Reset Zoom (1:1)");
+                ImGui::TextUnformatted(PHOS_TR("menu.view.reset_zoom_1_1").c_str());
                 ImGui::EndTooltip();
             }
         }
@@ -2482,9 +2501,9 @@ void RunFrame(AppState& st)
         if (canvas.canvas.TakeOpenSauceEditorRequest())
             canvas.sauce_dialog.OpenFromCanvas(canvas.canvas);
 
-        char sauce_popup_id[64];
-        snprintf(sauce_popup_id, sizeof(sauce_popup_id), "Edit SAUCE##sauce_%d", canvas.id);
-        canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id);
+        const std::string sauce_popup_id =
+            PHOS_TR("sauce_editor.title") + "##sauce_" + std::to_string(canvas.id);
+        canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id.c_str());
 
         ImGui::End();
         ImGui::PopStyleVar();
@@ -2500,15 +2519,21 @@ void RunFrame(AppState& st)
             if (ImGuiViewport* vp = ImGui::GetMainViewport())
                 ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         }
-        if (ImGui::BeginPopupModal(close_popup_id, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (ImGui::BeginPopupModal(close_popup_id.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
             const bool has_path = canvas.canvas.HasFilePath();
             const std::string& path = canvas.canvas.GetFilePath();
 
             if (has_path)
-                ImGui::Text("Save changes to:");
+            {
+                const std::string s = PHOS_TR("confirm.close_canvas_question_with_path");
+                ImGui::TextUnformatted(s.c_str());
+            }
             else
-                ImGui::Text("Save changes to this canvas?");
+            {
+                const std::string s = PHOS_TR("confirm.close_canvas_question_no_path");
+                ImGui::TextUnformatted(s.c_str());
+            }
             if (has_path)
             {
                 ImGui::Separator();
@@ -2516,7 +2541,11 @@ void RunFrame(AppState& st)
             }
             ImGui::Separator();
 
-            if (ImGui::Button("Save"))
+            const std::string b_save = PHOS_TR("common.save");
+            const std::string b_dont_save = PHOS_TR("common.dont_save");
+            const std::string b_cancel = PHOS_TR("common.cancel");
+
+            if (ImGui::Button(b_save.c_str()))
             {
                 canvas.close_modal_open = false;
                 canvas.close_waiting_on_save = true;
@@ -2524,14 +2553,14 @@ void RunFrame(AppState& st)
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Don't Save"))
+            if (ImGui::Button(b_dont_save.c_str()))
             {
                 canvas.close_modal_open = false;
                 queue_close();
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button(b_cancel.c_str()))
             {
                 canvas.close_modal_open = false;
                 canvas.open = true;
@@ -2610,12 +2639,13 @@ void RunFrame(AppState& st)
     // ANSL Editor window
     if (show_ansl_editor_window)
     {
-        const char* name = "ANSL Editor";
+        const char* name = "ANSL Editor"; // persistence key (stable, non-localized)
         ApplyImGuiWindowPlacement(session_state, name, should_apply_placement(name));
         const ImGuiWindowFlags flags =
             ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session_state, name);
         const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session_state, name);
-        ImGui::Begin("ANSL Editor", &show_ansl_editor_window, flags);
+        const std::string title = PHOS_TR("menu.window.ansl_editor") + "##ANSL Editor";
+        ImGui::Begin(title.c_str(), &show_ansl_editor_window, flags);
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);

@@ -1,5 +1,7 @@
 #include "ui/tool_palette.h"
 
+#include "core/i18n.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
@@ -550,7 +552,8 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
         ImGuiWindowFlags_None |
         (session ? GetImGuiWindowChromeExtraFlags(*session, title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, title);
-    if (!ImGui::Begin(title, p_open, flags))
+    const std::string win_title = PHOS_TR("menu.window.tool_palette") + "##" + std::string(title);
+    if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
         {
@@ -582,29 +585,34 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
         ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 0.0f), ImVec2(520.0f, 420.0f));
         if (ImGui::BeginPopup("##toolpal_menu"))
         {
-            ImGui::TextUnformatted("Tools");
+            ImGui::TextUnformatted(PHOS_TR("tool_palette.titlebar_tools").c_str());
             ImGui::Separator();
 
-            ImGui::Text("Count: %d", (int)tools_.size());
+            const std::string count = PHOS_TRF("tool_palette.count_fmt", phos::i18n::Arg::I64((long long)tools_.size()));
+            ImGui::TextUnformatted(count.c_str());
             if (!tools_dir_.empty())
-                ImGui::Text("Dir: %s", tools_dir_.c_str());
+            {
+                const std::string dir = PHOS_TRF("tool_palette.dir_fmt", phos::i18n::Arg::Str(tools_dir_));
+                ImGui::TextUnformatted(dir.c_str());
+            }
 
             const ToolSpec* t = GetActiveTool();
             if (t)
             {
                 ImGui::Separator();
-                ImGui::Text("Active: %s", t->label.c_str());
+                const std::string active = PHOS_TRF("tool_palette.active_fmt", phos::i18n::Arg::Str(t->label));
+                ImGui::TextUnformatted(active.c_str());
                 ImGui::TextDisabled("%s", t->path.c_str());
             }
 
             ImGui::Separator();
-            if (ImGui::Button("Refresh tools"))
+            if (ImGui::Button(PHOS_TR("tool_palette.refresh_tools").c_str()))
             {
                 reload_requested_ = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Close"))
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
                 ImGui::CloseCurrentPopup();
 
             ImGui::EndPopup();
@@ -613,7 +621,7 @@ bool ToolPalette::Render(const char* title, bool* p_open, SessionState* session,
 
     if (tools_.empty())
     {
-        ImGui::TextUnformatted("No tools loaded.");
+        ImGui::TextUnformatted(PHOS_TR("tool_palette.no_tools_loaded").c_str());
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return changed_this_frame;

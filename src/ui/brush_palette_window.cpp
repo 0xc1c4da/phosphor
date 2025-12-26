@@ -4,6 +4,7 @@
 
 #include "ansl/ansl_native.h"
 #include "core/glyph_resolve.h"
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "core/xterm256_palette.h"
 #include "io/session/imgui_persistence.h"
@@ -57,9 +58,8 @@ static inline ImU32 Index16ToImU32(AnsiCanvas::ColorIndex16 idx, AnsiCanvas* act
 
 static std::string DefaultBrushName(int idx)
 {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "Brush %d", idx);
-    return std::string(buf);
+    return PHOS_TRF("brush_palette.default_brush_name_fmt",
+                    phos::i18n::Arg::I64((long long)idx));
 }
 
 static inline AnsiCanvas::GlyphId LegacyStoredValueToGlyphId(std::uint32_t v,
@@ -447,11 +447,13 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
     const bool can_capture = active_canvas && active_canvas->HasSelection();
 
     ImGui::SetNextItemWidth(220.0f);
-    ImGui::InputTextWithHint("##brush_name", "Name (optional)", new_name_buf_, IM_ARRAYSIZE(new_name_buf_));
+    ImGui::InputTextWithHint("##brush_name",
+                             PHOS_TR("brush_palette.name_optional").c_str(),
+                             new_name_buf_, IM_ARRAYSIZE(new_name_buf_));
     ImGui::SameLine();
 
     ImGui::BeginDisabled(!can_capture);
-    if (ImGui::Button("Add from Selection"))
+    if (ImGui::Button(PHOS_TR("brush_palette.add_from_selection").c_str()))
     {
         AnsiCanvas::Brush b;
         bool ok = false;
@@ -481,7 +483,7 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
     ImGui::SameLine();
     const bool can_delete = (selected_ >= 0 && selected_ < (int)entries_.size());
     ImGui::BeginDisabled(!can_delete);
-    if (ImGui::Button("Delete"))
+    if (ImGui::Button(PHOS_TR("brush_palette.delete").c_str()))
     {
         const int erased_index = selected_;
         entries_.erase(entries_.begin() + erased_index);
@@ -513,31 +515,31 @@ void BrushPaletteWindow::RenderTopBar(AnsiCanvas* active_canvas, SessionState* s
 
     if (!can_capture)
     {
-        ImGui::TextDisabled("Select a region on the canvas to capture a brush.");
+        ImGui::TextDisabled("%s", PHOS_TR("brush_palette.select_region_hint").c_str());
     }
 }
 
 void BrushPaletteWindow::RenderSettingsContents()
 {
     // File
-    ImGui::TextUnformatted("File");
+    ImGui::TextUnformatted(PHOS_TR("common.file").c_str());
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputText("##brushpal_file", &file_path_);
     if (!last_error_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", last_error_.c_str());
-    if (ImGui::Button("Reload"))
+    if (ImGui::Button(PHOS_TR("common.reload").c_str()))
         request_reload_ = true;
     ImGui::SameLine();
-    if (ImGui::Button("Save"))
+    if (ImGui::Button(PHOS_TR("common.save").c_str()))
         request_save_ = true;
 
     ImGui::Separator();
 
-    ImGui::Checkbox("Composite", &capture_composite_);
+    ImGui::Checkbox(PHOS_TR("brush_palette.composite").c_str(), &capture_composite_);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(90.0f);
-    ImGui::SliderInt("Thumb", &thumb_px_, 32, 160, "%dpx");
+    ImGui::SliderInt(PHOS_TR("brush_palette.thumb_px").c_str(), &thumb_px_, 32, 160, "%dpx");
 
     ImGui::Separator();
 }
@@ -547,7 +549,7 @@ void BrushPaletteWindow::RenderGrid(AnsiCanvas* active_canvas, SessionState* ses
     (void)session;
     if (entries_.empty())
     {
-        ImGui::TextDisabled("(No brushes yet)");
+        ImGui::TextDisabled("%s", PHOS_TR("brush_palette.no_brushes_yet").c_str());
         return;
     }
 
@@ -719,10 +721,10 @@ bool BrushPaletteWindow::Render(const char* window_title,
         ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 0.0f), ImVec2(520.0f, 420.0f));
         if (ImGui::BeginPopup("##brushpal_settings"))
         {
-            ImGui::TextUnformatted("Settings");
+            ImGui::TextUnformatted(PHOS_TR("common.settings").c_str());
             ImGui::Separator();
             RenderSettingsContents();
-            if (ImGui::Button("Close"))
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }

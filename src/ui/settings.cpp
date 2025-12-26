@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include "core/color_system.h"
 #include "core/encodings.h"
+#include "core/i18n.h"
 #include "core/paths.h"
 #include "core/key_bindings.h"
 #include "io/session/imgui_persistence.h"
@@ -146,32 +147,33 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
 
     RegisterTab(Tab{
         .id = "general",
-        .title = "General",
+        .title = PHOS_TR("settings_window.tabs.general"),
         .render = [this]() { RenderTab_General(); },
     });
 
     RegisterTab(Tab{
         .id = "skin",
-        .title = "Skin",
+        .title = PHOS_TR("settings_window.tabs.skin"),
         .render = [this]() { RenderTab_Skin(); },
     });
 
     RegisterTab(Tab{
         .id = "key_bindings",
-        .title = "Key Bindings",
+        .title = PHOS_TR("settings_window.tabs.key_bindings"),
         .render = [this]() { RenderTab_KeyBindings(); },
     });
 
     // Placeholder future tabs: keep the UI structure extensible.
     RegisterTab(Tab{
         .id = "about",
-        .title = "About",
+        .title = PHOS_TR("settings_window.tabs.about"),
         .render = []()
         {
-            ImGui::Text("Phosphor %s", PHOSPHOR_VERSION_STR);
-            ImGui::TextUnformatted("by 0xc1c4da");
+            const std::string ver = PHOS_TRF("settings_window.about.version_fmt", phos::i18n::Arg::Str(PHOSPHOR_VERSION_STR));
+            ImGui::TextUnformatted(ver.c_str());
+            ImGui::TextUnformatted(PHOS_TR("settings_window.about.byline").c_str());
             ImGui::Separator();
-            ImGui::TextUnformatted("A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font.");
+            ImGui::TextUnformatted(PHOS_TR("settings_window.about.blurb").c_str());
           
         },
     });
@@ -182,17 +184,17 @@ void SettingsWindow::RenderTab_General()
     if (!session_)
     {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                           "Session state not attached; cannot persist settings.");
+                           "%s", PHOS_TR("settings_window.general_tab.session_state_missing").c_str());
         return;
     }
 
-    ImGui::TextUnformatted("Undo History");
+    ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.undo_history").c_str());
     ImGui::Separator();
 
     bool unlimited = (session_->undo_limit == 0);
     bool changed = false;
 
-    if (ImGui::Checkbox("Unlimited undo history", &unlimited))
+    if (ImGui::Checkbox(PHOS_TR("settings_window.general_tab.unlimited_undo").c_str(), &unlimited))
     {
         changed = true;
         session_->undo_limit = unlimited ? 0 : 4096; // reasonable default when enabling a cap
@@ -203,7 +205,7 @@ void SettingsWindow::RenderTab_General()
         int v = (session_->undo_limit > 0) ? (int)session_->undo_limit : 4096;
         v = std::clamp(v, 1, 1000000);
         ImGui::SetNextItemWidth(220.0f);
-        if (ImGui::InputInt("Max undo steps", &v, 64, 512))
+        if (ImGui::InputInt(PHOS_TR("settings_window.general_tab.max_undo_steps").c_str(), &v, 64, 512))
         {
             v = std::clamp(v, 1, 1000000);
             session_->undo_limit = (size_t)v;
@@ -234,12 +236,12 @@ void SettingsWindow::RenderTab_General()
         ImGui::PopID();
 
         ImGui::Spacing();
-        ImGui::TextDisabled("Tip: large values can use a lot of memory for big canvases.");
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.general_tab.undo_tip").c_str());
     }
     else
     {
         ImGui::Spacing();
-        ImGui::TextDisabled("Unlimited keeps all undo snapshots in memory (can grow large).");
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.general_tab.undo_unlimited_note").c_str());
     }
 
     if (changed && undo_limit_applier_)
@@ -248,35 +250,32 @@ void SettingsWindow::RenderTab_General()
     ImGui::Spacing();
     ImGui::Spacing();
 
-    ImGui::TextUnformatted("Zoom");
+    ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.zoom").c_str());
     ImGui::Separator();
     {
         // Applies to all canvases; the app propagates this setting each frame.
         int mode = session_->zoom_snap_mode;
         if (mode == 0) mode = 2; // migrated default (Auto -> Pixel-aligned)
         mode = std::clamp(mode, 1, 2);
-        const char* items[] = {
-            "Integer scale (N\xC3\x97)",
-            "Pixel-aligned cell width",
-        };
+        const std::string item0 = PHOS_TR("settings_window.general_tab.zoom_snapping_items.integer_scale");
+        const std::string item1 = PHOS_TR("settings_window.general_tab.zoom_snapping_items.pixel_aligned");
+        const char* items[] = { item0.c_str(), item1.c_str() };
         ImGui::SetNextItemWidth(280.0f);
 
         // ImGui combo indices are 0-based, but we persist 1/2 to match AnsiCanvas::ZoomSnapMode.
         int mode_idx = mode - 1;
-        if (ImGui::Combo("Zoom snapping", &mode_idx, items, IM_ARRAYSIZE(items)))
+        if (ImGui::Combo(PHOS_TR("settings_window.general_tab.zoom_snapping").c_str(), &mode_idx, items, IM_ARRAYSIZE(items)))
         {
             mode_idx = std::clamp(mode_idx, 0, (int)IM_ARRAYSIZE(items) - 1);
             session_->zoom_snap_mode = mode_idx + 1;
         }
-        ImGui::TextDisabled(
-            "Integer: always snap to integer zoom steps.\n"
-            "Pixel-aligned: always snap by cell width (can introduce artifacts for bitmap fonts).");
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.general_tab.zoom_snapping_help").c_str());
     }
 
     ImGui::Spacing();
     ImGui::Spacing();
 
-    ImGui::TextUnformatted("LUT Cache");
+    ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.lut_cache").c_str());
     ImGui::Separator();
 
     {
@@ -292,7 +291,7 @@ void SettingsWindow::RenderTab_General()
         bool lut_changed = false;
 
         bool unlimited_lut = (session_->lut_cache_budget_bytes == 0);
-        if (ImGui::Checkbox("Unlimited LUT cache", &unlimited_lut))
+        if (ImGui::Checkbox(PHOS_TR("settings_window.general_tab.unlimited_lut_cache").c_str(), &unlimited_lut))
         {
             session_->lut_cache_budget_bytes = unlimited_lut ? 0 : (64ull * 1024ull * 1024ull);
             lut_changed = true;
@@ -302,7 +301,7 @@ void SettingsWindow::RenderTab_General()
         {
             mib = std::clamp(mib <= 0 ? 64 : mib, 1, 1024);
             ImGui::SetNextItemWidth(220.0f);
-            if (ImGui::InputInt("Max LUT cache (MiB)", &mib, 8, 32))
+            if (ImGui::InputInt(PHOS_TR("settings_window.general_tab.max_lut_cache_mib").c_str(), &mib, 8, 32))
             {
                 mib = std::clamp(mib, 1, 1024);
                 session_->lut_cache_budget_bytes = (size_t)mib * 1024ull * 1024ull;
@@ -342,22 +341,22 @@ void SettingsWindow::RenderTab_General()
             const std::size_t budget_b = cs.Luts().BudgetBytes();
 
             ImGui::Spacing();
-            ImGui::TextUnformatted("Budget pressure");
+            ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.budget_pressure").c_str());
 
             if (budget_b > 0)
             {
                 const float frac = (budget_b > 0) ? (float)((double)used_b / (double)budget_b) : 0.0f;
-                char label[128];
-                std::snprintf(label, sizeof(label), "%.1f / %.1f MiB (%.0f%%)",
-                              format_mib(used_b), format_mib(budget_b),
-                              (double)std::clamp(frac, 0.0f, 1.0f) * 100.0);
-                ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label);
+                const std::string label = PHOS_TRF("settings_window.general_tab.budget_pressure_used_of_budget_fmt",
+                                                  phos::i18n::Arg::F64(format_mib(used_b)),
+                                                  phos::i18n::Arg::F64(format_mib(budget_b)),
+                                                  phos::i18n::Arg::F64((double)std::clamp(frac, 0.0f, 1.0f) * 100.0));
+                ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label.c_str());
             }
             else
             {
-                char label[128];
-                std::snprintf(label, sizeof(label), "%.1f MiB used (unlimited budget)", format_mib(used_b));
-                ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label);
+                const std::string label = PHOS_TRF("settings_window.general_tab.unlimited_budget_used",
+                                                  phos::i18n::Arg::F64(format_mib(used_b)));
+                ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label.c_str());
             }
         }
     }
@@ -365,7 +364,7 @@ void SettingsWindow::RenderTab_General()
     ImGui::Spacing();
     ImGui::Spacing();
 
-    ImGui::TextUnformatted("Glyph Atlas Cache");
+    ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.glyph_atlas_cache").c_str());
     ImGui::Separator();
 
     {
@@ -379,7 +378,7 @@ void SettingsWindow::RenderTab_General()
 
         bool atlas_changed = false;
         bool unlimited_atlas = (session_->glyph_atlas_cache_budget_bytes == 0);
-        if (ImGui::Checkbox("Unlimited glyph atlas cache", &unlimited_atlas))
+        if (ImGui::Checkbox(PHOS_TR("settings_window.general_tab.unlimited_glyph_atlas_cache").c_str(), &unlimited_atlas))
         {
             session_->glyph_atlas_cache_budget_bytes = unlimited_atlas ? 0 : (96ull * 1024ull * 1024ull);
             atlas_changed = true;
@@ -389,7 +388,7 @@ void SettingsWindow::RenderTab_General()
         {
             mib = std::clamp(mib <= 0 ? 96 : mib, 1, 2048);
             ImGui::SetNextItemWidth(220.0f);
-            if (ImGui::InputInt("Max glyph atlas cache (MiB)", &mib, 8, 32))
+            if (ImGui::InputInt(PHOS_TR("settings_window.general_tab.max_glyph_atlas_cache_mib").c_str(), &mib, 8, 32))
             {
                 mib = std::clamp(mib, 1, 2048);
                 session_->glyph_atlas_cache_budget_bytes = (size_t)mib * 1024ull * 1024ull;
@@ -434,26 +433,26 @@ void SettingsWindow::RenderTab_General()
             const std::size_t budget_b = session_->glyph_atlas_cache_budget_bytes;
 
             ImGui::Spacing();
-            ImGui::TextUnformatted("Budget pressure");
+            ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.budget_pressure").c_str());
 
             if (budget_b > 0)
             {
                 const float frac = (budget_b > 0) ? (float)((double)used_b / (double)budget_b) : 0.0f;
-                char label[128];
-                std::snprintf(label, sizeof(label), "%.1f / %.1f MiB (%.0f%%)",
-                              format_mib(used_b), format_mib(budget_b),
-                              (double)std::clamp(frac, 0.0f, 1.0f) * 100.0);
-                ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label);
+                const std::string label = PHOS_TRF("settings_window.general_tab.budget_pressure_used_of_budget_fmt",
+                                                  phos::i18n::Arg::F64(format_mib(used_b)),
+                                                  phos::i18n::Arg::F64(format_mib(budget_b)),
+                                                  phos::i18n::Arg::F64((double)std::clamp(frac, 0.0f, 1.0f) * 100.0));
+                ImGui::ProgressBar(std::clamp(frac, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f), label.c_str());
             }
             else
             {
-                char label[128];
-                std::snprintf(label, sizeof(label), "%.1f MiB used (unlimited budget)", format_mib(used_b));
-                ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label);
+                const std::string label = PHOS_TRF("settings_window.general_tab.unlimited_budget_used",
+                                                  phos::i18n::Arg::F64(format_mib(used_b)));
+                ImGui::ProgressBar(0.0f, ImVec2(-FLT_MIN, 0.0f), label.c_str());
             }
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Tip: this caches bitmap font atlases for fast/correct rendering across many open canvases.");
+            ImGui::TextDisabled("%s", PHOS_TR("settings_window.general_tab.glyph_atlas_tip").c_str());
         }
     }
 }
@@ -528,11 +527,11 @@ void SettingsWindow::RenderTab_Skin()
     if (!session_)
     {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                           "Session state not attached; cannot persist theme.");
+                           "%s", PHOS_TR("settings_window.skin_tab.session_state_missing").c_str());
         return;
     }
 
-    ImGui::TextUnformatted("Theme");
+    ImGui::TextUnformatted(PHOS_TR("settings_window.skin_tab.theme").c_str());
     ImGui::Separator();
 
     ImGui::SetNextItemWidth(260.0f);
@@ -555,11 +554,11 @@ void SettingsWindow::RenderTab_Skin()
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Theme is saved in session.json and restored on startup.");
+    ImGui::TextDisabled("%s", PHOS_TR("settings_window.skin_tab.theme_saved_note").c_str());
 
     const char* default_id = ui::DefaultThemeId();
-    const std::string reset_label =
-        std::string("Reset to default (") + ui::ThemeDisplayName(default_id) + ")";
+    const std::string reset_label = PHOS_TRF("settings_window.skin_tab.reset_to_default_fmt",
+                                            phos::i18n::Arg::Str(ui::ThemeDisplayName(default_id)));
     if (ImGui::Button(reset_label.c_str()))
     {
         session_->ui_theme = default_id;
@@ -572,7 +571,7 @@ void SettingsWindow::RenderTab_KeyBindings()
     if (!keybinds_)
     {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                           "Key bindings engine not attached.");
+                           "%s", PHOS_TR("settings_window.key_bindings_tab.engine_missing").c_str());
         return;
     }
 
@@ -585,11 +584,14 @@ void SettingsWindow::RenderTab_KeyBindings()
 
     // Header row: file path + dirty indicator + actions
     {
-        ImGui::Text("File: %s", keybinds_->Path().c_str());
+        const std::string file = PHOS_TRF("settings_window.key_bindings_tab.file_fmt",
+                                          phos::i18n::Arg::Str(keybinds_->Path()));
+        ImGui::TextUnformatted(file.c_str());
         ImGui::SameLine();
         if (keybinds_->IsDirty())
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "• Modified");
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s",
+                               PHOS_TR("settings_window.key_bindings_tab.modified_dot").c_str());
         }
     }
 
@@ -602,13 +604,13 @@ void SettingsWindow::RenderTab_KeyBindings()
 
     // Controls
     {
-        if (ImGui::Button("Reload"))
+        if (ImGui::Button(PHOS_TR("common.reload").c_str()))
         {
             std::string err;
             keybinds_->LoadFromFile(keybinds_->Path(), err);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Save"))
+        if (ImGui::Button(PHOS_TR("common.save").c_str()))
         {
             std::string err;
             if (keybinds_->SaveToFile(keybinds_->Path(), err))
@@ -617,26 +619,30 @@ void SettingsWindow::RenderTab_KeyBindings()
             }
         }
         ImGui::SameLine();
-        ImGui::Checkbox("Show IDs", &show_ids_);
+        ImGui::Checkbox(PHOS_TR("settings_window.key_bindings_tab.show_ids").c_str(), &show_ids_);
 
         ImGui::SameLine();
         ImGui::SetNextItemWidth(260.0f);
-        ImGui::InputTextWithHint("##kb_filter", "Filter actions…", &filter_text_);
+        ImGui::InputTextWithHint("##kb_filter",
+                                 PHOS_TR("settings_window.key_bindings_tab.filter_actions_ellipsis").c_str(),
+                                 &filter_text_);
     }
 
     ImGui::Separator();
 
     // Record binding modal (UI only; writes chord string into the selected binding).
     if (capture_active_)
-        ImGui::OpenPopup("Record Key Binding");
+        ImGui::OpenPopup(PHOS_TR("settings_window.key_bindings_tab.record_key_binding").c_str());
 
-    if (ImGui::BeginPopupModal("Record Key Binding", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal(PHOS_TR("settings_window.key_bindings_tab.record_key_binding").c_str(),
+                               nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGuiIO& io = ImGui::GetIO();
 
-        ImGui::TextUnformatted("Press a key to assign this binding.");
-        ImGui::TextDisabled("Held modifiers will be included (Ctrl/Shift/Alt/Super).");
-        ImGui::TextDisabled("Escape: cancel   Backspace/Delete: clear");
+        ImGui::TextUnformatted(PHOS_TR("settings_window.key_bindings_tab.record_prompt").c_str());
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.key_bindings_tab.record_modifiers_included").c_str());
+        ImGui::TextDisabled("%s", PHOS_TR("settings_window.key_bindings_tab.record_escape_backspace").c_str());
         ImGui::Separator();
 
         // Live preview while holding modifiers (without committing until a non-mod key is pressed).
@@ -646,8 +652,10 @@ void SettingsWindow::RenderTab_KeyBindings()
             if (io.KeyShift) mods += "Shift+";
             if (io.KeyAlt)   mods += "Alt+";
             if (io.KeySuper) mods += "Super+";
-            if (mods.empty()) mods = "(no modifiers)";
-            ImGui::Text("Modifiers: %s", mods.c_str());
+            if (mods.empty()) mods = PHOS_TR("settings_window.key_bindings_tab.no_modifiers");
+            const std::string modline =
+                PHOS_TRF("settings_window.key_bindings_tab.modifiers_fmt", phos::i18n::Arg::Str(mods));
+            ImGui::TextUnformatted(modline.c_str());
         }
 
         bool close = false;
@@ -685,10 +693,10 @@ void SettingsWindow::RenderTab_KeyBindings()
             }
         }
 
-        if (ImGui::Button("Cancel"))
+        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
             close = true;
         ImGui::SameLine();
-        if (ImGui::Button("Clear"))
+        if (ImGui::Button(PHOS_TR("common.clear").c_str()))
         {
             commit = true;
             committed_chord.clear();
@@ -952,7 +960,8 @@ void SettingsWindow::RenderTab_KeyBindings()
 
             if (!rows.empty())
             {
-                conflicts_report += "Conflicts:\n";
+                conflicts_report += PHOS_TR("settings_window.key_bindings_tab.report_conflicts_header");
+                conflicts_report += "\n";
                 for (const auto& r : rows)
                 {
                     // platforms joined by '/'
@@ -979,7 +988,8 @@ void SettingsWindow::RenderTab_KeyBindings()
             if (!invalid.empty())
             {
                 if (!conflicts_report.empty()) conflicts_report += "\n";
-                conflicts_report += "Invalid chords:\n";
+                conflicts_report += PHOS_TR("settings_window.key_bindings_tab.report_invalid_header");
+                conflicts_report += "\n";
                 std::sort(invalid.begin(), invalid.end());
                 invalid.erase(std::unique(invalid.begin(), invalid.end()), invalid.end());
                 for (const auto& s : invalid)
@@ -993,7 +1003,7 @@ void SettingsWindow::RenderTab_KeyBindings()
 
     if (!conflicts_report.empty())
     {
-        ImGui::SeparatorText("Keybinding Conflicts");
+        ImGui::SeparatorText(PHOS_TR("settings_window.key_bindings_tab.conflicts_header").c_str());
         ImGui::SetNextItemWidth(-FLT_MIN);
         // Read-only multiline textbox (easy to copy/paste).
         ImGui::InputTextMultiline("##kb_conflicts", &conflicts_report,
@@ -1022,8 +1032,10 @@ void SettingsWindow::RenderTab_KeyBindings()
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         // Action column was previously too wide; keep it compact.
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.34f);
-        ImGui::TableSetupColumn("Bindings", ImGuiTableColumnFlags_WidthStretch, 0.66f);
+        const std::string action_col = PHOS_TR("settings_window.key_bindings_tab.action_col") + "##kb_action";
+        const std::string bindings_col = PHOS_TR("settings_window.key_bindings_tab.bindings_col") + "##kb_bindings";
+        ImGui::TableSetupColumn(action_col.c_str(), ImGuiTableColumnFlags_WidthStretch, 0.34f);
+        ImGui::TableSetupColumn(bindings_col.c_str(), ImGuiTableColumnFlags_WidthStretch, 0.66f);
         ImGui::TableHeadersRow();
 
         std::string last_cat;
@@ -1083,7 +1095,11 @@ void SettingsWindow::RenderTab_KeyBindings()
 
                 // platform
                 {
-                    const char* items[] = { "Any", "Windows", "Linux", "macOS" };
+                    const std::string p0 = PHOS_TR("settings_window.key_bindings_tab.platform_items.any");
+                    const std::string p1 = PHOS_TR("settings_window.key_bindings_tab.platform_items.windows");
+                    const std::string p2 = PHOS_TR("settings_window.key_bindings_tab.platform_items.linux");
+                    const std::string p3 = PHOS_TR("settings_window.key_bindings_tab.platform_items.macos");
+                    const char* items[] = { p0.c_str(), p1.c_str(), p2.c_str(), p3.c_str() };
                     int pidx = PlatformIndex(b.platform);
                     // Slightly wider than before (was too cramped).
                     ImGui::SetNextItemWidth(110.0f);
@@ -1097,7 +1113,11 @@ void SettingsWindow::RenderTab_KeyBindings()
 
                 // context
                 {
-                    const char* items[] = { "Global", "Editor", "Selection", "Canvas" };
+                    const std::string c0 = PHOS_TR("settings_window.key_bindings_tab.context_items.global");
+                    const std::string c1 = PHOS_TR("settings_window.key_bindings_tab.context_items.editor");
+                    const std::string c2 = PHOS_TR("settings_window.key_bindings_tab.context_items.selection");
+                    const std::string c3 = PHOS_TR("settings_window.key_bindings_tab.context_items.canvas");
+                    const char* items[] = { c0.c_str(), c1.c_str(), c2.c_str(), c3.c_str() };
                     int cidx = ContextIndex(b.context);
                     // Slightly wider than before (was too cramped).
                     ImGui::SetNextItemWidth(110.0f);
@@ -1119,18 +1139,13 @@ void SettingsWindow::RenderTab_KeyBindings()
                     }
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     {
-                        ImGui::SetTooltip(
-                            "Repeat while held.\n"
-                            "When enabled, holding the chord will retrigger after a short delay\n"
-                            "and then repeat at a steady rate (uses ImGui key repeat timing).");
+                        ImGui::SetTooltip("%s", PHOS_TR("settings_window.key_bindings_tab.repeat_tooltip_long").c_str());
                     }
                     ImGui::SameLine();
-                    ImGui::TextDisabled("Rpt");
+                    ImGui::TextDisabled("%s", PHOS_TR("settings_window.key_bindings_tab.rpt_abbrev").c_str());
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     {
-                        ImGui::SetTooltip(
-                            "Repeat while held.\n"
-                            "Enable for navigation/backspace/delete; disable for one-shot actions.");
+                        ImGui::SetTooltip("%s", PHOS_TR("settings_window.key_bindings_tab.repeat_tooltip_short").c_str());
                     }
                 }
                 ImGui::SameLine();
@@ -1138,12 +1153,14 @@ void SettingsWindow::RenderTab_KeyBindings()
                 // chord
                 // Chord input was too wide; keep it compact so inline buttons are always visible.
                 ImGui::SetNextItemWidth(160.0f);
-                if (ImGui::InputTextWithHint("##chord", "e.g. Ctrl+Z", &b.chord))
+                if (ImGui::InputTextWithHint("##chord",
+                                             PHOS_TR("settings_window.key_bindings_tab.chord_hint").c_str(),
+                                             &b.chord))
                     keybinds_->MarkDirty();
 
                 // Inline controls on the same row as chord input.
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Add"))
+                if (ImGui::SmallButton(PHOS_TR("common.add").c_str()))
                 {
                     kb::KeyBinding nb;
                     nb.enabled = true;
@@ -1154,14 +1171,14 @@ void SettingsWindow::RenderTab_KeyBindings()
                     keybinds_->MarkDirty();
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Record…"))
+                if (ImGui::SmallButton(PHOS_TR("settings_window.key_bindings_tab.record_ellipsis").c_str()))
                 {
                     capture_active_ = true;
                     capture_action_idx_ = idx;
                     capture_binding_idx_ = bi;
                 }
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Remove"))
+                if (ImGui::SmallButton(PHOS_TR("common.remove").c_str()))
                 {
                     a.bindings.erase(a.bindings.begin() + (ptrdiff_t)bi);
                     keybinds_->MarkDirty();

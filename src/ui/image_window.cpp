@@ -2,6 +2,7 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
+#include "core/i18n.h"
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -16,7 +17,7 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
 {
     if (image.width <= 0 || image.height <= 0 || image.pixels.empty())
     {
-        ImGui::TextUnformatted("No image data.");
+        ImGui::TextUnformatted(PHOS_TR("image_window.no_image_data").c_str());
         return;
     }
 
@@ -63,7 +64,7 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
     // Right-click context menu hook for future "Convert to ANSI" action.
     if (ImGui::BeginPopupContextItem("image_canvas_context"))
     {
-        if (ImGui::MenuItem("Convert to ANSI..."))
+        if (ImGui::MenuItem(PHOS_TR("image_window.ctx_convert_to_ansi").c_str()))
         {
             ImageToChafaDialog::ImageRgba src;
             src.label = image.path;
@@ -126,8 +127,12 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
 bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& image, ImageToChafaDialog& dialog,
                        SessionState* session, bool apply_placement_this_frame)
 {
+    std::string title_local;
     if (!title || !*title)
-        title = "Image";
+    {
+        title_local = PHOS_TR("image_window.title");
+        title = title_local.c_str();
+    }
     if (!persist_key || !*persist_key)
         persist_key = title;
 

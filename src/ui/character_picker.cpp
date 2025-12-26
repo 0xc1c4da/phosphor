@@ -1,5 +1,7 @@
 #include "ui/character_picker.h"
 
+#include "core/i18n.h"
+
 #include "imgui.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
@@ -193,7 +195,7 @@ std::string CharacterPicker::BlockNameFor(uint32_t cp)
 {
     int32_t block_val = u_getIntPropertyValue(static_cast<UChar32>(cp), UCHAR_BLOCK);
     const char* nm = u_getPropertyValueName(UCHAR_BLOCK, block_val, U_LONG_PROPERTY_NAME);
-    return nm ? std::string(nm) : std::string("Unknown_Block");
+    return nm ? std::string(nm) : PHOS_TR("character_picker.unknown_block");
 }
 
 std::vector<std::string> CharacterPicker::TokenizeUpperASCII(const std::string& q)
@@ -771,7 +773,8 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    if (!ImGui::Begin(window_title, p_open, flags))
+    const std::string win_title = PHOS_TR("menu.window.unicode_character_picker") + "##" + std::string(window_title);
+    if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
             CaptureImGuiWindowPlacement(*session, window_title);
@@ -804,19 +807,20 @@ void CharacterPicker::RenderTopBar()
 {
     // Block dropdown
     {
-        const char* preview = "All Unicode (by Plane)";
+        std::string preview = PHOS_TR("character_picker.all_unicode_by_plane");
         if (block_index_ > 0)
         {
             const int bi = block_index_ - 1;
             if (bi >= 0 && bi < static_cast<int>(blocks_.size()))
-                preview = blocks_[bi].name.c_str();
+                preview = blocks_[bi].name;
         }
 
         ImGui::SetNextItemWidth(280.0f);
-        if (ImGui::BeginCombo("Block", preview))
+        const std::string block_lbl = PHOS_TR("character_picker.block") + "##charpick_block";
+        if (ImGui::BeginCombo(block_lbl.c_str(), preview.c_str()))
         {
             bool sel_all = (block_index_ == 0);
-            if (ImGui::Selectable("All Unicode (by Plane)", sel_all))
+            if (ImGui::Selectable(PHOS_TR("character_picker.all_unicode_by_plane").c_str(), sel_all))
             {
                 block_index_ = 0;
                 RebuildAvailablePlanes(ImGui::GetFont());
@@ -861,19 +865,24 @@ void CharacterPicker::RenderTopBar()
 
             const int start_i = subpage_index_ * page_size;
             const int end_i = std::min(static_cast<int>(cps.size()), start_i + page_size) - 1;
-            std::string preview = (cps.empty())
-                ? std::string("No results")
-                : ("Results " + std::to_string(start_i + 1) + ".." + std::to_string(end_i + 1) +
-                   " / " + std::to_string(cps.size()));
+                std::string preview = (cps.empty())
+                    ? PHOS_TR("character_picker.no_results")
+                    : PHOS_TRF("character_picker.results_range_of_total_fmt",
+                               phos::i18n::Arg::I64((long long)start_i + 1),
+                               phos::i18n::Arg::I64((long long)end_i + 1),
+                               phos::i18n::Arg::I64((long long)cps.size()));
 
             ImGui::SetNextItemWidth(260.0f);
-            if (ImGui::BeginCombo("Page", preview.c_str()))
+                const std::string page_lbl = PHOS_TR("character_picker.page") + "##charpick_page";
+                if (ImGui::BeginCombo(page_lbl.c_str(), preview.c_str()))
             {
                 for (int p = 0; p < page_count; ++p)
                 {
                     const int s = p * page_size;
                     const int e = std::min(static_cast<int>(cps.size()), s + page_size) - 1;
-                    std::string label = "Results " + std::to_string(s + 1) + ".." + std::to_string(e + 1);
+                        std::string label = PHOS_TRF("character_picker.results_range_fmt",
+                                                     phos::i18n::Arg::I64((long long)s + 1),
+                                                     phos::i18n::Arg::I64((long long)e + 1));
                     bool sel = (p == subpage_index_);
                     if (ImGui::Selectable(label.c_str(), sel))
                         subpage_index_ = p;
@@ -888,19 +897,25 @@ void CharacterPicker::RenderTopBar()
             // Planes 0..16, but hide planes with no visible glyphs in the current font.
             RebuildAvailablePlanes(ImGui::GetFont());
             const int plane = std::clamp(subpage_index_, 0, 16);
-            std::string preview = "Plane " + std::to_string(plane) + "  (" +
-                                  CodePointHex(static_cast<uint32_t>(plane) * 0x10000u) + ".." +
-                                  CodePointHex(std::min(static_cast<uint32_t>(plane) * 0x10000u + 0xFFFFu, 0x10FFFFu)) + ")";
+                const std::string range =
+                    CodePointHex(static_cast<uint32_t>(plane) * 0x10000u) + ".." +
+                    CodePointHex(std::min(static_cast<uint32_t>(plane) * 0x10000u + 0xFFFFu, 0x10FFFFu));
+                std::string preview = PHOS_TRF("character_picker.plane_preview_fmt",
+                                               phos::i18n::Arg::I64((long long)plane),
+                                               phos::i18n::Arg::Str(range));
 
             ImGui::SetNextItemWidth(260.0f);
-            if (ImGui::BeginCombo("Subpage", preview.c_str()))
+                const std::string subpage_lbl = PHOS_TR("character_picker.subpage") + "##charpick_subpage";
+                if (ImGui::BeginCombo(subpage_lbl.c_str(), preview.c_str()))
             {
                 for (int p : available_planes_)
                 {
                     const uint32_t ps = static_cast<uint32_t>(p) * 0x10000u;
                     const uint32_t pe = std::min(ps + 0xFFFFu, 0x10FFFFu);
-                    std::string label = "Plane " + std::to_string(p) + "  (" +
-                                        CodePointHex(ps) + ".." + CodePointHex(pe) + ")";
+                        const std::string pr = CodePointHex(ps) + ".." + CodePointHex(pe);
+                        std::string label = PHOS_TRF("character_picker.plane_preview_fmt",
+                                                     phos::i18n::Arg::I64((long long)p),
+                                                     phos::i18n::Arg::Str(pr));
                     const bool sel = (p == plane);
                     if (ImGui::Selectable(label.c_str(), sel))
                     {
@@ -931,7 +946,8 @@ void CharacterPicker::RenderTopBar()
             std::string preview = CodePointHex(ps) + ".." + CodePointHex(pe);
 
             ImGui::SetNextItemWidth(260.0f);
-            if (ImGui::BeginCombo("Jump", preview.c_str()))
+            const std::string jump_lbl = PHOS_TR("character_picker.jump") + "##charpick_jump";
+            if (ImGui::BeginCombo(jump_lbl.c_str(), preview.c_str()))
             {
                 for (int p = 0; p < page_count; ++p)
                 {
@@ -964,7 +980,9 @@ void CharacterPicker::RenderTopBar()
     // Search
     {
         ImGui::SetNextItemWidth(340.0f);
-        if (ImGui::InputTextWithHint("Search", "unicode name (e.g. greek small letter eta)", &search_query_,
+        const std::string search_lbl = PHOS_TR("common.search") + "##charpick_search";
+        const std::string hint = PHOS_TR("character_picker.search_hint");
+        if (ImGui::InputTextWithHint(search_lbl.c_str(), hint.c_str(), &search_query_,
                                      ImGuiInputTextFlags_EnterReturnsTrue))
         {
             search_dirty_ = true;
@@ -975,7 +993,7 @@ void CharacterPicker::RenderTopBar()
         }
 
         ImGui::SameLine();
-        if (ImGui::Button("Go"))
+        if (ImGui::Button(PHOS_TR("common.go").c_str()))
         {
             search_dirty_ = true;
             PerformSearch();
@@ -985,7 +1003,7 @@ void CharacterPicker::RenderTopBar()
         }
 
         ImGui::SameLine();
-        if (ImGui::Button("Clear"))
+        if (ImGui::Button(PHOS_TR("common.clear").c_str()))
         {
             ClearSearch();
             subpage_index_ = 0;
@@ -1028,7 +1046,7 @@ void CharacterPicker::RenderGridAndSidePanel()
         else
         {
             // No visible glyphs in this view.
-            ImGui::TextDisabled("No drawable glyphs in this range.");
+            ImGui::TextDisabled("%s", PHOS_TR("character_picker.no_drawable_glyphs").c_str());
         }
     }
 
@@ -1045,28 +1063,40 @@ void CharacterPicker::RenderGridAndSidePanel()
         const std::string nm = CharName(selected_cp_);
         const std::string blk = BlockNameFor(selected_cp_);
 
-        ImGui::TextUnformatted("Selected");
+        ImGui::TextUnformatted(PHOS_TR("character_picker.selected").c_str());
         ImGui::Separator();
-        ImGui::Text("%s", hex.c_str());
+        ImGui::TextUnformatted(hex.c_str());
         if (!glyph.empty())
-            ImGui::Text("Glyph: %s", glyph.c_str());
+        {
+            const std::string s = PHOS_TRF("character_picker.glyph_prefix", phos::i18n::Arg::Str(glyph));
+            ImGui::TextUnformatted(s.c_str());
+        }
         if (!nm.empty())
-            ImGui::TextWrapped("Name: %s", nm.c_str());
-        ImGui::TextWrapped("Block: %s", blk.c_str());
+        {
+            const std::string s = PHOS_TRF("character_picker.name_prefix", phos::i18n::Arg::Str(nm));
+            ImGui::TextWrapped("%s", s.c_str());
+        }
+        {
+            const std::string s = PHOS_TRF("character_picker.block_prefix", phos::i18n::Arg::Str(blk));
+            ImGui::TextWrapped("%s", s.c_str());
+        }
 
-        if (ImGui::Button("Copy Character") && !glyph.empty())
+        if (ImGui::Button(PHOS_TR("character_picker.copy_character").c_str()) && !glyph.empty())
             ImGui::SetClipboardText(glyph.c_str());
         ImGui::SameLine();
-        if (ImGui::Button("Copy U+XXXX"))
+        if (ImGui::Button(PHOS_TR("character_picker.copy_u_plus").c_str()))
             ImGui::SetClipboardText(hex.c_str());
     }
 
     ImGui::Separator();
 
     // Confusables list
-    ImGui::TextUnformatted("Confusables (ICU spoof)");
+    ImGui::TextUnformatted(PHOS_TR("character_picker.confusables_header").c_str());
     ImGui::SameLine();
-    ImGui::TextDisabled("(limit %d)", confusables_limit_);
+    {
+        const std::string s = PHOS_TRF("character_picker.limit_fmt", phos::i18n::Arg::I64((long long)confusables_limit_));
+        ImGui::TextDisabled("%s", s.c_str());
+    }
 
     const bool conf_visible =
         ImGui::BeginChild("##confusables", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_None);
@@ -1074,7 +1104,7 @@ void CharacterPicker::RenderGridAndSidePanel()
     {
         if (confusable_cps_.empty())
         {
-            ImGui::TextDisabled("No confusables found (or ICU data unavailable).");
+            ImGui::TextDisabled("%s", PHOS_TR("character_picker.no_confusables").c_str());
         }
         else
         {
@@ -1133,7 +1163,8 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
 
     if (ImGui::BeginTable("##unicode_table", total_cols, flags, outer_size))
     {
-        ImGui::TableSetupColumn("Row", ImGuiTableColumnFlags_WidthFixed, rowhdr_w);
+        const std::string row_col = PHOS_TR("character_picker.row_col") + "##charpick_row";
+        ImGui::TableSetupColumn(row_col.c_str(), ImGuiTableColumnFlags_WidthFixed, rowhdr_w);
         for (int c = 0; c < kCols; ++c)
         {
             char hdr[8];

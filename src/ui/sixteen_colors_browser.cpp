@@ -1,5 +1,6 @@
 #include "ui/sixteen_colors_browser.h"
 
+#include "core/i18n.h"
 #include "imgui.h"
 #include "misc/cpp/imgui_stdlib.h"
 
@@ -1041,25 +1042,19 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         {
-            ImGui::SetTooltip(
-                "This is a slow background spider of 16colo.rs.\n"
-                "It is used to pre-populate the cache to archive 16colo.rs for offline use.\n"
-                "You will have to intentionally turn this on between runs to continue archiving.\n\n"
-                "Enqueued: %llu\n"
-                "Completed: %llu\n"
-                "Errors: %llu\n"
-                "Pending: %llu\n",
-                (unsigned long long)m_datahoarder_enqueued,
-                (unsigned long long)m_datahoarder_completed,
-                (unsigned long long)m_datahoarder_errors,
-                (unsigned long long)m_datahoarder_todo.size());
+            const std::string tip = PHOS_TRF("sixteen_colors.datahoarder_tooltip",
+                                             phos::i18n::Arg::I64((long long)m_datahoarder_enqueued),
+                                             phos::i18n::Arg::I64((long long)m_datahoarder_completed),
+                                             phos::i18n::Arg::I64((long long)m_datahoarder_errors),
+                                             phos::i18n::Arg::I64((long long)m_datahoarder_todo.size()));
+            ImGui::SetTooltip("%s", tip.c_str());
         }
     }
 
     if (m_left_view == LeftView::PacksList && (m_mode == BrowseMode::Groups || m_mode == BrowseMode::Artists || m_mode == BrowseMode::Years))
     {
         ImGui::SameLine();
-        if (ImGui::Button("< Back"))
+        if (ImGui::Button((PHOS_TR("sixteen_colors.back") + "##16c_back").c_str()))
         {
             m_left_view = LeftView::RootList;
             m_drill_packs_json.clear();
@@ -1071,53 +1066,57 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     }
 
     // Search/filter (used by most endpoints as ?filter=...)
-    const char* filter_hint = "Search (filter=...)";
+    std::string filter_hint = PHOS_TR("sixteen_colors.filter_hint_default");
     if (m_mode == BrowseMode::Packs)
-        filter_hint = "Search packs (filter=...)";
+        filter_hint = PHOS_TR("sixteen_colors.filter_hint_packs");
     else if (m_mode == BrowseMode::Groups)
-        filter_hint = "Search groups (filter=...)";
+        filter_hint = PHOS_TR("sixteen_colors.filter_hint_groups");
     else if (m_mode == BrowseMode::Artists)
-        filter_hint = "Search artists (filter=...)";
+        filter_hint = PHOS_TR("sixteen_colors.filter_hint_artists");
     else if (m_mode == BrowseMode::Years)
-        filter_hint = "Optional: filter packs within year (filter=...)";
+        filter_hint = PHOS_TR("sixteen_colors.filter_hint_years_optional");
 
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::InputTextWithHint("##filter", filter_hint, &m_filter))
+    if (ImGui::InputTextWithHint("##filter", filter_hint.c_str(), &m_filter))
         list_settings_changed = true;
 
     // View-specific controls
     if (m_mode == BrowseMode::Packs && m_left_view == LeftView::RootList)
     {
-        if (ImGui::Checkbox("Include groups", &m_show_groups))
+        if (ImGui::Checkbox(PHOS_TR("sixteen_colors.include_groups").c_str(), &m_show_groups))
             list_settings_changed = true;
         ImGui::SameLine();
-        if (ImGui::Checkbox("Include artists", &m_show_artists))
+        if (ImGui::Checkbox(PHOS_TR("sixteen_colors.include_artists").c_str(), &m_show_artists))
             list_settings_changed = true;
     }
     else if ((m_mode == BrowseMode::Groups || m_mode == BrowseMode::Artists) && m_left_view == LeftView::RootList)
     {
         if (m_mode == BrowseMode::Groups)
         {
-            if (ImGui::Combo("Sort", &m_group_sort, "name\0packs\0"))
+            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "##16c_group_sort";
+            if (ImGui::Combo(sort_lbl.c_str(), &m_group_sort, "name\0packs\0"))
                 list_settings_changed = true;
             ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::Combo("Order", &m_group_order, "asc\0desc\0"))
+            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "##16c_group_order";
+            if (ImGui::Combo(order_lbl.c_str(), &m_group_order, "asc\0desc\0"))
                 list_settings_changed = true;
         }
         else
         {
-            if (ImGui::Combo("Sort", &m_artist_sort, "name\0releases\0"))
+            const std::string sort_lbl = PHOS_TR("sixteen_colors.sort") + "##16c_artist_sort";
+            if (ImGui::Combo(sort_lbl.c_str(), &m_artist_sort, "name\0releases\0"))
                 list_settings_changed = true;
             ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
-            if (ImGui::Combo("Order", &m_artist_order, "asc\0desc\0"))
+            const std::string order_lbl = PHOS_TR("sixteen_colors.order") + "##16c_artist_order";
+            if (ImGui::Combo(order_lbl.c_str(), &m_artist_order, "asc\0desc\0"))
                 list_settings_changed = true;
         }
     }
     else if (m_mode == BrowseMode::Years && m_left_view == LeftView::RootList)
     {
-        if (ImGui::Checkbox("Include mags", &m_year_include_mags))
+        if (ImGui::Checkbox(PHOS_TR("sixteen_colors.include_mags").c_str(), &m_year_include_mags))
             list_settings_changed = true;
     }
 
@@ -1283,17 +1282,19 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     {
         ImGui::SameLine();
         if (m_raw_pending > 0)
-            ImGui::Text("Downloading %d...", m_raw_pending);
+            ImGui::TextUnformatted(PHOS_TRF("sixteen_colors.downloading_n_fmt",
+                                            phos::i18n::Arg::I64((long long)m_raw_pending)).c_str());
         else if (m_loading_pack)
-            ImGui::TextUnformatted("Loading pack...");
+            ImGui::TextUnformatted(PHOS_TR("sixteen_colors.loading_pack").c_str());
         else
-            ImGui::TextUnformatted("Loading...");
+            ImGui::TextUnformatted(PHOS_TR("sixteen_colors.loading").c_str());
     }
 
     if (!m_last_error.empty())
     {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s", m_last_error.c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           PHOS_TRF("sixteen_colors.error_fmt", phos::i18n::Arg::Str(m_last_error)).c_str());
     }
 
     ImGui::Separator();
@@ -1377,7 +1378,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         {
             if (m_pack_rows.empty())
             {
-                ImGui::TextUnformatted("No pack list loaded yet.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_pack_list_yet").c_str());
             }
             else
             {
@@ -1413,7 +1414,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         {
             if (m_latest_list_json.empty())
             {
-                ImGui::TextUnformatted("No latest list loaded yet.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_latest_list_yet").c_str());
             }
             else
             {
@@ -1464,7 +1465,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                 }
                 else
                 {
-                    ImGui::TextUnformatted("Unexpected response.");
+                    ImGui::TextUnformatted(PHOS_TR("sixteen_colors.unexpected_response").c_str());
                 }
             }
         }
@@ -1472,7 +1473,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         {
             if (m_group_rows.empty())
             {
-                ImGui::TextUnformatted("No group list loaded yet.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_group_list_yet").c_str());
             }
             else
             {
@@ -1523,7 +1524,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         {
             if (m_artist_rows.empty())
             {
-                ImGui::TextUnformatted("No artist list loaded yet.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_artist_list_yet").c_str());
             }
             else
             {
@@ -1585,7 +1586,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
         {
             if (m_year_list_json.empty())
             {
-                ImGui::TextUnformatted("No year index loaded yet.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_year_index_yet").c_str());
             }
             else
             {
@@ -1656,7 +1657,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                 }
                 else
                 {
-                    ImGui::TextUnformatted("Unexpected response.");
+                    ImGui::TextUnformatted(PHOS_TR("sixteen_colors.unexpected_response").c_str());
                 }
             }
         }
@@ -1665,7 +1666,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     {
         if (m_drill_packs_json.empty())
         {
-            ImGui::TextUnformatted("No packs loaded yet.");
+            ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_packs_loaded_yet").c_str());
         }
         else if (m_mode == BrowseMode::Groups)
         {
@@ -1847,7 +1848,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
             }
             else
             {
-                ImGui::TextUnformatted("Unexpected response.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.unexpected_response").c_str());
             }
         }
     }
@@ -1856,17 +1857,18 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     ImGui::NextColumn();
 
     // Right: pack contents
-    ImGui::Text("Pack: %s", m_selected_pack.empty() ? "(none)" : m_selected_pack.c_str());
+    const std::string pack_name = m_selected_pack.empty() ? PHOS_TR("sixteen_colors.pack_none") : m_selected_pack;
+    ImGui::TextUnformatted(PHOS_TRF("sixteen_colors.pack_fmt", phos::i18n::Arg::Str(pack_name)).c_str());
     ImGui::Separator();
 
     if (!m_selected_pack.empty())
     {
         // Gallery controls (client-side filtering)
         ImGui::SetNextItemWidth(260.0f);
-        ImGui::InputTextWithHint("##file_filter", "Filter files (substring)", &m_file_filter);
+        ImGui::InputTextWithHint("##file_filter", PHOS_TR("sixteen_colors.filter_files_hint").c_str(), &m_file_filter);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(220.0f);
-        ImGui::InputTextWithHint("##tag_filter", "Filter tag (substring)", &m_tag_filter);
+        ImGui::InputTextWithHint("##tag_filter", PHOS_TR("sixteen_colors.filter_tag_hint").c_str(), &m_tag_filter);
 
         if (!m_pack_detail_json.empty())
         {
@@ -2026,7 +2028,9 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                                 dl->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(20, 20, 24, 255), 4.0f);
                                 dl->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(90, 90, 105, 255), 4.0f);
                                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - thumb_h + 8.0f);
-                                ImGui::TextUnformatted(t.failed ? "thumb failed" : "loading...");
+                                ImGui::TextUnformatted(t.failed
+                                    ? PHOS_TR("sixteen_colors.thumb_failed").c_str()
+                                    : PHOS_TR("sixteen_colors.thumb_loading").c_str());
                             }
                         }
                         else
@@ -2036,7 +2040,7 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                             dl->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(20, 20, 24, 255), 4.0f);
                             dl->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(90, 90, 105, 255), 4.0f);
                             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - thumb_h + 8.0f);
-                            ImGui::TextUnformatted("no thumbnail");
+                            ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_thumbnail").c_str());
                         }
 
                         // Click behavior: download raw and import.
@@ -2059,22 +2063,22 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
                 }
                 else
                 {
-                    ImGui::TextUnformatted("No files for this pack.");
+                    ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_files_for_pack").c_str());
                 }
             }
             else
             {
-                ImGui::TextUnformatted("Unexpected pack details response.");
+                ImGui::TextUnformatted(PHOS_TR("sixteen_colors.unexpected_pack_details").c_str());
             }
         }
         else
         {
-            ImGui::TextUnformatted("No pack details loaded yet.");
+            ImGui::TextUnformatted(PHOS_TR("sixteen_colors.no_pack_details_yet").c_str());
         }
     }
     else
     {
-        ImGui::TextUnformatted("Select a pack on the left.");
+        ImGui::TextUnformatted(PHOS_TR("sixteen_colors.select_pack_left").c_str());
     }
 
     ImGui::Columns(1);
