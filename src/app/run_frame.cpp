@@ -66,6 +66,7 @@
 #include "ui/sixteen_colors_browser.h"
 #include "ui/tool_palette.h"
 #include "ui/tool_parameters_window.h"
+#include "ui/tool_presets_window.h"
 #include "ui/tool_params.h"
 
 #include "misc/cpp/imgui_stdlib.h"
@@ -123,40 +124,33 @@ static bool ApplyToolPresetDigit(const std::string& tool_id,
         return false;
 
     // Reserve Ctrl+1..9 as presets 1..9.
-    const int want_index = digit - 1;
-    if (want_index < 0)
-        return false;
-
     const std::string presets_path = PhosphorAssetPath("tool-presets.json");
     std::vector<tool_params::ToolParamPreset> presets;
-    std::unordered_map<std::string, std::string> selected_by_tool;
+    std::unordered_map<std::string, int> selected_by_tool_slot;
     std::string err;
-    if (!tool_params::LoadToolParamPresetsFromFile(presets_path.c_str(), presets, selected_by_tool, err))
+    if (!tool_params::LoadToolParamPresetsFromFile(presets_path.c_str(), presets, selected_by_tool_slot, err))
     {
         return false;
     }
 
-    // Collect presets for this tool in file order.
-    std::vector<int> idxs;
-    idxs.reserve(presets.size());
-    for (int i = 0; i < (int)presets.size(); ++i)
+    // Find preset by explicit slot.
+    const tool_params::ToolParamPreset* found = nullptr;
+    for (const auto& p : presets)
     {
-        if (presets[(size_t)i].tool_id == tool_id)
-            idxs.push_back(i);
+        if (p.tool_id == tool_id && p.slot == digit)
+        {
+            found = &p;
+            break;
+        }
     }
-    if (want_index >= (int)idxs.size())
+    if (!found)
         return false;
-
-    const int gi = idxs[(size_t)want_index];
-    if (gi < 0 || gi >= (int)presets.size())
-        return false;
-    const auto& p = presets[(size_t)gi];
 
     // Apply and persist selection.
-    selected_by_tool[tool_id] = p.title;
-    tool_params::ApplyToolParams(p.values, tool_engine);
+    selected_by_tool_slot[tool_id] = digit;
+    tool_params::ApplyToolParams(found->values, tool_engine);
     tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
-    if (!tool_params::SaveToolParamPresetsToFile(presets_path.c_str(), presets, selected_by_tool, err))
+    if (!tool_params::SaveToolParamPresetsToFile(presets_path.c_str(), presets, selected_by_tool_slot, err))
     {
         return false;
     }
@@ -218,6 +212,7 @@ void RunFrame(AppState& st)
     bool& show_layer_manager_window = *st.toggles.show_layer_manager_window;
     bool& show_ansl_editor_window = *st.toggles.show_ansl_editor_window;
     bool& show_tool_palette_window = *st.toggles.show_tool_palette_window;
+    bool& show_tool_presets_window = *st.toggles.show_tool_presets_window;
     bool& show_brush_palette_window = *st.toggles.show_brush_palette_window;
     bool& show_minimap_window = *st.toggles.show_minimap_window;
     bool& show_settings_window = *st.toggles.show_settings_window;
@@ -723,6 +718,7 @@ void RunFrame(AppState& st)
                              show_layer_manager_window,
                              show_ansl_editor_window,
                              show_tool_palette_window,
+                             show_tool_presets_window,
                              show_brush_palette_window,
                              show_minimap_window,
                              show_settings_window,
@@ -1707,6 +1703,18 @@ void RunFrame(AppState& st)
                                         tool_engine,
                                         session_state,
                                         should_apply_placement("Tool Parameters"));
+    }
+
+    // Tool Presets window (slots 1..9 for active tool).
+    if (show_tool_presets_window)
+    {
+        static ToolPresetsWindow tool_presets_window;
+        (void)tool_presets_window.Render(tool_palette.GetActiveTool(),
+                                         s_compiled_tool_id,
+                                         tool_engine,
+                                         session_state,
+                                         &show_tool_presets_window,
+                                         should_apply_placement("Tool Presets"));
     }
 
     // Render each canvas window
@@ -3040,6 +3048,7 @@ void RunFrame(AppState& st)
                                                          show_layer_manager_window,
                                                          show_ansl_editor_window,
                                                          show_tool_palette_window,
+                                                         show_tool_presets_window,
                                                          show_brush_palette_window,
                                                          show_minimap_window,
                                                          show_settings_window,

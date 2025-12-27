@@ -126,6 +126,7 @@ ru_RU {
       layer_manager { "Layer Manager" }
       ansl_editor { "ANSL Editor" }
       tool_palette { "Tool Palette" }
+      tool_presets { "Tool Presets" }
       brush_palette { "Brush Palette" }
       minimap { "Minimap" }
       sixteen_colors_browser { "16colo.rs Browser" }
@@ -629,6 +630,20 @@ ru_RU {
 
     delete_preset_modal { "Delete Tool Param Preset?" }
     delete_preset_help { "Delete the selected preset? This cannot be undone." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool presets window (src/ui/tool_presets_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_presets_window {
+    ctx_apply { "Применить" }
+    ctx_overwrite_with_current { "Перезаписать текущими" }
+    ctx_rename_ellipsis { "Переименовать…" }
+    ctx_save_current_to_slot { "Сохранить текущие в слот" }
+
+    rename_modal_title { "Переименовать пресет" }
+    rename_new_title_label { "Новое название:" }
+    no_preset_selected { "Пресет не выбран." }
   }
 
   // ---------------------------------------------------------------------------

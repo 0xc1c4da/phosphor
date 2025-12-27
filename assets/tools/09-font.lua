@@ -7,9 +7,9 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    font = { type = "enum", label = "Font", ui = "combo_filter", section = "Font", primary = true, items = { "(no fonts)" }, default = "(no fonts)" },
-    place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", primary = true, inline = true },
-    clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", primary = true, inline = true },
+    font = { type = "enum", label = "Font", ui = "combo_filter", section = "Font", placement = "quick", items = { "(no fonts)" }, default = "(no fonts)" },
+    place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", placement = "quick", inline = true },
+    clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", placement = "quick", inline = true },
 
     useFontColours = { type = "bool", label = "Use font colours", ui = "toggle", section = "Colour", default = true },
     useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Colour", default = true, inline = true },

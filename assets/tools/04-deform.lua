@@ -5,10 +5,10 @@ settings = {
   shortcut = "Alt+D",
 
   params = {
-    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 61, step = 1, default = 15, width = 160 },
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Deform", primary = true, order = 1, inline = true, items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
-    strength = { type = "float", label = "Strength", ui = "slider", section = "Brush", primary = true, order = 2, min = 0.0, max = 1.0, step = 0.01, default = 0.75, inline = true, width = 160 },
-    spacing = { type = "float", label = "Spacing", ui = "slider", section = "Brush", primary = true, order = 3, min = 0.05, max = 2.0, step = 0.05, default = 0.25, inline = true, width = 160 },
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", placement = "quick", order = 0, min = 1, max = 61, step = 1, default = 15, width = 160 },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Deform", placement = "quick", order = 1, inline = true, items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
+    strength = { type = "float", label = "Strength", ui = "slider", section = "Brush", placement = "quick", order = 2, min = 0.0, max = 1.0, step = 0.01, default = 0.75, inline = true, width = 160 },
+    spacing = { type = "float", label = "Spacing", ui = "slider", section = "Brush", placement = "quick", order = 3, min = 0.05, max = 2.0, step = 0.05, default = 0.25, inline = true, width = 160 },
 
     hardness = { type = "int", label = "Hardness", ui = "slider", section = "Brush", min = 0, max = 100, step = 1, default = 80 },
     amount = { type = "float", label = "Amount", ui = "slider", section = "Brush", min = 0.0, max = 2.0, step = 0.05, default = 1.0, inline = true },

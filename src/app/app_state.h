@@ -153,6 +153,7 @@ struct AppState
         bool* show_layer_manager_window = nullptr;
         bool* show_ansl_editor_window = nullptr;
         bool* show_tool_palette_window = nullptr;
+        bool* show_tool_presets_window = nullptr;
         bool* show_brush_palette_window = nullptr;
         bool* show_minimap_window = nullptr;
         bool* show_settings_window = nullptr;

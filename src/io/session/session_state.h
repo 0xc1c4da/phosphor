@@ -140,6 +140,11 @@ struct SessionState
     // tool_id -> (param_key -> value)
     std::unordered_map<std::string, std::unordered_map<std::string, ToolParamValue>> tool_param_values;
 
+    // Per-tool Tool Parameters UI state (persisted)
+    // tool_id -> (section_name -> collapsed)
+    // Default is "open" (collapsed=false).
+    std::unordered_map<std::string, std::unordered_map<std::string, bool>> tool_param_section_collapsed;
+
     // ---------------------------------------------------------------------
     // Brush Palette (persisted)
     // ---------------------------------------------------------------------
@@ -181,6 +186,7 @@ struct SessionState
     bool show_layer_manager_window = true;
     bool show_ansl_editor_window = true;
     bool show_tool_palette_window = true;
+    bool show_tool_presets_window = false;
     bool show_brush_palette_window = false;
     bool show_minimap_window = true;
     bool show_settings_window = false;

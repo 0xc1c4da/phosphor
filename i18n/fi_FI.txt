@@ -126,6 +126,7 @@ fi_FI {
       layer_manager { "Tasohallinta" }
       ansl_editor { "ANSL-editori" }
       tool_palette { "Työkalupaletti" }
+      tool_presets { "Työkalun esiasetukset" }
       brush_palette { "Sivellinpaletti" }
       minimap { "Minikartta" }
       sixteen_colors_browser { "16colo.rs-selain" }
@@ -629,6 +630,20 @@ fi_FI {
 
     delete_preset_modal { "Poistetaanko työkalun parametriesiasetus?" }
     delete_preset_help { "Poistetaanko valittu esiasetus? Tätä ei voi kumota." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool presets window (src/ui/tool_presets_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_presets_window {
+    ctx_apply { "Käytä" }
+    ctx_overwrite_with_current { "Korvaa nykyisellä" }
+    ctx_rename_ellipsis { "Nimeä uudelleen…" }
+    ctx_save_current_to_slot { "Tallenna nykyinen paikkaan" }
+
+    rename_modal_title { "Nimeä esiasetus uudelleen" }
+    rename_new_title_label { "Uusi otsikko:" }
+    no_preset_selected { "Ei valittua esiasetusta." }
   }
 
   // ---------------------------------------------------------------------------

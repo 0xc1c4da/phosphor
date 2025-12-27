@@ -126,6 +126,7 @@ zh_TW {
       layer_manager { "Layer Manager" }
       ansl_editor { "ANSL Editor" }
       tool_palette { "Tool Palette" }
+      tool_presets { "Tool Presets" }
       brush_palette { "Brush Palette" }
       minimap { "Minimap" }
       sixteen_colors_browser { "16colo.rs Browser" }
@@ -629,6 +630,20 @@ zh_TW {
 
     delete_preset_modal { "Delete Tool Param Preset?" }
     delete_preset_help { "Delete the selected preset? This cannot be undone." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool presets window (src/ui/tool_presets_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_presets_window {
+    ctx_apply { "套用" }
+    ctx_overwrite_with_current { "以目前設定覆寫" }
+    ctx_rename_ellipsis { "重新命名…" }
+    ctx_save_current_to_slot { "將目前設定存到槽位" }
+
+    rename_modal_title { "重新命名預設" }
+    rename_new_title_label { "新標題：" }
+    no_preset_selected { "未選取預設。" }
   }
 
   // ---------------------------------------------------------------------------

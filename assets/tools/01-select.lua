@@ -46,16 +46,16 @@ settings = {
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     -- Stable ordering for host UI.
-    copyMode = { type = "enum", label = "Copy", ui = "segmented", section = "Clipboard", primary = true, items = { "layer", "composite" }, default = "layer" },
-    pasteMode = { type = "enum", label = "Paste", ui = "segmented", section = "Clipboard", primary = true, items = { "both", "char", "colour" }, default = "both" },
-    transparentSpaces = { type = "bool", label = "Transparent spaces", ui = "toggle", section = "Clipboard", primary = true, default = false, inline = true },
+    copyMode = { type = "enum", label = "Copy", ui = "segmented", section = "Clipboard", placement = "quick", items = { "layer", "composite" }, default = "layer" },
+    pasteMode = { type = "enum", label = "Paste", ui = "segmented", section = "Clipboard", placement = "quick", items = { "both", "char", "colour" }, default = "both" },
+    transparentSpaces = { type = "bool", label = "Transparent spaces", ui = "toggle", section = "Clipboard", placement = "quick", default = false, inline = true },
 
     -- Selection transforms (direct action buttons)
-    rotateCW = { type = "button", label = "Rotate", ui = "action", section = "Transform", primary = true },
-    flipX = { type = "button", label = "Flip X", ui = "action", section = "Transform", primary = true, inline = true },
-    flipY = { type = "button", label = "Flip Y", ui = "action", section = "Transform", primary = true, inline = true },
-    center = { type = "button", label = "Center", ui = "action", section = "Transform", primary = true, inline = true },
-    crop = { type = "button", label = "Crop", ui = "action", section = "Transform", primary = true, inline = true },
+    rotateCW = { type = "button", label = "Rotate", ui = "action", section = "Transform", placement = "quick" },
+    flipX = { type = "button", label = "Flip X", ui = "action", section = "Transform", placement = "quick", inline = true },
+    flipY = { type = "button", label = "Flip Y", ui = "action", section = "Transform", placement = "quick", inline = true },
+    center = { type = "button", label = "Center", ui = "action", section = "Transform", placement = "quick", inline = true },
+    crop = { type = "button", label = "Crop", ui = "action", section = "Transform", placement = "quick", inline = true },
   },
 }
 

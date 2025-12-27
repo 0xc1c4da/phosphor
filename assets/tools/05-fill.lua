@@ -7,10 +7,10 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Fill", primary = true, items = { "char", "colourize", "both", "half" }, default = "both" },
-    exact = { type = "bool", label = "Exact", ui = "toggle", section = "Fill", primary = true, default = true, tooltip = "If off: match glyph only (ignore colours)." , inline = true },
-    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Paint", primary = true, default = true, inline = true },
-    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Paint", primary = true, default = true, inline = true },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Fill", placement = "quick", items = { "char", "colourize", "both", "half" }, default = "both" },
+    exact = { type = "bool", label = "Exact", ui = "toggle", section = "Fill", placement = "quick", default = true, tooltip = "If off: match glyph only (ignore colours)." , inline = true },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Paint", placement = "quick", default = true, inline = true },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Paint", placement = "quick", default = true, inline = true },
     maxCells = { type = "int", label = "Max cells", ui = "slider", section = "Safety", min = 1000, max = 500000, step = 1000, default = 200000, tooltip = "Safety cap for flood fill; prevents runaway fills." },
   },
 }

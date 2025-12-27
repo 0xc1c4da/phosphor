@@ -6,7 +6,7 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, min = 1, max = 50, step = 1, default = 1, width = 180 },
+    size = { type = "int", label = "Size", ui = "slider", section = "Brush", placement = "quick", min = 1, max = 50, step = 1, default = 1, width = 180 },
   },
 }
 

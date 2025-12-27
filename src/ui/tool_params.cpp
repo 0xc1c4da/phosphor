@@ -239,12 +239,12 @@ void ApplyToolParams(const std::unordered_map<std::string, SessionState::ToolPar
 
 bool LoadToolParamPresetsFromFile(const char* path,
                                   std::vector<ToolParamPreset>& out_presets,
-                                  std::unordered_map<std::string, std::string>& out_selected,
+                                  std::unordered_map<std::string, int>& out_selected_slot,
                                   std::string& error)
 {
     error.clear();
     out_presets.clear();
-    out_selected.clear();
+    out_selected_slot.clear();
     if (!path || !*path)
     {
         error = "Invalid path";
@@ -275,16 +275,41 @@ bool LoadToolParamPresetsFromFile(const char* path,
         return false;
     }
 
+    const int schema_version =
+        (j.contains("schema_version") && j["schema_version"].is_number_integer())
+            ? j["schema_version"].get<int>()
+            : 1;
+
+    // Schema v2:
+    // - selected = { "<tool_id>": <slot_int 1..9>, ... }
+    // - presets[] = { tool_id, slot, title, params{...} }
+    //
+    // Schema v1 (legacy):
+    // - selected = { "<tool_id>": "<title>", ... }
+    // - presets[] = { tool_id, title, params{...} }
+    //
+    // We migrate v1 to v2 semantics on load by assigning slots 1..9 in file order per tool.
     if (j.contains("selected") && j["selected"].is_object())
     {
         for (auto it = j["selected"].begin(); it != j["selected"].end(); ++it)
         {
-            if (!it.value().is_string())
-                continue;
             const std::string tool_id = it.key();
-            const std::string title = it.value().get<std::string>();
-            if (!tool_id.empty() && !title.empty())
-                out_selected[tool_id] = title;
+            if (tool_id.empty())
+                continue;
+
+            if (schema_version >= 2)
+            {
+                if (!it.value().is_number_integer())
+                    continue;
+                const int slot = it.value().get<int>();
+                if (slot >= 1 && slot <= 9)
+                    out_selected_slot[tool_id] = slot;
+            }
+            else
+            {
+                // v1 selected-by-title migration is handled after presets are loaded.
+                // We temporarily ignore it here.
+            }
         }
     }
 
@@ -294,16 +319,52 @@ bool LoadToolParamPresetsFromFile(const char* path,
         return true;
     }
 
+    // Legacy v1 selected-by-title map (tool_id -> title)
+    std::unordered_map<std::string, std::string> v1_selected_title;
+    if (schema_version < 2 && j.contains("selected") && j["selected"].is_object())
+    {
+        for (auto it = j["selected"].begin(); it != j["selected"].end(); ++it)
+        {
+            if (!it.value().is_string())
+                continue;
+            const std::string tool_id = it.key();
+            const std::string title = TrimCopy(it.value().get<std::string>());
+            if (!tool_id.empty() && !title.empty())
+                v1_selected_title[tool_id] = title;
+        }
+    }
+
+    // v1 slot assignment per tool (file order).
+    std::unordered_map<std::string, int> v1_next_slot;
+
     for (const auto& item : j["presets"])
     {
         if (!item.is_object())
             continue;
         ToolParamPreset p;
+
+        if (schema_version >= 2)
+        {
+            if (item.contains("slot") && item["slot"].is_number_integer())
+                p.slot = item["slot"].get<int>();
+        }
         if (item.contains("title") && item["title"].is_string())
             p.title = TrimCopy(item["title"].get<std::string>());
         if (item.contains("tool_id") && item["tool_id"].is_string())
             p.tool_id = item["tool_id"].get<std::string>();
         if (p.title.empty() || p.tool_id.empty())
+            continue;
+
+        if (schema_version < 2)
+        {
+            int& next = v1_next_slot[p.tool_id];
+            if (next <= 0)
+                next = 1;
+            p.slot = next;
+            next = std::min(10, next + 1); // clamp; slot validity checked below
+        }
+
+        if (p.slot < 1 || p.slot > 9)
             continue;
 
         if (!item.contains("params") || !item["params"].is_object())
@@ -333,12 +394,53 @@ bool LoadToolParamPresetsFromFile(const char* path,
             out_presets.push_back(std::move(p));
     }
 
+    // Ensure at most one preset per (tool_id, slot). Last one wins.
+    {
+        std::unordered_map<std::string, size_t> key_to_idx;
+        key_to_idx.reserve(out_presets.size());
+        std::vector<ToolParamPreset> dedup;
+        dedup.reserve(out_presets.size());
+        for (auto& p : out_presets)
+        {
+            const std::string k = p.tool_id + "#" + std::to_string(p.slot);
+            auto it = key_to_idx.find(k);
+            if (it == key_to_idx.end())
+            {
+                key_to_idx[k] = dedup.size();
+                dedup.push_back(std::move(p));
+            }
+            else
+            {
+                dedup[it->second] = std::move(p);
+            }
+        }
+        out_presets = std::move(dedup);
+    }
+
+    // Finish v1 migration: map selected-by-title -> selected slot.
+    if (schema_version < 2 && !v1_selected_title.empty())
+    {
+        for (const auto& kv : v1_selected_title)
+        {
+            const std::string& tool_id = kv.first;
+            const std::string& want_title = kv.second;
+            for (const auto& p : out_presets)
+            {
+                if (p.tool_id == tool_id && p.title == want_title)
+                {
+                    out_selected_slot[tool_id] = p.slot;
+                    break;
+                }
+            }
+        }
+    }
+
     return true;
 }
 
 bool SaveToolParamPresetsToFile(const char* path,
                                 const std::vector<ToolParamPreset>& presets,
-                                const std::unordered_map<std::string, std::string>& selected,
+                                const std::unordered_map<std::string, int>& selected_slot,
                                 std::string& error)
 {
     error.clear();
@@ -349,11 +451,11 @@ bool SaveToolParamPresetsToFile(const char* path,
     }
 
     json j;
-    j["schema_version"] = 1;
+    j["schema_version"] = 2;
 
     json sel = json::object();
-    for (const auto& kv : selected)
-        if (!kv.first.empty() && !kv.second.empty())
+    for (const auto& kv : selected_slot)
+        if (!kv.first.empty() && kv.second >= 1 && kv.second <= 9)
             sel[kv.first] = kv.second;
     j["selected"] = std::move(sel);
 
@@ -362,7 +464,10 @@ bool SaveToolParamPresetsToFile(const char* path,
     {
         if (p.title.empty() || p.tool_id.empty() || p.values.empty())
             continue;
+        if (p.slot < 1 || p.slot > 9)
+            continue;
         json item;
+        item["slot"] = p.slot;
         item["title"] = p.title;
         item["tool_id"] = p.tool_id;
         json params = json::object();

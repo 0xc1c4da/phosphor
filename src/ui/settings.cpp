@@ -242,7 +242,23 @@ void SettingsWindow::EnsureDefaultTabsRegistered()
             ImGui::TextUnformatted(PHOS_TR("settings_window.about.byline").c_str());
             ImGui::Separator();
             ImGui::TextUnformatted(PHOS_TR("settings_window.about.blurb").c_str());
-          
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+
+            static constexpr const char* kRepoUrl = "https://github.com/0xc1c4da/phosphor";
+            ImGui::TextUnformatted(PHOS_TR("settings_window.about.repo_label").c_str());
+            ImGui::SameLine();
+            if (ImGui::TextLink(kRepoUrl))
+            {
+                ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+                ImGuiContext* ctx = ImGui::GetCurrentContext();
+                const bool ok = platform_io.Platform_OpenInShellFn ? platform_io.Platform_OpenInShellFn(ctx, kRepoUrl) : false;
+                if (!ok)
+                    ImGui::SetClipboardText(kRepoUrl);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip("%s", PHOS_TR("settings_window.about.repo_tooltip").c_str());
         },
     });
 }

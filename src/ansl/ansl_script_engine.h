@@ -25,10 +25,18 @@ enum class AnslParamType
     Button, // edge-triggered; true only for the frame it is clicked
 };
 
+enum class AnslParamPlacement
+{
+    Section,
+    Quick,
+};
+
 struct AnslParamSpec
 {
     std::string key;   // lua identifier under ctx.params.<key>
     std::string label; // human-friendly label for UI (optional)
+    // Optional short/compact label for tight UIs (e.g. quick controls row).
+    std::string compact_label;
     std::string tooltip; // optional help text (shown in UI tooltip)
     AnslParamType type = AnslParamType::Bool;
 
@@ -55,8 +63,9 @@ struct AnslParamSpec
     // - "action"      (button)
     std::string ui;
 
-    // If true, this param should be shown in the compact "options bar" region.
-    bool primary = false;
+    // Where this parameter should be rendered in the Tool Parameters UI.
+    // Default: Section.
+    AnslParamPlacement placement = AnslParamPlacement::Section;
 
     // Optional width hint for the widget (ImGui item width in px). 0 means auto.
     float width = 0.0f;

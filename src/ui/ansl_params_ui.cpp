@@ -4,6 +4,7 @@
 
 #include "core/i18n.h"
 #include "fonts/textmode_font_registry.h"
+#include "io/session/session_state.h"
 
 #include <algorithm>
 #include <cctype>
@@ -586,16 +587,9 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
 
 static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engine, bool compact)
 {
-    // In compact mode, enforce consistent labels for common cross-tool toggles.
-    // Many tools use verbose labels ("Fallback: Use FG") which makes the compact row inconsistent.
-    const bool is_use_fg = (spec.key == "useFg");
-    const bool is_use_bg = (spec.key == "useBg");
-    const bool is_colour_source = (spec.key == "fgSource") || (spec.key == "bgSource");
     const char* label =
-        (compact && is_use_fg) ? "FG" :
-        (compact && is_use_bg) ? "BG" :
-        (compact && is_colour_source && spec.label == "Source") ? "Src" :
-        (spec.label.empty() ? spec.key.c_str() : spec.label.c_str());
+        (compact && !spec.compact_label.empty()) ? spec.compact_label.c_str()
+                                                 : (spec.label.empty() ? spec.key.c_str() : spec.label.c_str());
     const std::string ui = ToLower(spec.ui);
     bool changed = false;
 
@@ -674,8 +668,6 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 ImGui::SameLine();
                 if (spec.width > 0.0f)
                     ImGui::SetNextItemWidth(spec.width);
-                else
-                    ImGui::SetNextItemWidth(180.0f);
 
                 int v2 = v;
                 const char* wid = "##int";
@@ -738,8 +730,6 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 ImGui::SameLine();
                 if (spec.width > 0.0f)
                     ImGui::SetNextItemWidth(spec.width);
-                else
-                    ImGui::SetNextItemWidth(180.0f);
 
                 float v2 = v;
                 const char* wid = "##float";
@@ -914,6 +904,37 @@ static bool IsSkippedKey(const AnslParamSpec& s, const AnslParamsUISkipList* ski
     return false;
 }
 
+static float EstimateCompactItemWidthPx(const AnslParamSpec& spec)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float em = ImGui::GetFontSize();
+    const char* label =
+        (!spec.compact_label.empty()) ? spec.compact_label.c_str()
+                                      : (spec.label.empty() ? spec.key.c_str() : spec.label.c_str());
+    const float label_w = ImGui::CalcTextSize(label).x;
+
+    float control_w = 0.0f;
+    switch (spec.type)
+    {
+        case AnslParamType::Bool:
+            control_w = 2.5f * em;
+            break;
+        case AnslParamType::Button:
+            control_w = 2.0f * em;
+            break;
+        case AnslParamType::Int:
+        case AnslParamType::Float:
+            control_w = (spec.width > 0.0f) ? spec.width : (8.0f * em);
+            break;
+        case AnslParamType::Enum:
+            control_w = (spec.width > 0.0f) ? spec.width : (10.0f * em);
+            break;
+    }
+
+    const float w = label_w + style.ItemInnerSpacing.x + control_w + style.FramePadding.x * 2.0f;
+    return std::clamp(w, 4.0f * em, 40.0f * em);
+}
+
 bool RenderAnslParamByKey(const char* id, AnslScriptEngine& engine, const char* key, bool compact)
 {
     if (!key || !*key)
@@ -958,27 +979,38 @@ bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, cons
     }
 
     const auto& specs = engine.GetParamSpecs();
-    // Primary bar (compact): show "primary" params first.
-    bool any_primary = false;
+    // Quick bar (compact): show "placement==Quick" params.
+    bool any_quick = false;
     for (const auto& s : specs)
-        any_primary = any_primary || (s.primary && !IsSkippedKey(s, skip));
+        any_quick = any_quick || (s.placement == AnslParamPlacement::Quick && !IsSkippedKey(s, skip));
 
-    if (any_primary)
+    if (any_quick)
     {
-        bool have_prev_inline = false;
+        const float start_x = ImGui::GetCursorPosX();
+        const float max_x = start_x + std::max(1.0f, ImGui::GetContentRegionAvail().x);
+        bool first = true;
         for (const auto& s : specs)
         {
-            if (!s.primary)
+            if (s.placement != AnslParamPlacement::Quick)
                 continue;
             if (IsSkippedKey(s, skip))
                 continue;
 
-            if (have_prev_inline && s.inline_with_prev)
-                ImGui::SameLine();
+            if (!first)
+            {
+                const float want_w = EstimateCompactItemWidthPx(s);
+                const float cur_x = ImGui::GetCursorPosX();
+                const float spacing = ImGui::GetStyle().ItemSpacing.x;
+                const bool fits = (cur_x + spacing + want_w) <= max_x;
+                if (fits)
+                    ImGui::SameLine();
+                else
+                    ImGui::NewLine();
+            }
             ImGui::PushID(s.key.c_str());
             changed = RenderParamControl(s, engine, /*compact=*/true) || changed;
             ImGui::PopID();
-            have_prev_inline = true;
+            first = false;
         }
     }
 
@@ -986,7 +1018,21 @@ bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, cons
     return changed;
 }
 
+struct ToolSectionLayoutState
+{
+    bool horizontal = false;
+};
+
 bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip)
+{
+    return RenderAnslParamsUIAdvanced(id, engine, skip, /*session=*/nullptr, /*tool_id=*/std::string());
+}
+
+bool RenderAnslParamsUIAdvanced(const char* id,
+                               AnslScriptEngine& engine,
+                               const AnslParamsUISkipList* skip,
+                               SessionState* session,
+                               const std::string& tool_id)
 {
     if (!id)
         id = "ansl_params_advanced";
@@ -1004,7 +1050,7 @@ bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const 
     const auto& specs = engine.GetParamSpecs();
     bool any_advanced = false;
     for (const auto& s : specs)
-        any_advanced = any_advanced || (!s.primary && !IsSkippedKey(s, skip));
+        any_advanced = any_advanced || (s.placement == AnslParamPlacement::Section && !IsSkippedKey(s, skip));
 
     if (!any_advanced)
     {
@@ -1012,34 +1058,187 @@ bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const 
         return false;
     }
 
-            std::string cur_section;
-            bool section_open = false;
-            bool have_prev_inline = false;
-            for (const auto& s : specs)
+    struct Section
+    {
+        std::string name;
+        std::vector<const AnslParamSpec*> params;
+        float est_height = 0.0f;
+    };
+
+    std::vector<Section> sections;
+    sections.reserve(8);
+
+    {
+        std::unordered_map<std::string, int> idx_by_name;
+        idx_by_name.reserve(16);
+        for (const auto& s : specs)
+        {
+            if (s.placement != AnslParamPlacement::Section)
+                continue;
+            if (IsSkippedKey(s, skip))
+                continue;
+
+            const std::string sec = s.section.empty() ? "General" : s.section;
+            auto it = idx_by_name.find(sec);
+            if (it == idx_by_name.end())
             {
-                if (s.primary)
-                    continue;
-        if (IsSkippedKey(s, skip))
-            continue;
-
-                const std::string sec = s.section.empty() ? "General" : s.section;
-                if (sec != cur_section)
-                {
-                    cur_section = sec;
-                    have_prev_inline = false;
-                    section_open = ImGui::CollapsingHeader(cur_section.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
-                }
-                if (!section_open)
-                    continue;
-
-                if (have_prev_inline && s.inline_with_prev)
-                    ImGui::SameLine();
-
-                ImGui::PushID(s.key.c_str());
-                changed = RenderParamControl(s, engine, /*compact=*/false) || changed;
-                ImGui::PopID();
-                have_prev_inline = true;
+                const int new_idx = (int)sections.size();
+                idx_by_name[sec] = new_idx;
+                sections.push_back(Section{sec, {}, 0.0f});
+                it = idx_by_name.find(sec);
             }
+            sections[(size_t)it->second].params.push_back(&s);
+        }
+    }
+
+    // Stable section ordering: alphabetical (tools should conform to canonical names).
+    std::sort(sections.begin(), sections.end(),
+              [](const Section& a, const Section& b) { return a.name < b.name; });
+
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float em = ImGui::GetFontSize();
+
+    // Layout estimation for horizontal-vs-vertical decision.
+    float max_label_w = 0.0f;
+    int wide_count = 0;
+    int total_count = 0;
+    for (auto& sec : sections)
+    {
+        sec.est_height = ImGui::GetFrameHeightWithSpacing(); // header
+        for (const AnslParamSpec* sp : sec.params)
+        {
+            if (!sp)
+                continue;
+            const char* label = sp->label.empty() ? sp->key.c_str() : sp->label.c_str();
+            max_label_w = std::max(max_label_w, ImGui::CalcTextSize(label).x);
+            sec.est_height += ImGui::GetFrameHeightWithSpacing();
+            if (sp->width > 0.0f && sp->width >= 18.0f * em)
+                wide_count++;
+            total_count++;
+        }
+    }
+
+    max_label_w = std::clamp(max_label_w, 6.0f * em, 18.0f * em);
+    const float control_w = 12.0f * em;
+    const float Wc = max_label_w + style.ItemInnerSpacing.x + control_w + style.FramePadding.x * 2.0f;
+
+    const float aspect = (avail.y > 1.0f) ? (avail.x / avail.y) : avail.x;
+    const int max_cols = 3;
+    int cols = 1;
+    if (Wc > 1.0f && avail.x > 1.0f)
+        cols = std::clamp((int)std::floor((avail.x + style.ItemSpacing.x) / (Wc + style.ItemSpacing.x)), 1, max_cols);
+
+    const float wide_ratio = (total_count > 0) ? ((float)wide_count / (float)total_count) : 0.0f;
+    const bool candidate_horizontal = (cols >= 2) && (aspect >= 0.85f) && (wide_ratio <= 0.35f);
+
+    // Hysteresis per tool id (avoid thrash during resize).
+    static std::unordered_map<std::string, ToolSectionLayoutState> layout_state;
+    const std::string key = tool_id.empty() ? std::string("<tool>") : tool_id;
+    ToolSectionLayoutState& st = layout_state[key];
+    const float W_on = 2.15f * Wc;
+    const float W_off = 1.85f * Wc;
+    if (!st.horizontal)
+    {
+        if (candidate_horizontal && avail.x >= W_on)
+            st.horizontal = true;
+    }
+    else
+    {
+        if (!candidate_horizontal || avail.x <= W_off)
+            st.horizontal = false;
+    }
+
+    auto get_collapsed = [&](const std::string& sec) -> bool {
+        if (!session || tool_id.empty() || sec.empty())
+            return false;
+        auto it_tool = session->tool_param_section_collapsed.find(tool_id);
+        if (it_tool == session->tool_param_section_collapsed.end())
+            return false;
+        auto it = it_tool->second.find(sec);
+        return (it != it_tool->second.end()) ? it->second : false;
+    };
+    auto set_collapsed = [&](const std::string& sec, bool collapsed) {
+        if (!session || tool_id.empty() || sec.empty())
+            return;
+        auto& m = session->tool_param_section_collapsed[tool_id];
+        if (collapsed)
+            m[sec] = true;
+        else
+            m.erase(sec);
+        if (m.empty())
+            session->tool_param_section_collapsed.erase(tool_id);
+    };
+
+    auto render_section = [&](const Section& sec) {
+        const bool collapsed = get_collapsed(sec.name);
+        ImGui::SetNextItemOpen(!collapsed, ImGuiCond_Always);
+        const bool open = ImGui::CollapsingHeader(sec.name.c_str(), ImGuiTreeNodeFlags_None);
+        if (ImGui::IsItemToggledOpen())
+            set_collapsed(sec.name, !open);
+        if (!open)
+            return;
+
+        bool have_prev_inline = false;
+        for (const AnslParamSpec* sp : sec.params)
+        {
+            if (!sp)
+                continue;
+            if (have_prev_inline && sp->inline_with_prev)
+                ImGui::SameLine();
+            ImGui::PushID(sp->key.c_str());
+            changed = RenderParamControl(*sp, engine, /*compact=*/false) || changed;
+            ImGui::PopID();
+            have_prev_inline = true;
+        }
+    };
+
+    if (!st.horizontal)
+    {
+        for (const auto& sec : sections)
+            render_section(sec);
+    }
+    else
+    {
+        // Balance sections across columns by estimated height.
+        std::vector<int> order((int)sections.size());
+        for (int i = 0; i < (int)sections.size(); ++i) order[i] = i;
+        std::sort(order.begin(), order.end(), [&](int ia, int ib) {
+            const Section& a = sections[(size_t)ia];
+            const Section& b = sections[(size_t)ib];
+            if (a.est_height != b.est_height)
+                return a.est_height > b.est_height;
+            return a.name < b.name;
+        });
+
+        std::vector<std::vector<int>> cols_secs((size_t)cols);
+        std::vector<float> col_heights((size_t)cols, 0.0f);
+        for (int idx : order)
+        {
+            int best_c = 0;
+            for (int c = 1; c < cols; ++c)
+                if (col_heights[(size_t)c] < col_heights[(size_t)best_c])
+                    best_c = c;
+            cols_secs[(size_t)best_c].push_back(idx);
+            col_heights[(size_t)best_c] += sections[(size_t)idx].est_height;
+        }
+
+        if (ImGui::BeginTable("##sections_cols", cols, ImGuiTableFlags_SizingStretchSame))
+        {
+            for (int c = 0; c < cols; ++c)
+            {
+                ImGui::TableNextColumn();
+                for (int idx : cols_secs[(size_t)c])
+                    render_section(sections[(size_t)idx]);
+            }
+            ImGui::EndTable();
+        }
+        else
+        {
+            for (const auto& sec : sections)
+                render_section(sec);
+        }
+    }
 
     ImGui::PopID();
     return changed;
@@ -1059,7 +1258,7 @@ bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine, const AnslPara
         // Only add a separator if advanced exists.
         bool any_advanced = false;
         for (const auto& s : engine.GetParamSpecs())
-            any_advanced = any_advanced || (!s.primary && !IsSkippedKey(s, skip));
+            any_advanced = any_advanced || (s.placement == AnslParamPlacement::Section && !IsSkippedKey(s, skip));
         if (any_advanced)
         {
             ImGui::Separator();

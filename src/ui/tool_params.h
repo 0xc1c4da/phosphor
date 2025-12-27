@@ -15,6 +15,8 @@ namespace tool_params
 
 struct ToolParamPreset
 {
+    // Stable slot identity (1..9). 0 means "unset/invalid".
+    int slot = 0;
     std::string title;
     std::string tool_id;
     std::unordered_map<std::string, SessionState::ToolParamValue> values;
@@ -35,11 +37,11 @@ void ApplyToolParams(const std::unordered_map<std::string, SessionState::ToolPar
 // File-backed presets + selected preset per tool.
 bool LoadToolParamPresetsFromFile(const char* path,
                                   std::vector<ToolParamPreset>& out_presets,
-                                  std::unordered_map<std::string, std::string>& out_selected,
+                                  std::unordered_map<std::string, int>& out_selected_slot,
                                   std::string& error);
 bool SaveToolParamPresetsToFile(const char* path,
                                 const std::vector<ToolParamPreset>& presets,
-                                const std::unordered_map<std::string, std::string>& selected,
+                                const std::unordered_map<std::string, int>& selected_slot,
                                 std::string& error);
 } // namespace tool_params
 

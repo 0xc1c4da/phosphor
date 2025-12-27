@@ -126,6 +126,7 @@ de_DE {
       layer_manager { "Ebenenverwaltung" }
       ansl_editor { "ANSL-Editor" }
       tool_palette { "Werkzeugpalette" }
+      tool_presets { "Werkzeug-Presets" }
       brush_palette { "Pinselpalette" }
       minimap { "Minikarte" }
       sixteen_colors_browser { "16colo.rs-Browser" }
@@ -629,6 +630,20 @@ de_DE {
 
     delete_preset_modal { "Werkzeug-Voreinstellung löschen?" }
     delete_preset_help { "Die ausgewählte Voreinstellung löschen? Dies kann nicht rückgängig gemacht werden." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool presets window (src/ui/tool_presets_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_presets_window {
+    ctx_apply { "Anwenden" }
+    ctx_overwrite_with_current { "Mit aktuellem überschreiben" }
+    ctx_rename_ellipsis { "Umbenennen…" }
+    ctx_save_current_to_slot { "Aktuelles in Slot speichern" }
+
+    rename_modal_title { "Voreinstellung umbenennen" }
+    rename_new_title_label { "Neuer Titel:" }
+    no_preset_selected { "Keine Voreinstellung ausgewählt." }
   }
 
   // ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 #include "imgui.h"
 
 #include "core/i18n.h"
-#include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/ansl_params_ui.h"
 #include "ui/imgui_window_chrome.h"
@@ -11,441 +10,11 @@
 #include <algorithm>
 #include <cstdio>
 
-#include "misc/cpp/imgui_stdlib.h"
+ToolParametersWindow::ToolParametersWindow() = default;
 
-ToolParametersWindow::ToolParametersWindow()
-{
-    presets_path_ = PhosphorAssetPath("tool-presets.json");
-}
-
-// Helpers (declared early so they can be used by RenderPresetsPopup as well as Render()).
+// Helpers
 static const AnslParamSpec* FindParamSpec(const AnslScriptEngine& eng, const char* key);
-static bool EngineHasPrimaryParamKey(const AnslScriptEngine& eng, const char* key);
-
-void ToolParametersWindow::EnsurePresetsLoaded()
-{
-    if (presets_loaded_)
-        return;
-    std::string err;
-    if (!tool_params::LoadToolParamPresetsFromFile(presets_path_.c_str(), presets_, selected_by_tool_, err))
-        presets_error_ = err;
-    else
-        presets_error_.clear();
-    presets_loaded_ = true;
-}
-
-void ToolParametersWindow::HandlePresetFileOps()
-{
-    if (request_reload_)
-    {
-        request_reload_ = false;
-        std::string err;
-        if (!tool_params::LoadToolParamPresetsFromFile(presets_path_.c_str(), presets_, selected_by_tool_, err))
-            presets_error_ = err;
-        else
-            presets_error_.clear();
-    }
-    if (request_save_)
-    {
-        request_save_ = false;
-        std::string err;
-        if (!tool_params::SaveToolParamPresetsToFile(presets_path_.c_str(), presets_, selected_by_tool_, err))
-            presets_error_ = err;
-        else
-            presets_error_.clear();
-    }
-}
-
-static std::string TrimCopyLocal(const std::string& s)
-{
-    // Keep behavior consistent with other TrimCopy helpers in the codebase.
-    size_t b = 0;
-    while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b])))
-        ++b;
-    size_t e = s.size();
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
-        --e;
-    return s.substr(b, e - b);
-}
-
-void ToolParametersWindow::RenderPresetsPopup(const char* base_id,
-                                              const std::string& tool_id,
-                                              AnslScriptEngine& tool_engine,
-                                              SessionState& session,
-                                              ImGuiWindowFlags flags)
-{
-    const std::string popup_presets = PHOS_TR("tool_parameters.presets_popup_title") + "###tool_param_presets_popup";
-    const std::string popup_new = PHOS_TR("tool_parameters.new_preset_modal") + "###tool_param_new";
-    const std::string popup_rename = PHOS_TR("tool_parameters.rename_preset_modal") + "###tool_param_rename";
-    const std::string popup_delete = PHOS_TR("tool_parameters.delete_preset_modal") + "###tool_param_delete";
-
-    // Filter presets for current tool_id.
-    std::vector<int> idxs;
-    idxs.reserve(presets_.size());
-    std::vector<const char*> titles;
-    titles.reserve(presets_.size());
-    for (int i = 0; i < (int)presets_.size(); ++i)
-    {
-        if (presets_[(size_t)i].tool_id == tool_id)
-        {
-            idxs.push_back(i);
-            titles.push_back(presets_[(size_t)i].title.c_str());
-        }
-    }
-
-    auto render_presets_panel = [&]() {
-        // File
-        ImGui::TextUnformatted(PHOS_TR("tool_parameters.file").c_str());
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputText("##tool_param_presets_file", &presets_path_);
-        if (!presets_error_.empty())
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", presets_error_.c_str());
-        if (ImGui::Button(PHOS_TR("common.reload").c_str()))
-            request_reload_ = true;
-        ImGui::SameLine();
-        if (ImGui::Button(PHOS_TR("common.save").c_str()))
-            request_save_ = true;
-
-        ImGui::Separator();
-
-        // Preset management for current tool id
-        ImGui::TextUnformatted(PHOS_TR("tool_parameters.tool").c_str());
-        ImGui::SameLine();
-        const std::string tool_id_label = tool_id.empty() ? PHOS_TR("tool_parameters.tool_unknown") : tool_id;
-        ImGui::TextDisabled("%s", tool_id_label.c_str());
-
-        int sel_local = 0;
-        const auto it_sel = selected_by_tool_.find(tool_id);
-        if (it_sel != selected_by_tool_.end() && !it_sel->second.empty())
-        {
-            for (int li = 0; li < (int)idxs.size(); ++li)
-            {
-                if (presets_[(size_t)idxs[(size_t)li]].title == it_sel->second)
-                {
-                    sel_local = li;
-                    break;
-                }
-            }
-        }
-
-        tool_params::ToolParamPreset* cur = nullptr;
-        if (!idxs.empty())
-        {
-            ImGui::TextUnformatted(PHOS_TR("tool_parameters.preset").c_str());
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(260.0f);
-            if (ImGui::Combo("##tool_param_preset_combo", &sel_local, titles.data(), (int)titles.size()))
-            {
-                const int gi = idxs[(size_t)sel_local];
-                selected_by_tool_[tool_id] = presets_[(size_t)gi].title;
-                request_save_ = true;
-            }
-
-            const int gi = idxs[(size_t)std::clamp(sel_local, 0, (int)idxs.size() - 1)];
-            cur = (gi >= 0 && gi < (int)presets_.size()) ? &presets_[(size_t)gi] : nullptr;
-
-            ImGui::SameLine();
-            if (ImGui::Button(PHOS_TR("tool_parameters.overwrite_selected").c_str()) && cur)
-            {
-                (void)tool_params::CaptureToolParams(tool_engine, cur->values);
-                request_save_ = true;
-                tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
-            }
-        }
-        else
-        {
-            ImGui::TextDisabled("%s", PHOS_TR("tool_parameters.no_presets_yet").c_str());
-        }
-
-        ImGui::Separator();
-
-        if (ImGui::Button(PHOS_TR("tool_parameters.save_current_as_ellipsis").c_str()))
-            open_new_popup_ = true;
-        ImGui::SameLine();
-        ImGui::BeginDisabled(idxs.empty() || !cur);
-        if (ImGui::Button(PHOS_TR("tool_parameters.rename_ellipsis").c_str()))
-            open_rename_popup_ = true;
-        ImGui::SameLine();
-        if (ImGui::Button(PHOS_TR("tool_parameters.delete_ellipsis").c_str()))
-            open_delete_popup_ = true;
-        ImGui::EndDisabled();
-    };
-
-    // Title-bar ⋮ popup: Presets
-    {
-        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
-        const bool has_close = false; // this window has no close button
-        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
-        if (RenderImGuiWindowChromeTitleBarButton("##tool_params_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
-            ImGui::OpenPopup(popup_presets.c_str());
-
-        if (ImGui::IsPopupOpen(popup_presets.c_str()))
-            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
-        ImGui::SetNextWindowSizeConstraints(ImVec2(420.0f, 0.0f), ImVec2(820.0f, 620.0f));
-        if (ImGui::BeginPopup(popup_presets.c_str()))
-        {
-            ImGui::TextUnformatted(PHOS_TR("tool_parameters.presets_popup_title").c_str());
-            ImGui::Separator();
-            render_presets_panel();
-            ImGui::Separator();
-
-            // Advanced tool params live here (formerly the "More…" section in the main window).
-            ImGui::TextUnformatted(PHOS_TR("tool_parameters.advanced").c_str());
-            ImGui::Separator();
-            // Skip params that are deliberately surfaced in the main window's reserved rows
-            // (e.g. colour row). IMPORTANT: don't skip non-primary versions of these keys (e.g. Font fallback),
-            // otherwise they'd disappear from Advanced; instead only skip if they are primary.
-            std::vector<const char*> skip_keys;
-            skip_keys.reserve(8);
-            auto add_skip_primary = [&](const char* k) {
-                if (EngineHasPrimaryParamKey(tool_engine, k))
-                    skip_keys.push_back(k);
-            };
-            add_skip_primary("useFg");
-            add_skip_primary("useBg");
-            add_skip_primary("fgSource");
-            add_skip_primary("bgSource");
-            add_skip_primary("pickFg");
-            add_skip_primary("pickBg");
-            const AnslParamsUISkipList skip{ skip_keys.data(), (int)skip_keys.size() };
-            (void)RenderAnslParamsUIAdvanced("tool_params_advanced_popup", tool_engine, &skip);
-
-            ImGui::Separator();
-            if (ImGui::Button(PHOS_TR("common.close").c_str()))
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
-    }
-
-    // Modal popups must be rendered from the Tool Parameters window (not inside the ⋮ popup),
-    // otherwise they may disappear when the user closes the presets popup.
-
-    // New preset popup
-    if (open_new_popup_)
-    {
-        open_new_popup_ = false;
-        const std::string def = PHOS_TR("tool_parameters.untitled");
-        std::snprintf(new_title_buf_, sizeof(new_title_buf_), "%s", def.c_str());
-        ImGui::OpenPopup(popup_new.c_str());
-    }
-    if (ImGui::BeginPopupModal(popup_new.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(PHOS_TR("tool_parameters.new_preset_help").c_str());
-        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "###tool_param_new_title";
-        ImGui::InputText(title_lbl.c_str(), new_title_buf_, IM_ARRAYSIZE(new_title_buf_));
-        if (ImGui::Button(PHOS_TR("tool_parameters.create").c_str()))
-        {
-            tool_params::ToolParamPreset p;
-            p.tool_id = tool_id;
-            p.title = TrimCopyLocal(new_title_buf_);
-            if (p.title.empty())
-                p.title = PHOS_TR("tool_parameters.untitled");
-            (void)tool_params::CaptureToolParams(tool_engine, p.values);
-            if (!p.tool_id.empty() && !p.values.empty())
-            {
-                presets_.push_back(std::move(p));
-                selected_by_tool_[tool_id] = presets_.back().title;
-                request_save_ = true;
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-
-    // Rename preset popup (current tool only)
-    if (open_rename_popup_)
-    {
-        open_rename_popup_ = false;
-        std::string cur_title;
-        const auto it = selected_by_tool_.find(tool_id);
-        if (it != selected_by_tool_.end())
-            cur_title = it->second;
-        std::snprintf(rename_title_buf_, sizeof(rename_title_buf_), "%s", cur_title.c_str());
-        ImGui::OpenPopup(popup_rename.c_str());
-    }
-    if (ImGui::BeginPopupModal(popup_rename.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(PHOS_TR("tool_parameters.rename_preset_help").c_str());
-        const std::string title_lbl = PHOS_TR("tool_parameters.title") + "###tool_param_rename_title";
-        ImGui::InputText(title_lbl.c_str(), rename_title_buf_, IM_ARRAYSIZE(rename_title_buf_));
-        if (ImGui::Button(PHOS_TR("common.ok").c_str()))
-        {
-            if (!idxs.empty())
-            {
-                const std::string new_title = TrimCopyLocal(rename_title_buf_);
-                if (!new_title.empty())
-                {
-                    // Find the currently selected preset by title.
-                    const auto it = selected_by_tool_.find(tool_id);
-                    const std::string cur_title = (it != selected_by_tool_.end()) ? it->second : std::string();
-                    for (int gi : idxs)
-                    {
-                        if (gi >= 0 && gi < (int)presets_.size() && presets_[(size_t)gi].title == cur_title)
-                        {
-                            presets_[(size_t)gi].title = new_title;
-                            selected_by_tool_[tool_id] = new_title;
-                            request_save_ = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-
-    // Delete preset popup (current tool only)
-    if (open_delete_popup_)
-    {
-        open_delete_popup_ = false;
-        ImGui::OpenPopup(popup_delete.c_str());
-    }
-    if (ImGui::BeginPopupModal(popup_delete.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    {
-        ImGui::TextUnformatted(PHOS_TR("tool_parameters.delete_preset_help").c_str());
-        if (ImGui::Button(PHOS_TR("common.delete").c_str()))
-        {
-            if (!idxs.empty())
-            {
-                const auto it = selected_by_tool_.find(tool_id);
-                const std::string cur_title = (it != selected_by_tool_.end()) ? it->second : std::string();
-                for (int k = (int)presets_.size() - 1; k >= 0; --k)
-                {
-                    if (presets_[(size_t)k].tool_id == tool_id && presets_[(size_t)k].title == cur_title)
-                    {
-                        presets_.erase(presets_.begin() + k);
-                        request_save_ = true;
-                        break;
-                    }
-                }
-                selected_by_tool_.erase(tool_id);
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(PHOS_TR("common.cancel").c_str()))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-
-    // Avoid unused warnings if caller doesn't use base_id in the future.
-    (void)base_id;
-}
-
-static bool RenderPresetButtonsRow(const std::string& tool_id,
-                                   std::vector<tool_params::ToolParamPreset>& presets,
-                                   std::unordered_map<std::string, std::string>& selected_by_tool,
-                                   AnslScriptEngine& tool_engine,
-                                   SessionState& session,
-                                   bool& request_save_selected)
-{
-    if (tool_id.empty())
-        return false;
-
-    // Collect presets for this tool.
-    std::vector<int> idxs;
-    idxs.reserve(presets.size());
-    for (int i = 0; i < (int)presets.size(); ++i)
-        if (presets[(size_t)i].tool_id == tool_id)
-            idxs.push_back(i);
-
-    if (idxs.empty())
-        return false;
-
-    const std::string selected_title =
-        (selected_by_tool.find(tool_id) != selected_by_tool.end()) ? selected_by_tool[tool_id] : std::string();
-
-    // Show a small set as buttons, overflow into a popup.
-    constexpr int kMaxButtons = 6;
-    int shown = 0;
-    int overflow_start = std::min((int)idxs.size(), kMaxButtons);
-
-    bool changed = false;
-    for (int li = 0; li < overflow_start; ++li)
-    {
-        const int gi = idxs[(size_t)li];
-        if (gi < 0 || gi >= (int)presets.size())
-            continue;
-        const auto& p = presets[(size_t)gi];
-
-        const bool is_sel = (!selected_title.empty() && p.title == selected_title);
-        if (is_sel)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-
-        ImGui::PushID(gi);
-        if (ImGui::SmallButton(p.title.c_str()))
-        {
-            selected_by_tool[tool_id] = p.title;
-            request_save_selected = true;
-            tool_params::ApplyToolParams(p.values, tool_engine);
-            tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
-            changed = true;
-        }
-        ImGui::PopID();
-
-        if (is_sel)
-            ImGui::PopStyleColor();
-
-        if (li + 1 < overflow_start)
-            ImGui::SameLine();
-        shown++;
-    }
-
-    if ((int)idxs.size() > kMaxButtons)
-    {
-        if (overflow_start > 0)
-            ImGui::SameLine();
-        ImGui::PushID("preset_overflow");
-        if (ImGui::SmallButton("…"))
-            ImGui::OpenPopup("preset_overflow_popup");
-
-        if (ImGui::BeginPopup("preset_overflow_popup"))
-        {
-            for (int li = kMaxButtons; li < (int)idxs.size(); ++li)
-            {
-                const int gi = idxs[(size_t)li];
-                if (gi < 0 || gi >= (int)presets.size())
-                    continue;
-                const auto& p = presets[(size_t)gi];
-                const bool is_sel = (!selected_title.empty() && p.title == selected_title);
-                if (ImGui::MenuItem(p.title.c_str(), nullptr, is_sel))
-                {
-                    selected_by_tool[tool_id] = p.title;
-                    request_save_selected = true;
-                    tool_params::ApplyToolParams(p.values, tool_engine);
-                    tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
-                    changed = true;
-                }
-            }
-            ImGui::EndPopup();
-        }
-        ImGui::PopID();
-    }
-
-    // Trailing spacing cleanup: caller can decide whether to keep SameLine.
-    (void)shown;
-    return changed;
-}
-
-static bool EngineHasParamKey(const AnslScriptEngine& eng, const char* key)
-{
-    if (!key || !*key)
-        return false;
-    if (!eng.HasParams())
-        return false;
-    for (const auto& s : eng.GetParamSpecs())
-        if (s.key == key)
-            return true;
-    return false;
-}
+static bool EngineHasQuickParamKey(const AnslScriptEngine& eng, const char* key);
 
 static const AnslParamSpec* FindParamSpec(const AnslScriptEngine& eng, const char* key)
 {
@@ -459,20 +28,10 @@ static const AnslParamSpec* FindParamSpec(const AnslScriptEngine& eng, const cha
     return nullptr;
 }
 
-static bool EngineHasPrimaryParamKey(const AnslScriptEngine& eng, const char* key)
+static bool EngineHasQuickParamKey(const AnslScriptEngine& eng, const char* key)
 {
     const AnslParamSpec* s = FindParamSpec(eng, key);
-    return s && s->primary;
-}
-
-static bool AnyPresetsForTool(const std::vector<tool_params::ToolParamPreset>& presets, const std::string& tool_id)
-{
-    if (tool_id.empty())
-        return false;
-    for (const auto& p : presets)
-        if (p.tool_id == tool_id)
-            return true;
-    return false;
+    return s && (s->placement == AnslParamPlacement::Quick);
 }
 
 bool ToolParametersWindow::Render(const ToolSpec* active_tool,
@@ -482,9 +41,6 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
                                   bool apply_placement_this_frame)
 {
     const bool has_params = tool_engine.HasParams();
-
-    EnsurePresetsLoaded();
-    HandlePresetFileOps();
 
     const char* base_id = "Tool Parameters";
     // Show tool label in the visible title, but keep a stable window ID for persistence.
@@ -523,38 +79,7 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
     ApplyImGuiWindowChromeZOrder(&session, base_id);
     RenderImGuiWindowChromeMenu(&session, base_id);
 
-    RenderPresetsPopup(base_id, compiled_tool_id, tool_engine, session, flags);
-
     bool params_changed = false;
-
-    // Row 1 (reserved): Presets (first-class).
-    {
-        const bool has_presets = AnyPresetsForTool(presets_, compiled_tool_id);
-        if (has_presets)
-        {
-            ImGui::BeginDisabled(!has_params);
-            params_changed =
-                RenderPresetButtonsRow(compiled_tool_id, presets_, selected_by_tool_, tool_engine, session, request_save_) || params_changed;
-            ImGui::EndDisabled();
-        }
-        else
-        {
-            // Always provide an obvious entry point to create a preset, even when none exist yet.
-            ImGui::BeginDisabled(!has_params);
-            if (ImGui::SmallButton(PHOS_TR("tool_parameters.add_preset_button").c_str()))
-                open_new_popup_ = true;
-            ImGui::EndDisabled();
-
-            if (ImGui::IsItemHovered())
-            {
-                if (has_params)
-                    ImGui::SetTooltip("%s", PHOS_TR("tool_parameters.add_preset_tooltip").c_str());
-                else
-                    ImGui::SetTooltip("%s", PHOS_TR("common.no_parameters").c_str());
-            }
-        }
-    }
-    ImGui::Separator();
 
     if (!has_params)
     {
@@ -565,7 +90,7 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
     }
 
     // Row 2 (reserved when present): Colour row (FG/BG + related options like Source).
-    // Only surface these here when the tool author marked them primary. Otherwise they remain in Advanced (e.g. Font fallback toggles).
+    // Only surface these here when the tool author marked them placement="quick".
     std::vector<const char*> skip_keys;
     skip_keys.reserve(8);
     auto add_skip = [&](const char* k) {
@@ -575,13 +100,13 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
 
     {
         // Prefer the canonical "useFg/useBg" keys; fall back to pipette "pickFg/pickBg".
-        const bool has_use_bg = EngineHasPrimaryParamKey(tool_engine, "useBg");
-        const bool has_use_fg = EngineHasPrimaryParamKey(tool_engine, "useFg");
-        const bool has_bg_src = EngineHasPrimaryParamKey(tool_engine, "bgSource");
-        const bool has_fg_src = EngineHasPrimaryParamKey(tool_engine, "fgSource");
+        const bool has_use_bg = EngineHasQuickParamKey(tool_engine, "useBg");
+        const bool has_use_fg = EngineHasQuickParamKey(tool_engine, "useFg");
+        const bool has_bg_src = EngineHasQuickParamKey(tool_engine, "bgSource");
+        const bool has_fg_src = EngineHasQuickParamKey(tool_engine, "fgSource");
 
-        const bool has_pick_bg = EngineHasPrimaryParamKey(tool_engine, "pickBg");
-        const bool has_pick_fg = EngineHasPrimaryParamKey(tool_engine, "pickFg");
+        const bool has_pick_bg = EngineHasQuickParamKey(tool_engine, "pickBg");
+        const bool has_pick_fg = EngineHasQuickParamKey(tool_engine, "pickFg");
 
         const bool want_use_row = has_use_bg || has_use_fg || has_bg_src || has_fg_src;
         const bool want_pick_row = !want_use_row && (has_pick_bg || has_pick_fg);
@@ -655,9 +180,12 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
         }
     }
 
-    // Main window shows only primary params (excluding reserved rows); advanced lives in ⋮.
+    // Quick + sections (excluding reserved row).
     const AnslParamsUISkipList skip{ skip_keys.data(), (int)skip_keys.size() };
-    params_changed = RenderAnslParamsUIPrimaryBar("tool_params_primary", tool_engine, &skip) || params_changed;
+    params_changed = RenderAnslParamsUIPrimaryBar("tool_params_quick", tool_engine, &skip) || params_changed;
+    ImGui::Separator();
+    params_changed =
+        RenderAnslParamsUIAdvanced("tool_params_sections", tool_engine, &skip, &session, compiled_tool_id) || params_changed;
     if (params_changed)
         tool_params::SaveToolParamsToSession(session, compiled_tool_id, tool_engine);
 

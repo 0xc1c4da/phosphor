@@ -1,6 +1,10 @@
 #pragma once
 
+#include <string>
+
 #include "ansl/ansl_script_engine.h"
+
+struct SessionState;
 
 // Shared IMGUI widget for rendering host-managed ANSL parameters (settings.params -> ctx.params).
 //
@@ -14,12 +18,20 @@ struct AnslParamsUISkipList
     int                count = 0;
 };
 
-// Render only the compact primary bar (spec.primary == true), with optional skip list.
+// Render only the compact quick area (spec.placement == Quick), with optional skip list.
 bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip);
 
-// Render advanced params (spec.primary == false) grouped by section, with optional skip list.
+// Render section params (spec.placement == Section) grouped by section, with optional skip list.
 // No outer "More…" wrapper is added by this function (caller controls placement).
 bool RenderAnslParamsUIAdvanced(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip);
+
+// Render section params (spec.placement == Section) grouped by section, with optional skip list,
+// with optional per-tool persisted UI state (collapse state stored in SessionState).
+bool RenderAnslParamsUIAdvanced(const char* id,
+                               AnslScriptEngine& engine,
+                               const AnslParamsUISkipList* skip,
+                               SessionState* session,
+                               const std::string& tool_id);
 
 // Render all params (primary + advanced) with optional skip list (by spec.key).
 bool RenderAnslParamsUI(const char* id, AnslScriptEngine& engine, const AnslParamsUISkipList* skip);

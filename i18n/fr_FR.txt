@@ -126,6 +126,7 @@ fr_FR {
       layer_manager { "Gestionnaire de calques" }
       ansl_editor { "Éditeur ANSL" }
       tool_palette { "Palette d’outils" }
+      tool_presets { "Préréglages d’outils" }
       brush_palette { "Palette de brosses" }
       minimap { "Mini-carte" }
       sixteen_colors_browser { "Navigateur 16colo.rs" }
@@ -629,6 +630,20 @@ fr_FR {
 
     delete_preset_modal { "Delete Tool Param Preset?" }
     delete_preset_help { "Delete the selected preset? This cannot be undone." }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tool presets window (src/ui/tool_presets_window.cpp)
+  // ---------------------------------------------------------------------------
+  tool_presets_window {
+    ctx_apply { "Appliquer" }
+    ctx_overwrite_with_current { "Écraser avec l'état actuel" }
+    ctx_rename_ellipsis { "Renommer…" }
+    ctx_save_current_to_slot { "Enregistrer l'état actuel dans l’emplacement" }
+
+    rename_modal_title { "Renommer le préréglage" }
+    rename_new_title_label { "Nouveau titre :" }
+    no_preset_selected { "Aucun préréglage sélectionné." }
   }
 
   // ---------------------------------------------------------------------------

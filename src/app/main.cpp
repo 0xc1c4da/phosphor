@@ -272,6 +272,7 @@ int main(int argc, char** argv)
     bool show_layer_manager_window = session_state.show_layer_manager_window;
     bool show_ansl_editor_window = session_state.show_ansl_editor_window;
     bool show_tool_palette_window = session_state.show_tool_palette_window;
+    bool show_tool_presets_window = session_state.show_tool_presets_window;
     bool show_brush_palette_window = session_state.show_brush_palette_window;
     bool show_minimap_window = session_state.show_minimap_window;
     bool show_settings_window = session_state.show_settings_window;
@@ -597,6 +598,7 @@ int main(int argc, char** argv)
     st.toggles.show_layer_manager_window = &show_layer_manager_window;
     st.toggles.show_ansl_editor_window = &show_ansl_editor_window;
     st.toggles.show_tool_palette_window = &show_tool_palette_window;
+    st.toggles.show_tool_presets_window = &show_tool_presets_window;
     st.toggles.show_brush_palette_window = &show_brush_palette_window;
     st.toggles.show_minimap_window = &show_minimap_window;
     st.toggles.show_settings_window = &show_settings_window;
@@ -628,6 +630,7 @@ int main(int argc, char** argv)
                                               show_layer_manager_window,
                                               show_ansl_editor_window,
                                               show_tool_palette_window,
+                                              show_tool_presets_window,
                                               show_brush_palette_window,
                                               show_minimap_window,
                                               show_settings_window,

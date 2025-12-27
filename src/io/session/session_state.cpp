@@ -80,6 +80,7 @@ static json ToJson(const SessionState& st)
     ui["show_layer_manager_window"] = st.show_layer_manager_window;
     ui["show_ansl_editor_window"] = st.show_ansl_editor_window;
     ui["show_tool_palette_window"] = st.show_tool_palette_window;
+    ui["show_tool_presets_window"] = st.show_tool_presets_window;
     ui["show_brush_palette_window"] = st.show_brush_palette_window;
     ui["show_minimap_window"] = st.show_minimap_window;
     ui["show_settings_window"] = st.show_settings_window;
@@ -172,6 +173,32 @@ static json ToJson(const SessionState& st)
         }
         if (!tp.empty())
             content["tool_params"] = std::move(tp);
+    }
+
+    // Tool params UI state: section collapsed/open state (per tool, persisted)
+    // Schema:
+    // content.tool_param_section_collapsed[tool_id][section_name] = true
+    if (!st.tool_param_section_collapsed.empty())
+    {
+        json sc = json::object();
+        for (const auto& tool_kv : st.tool_param_section_collapsed)
+        {
+            const std::string& tool_id = tool_kv.first;
+            const auto& secs = tool_kv.second;
+            if (tool_id.empty() || secs.empty())
+                continue;
+            json sj = json::object();
+            for (const auto& kv : secs)
+            {
+                if (kv.first.empty() || !kv.second)
+                    continue;
+                sj[kv.first] = true;
+            }
+            if (!sj.empty())
+                sc[tool_id] = std::move(sj);
+        }
+        if (!sc.empty())
+            content["tool_param_section_collapsed"] = std::move(sc);
     }
 
     // Open canvases
@@ -305,6 +332,8 @@ static void FromJson(const json& j, SessionState& out)
             out.show_ansl_editor_window = ui["show_ansl_editor_window"].get<bool>();
         if (ui.contains("show_tool_palette_window") && ui["show_tool_palette_window"].is_boolean())
             out.show_tool_palette_window = ui["show_tool_palette_window"].get<bool>();
+        if (ui.contains("show_tool_presets_window") && ui["show_tool_presets_window"].is_boolean())
+            out.show_tool_presets_window = ui["show_tool_presets_window"].get<bool>();
         if (ui.contains("show_brush_palette_window") && ui["show_brush_palette_window"].is_boolean())
             out.show_brush_palette_window = ui["show_brush_palette_window"].get<bool>();
         // Rename/migration: Preview -> Minimap
@@ -480,6 +509,32 @@ static void FromJson(const json& j, SessionState& out)
                 }
                 if (!params.empty())
                     out.tool_param_values[tool_id] = std::move(params);
+            }
+        }
+
+        // Tool params UI state (optional): section collapsed/open state
+        out.tool_param_section_collapsed.clear();
+        if (c.contains("tool_param_section_collapsed") && c["tool_param_section_collapsed"].is_object())
+        {
+            const json& sc = c["tool_param_section_collapsed"];
+            for (auto it_tool = sc.begin(); it_tool != sc.end(); ++it_tool)
+            {
+                const std::string tool_id = it_tool.key();
+                if (tool_id.empty() || !it_tool.value().is_object())
+                    continue;
+                std::unordered_map<std::string, bool> secs;
+                const json& secj = it_tool.value();
+                for (auto it_s = secj.begin(); it_s != secj.end(); ++it_s)
+                {
+                    const std::string sec = it_s.key();
+                    if (sec.empty() || !it_s.value().is_boolean())
+                        continue;
+                    const bool collapsed = it_s.value().get<bool>();
+                    if (collapsed)
+                        secs[sec] = true; // store only "true" to keep the map minimal
+                }
+                if (!secs.empty())
+                    out.tool_param_section_collapsed[tool_id] = std::move(secs);
             }
         }
 

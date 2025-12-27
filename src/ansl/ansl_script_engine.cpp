@@ -1586,6 +1586,7 @@ static bool ReadScriptParams(lua_State* L,
 
         // label (optional)
         (void)LuaIsStringField(L, -1, "label", spec.label);
+        (void)LuaIsStringField(L, -1, "compact_label", spec.compact_label);
         // tooltip/help (optional)
         (void)LuaIsStringField(L, -1, "tooltip", spec.tooltip);
         if (spec.tooltip.empty())
@@ -1597,7 +1598,19 @@ static bool ReadScriptParams(lua_State* L,
 
         // UI hints (optional)
         (void)LuaIsStringField(L, -1, "ui", spec.ui);
-        (void)LuaIsBoolField(L, -1, "primary", spec.primary);
+        {
+            // placement: "quick" | "section" (default: section)
+            std::string placement_s;
+            if (LuaIsStringField(L, -1, "placement", placement_s))
+            {
+                for (char& c : placement_s)
+                    c = (char)std::tolower((unsigned char)c);
+                if (placement_s == "quick")
+                    spec.placement = AnslParamPlacement::Quick;
+                else
+                    spec.placement = AnslParamPlacement::Section;
+            }
+        }
         (void)LuaIsStringField(L, -1, "enabled_if", spec.enabled_if);
         lua_Number widthn = 0;
         if (LuaIsNumberField(L, -1, "width", widthn))
@@ -1730,15 +1743,48 @@ static bool ReadScriptParams(lua_State* L,
         lua_pop(L, 1); // pop val, keep key for lua_next
     }
 
-    // stable order so UI doesn't jump around
+    // Stable order so UI doesn't jump around.
+    //
+    // IMPORTANT: Lua table iteration order for settings.params is not reliable.
+    // We impose a deterministic order here so all UI call sites get a stable view.
     std::sort(out_specs.begin(), out_specs.end(), [](const AnslParamSpec& a, const AnslParamSpec& b) {
-        // Prefer explicit ordering when provided.
-        if (a.order_set || b.order_set)
-        {
-            if (a.order != b.order) return a.order < b.order;
-        }
-        if (a.section != b.section) return a.section < b.section;
-        if (a.label != b.label) return a.label < b.label;
+        auto tolower_copy = [](std::string s) {
+            for (char& c : s)
+                c = (char)std::tolower((unsigned char)c);
+            return s;
+        };
+        auto section_key = [&](const AnslParamSpec& s) {
+            const std::string sec = s.section.empty() ? "General" : s.section;
+            return tolower_copy(sec);
+        };
+        auto label_key = [&](const AnslParamSpec& s) {
+            const std::string lab = s.label.empty() ? s.key : s.label;
+            return tolower_copy(lab);
+        };
+
+        // Group by placement first so "quick" controls are stable as a group.
+        if (a.placement != b.placement)
+            return (int)a.placement > (int)b.placement; // Quick after? enum is Section=0, Quick=1 → want Quick first
+
+        // Then section.
+        const std::string ase = section_key(a);
+        const std::string bse = section_key(b);
+        if (ase != bse)
+            return ase < bse;
+
+        // Then explicit order when present (order_set before unset).
+        const int ao = a.order_set ? 0 : 1;
+        const int bo = b.order_set ? 0 : 1;
+        if (ao != bo)
+            return ao < bo;
+        if (a.order_set && b.order_set && a.order != b.order)
+            return a.order < b.order;
+
+        // Then label/key tiebreakers.
+        const std::string al = label_key(a);
+        const std::string bl = label_key(b);
+        if (al != bl)
+            return al < bl;
         return a.key < b.key;
     });
 

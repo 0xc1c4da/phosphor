@@ -215,6 +215,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
                             bool show_layer_manager_window,
                             bool show_ansl_editor_window,
                             bool show_tool_palette_window,
+                            bool show_tool_presets_window,
                             bool show_brush_palette_window,
                             bool show_minimap_window,
                             bool show_settings_window,
@@ -256,6 +257,7 @@ void SaveSessionStateOnExit(const SessionState& session_state,
     st.show_layer_manager_window = show_layer_manager_window;
     st.show_ansl_editor_window = show_ansl_editor_window;
     st.show_tool_palette_window = show_tool_palette_window;
+    st.show_tool_presets_window = show_tool_presets_window;
     st.show_brush_palette_window = show_brush_palette_window;
     st.show_minimap_window = show_minimap_window;
     st.show_settings_window = show_settings_window;

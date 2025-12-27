@@ -7,10 +7,10 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    sample = { type = "enum", label = "Sample", ui = "segmented", section = "Pipette", primary = true, order = 0, items = { "composite", "layer" }, default = "composite" },
-    pickBg = { type = "bool", label = "BG", ui = "toggle", section = "Pick", primary = true, order = 1, default = true },
-    pickFg = { type = "bool", label = "FG", ui = "toggle", section = "Pick", primary = true, order = 2, default = true, inline = true },
-    pickChar = { type = "bool", label = "Char", ui = "toggle", section = "Pick", primary = true, order = 3, default = true, inline = true, tooltip = "Modifiers: Shift=char only, Ctrl=colours only." },
+    sample = { type = "enum", label = "Sample", ui = "segmented", section = "Pipette", placement = "quick", order = 0, items = { "composite", "layer" }, default = "composite" },
+    pickBg = { type = "bool", label = "BG", ui = "toggle", section = "Pick", placement = "quick", order = 1, default = true },
+    pickFg = { type = "bool", label = "FG", ui = "toggle", section = "Pick", placement = "quick", order = 2, default = true, inline = true },
+    pickChar = { type = "bool", label = "Char", ui = "toggle", section = "Pick", placement = "quick", order = 3, default = true, inline = true, tooltip = "Modifiers: Shift=char only, Ctrl=colours only." },
     returnToPrev = { type = "bool", label = "Return to previous tool", ui = "toggle", section = "Pipette", default = true, tooltip = "Left click commits the pick and returns to the previous tool." },
   },
 }

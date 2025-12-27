@@ -210,6 +210,7 @@ void RenderMainMenuBar(SDL_Window* window,
                        bool& show_layer_manager_window,
                        bool& show_ansl_editor_window,
                        bool& show_tool_palette_window,
+                       bool& show_tool_presets_window,
                        bool& show_brush_palette_window,
                        bool& show_minimap_window,
                        bool& show_settings_window,
@@ -545,6 +546,7 @@ void RenderMainMenuBar(SDL_Window* window,
         const std::string mi_layer_mgr = PHOS_TR("menu.window.layer_manager");
         const std::string mi_ansl_editor = PHOS_TR("menu.window.ansl_editor");
         const std::string mi_tool_palette = PHOS_TR("menu.window.tool_palette");
+        const std::string mi_tool_presets = PHOS_TR("menu.window.tool_presets");
         const std::string mi_brush_palette = PHOS_TR("menu.window.brush_palette");
         const std::string mi_minimap = PHOS_TR("menu.window.minimap");
         const std::string mi_16c = PHOS_TR("menu.window.sixteen_colors_browser");
@@ -557,6 +559,7 @@ void RenderMainMenuBar(SDL_Window* window,
         ImGui::MenuItem(mi_layer_mgr.c_str(), nullptr, &show_layer_manager_window);
         ImGui::MenuItem(mi_ansl_editor.c_str(), nullptr, &show_ansl_editor_window);
         ImGui::MenuItem(mi_tool_palette.c_str(), nullptr, &show_tool_palette_window);
+        ImGui::MenuItem(mi_tool_presets.c_str(), nullptr, &show_tool_presets_window);
         ImGui::MenuItem(mi_brush_palette.c_str(), nullptr, &show_brush_palette_window);
         ImGui::MenuItem(mi_minimap.c_str(), nullptr, &show_minimap_window);
         ImGui::MenuItem(mi_16c.c_str(), nullptr, &show_16colors_browser_window);

@@ -7,16 +7,16 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Stamp", primary = true, order = 0, items = { "both", "char", "colour" }, default = "both" },
-    anchor = { type = "enum", label = "Anchor", ui = "segmented", section = "Stamp", primary = true, order = 1, inline = true, items = { "center", "top-left" }, default = "center" },
-    transparent = { type = "bool", label = "Transparent", ui = "toggle", section = "Stamp", primary = true, order = 2, inline = true, default = true },
+    mode = { type = "enum", label = "Mode", ui = "segmented", section = "Stamp", placement = "quick", order = 0, items = { "both", "char", "colour" }, default = "both" },
+    anchor = { type = "enum", label = "Anchor", ui = "segmented", section = "Stamp", placement = "quick", order = 1, inline = true, items = { "center", "top-left" }, default = "center" },
+    transparent = { type = "bool", label = "Transparent", ui = "toggle", section = "Stamp", placement = "quick", order = 2, inline = true, default = true },
 
     -- Compact "Apply BG brush/current" style rows:
-    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Colour", primary = true, order = 10, default = true },
-    bgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", primary = true, order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
+    useBg = { type = "bool", label = "BG", ui = "toggle", section = "Colour", placement = "quick", order = 10, default = true },
+    bgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", placement = "quick", order = 11, inline = true, enabled_if = "useBg", items = { "brush", "current" }, default = "brush" },
 
-    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Colour", primary = true, order = 12, default = true },
-    fgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", primary = true, order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
+    useFg = { type = "bool", label = "FG", ui = "toggle", section = "Colour", placement = "quick", order = 12, default = true },
+    fgSource = { type = "enum", label = "Source", ui = "segmented", section = "Colour", placement = "quick", order = 13, inline = true, enabled_if = "useFg", items = { "brush", "current" }, default = "brush" },
   },
 }
 
