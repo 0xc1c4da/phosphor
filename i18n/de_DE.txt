@@ -693,6 +693,8 @@ de_DE {
     picker_edits_palette { "Picker bearbeitet Palette (ausgewählte Zelle ersetzen)" }
     embedded_label { "(eingebettet)" }
     bitmap_indices_label { "(Bitmap-Indizes)" }
+    previous_palette { "Vorherige Palette" }
+    next_palette { "Nächste Palette" }
 
     new_palette_modal { "Neue Palette" }
     new_palette_default_title { "Neue Palette" }

@@ -693,6 +693,8 @@ pl_PL {
     picker_edits_palette { "Picker edits palette (replace selected cell)" }
     embedded_label { "(embedded)" }
     bitmap_indices_label { "(bitmap indices)" }
+    previous_palette { "Poprzednia paleta" }
+    next_palette { "Następna paleta" }
 
     new_palette_modal { "New Palette" }
     new_palette_default_title { "New Palette" }

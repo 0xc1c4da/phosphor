@@ -102,7 +102,12 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                                bool apply_placement_this_frame)
 {
     const char* base_id = "Tool Presets";
-    const std::string title = std::string(PHOS_TR("menu.window.tool_presets")) + "###" + base_id;
+    // Show tool label in the visible title, but keep a stable window ID for persistence.
+    const std::string presets_word = PHOS_TR("tool_parameters.presets_popup_title"); // "Presets"
+    const std::string fallback_title = PHOS_TR("menu.window.tool_presets");
+    const std::string visible_title =
+        (active_tool && !active_tool->label.empty()) ? (std::string(active_tool->label) + " " + presets_word) : fallback_title;
+    const std::string title = visible_title + "###" + base_id;
 
     ApplyImGuiWindowPlacement(session, base_id, apply_placement_this_frame);
     const ImGuiWindowFlags flags =

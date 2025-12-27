@@ -103,6 +103,9 @@ private:
     static std::string EncodeCodePointUtf8(uint32_t cp);
     static std::string CodePointHex(uint32_t cp);
 
+    bool SetSelectedPaletteIndex(int idx);
+    void CycleSelectedPalette(int delta);
+
     void ReplaceSelectedCellWith(uint32_t cp);
     std::optional<int> FindGlyphIndexByFirstCp(uint32_t cp) const;
 

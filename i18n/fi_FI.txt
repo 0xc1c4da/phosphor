@@ -693,6 +693,8 @@ fi_FI {
     picker_edits_palette { "Valitsin muokkaa palettia (korvaa valittu solu)" }
     embedded_label { "(embedded)" }
     bitmap_indices_label { "(bitmap indices)" }
+    previous_palette { "Edellinen paletti" }
+    next_palette { "Seuraava paletti" }
 
     new_palette_modal { "Uusi paletti" }
     new_palette_default_title { "Uusi paletti" }

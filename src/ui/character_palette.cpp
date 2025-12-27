@@ -177,6 +177,43 @@ void CharacterPalette::EnsureLoaded()
     loaded_ = true;
 }
 
+bool CharacterPalette::SetSelectedPaletteIndex(int idx)
+{
+    EnsureLoaded();
+    EnsureNonEmpty();
+
+    if (source_ != Source::JsonFile)
+        return false;
+    if (palettes_.empty())
+        return false;
+
+    const int clamped = std::clamp(idx, 0, (int)palettes_.size() - 1);
+    if (clamped == selected_palette_)
+        return false;
+
+    selected_palette_ = clamped;
+    selected_cell_ = 0;
+    request_focus_selected_ = true;
+    return true;
+}
+
+void CharacterPalette::CycleSelectedPalette(int delta)
+{
+    EnsureLoaded();
+    EnsureNonEmpty();
+
+    if (source_ != Source::JsonFile)
+        return;
+    const int n = (int)palettes_.size();
+    if (n <= 0)
+        return;
+
+    int idx = selected_palette_;
+    // Wrap in both directions.
+    idx = ((idx + delta) % n + n) % n;
+    SetSelectedPaletteIndex(idx);
+}
+
 bool CharacterPalette::LoadFromFile(const char* path, std::string& error)
 {
     error.clear();
@@ -548,7 +585,32 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImGuiWindowFlags_NoSavedSettings |
         (session ? GetImGuiWindowChromeExtraFlags(*session, window_title) : ImGuiWindowFlags_None);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(session, window_title);
-    const std::string win_title = PHOS_TR("menu.window.character_palette") + "###" + std::string(window_title);
+
+    // Visible title includes the currently selected palette name; keep a stable internal ID after ###.
+    std::string palette_name;
+    if (source_ == Source::EmbeddedFont)
+    {
+        palette_name = PHOS_TR("character_palette.embedded_label");
+    }
+    else if (source_ == Source::BitmapFontIndices)
+    {
+        palette_name = PHOS_TR("character_palette.bitmap_indices_label");
+    }
+    else
+    {
+        EnsureNonEmpty();
+        if (!palettes_.empty())
+        {
+            const int pi = std::clamp(selected_palette_, 0, (int)palettes_.size() - 1);
+            palette_name = palettes_[pi].title;
+        }
+    }
+    if (palette_name.empty())
+        palette_name = PHOS_TR("common.untitled");
+
+    const std::string win_title =
+        PHOS_TR("menu.window.character_palette") + " (" + palette_name + ")" +
+        "###" + std::string(window_title);
     if (!ImGui::Begin(win_title.c_str(), p_open, flags))
     {
         if (session)
@@ -570,7 +632,39 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
         const bool has_close = (p_open != nullptr);
         const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
-        if (RenderImGuiWindowChromeTitleBarButton("##charpal_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max))
+
+        // Title bar controls: [<] [>] [⋮]
+        const bool can_cycle_palettes = (source_ == Source::JsonFile && (int)palettes_.size() > 1);
+        if (RenderImGuiWindowChromeTitleBarButton("##charpal_prev_palette", "<", has_close, has_collapse,
+                                                  /*out_rect_min=*/nullptr, /*out_rect_max=*/nullptr,
+                                                  /*button_index_from_right=*/2))
+        {
+            if (can_cycle_palettes)
+                CycleSelectedPalette(-1);
+        }
+        if (can_cycle_palettes && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(PHOS_TR("character_palette.previous_palette").c_str());
+            ImGui::EndTooltip();
+        }
+
+        if (RenderImGuiWindowChromeTitleBarButton("##charpal_next_palette", ">", has_close, has_collapse,
+                                                  /*out_rect_min=*/nullptr, /*out_rect_max=*/nullptr,
+                                                  /*button_index_from_right=*/1))
+        {
+            if (can_cycle_palettes)
+                CycleSelectedPalette(1);
+        }
+        if (can_cycle_palettes && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(PHOS_TR("character_palette.next_palette").c_str());
+            ImGui::EndTooltip();
+        }
+
+        if (RenderImGuiWindowChromeTitleBarButton("##charpal_kebab", "\xE2\x8B\xAE", has_close, has_collapse, &kebab_min, &kebab_max,
+                                                  /*button_index_from_right=*/0))
             ImGui::OpenPopup("##charpal_settings");
 
         if (ImGui::IsPopupOpen("##charpal_settings"))
