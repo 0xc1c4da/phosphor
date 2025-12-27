@@ -11,10 +11,11 @@ settings = {
     kernel = { type = "int", label = "Kernel", ui = "segmented", section = "Sampling", placement = "quick", order = 2, min = 1, max = 3, step = 1, default = 1, tooltip = "1=3x3, 2=5x5, 3=7x7", inline = true }, -- 1 => 3x3, 2 => 5x5, 3 => 7x7
     sample = { type = "enum", label = "Sample", ui = "segmented", section = "Sampling", placement = "quick", order = 3, items = { "composite", "layer" }, default = "composite", inline = true },
 
-    affectChar = { type = "bool", label = "Char", ui = "toggle", section = "Affect", default = false },
-    affectFg = { type = "bool", label = "FG", ui = "toggle", section = "Affect", default = true, inline = true },
-    affectBg = { type = "bool", label = "BG", ui = "toggle", section = "Affect", default = true, inline = true },
-    snapPalette = { type = "bool", label = "Snap to palette", ui = "toggle", section = "Affect", default = true, inline = true },
+    -- Keep these at the top in a consistent "channels" row across tools.
+    affectChar = { type = "bool", label = "Char", ui = "toggle", section = "Affect", placement = "quick", default = false },
+    affectFg = { type = "bool", label = "FG", ui = "toggle", section = "Affect", placement = "quick", default = true, inline = true },
+    affectBg = { type = "bool", label = "BG", ui = "toggle", section = "Affect", placement = "quick", default = true, inline = true },
+    snapPalette = { type = "bool", label = "Snap to palette", ui = "toggle", section = "Affect", placement = "quick", default = true, inline = true },
   },
 }
 

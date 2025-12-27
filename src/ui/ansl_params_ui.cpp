@@ -18,6 +18,17 @@ static std::string ToLower(std::string s)
     return s;
 }
 
+static std::string TrimCopy(std::string s)
+{
+    size_t b = 0;
+    while (b < s.size() && std::isspace((unsigned char)s[b]))
+        ++b;
+    size_t e = s.size();
+    while (e > b && std::isspace((unsigned char)s[e - 1]))
+        --e;
+    return s.substr(b, e - b);
+}
+
 static bool StrIContains(const std::string& haystack, const std::string& needle)
 {
     if (needle.empty())
@@ -25,6 +36,54 @@ static bool StrIContains(const std::string& haystack, const std::string& needle)
     const std::string h = ToLower(haystack);
     const std::string n = ToLower(needle);
     return h.find(n) != std::string::npos;
+}
+
+static std::string CanonicalSectionName(std::string sec)
+{
+    sec = TrimCopy(std::move(sec));
+    if (sec.empty())
+        return "General";
+
+    const std::string low = ToLower(sec);
+    // Minimal alias safety net (tools should still conform to the canonical names).
+    if (low == "color" || low == "colors" || low == "colour" || low == "colours" || low == "paint")
+        return "Colour";
+
+    // Preserve canonical capitalization for known section names (case-insensitive match).
+    static const char* kKnown[] = {
+        "General", "Brush", "Shape", "Render", "Sampling", "Colour", "Format", "Attributes",
+        "Pick", "Pipette", "Deform", "Fill", "Font", "Outline", "Actions", "UX", "Safety",
+    };
+    for (const char* k : kKnown)
+        if (k && ToLower(k) == low)
+            return k;
+
+    // Fallback: keep author naming but normalize first letter.
+    if (!sec.empty())
+        sec[0] = (char)std::toupper((unsigned char)sec[0]);
+    return sec;
+}
+
+static int PreferredSectionOrder(const std::string& sec)
+{
+    // Keep a stable UX across tools; unknown sections fall back to alphabetical after these.
+    static const char* kPreferred[] = {
+        "General", "Brush", "Shape", "Render", "Sampling", "Colour", "Format", "Attributes",
+        "Pick", "Pipette", "Deform", "Fill", "Font", "Outline", "UX", "Safety", "Actions",
+    };
+    for (int i = 0; i < (int)(sizeof(kPreferred) / sizeof(kPreferred[0])); ++i)
+        if (sec == kPreferred[i])
+            return i;
+    return 9999;
+}
+
+static void SetNextComboPopupMinWidth(float min_w)
+{
+    // A combo's popup inherits the combo widget width by default; force a minimum so
+    // large-item UIs (e.g. font preview tiles) remain readable in narrow layouts.
+    if (min_w <= 0.0f)
+        return;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(min_w, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
 }
 
 static bool ToggleButton(const char* label, bool v, const ImVec2& size = ImVec2(0, 0))
@@ -48,11 +107,34 @@ static bool RenderEnumSegmented(const char* label,
     if (spec.enum_items.empty())
         return false;
 
+    // Two levels of responsiveness:
+    // 1) Treat "label + [buttons]" as a single group: if label would be stranded at end of line,
+    //    stack the label above the button group.
+    // 2) Within the group, wrap the buttons themselves as needed.
     if (label && *label)
     {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float em = ImGui::GetFontSize();
+        const float label_w = ImGui::CalcTextSize(label).x;
+
+        // Minimum "useful" button width is the smallest item label (or a fallback).
+        float min_btn_w = 6.0f * em;
+        for (const auto& s : spec.enum_items)
+        {
+            if (s.empty())
+                continue;
+            const float w = ImGui::CalcTextSize(s.c_str()).x + style.FramePadding.x * 2.0f;
+            min_btn_w = std::min(min_btn_w, w);
+        }
+
+        const float group_min_w = label_w + style.ItemSpacing.x + min_btn_w;
+        const float avail_w = ImGui::GetContentRegionAvail().x;
+        const bool stack_label = (avail_w > 1.0f) && (group_min_w > avail_w);
+
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
-        ImGui::SameLine();
+        if (!stack_label)
+            ImGui::SameLine();
     }
 
     bool changed = false;
@@ -64,15 +146,30 @@ static bool RenderEnumSegmented(const char* label,
     }
 
     ImGui::BeginGroup();
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float start_x = ImGui::GetCursorPosX();
+    const float max_x = start_x + std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    bool first = true;
     for (int i = 0; i < (int)spec.enum_items.size(); ++i)
     {
-        if (i != 0)
-            ImGui::SameLine();
+        const char* txt = spec.enum_items[(size_t)i].c_str();
+        // Soft wrap segmented buttons instead of overflowing (critical for vertical/narrow windows).
+        if (!first)
+        {
+            const float want_w = ImGui::CalcTextSize(txt).x + style.FramePadding.x * 2.0f;
+            const float cur_x = ImGui::GetCursorPosX();
+            const float spacing = style.ItemSpacing.x;
+            const bool fits = (cur_x + spacing + want_w) <= max_x;
+            if (fits)
+                ImGui::SameLine();
+            else
+                ImGui::NewLine();
+        }
         const bool selected = (i == out_idx);
         ImGui::PushID(i);
         if (selected)
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(spec.enum_items[(size_t)i].c_str()))
+        if (ImGui::Button(txt))
         {
             out_idx = i;
             changed = true;
@@ -80,6 +177,7 @@ static bool RenderEnumSegmented(const char* label,
         if (selected)
             ImGui::PopStyleColor();
         ImGui::PopID();
+        first = false;
     }
     ImGui::EndGroup();
     return changed;
@@ -366,7 +464,13 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
         return "";
     };
 
+    const float em = ImGui::GetFontSize();
     const std::string preview_label = display_name_for_value(cur_value);
+    // Ensure the popup is wide enough for readable preview tiles.
+    SetNextComboPopupMinWidth(40.0f * em);
+    // Keep the closed combo from collapsing too small in compact toolbars.
+    if (spec.width <= 0.0f)
+        ImGui::SetNextItemWidth(std::max(18.0f * em, ImGui::CalcItemWidth()));
     if (!ImGui::BeginCombo(label, preview_label.c_str(), ImGuiComboFlags_HeightLarge))
         return false;
 
@@ -453,7 +557,9 @@ static bool RenderFontEnumComboWithPreviews(const char* label,
     }
 
     bool changed = false;
-    ImGui::BeginChild("##font_combo_list", ImVec2(0.0f, 420.0f), false);
+    // Prefer a large list, but don't force it taller than the popup can comfortably show.
+    const float list_h = std::max(200.0f, std::min(520.0f, ImGui::GetContentRegionAvail().y));
+    ImGui::BeginChild("##font_combo_list", ImVec2(0.0f, list_h), false);
     ImGuiListClipper clipper;
     clipper.Begin((int)filtered.size());
     while (clipper.Step())
@@ -663,11 +769,20 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
             if (compact)
             {
                 // Compact: force label on the left for consistent tool bars (avoid SliderInt label-on-right).
+                const ImGuiStyle& style = ImGui::GetStyle();
+                const float em = ImGui::GetFontSize();
+                const float label_w = ImGui::CalcTextSize(label).x;
+                const float min_ctrl_w = (spec.width > 0.0f) ? spec.width : (8.0f * em);
+                const bool stack = (label_w + style.ItemSpacing.x + min_ctrl_w) > ImGui::GetContentRegionAvail().x;
+
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted(label);
-                ImGui::SameLine();
+                if (!stack)
+                    ImGui::SameLine();
                 if (spec.width > 0.0f)
                     ImGui::SetNextItemWidth(spec.width);
+                else if (stack)
+                    ImGui::SetNextItemWidth(-FLT_MIN);
 
                 int v2 = v;
                 const char* wid = "##int";
@@ -725,11 +840,20 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
             if (compact)
             {
                 // Compact: force label on the left for consistent tool bars (avoid SliderFloat label-on-right).
+                const ImGuiStyle& style = ImGui::GetStyle();
+                const float em = ImGui::GetFontSize();
+                const float label_w = ImGui::CalcTextSize(label).x;
+                const float min_ctrl_w = (spec.width > 0.0f) ? spec.width : (8.0f * em);
+                const bool stack = (label_w + style.ItemSpacing.x + min_ctrl_w) > ImGui::GetContentRegionAvail().x;
+
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted(label);
-                ImGui::SameLine();
+                if (!stack)
+                    ImGui::SameLine();
                 if (spec.width > 0.0f)
                     ImGui::SetNextItemWidth(spec.width);
+                else if (stack)
+                    ImGui::SetNextItemWidth(-FLT_MIN);
 
                 float v2 = v;
                 const char* wid = "##float";
@@ -807,6 +931,13 @@ static bool RenderParamControl(const AnslParamSpec& spec, AnslScriptEngine& engi
                 }
                 else
                 {
+                    const float em = ImGui::GetFontSize();
+                    // Make the popup usable even if the combo widget is tiny in a narrow window.
+                    SetNextComboPopupMinWidth(22.0f * em);
+                    // Also keep the closed combo from collapsing too small (font previews depend on popup width).
+                    if (spec.width <= 0.0f)
+                        ImGui::SetNextItemWidth(std::max(18.0f * em, ImGui::CalcItemWidth()));
+
                     const char* preview = cur.c_str();
                     if (ImGui::BeginCombo(label, preview, ImGuiComboFlags_HeightLarge))
                     {
@@ -914,6 +1045,7 @@ static float EstimateCompactItemWidthPx(const AnslParamSpec& spec)
     const float label_w = ImGui::CalcTextSize(label).x;
 
     float control_w = 0.0f;
+    const std::string ui = ToLower(spec.ui);
     switch (spec.type)
     {
         case AnslParamType::Bool:
@@ -927,12 +1059,52 @@ static float EstimateCompactItemWidthPx(const AnslParamSpec& spec)
             control_w = (spec.width > 0.0f) ? spec.width : (8.0f * em);
             break;
         case AnslParamType::Enum:
-            control_w = (spec.width > 0.0f) ? spec.width : (10.0f * em);
+            if (spec.width > 0.0f)
+                control_w = spec.width;
+            else if (ui == "combo_filter" || spec.key == "font")
+                control_w = 18.0f * em;
+            else
+                control_w = 10.0f * em;
             break;
     }
 
     const float w = label_w + style.ItemInnerSpacing.x + control_w + style.FramePadding.x * 2.0f;
     return std::clamp(w, 4.0f * em, 40.0f * em);
+}
+
+static float EstimateNonCompactItemWidthPx(const AnslParamSpec& spec)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float em = ImGui::GetFontSize();
+    const char* label = spec.label.empty() ? spec.key.c_str() : spec.label.c_str();
+    const float label_w = ImGui::CalcTextSize(label).x;
+
+    float control_w = 0.0f;
+    const std::string ui = ToLower(spec.ui);
+    switch (spec.type)
+    {
+        case AnslParamType::Bool:
+            control_w = 3.0f * em;
+            break;
+        case AnslParamType::Button:
+            control_w = 3.0f * em;
+            break;
+        case AnslParamType::Int:
+        case AnslParamType::Float:
+            control_w = (spec.width > 0.0f) ? spec.width : (12.0f * em);
+            break;
+        case AnslParamType::Enum:
+            if (spec.width > 0.0f)
+                control_w = spec.width;
+            else if (ui == "combo_filter" || spec.key == "font")
+                control_w = 24.0f * em;
+            else
+                control_w = 14.0f * em;
+            break;
+    }
+
+    const float w = label_w + style.ItemInnerSpacing.x + control_w + style.FramePadding.x * 2.0f;
+    return std::clamp(w, 10.0f * em, 80.0f * em);
 }
 
 bool RenderAnslParamByKey(const char* id, AnslScriptEngine& engine, const char* key, bool compact)
@@ -986,31 +1158,129 @@ bool RenderAnslParamsUIPrimaryBar(const char* id, AnslScriptEngine& engine, cons
 
     if (any_quick)
     {
-        const float start_x = ImGui::GetCursorPosX();
-        const float max_x = start_x + std::max(1.0f, ImGui::GetContentRegionAvail().x);
-        bool first = true;
+        struct QuickItem
+        {
+            const AnslParamSpec* sp = nullptr;
+            std::string          section;
+        };
+
+        // Build a stable list of quick items (specs are already deterministically sorted in the engine).
+        std::vector<QuickItem> items;
+        items.reserve(specs.size());
         for (const auto& s : specs)
         {
             if (s.placement != AnslParamPlacement::Quick)
                 continue;
             if (IsSkippedKey(s, skip))
                 continue;
+            items.push_back(QuickItem{&s, CanonicalSectionName(s.section)});
+        }
 
-            if (!first)
+        // Decide whether to show section dividers in the quick area.
+        int section_count = 0;
+        {
+            std::string prev;
+            for (const auto& it : items)
             {
-                const float want_w = EstimateCompactItemWidthPx(s);
+                if (!it.sp)
+                    continue;
+                if (it.section != prev)
+                {
+                    section_count++;
+                    prev = it.section;
+                }
+            }
+        }
+        const bool show_section_dividers = (section_count >= 2) && ((int)items.size() >= 5);
+
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float start_x0 = ImGui::GetCursorPosX();
+        const float max_x0 = start_x0 + std::max(1.0f, ImGui::GetContentRegionAvail().x);
+
+        bool first_group = true;
+        std::string cur_section;
+
+        // Render by section, and within each section render inline-chains as a wrap-aware group.
+        for (size_t i = 0; i < items.size();)
+        {
+            const QuickItem& qi = items[i];
+            if (!qi.sp)
+            {
+                ++i;
+                continue;
+            }
+
+            if (qi.section != cur_section)
+            {
+                if (show_section_dividers)
+                    ImGui::SeparatorText(qi.section.c_str());
+                cur_section = qi.section;
+                first_group = true; // new section starts a fresh row
+            }
+
+            // Build a group: (head) + following inline_with_prev params (same section only).
+            size_t j = i + 1;
+            while (j < items.size())
+            {
+                const QuickItem& qn = items[j];
+                if (!qn.sp)
+                    break;
+                if (qn.section != cur_section)
+                    break;
+                if (!qn.sp->inline_with_prev)
+                    break;
+                ++j;
+            }
+
+            // Estimate group width to decide whether to place it on the same line as prior group.
+            float group_w = 0.0f;
+            for (size_t k = i; k < j; ++k)
+            {
+                if (!items[k].sp)
+                    continue;
+                if (k != i)
+                    group_w += style.ItemSpacing.x;
+                group_w += EstimateCompactItemWidthPx(*items[k].sp);
+            }
+
+            if (!first_group)
+            {
                 const float cur_x = ImGui::GetCursorPosX();
-                const float spacing = ImGui::GetStyle().ItemSpacing.x;
-                const bool fits = (cur_x + spacing + want_w) <= max_x;
+                const float fits_x = cur_x + style.ItemSpacing.x + group_w;
+                const bool fits = fits_x <= max_x0;
                 if (fits)
                     ImGui::SameLine();
-                else
-                    ImGui::NewLine();
+                // If it doesn't fit, do nothing: ImGui already advanced to a new line after the previous item,
+                // and calling NewLine() here can create extra blank vertical space for multi-line widgets.
             }
-            ImGui::PushID(s.key.c_str());
-            changed = RenderParamControl(s, engine, /*compact=*/true) || changed;
-            ImGui::PopID();
-            first = false;
+
+            ImGui::BeginGroup();
+            float prev_right = 0.0f;
+            bool first_in_chain = true;
+            for (size_t k = i; k < j; ++k)
+            {
+                const AnslParamSpec* sp = items[k].sp;
+                if (!sp)
+                    continue;
+                if (!first_in_chain && sp->inline_with_prev)
+                {
+                    const float want_w = EstimateCompactItemWidthPx(*sp);
+                    const float max_x = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+                    const bool fits_inline = (prev_right + style.ItemSpacing.x + want_w) <= max_x;
+                    if (fits_inline)
+                        ImGui::SameLine();
+                }
+
+                ImGui::PushID(sp->key.c_str());
+                changed = RenderParamControl(*sp, engine, /*compact=*/true) || changed;
+                ImGui::PopID();
+                prev_right = ImGui::GetItemRectMax().x;
+                first_in_chain = false;
+            }
+            ImGui::EndGroup();
+
+            first_group = false;
+            i = j;
         }
     }
 
@@ -1078,7 +1348,7 @@ bool RenderAnslParamsUIAdvanced(const char* id,
             if (IsSkippedKey(s, skip))
                 continue;
 
-            const std::string sec = s.section.empty() ? "General" : s.section;
+            const std::string sec = CanonicalSectionName(s.section);
             auto it = idx_by_name.find(sec);
             if (it == idx_by_name.end())
             {
@@ -1091,9 +1361,15 @@ bool RenderAnslParamsUIAdvanced(const char* id,
         }
     }
 
-    // Stable section ordering: alphabetical (tools should conform to canonical names).
+    // Stable section ordering: preferred ordering, then alphabetical.
     std::sort(sections.begin(), sections.end(),
-              [](const Section& a, const Section& b) { return a.name < b.name; });
+              [](const Section& a, const Section& b) {
+                  const int ao = PreferredSectionOrder(a.name);
+                  const int bo = PreferredSectionOrder(b.name);
+                  if (ao != bo)
+                      return ao < bo;
+                  return ToLower(a.name) < ToLower(b.name);
+              });
 
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1180,16 +1456,26 @@ bool RenderAnslParamsUIAdvanced(const char* id,
             return;
 
         bool have_prev_inline = false;
+        float prev_item_right = 0.0f; // screen-space
         for (const AnslParamSpec* sp : sec.params)
         {
             if (!sp)
                 continue;
             if (have_prev_inline && sp->inline_with_prev)
-                ImGui::SameLine();
+            {
+                // Soft inline hint: keep on the same row if it fits; otherwise wrap.
+                const ImGuiStyle& style = ImGui::GetStyle();
+                const float want_w = EstimateNonCompactItemWidthPx(*sp);
+                const float max_x = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+                const bool fits = (prev_item_right + style.ItemSpacing.x + want_w) <= max_x;
+                if (fits)
+                    ImGui::SameLine();
+            }
             ImGui::PushID(sp->key.c_str());
             changed = RenderParamControl(*sp, engine, /*compact=*/false) || changed;
             ImGui::PopID();
             have_prev_inline = true;
+            prev_item_right = ImGui::GetItemRectMax().x;
         }
     };
 

@@ -107,36 +107,43 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
 
         const bool has_pick_bg = EngineHasQuickParamKey(tool_engine, "pickBg");
         const bool has_pick_fg = EngineHasQuickParamKey(tool_engine, "pickFg");
+        const bool has_pick_char = EngineHasQuickParamKey(tool_engine, "pickChar");
+
+        // Some tools use "affect*" toggles rather than "use*".
+        const bool has_affect_bg = EngineHasQuickParamKey(tool_engine, "affectBg");
+        const bool has_affect_fg = EngineHasQuickParamKey(tool_engine, "affectFg");
+        const bool has_affect_char = EngineHasQuickParamKey(tool_engine, "affectChar");
+        const bool has_snap_palette = EngineHasQuickParamKey(tool_engine, "snapPalette");
 
         const bool want_use_row = has_use_bg || has_use_fg || has_bg_src || has_fg_src;
-        const bool want_pick_row = !want_use_row && (has_pick_bg || has_pick_fg);
+        const bool want_pick_row = !want_use_row && (has_pick_bg || has_pick_fg || has_pick_char);
+        const bool want_affect_row =
+            !want_use_row && !want_pick_row && (has_affect_bg || has_affect_fg || has_affect_char || has_snap_palette);
 
-        if (want_use_row || want_pick_row)
+        if (want_use_row || want_pick_row || want_affect_row)
         {
-            const ImGuiTableFlags tflags =
-                ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_PadOuterX;
-            if (ImGui::BeginTable("##tool_params_colour_row", 3, tflags))
-            {
-                ImGui::TableSetupColumn("##left", ImGuiTableColumnFlags_WidthFixed, 0.0f);
-                ImGui::TableSetupColumn("##right", ImGuiTableColumnFlags_WidthFixed, 0.0f);
-                ImGui::TableSetupColumn("##spacer", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            // Responsive:
+            // - For pure toggles (BG/FG without Source), keep them inline even in vertical layouts.
+            // - Only consider stacking when we have the wider Source segmented controls.
+            const bool has_sources = has_bg_src || has_fg_src;
+            const float em = ImGui::GetFontSize();
+            const float avail_w = ImGui::GetContentRegionAvail().x;
+            const bool stack = has_sources && (avail_w < (28.0f * em));
 
-                ImGui::TableNextRow();
-
-                // Left group (BG-ish)
-                ImGui::TableSetColumnIndex(0);
+            auto render_bg_group = [&]() {
                 if (want_use_row)
                 {
                     if (has_use_bg)
                     {
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "useBg", /*compact=*/true) || params_changed;
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "useBg", /*compact=*/true) || params_changed;
                         add_skip("useBg");
                     }
                     if (has_bg_src)
                     {
-                        if (has_use_bg)
-                            ImGui::SameLine();
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "bgSource", /*compact=*/true) || params_changed;
+                        if (has_use_bg) ImGui::SameLine();
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "bgSource", /*compact=*/true) || params_changed;
                         add_skip("bgSource");
                     }
                 }
@@ -144,25 +151,27 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
                 {
                     if (has_pick_bg)
                     {
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "pickBg", /*compact=*/true) || params_changed;
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "pickBg", /*compact=*/true) || params_changed;
                         add_skip("pickBg");
                     }
                 }
+            };
 
-                // Right group (FG-ish)
-                ImGui::TableSetColumnIndex(1);
+            auto render_fg_group = [&]() {
                 if (want_use_row)
                 {
                     if (has_use_fg)
                     {
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "useFg", /*compact=*/true) || params_changed;
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "useFg", /*compact=*/true) || params_changed;
                         add_skip("useFg");
                     }
                     if (has_fg_src)
                     {
-                        if (has_use_fg)
-                            ImGui::SameLine();
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "fgSource", /*compact=*/true) || params_changed;
+                        if (has_use_fg) ImGui::SameLine();
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "fgSource", /*compact=*/true) || params_changed;
                         add_skip("fgSource");
                     }
                 }
@@ -170,12 +179,90 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
                 {
                     if (has_pick_fg)
                     {
-                        params_changed = RenderAnslParamByKey("tool_colour", tool_engine, "pickFg", /*compact=*/true) || params_changed;
+                        params_changed =
+                            RenderAnslParamByKey("tool_colour", tool_engine, "pickFg", /*compact=*/true) || params_changed;
                         add_skip("pickFg");
                     }
                 }
+            };
 
-                ImGui::EndTable();
+            if (want_pick_row)
+            {
+                // Pipette-style: allow BG/FG/Char all in one compact row.
+                ImGui::BeginGroup();
+                if (has_pick_bg)
+                {
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "pickBg", /*compact=*/true) || params_changed;
+                    add_skip("pickBg");
+                }
+                if (has_pick_fg)
+                {
+                    if (has_pick_bg) ImGui::SameLine();
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "pickFg", /*compact=*/true) || params_changed;
+                    add_skip("pickFg");
+                }
+                if (has_pick_char)
+                {
+                    if (has_pick_bg || has_pick_fg) ImGui::SameLine();
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "pickChar", /*compact=*/true) || params_changed;
+                    add_skip("pickChar");
+                }
+                ImGui::EndGroup();
+            }
+            else if (want_affect_row)
+            {
+                // Colour blur / similar: allow Char/FG/BG (+ optional snap) in one compact row.
+                ImGui::BeginGroup();
+                bool any = false;
+                if (has_affect_char)
+                {
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "affectChar", /*compact=*/true) || params_changed;
+                    add_skip("affectChar");
+                    any = true;
+                }
+                if (has_affect_fg)
+                {
+                    if (any) ImGui::SameLine();
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "affectFg", /*compact=*/true) || params_changed;
+                    add_skip("affectFg");
+                    any = true;
+                }
+                if (has_affect_bg)
+                {
+                    if (any) ImGui::SameLine();
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "affectBg", /*compact=*/true) || params_changed;
+                    add_skip("affectBg");
+                    any = true;
+                }
+                if (has_snap_palette)
+                {
+                    if (any) ImGui::SameLine();
+                    params_changed =
+                        RenderAnslParamByKey("tool_colour", tool_engine, "snapPalette", /*compact=*/true) || params_changed;
+                    add_skip("snapPalette");
+                    any = true;
+                }
+                ImGui::EndGroup();
+            }
+            else
+            {
+                ImGui::BeginGroup();
+                render_bg_group();
+                ImGui::EndGroup();
+
+                // For pure toggles (no sources), keep BG/FG on the same row unless the window is extremely tiny.
+                if (!stack)
+                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * (has_sources ? 2.0f : 1.0f));
+
+                ImGui::BeginGroup();
+                render_fg_group();
+                ImGui::EndGroup();
             }
         }
     }
