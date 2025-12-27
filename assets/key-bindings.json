@@ -205,12 +205,77 @@
       ]
     },
     {
-      "id": "selection.delete",
-      "title": "Delete Selection Contents",
+      "id": "selection.clear",
+      "title": "Clear Selection",
       "category": "Selection",
-      "description": "Erase selection contents.",
+      "description": "Clear (erase) selection contents (no shift).",
       "bindings": [
         { "enabled": true, "chord": "Delete", "context": "selection", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.shift_delete",
+      "title": "Shift-Delete Selection (Row/Column)",
+      "category": "Selection",
+      "description": "Shift-delete a full-row or full-column selection (keeps canvas size).",
+      "bindings": [
+        { "enabled": true, "chord": "Shift+Delete", "context": "selection", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.remove_row_shift_up",
+      "title": "Delete Row (Shift Up)",
+      "category": "Selection",
+      "description": "Delete the caret row by shifting rows up (keeps canvas size).",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+Up", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.remove_col_shift_left",
+      "title": "Delete Column (Shift Left)",
+      "category": "Selection",
+      "description": "Delete the caret column by shifting columns left (keeps canvas size).",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+Left", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.insert_row_shift_down",
+      "title": "Insert Row (Shift Down)",
+      "category": "Selection",
+      "description": "Insert a blank row at the caret row by shifting rows down (keeps canvas size).",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+Down", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.insert_col_shift_right",
+      "title": "Insert Column (Shift Right)",
+      "category": "Selection",
+      "description": "Insert a blank column at the caret column by shifting columns right (keeps canvas size).",
+      "bindings": [
+        { "enabled": true, "chord": "Alt+Right", "context": "editor", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.select_row",
+      "title": "Select Row",
+      "category": "Selection",
+      "description": "Select the full row at the caret.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+L", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+L", "context": "editor", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "selection.select_column",
+      "title": "Select Column",
+      "category": "Selection",
+      "description": "Select the full column at the caret.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Shift+L", "context": "editor", "platform": "any" },
+        { "enabled": true, "chord": "Cmd+Shift+L", "context": "editor", "platform": "macos" }
       ]
     },
     {
@@ -419,6 +484,7 @@
       "title": "Reset Zoom",
       "category": "View",
       "bindings": [
+        { "enabled": true, "chord": "Ctrl+0", "context": "global", "platform": "any" },
         { "enabled": true, "chord": "Ctrl+Alt+0", "context": "global", "platform": "any" },
         { "enabled": true, "chord": "Cmd+0", "context": "global", "platform": "macos" }
       ]
@@ -742,8 +808,8 @@
       ]
     },
     {
-      "id": "editor.delete_forward",
-      "title": "Delete (Forward)",
+      "id": "editor.delete_forward_shift",
+      "title": "Delete Forward (Shift)",
       "category": "Editor",
       "description": "Delete character under caret (shift cells left).",
       "bindings": [
@@ -1358,15 +1424,7 @@
         { "enabled": true, "chord": "Ctrl+9", "context": "canvas", "platform": "any" }
       ]
     },
-    {
-      "id": "tool.preset.slot.0",
-      "title": "Tool Preset Slot 10 (0)",
-      "category": "Tools",
-      "description": "Apply tool preset slot 10 (the 10th preset for the active tool).",
-      "bindings": [
-        { "enabled": true, "chord": "Ctrl+0", "context": "canvas", "platform": "any" }
-      ]
-    }
+    
   ]
 }
 

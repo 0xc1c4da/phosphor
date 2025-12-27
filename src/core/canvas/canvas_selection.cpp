@@ -1048,12 +1048,12 @@ void AnsiCanvas::CaptureKeyEvents()
 
         m_key_events.backspace = m_keybinds->ActionPressed("editor.backspace", kctx);
 
-        // "Delete" is ambiguous: when selection exists, treat it as "delete selection";
-        // otherwise allow the (optional) forward-delete editor action.
+        // "Delete" is ambiguous: when selection exists, treat it as "clear selection";
+        // otherwise allow the forward-delete editor action.
         if (kctx.selection)
-            m_key_events.del = m_keybinds->ActionPressed("selection.delete", kctx);
+            m_key_events.del = m_keybinds->ActionPressed("selection.clear", kctx);
         else
-            m_key_events.del = m_keybinds->ActionPressed("editor.delete_forward", kctx);
+            m_key_events.del = m_keybinds->ActionPressed("editor.delete_forward_shift", kctx);
 
         m_key_events.enter = m_keybinds->ActionPressed("editor.new_line", kctx);
     }

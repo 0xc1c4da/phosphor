@@ -32,8 +32,8 @@ struct ToolSpec
     //
     // Lua schema:
     //   settings.handles = {
-    //     { action = "selection.delete", when = "active" },
-    //     { action = "selection.delete", when = "inactive" },
+    //     { action = "selection.clear", when = "active" },
+    //     { action = "selection.clear", when = "inactive" },
     //   }
     //
     // Back-compat: older tools may still use:

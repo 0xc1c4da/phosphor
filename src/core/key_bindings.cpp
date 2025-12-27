@@ -228,6 +228,12 @@ static bool ActionFromJson(const json& ja, Action& out, std::string& err)
 
     out = Action{};
     out.id = ja["id"].get<std::string>();
+    // Canonicalize legacy action IDs on load so older user keybinding files keep working
+    // without requiring legacy aliases in the shipped/default action list.
+    if (out.id == "selection.delete")
+        out.id = "selection.clear";
+    else if (out.id == "editor.delete_forward")
+        out.id = "editor.delete_forward_shift";
     if (ja.contains("title") && ja["title"].is_string())
         out.title = ja["title"].get<std::string>();
     if (ja.contains("category") && ja["category"].is_string())
@@ -709,7 +715,7 @@ Hotkeys KeyBindingsEngine::EvalCommonHotkeys(const EvalContext& ctx) const
     hk.paste = ActionPressed("edit.paste", ctx);
     hk.select_all = ActionPressed("edit.select_all", ctx);
     hk.cancel = ActionPressed("selection.clear_or_cancel", ctx);
-    hk.delete_selection = ActionPressed("selection.delete", ctx);
+    hk.delete_selection = ActionPressed("selection.clear", ctx);
     return hk;
 }
 
@@ -935,10 +941,61 @@ std::vector<Action> DefaultActions()
             }
         },
         {
-            .id="selection.delete", .title="Delete Selection Contents", .category="Selection",
-            .description="Erase selection contents.",
+            .id="selection.clear", .title="Clear Selection", .category="Selection",
+            .description="Clear (erase) selection contents (no shift).",
             .bindings={
                 {.enabled=true, .chord="Delete", .context="selection", .platform="any"},
+            }
+        },
+        {
+            .id="selection.shift_delete", .title="Shift-Delete Selection (Row/Column)", .category="Selection",
+            .description="Shift-delete a full-row or full-column selection (keeps canvas size).",
+            .bindings={
+                {.enabled=true, .chord="Shift+Delete", .context="selection", .platform="any"},
+            }
+        },
+        {
+            .id="selection.remove_row_shift_up", .title="Delete Row (Shift Up)", .category="Selection",
+            .description="Delete the caret row by shifting rows up (keeps canvas size).",
+            .bindings={
+                {.enabled=true, .chord="Alt+Up", .context="editor", .platform="any"},
+            }
+        },
+        {
+            .id="selection.remove_col_shift_left", .title="Delete Column (Shift Left)", .category="Selection",
+            .description="Delete the caret column by shifting columns left (keeps canvas size).",
+            .bindings={
+                {.enabled=true, .chord="Alt+Left", .context="editor", .platform="any"},
+            }
+        },
+        {
+            .id="selection.insert_row_shift_down", .title="Insert Row (Shift Down)", .category="Selection",
+            .description="Insert a blank row at the caret row by shifting rows down (keeps canvas size).",
+            .bindings={
+                {.enabled=true, .chord="Alt+Down", .context="editor", .platform="any"},
+            }
+        },
+        {
+            .id="selection.insert_col_shift_right", .title="Insert Column (Shift Right)", .category="Selection",
+            .description="Insert a blank column at the caret column by shifting columns right (keeps canvas size).",
+            .bindings={
+                {.enabled=true, .chord="Alt+Right", .context="editor", .platform="any"},
+            }
+        },
+        {
+            .id="selection.select_row", .title="Select Row", .category="Selection",
+            .description="Select the full row at the caret.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+L", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Cmd+L", .context="editor", .platform="macos"},
+            }
+        },
+        {
+            .id="selection.select_column", .title="Select Column", .category="Selection",
+            .description="Select the full column at the caret.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+L", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Cmd+Shift+L", .context="editor", .platform="macos"},
             }
         },
         {
@@ -1107,9 +1164,8 @@ std::vector<Action> DefaultActions()
             .id="editor.backspace", .title="Backspace", .category="Editor", .description="",
             .bindings={ {.enabled=true, .chord="Backspace", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
-        // TODO(wire): Forward delete as an editor action (distinct from selection delete).
         {
-            .id="editor.delete_forward", .title="Delete (Forward)", .category="Editor",
+            .id="editor.delete_forward_shift", .title="Delete Forward (Shift)", .category="Editor",
             .description="Delete character under caret (shift cells left).",
             .bindings={ {.enabled=true, .chord="Delete", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
@@ -1282,6 +1338,7 @@ std::vector<Action> DefaultActions()
             .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
             .bindings={
                 // Back-compat / alternate chord (useful on some layouts).
+                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
             }
@@ -1530,7 +1587,7 @@ std::vector<Action> DefaultActions()
             .bindings={ {.enabled=true, .chord="F12", .context="editor", .platform="any"} }
         },
         // NOTE: We intentionally do NOT bind Ctrl+1..9/0 for character-set insertion.
-        // Those chords are reserved for editor/view shortcuts (notably Ctrl+0 = Reset Zoom).
+        // Those chords are reserved for editor/view shortcuts and tool presets (notably Ctrl+0 = Reset Zoom).
 
         // Character-set navigation (Moebius) is useful when multiple sets exist.
         {
@@ -1549,7 +1606,7 @@ std::vector<Action> DefaultActions()
             .bindings={ {.enabled=false, .chord="Ctrl+/", .context="editor", .platform="any"} }
         },
 
-        // --- Tool presets (Ctrl+0..9 reserved) ---
+        // --- Tool presets (Ctrl+1..9 reserved; Ctrl+0 reserved for Reset Zoom) ---
         // These are intentionally reserved for the active tool's parameter presets
         // (see assets/tool-presets.json and Tool Parameters window).
         {
@@ -1596,11 +1653,6 @@ std::vector<Action> DefaultActions()
             .id="tool.preset.slot.9", .title="Tool Preset Slot 9", .category="Tools",
             .description="Apply tool preset slot 9 (the 9th preset for the active tool).",
             .bindings={ {.enabled=true, .chord="Ctrl+9", .context="canvas", .platform="any"} }
-        },
-        {
-            .id="tool.preset.slot.0", .title="Tool Preset Slot 10 (0)", .category="Tools",
-            .description="Apply tool preset slot 10 (the 10th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+0", .context="canvas", .platform="any"} }
         },
 
         // TODO(wire): Tool mode switching (Moebius). These are intentionally disabled because

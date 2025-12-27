@@ -119,11 +119,11 @@ static bool ApplyToolPresetDigit(const std::string& tool_id,
 {
     if (tool_id.empty())
         return false;
-    if (digit < 0 || digit > 9)
+    if (digit < 1 || digit > 9)
         return false;
 
-    // Reserve Ctrl+1..9 as first 9 presets; Ctrl+0 as the 10th (common "0 means 10").
-    const int want_index = (digit == 0) ? 9 : (digit - 1);
+    // Reserve Ctrl+1..9 as presets 1..9.
+    const int want_index = digit - 1;
     if (want_index < 0)
         return false;
 
@@ -1249,8 +1249,8 @@ void RunFrame(AppState& st)
                 break; // only switch once per frame
             }
 
-            // Tool preset slots: reserve Ctrl+0..9 and apply the Nth preset for the active tool.
-            for (int d = 0; d <= 9; ++d)
+            // Tool preset slots: reserve Ctrl+1..9 and apply the Nth preset for the active tool.
+            for (int d = 1; d <= 9; ++d)
             {
                 const std::string id = "tool.preset.slot." + std::to_string(d);
                 if (!keybinds.ActionPressed(id, kctx))
@@ -2248,13 +2248,60 @@ void RunFrame(AppState& st)
                     fctx.actions_pressed = &actions;
                     fctx.allow_caret_writeback = false;
 
+                    // Allow a small set of structural selection actions to run as fallback, since they
+                    // are intentionally implemented via tool commands (Lua -> ctx.out -> ToolCommand).
+                    const bool allow_tool_commands =
+                        (action_id == "selection.shift_delete") ||
+                        (action_id == "selection.remove_row_shift_up") ||
+                        (action_id == "selection.remove_col_shift_left") ||
+                        (action_id == "selection.insert_row_shift_down") ||
+                        (action_id == "selection.insert_col_shift_right");
+
                     ToolCommandSink sink;
-                    sink.allow_tool_commands = false;
-                    sink.out_commands = nullptr;
+                    std::vector<ToolCommand> cmds;
+                    sink.allow_tool_commands = allow_tool_commands;
+                    sink.out_commands = allow_tool_commands ? &cmds : nullptr;
 
                     std::string err;
                     const bool ok = eng->RunFrame(c, c.GetActiveLayerIndex(), fctx, sink, false, err);
                     (void)ok;
+
+                    if (allow_tool_commands && !cmds.empty())
+                    {
+                        for (const ToolCommand& cmd : cmds)
+                        {
+                            switch (cmd.type)
+                            {
+                            case ToolCommand::Type::CanvasRemoveRowShiftUp:
+                            {
+                                if (c.IsMovingSelection())
+                                    (void)c.CommitMoveSelection();
+                                (void)c.RemoveRowShiftUp(cmd.y, cmd.layer);
+                            } break;
+                            case ToolCommand::Type::CanvasRemoveColShiftLeft:
+                            {
+                                if (c.IsMovingSelection())
+                                    (void)c.CommitMoveSelection();
+                                (void)c.RemoveColumnShiftLeft(cmd.x, cmd.layer);
+                            } break;
+                            case ToolCommand::Type::CanvasInsertRowShiftDown:
+                            {
+                                if (c.IsMovingSelection())
+                                    (void)c.CommitMoveSelection();
+                                (void)c.InsertRowShiftDown(cmd.y, cmd.layer);
+                            } break;
+                            case ToolCommand::Type::CanvasInsertColShiftRight:
+                            {
+                                if (c.IsMovingSelection())
+                                    (void)c.CommitMoveSelection();
+                                (void)c.InsertColumnShiftRight(cmd.x, cmd.layer);
+                            } break;
+                            default:
+                                break;
+                            }
+                        }
+                    }
+
                     // Even if the tool errors, don't crash routing; treat as handled to avoid host fallback duplication.
                     return true;
                 };
@@ -2273,7 +2320,7 @@ void RunFrame(AppState& st)
                             c.ClearSelection();
                         return true;
                     }
-                    if (action_id == "selection.delete")
+                    if (action_id == "selection.clear")
                     {
                         if (c.IsMovingSelection())
                             (void)c.CommitMoveSelection();
@@ -2301,6 +2348,13 @@ void RunFrame(AppState& st)
 
                 // Evaluate common semantic hotkeys from the keybinding engine.
                 const kb::Hotkeys hk_raw = keybinds.EvalCommonHotkeys(kctx);
+                const bool pressed_shift_delete = keybinds.ActionPressed("selection.shift_delete", kctx);
+                const bool pressed_select_row = keybinds.ActionPressed("selection.select_row", kctx);
+                const bool pressed_select_col = keybinds.ActionPressed("selection.select_column", kctx);
+                const bool pressed_remove_row = keybinds.ActionPressed("selection.remove_row_shift_up", kctx);
+                const bool pressed_remove_col = keybinds.ActionPressed("selection.remove_col_shift_left", kctx);
+                const bool pressed_insert_row = keybinds.ActionPressed("selection.insert_row_shift_down", kctx);
+                const bool pressed_insert_col = keybinds.ActionPressed("selection.insert_col_shift_right", kctx);
                 struct Candidate
                 {
                     std::string_view id;
@@ -2312,7 +2366,14 @@ void RunFrame(AppState& st)
                     {"edit.paste", hk_raw.paste},
                     {"edit.select_all", hk_raw.select_all},
                     {"selection.clear_or_cancel", hk_raw.cancel},
-                    {"selection.delete", hk_raw.delete_selection},
+                    {"selection.clear", hk_raw.delete_selection},
+                    {"selection.shift_delete", pressed_shift_delete},
+                    {"selection.select_row", pressed_select_row},
+                    {"selection.select_column", pressed_select_col},
+                    {"selection.remove_row_shift_up", pressed_remove_row},
+                    {"selection.remove_col_shift_left", pressed_remove_col},
+                    {"selection.insert_row_shift_down", pressed_insert_row},
+                    {"selection.insert_col_shift_right", pressed_insert_col},
                 };
 
                 // Decide which of the common actions to deliver to the active tool, and which to handle via fallback.
@@ -2355,7 +2416,7 @@ void RunFrame(AppState& st)
                         else if (cand.id == "edit.paste") hk_to_tool.paste = true;
                         else if (cand.id == "edit.select_all") hk_to_tool.select_all = true;
                         else if (cand.id == "selection.clear_or_cancel") hk_to_tool.cancel = true;
-                        else if (cand.id == "selection.delete") hk_to_tool.delete_selection = true;
+                        else if (cand.id == "selection.clear") hk_to_tool.delete_selection = true;
                         continue;
                     }
 
@@ -2561,6 +2622,31 @@ void RunFrame(AppState& st)
                         }
 
                         c.SetSelectionCorners(0, 0, r.w - 1, r.h - 1);
+                    } break;
+                    case ToolCommand::Type::CanvasRemoveRowShiftUp:
+                    {
+                        // Structural selection op: commit any floating move first to avoid confusing state.
+                        if (c.IsMovingSelection())
+                            (void)c.CommitMoveSelection();
+                        (void)c.RemoveRowShiftUp(cmd.y, cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasRemoveColShiftLeft:
+                    {
+                        if (c.IsMovingSelection())
+                            (void)c.CommitMoveSelection();
+                        (void)c.RemoveColumnShiftLeft(cmd.x, cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasInsertRowShiftDown:
+                    {
+                        if (c.IsMovingSelection())
+                            (void)c.CommitMoveSelection();
+                        (void)c.InsertRowShiftDown(cmd.y, cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasInsertColShiftRight:
+                    {
+                        if (c.IsMovingSelection())
+                            (void)c.CommitMoveSelection();
+                        (void)c.InsertColumnShiftRight(cmd.x, cmd.layer);
                     } break;
                     case ToolCommand::Type::BrushPreviewSet:
                     {

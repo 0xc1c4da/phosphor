@@ -17,7 +17,7 @@ class ToolParametersWindow
 public:
     ToolParametersWindow();
 
-    // Returns true if the window was shown (i.e. engine has params and window was built).
+    // Returns true if the window was shown (window was built).
     bool Render(const ToolSpec* active_tool,
                 const std::string& compiled_tool_id,
                 AnslScriptEngine& tool_engine,

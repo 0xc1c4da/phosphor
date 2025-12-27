@@ -1449,6 +1449,472 @@ bool AnsiCanvas::DeleteForwardShift(int layer_index)
     return true;
 }
 
+bool AnsiCanvas::RemoveRowShiftUp(int row, int layer_index)
+{
+    EnsureDocument();
+
+    if (m_columns <= 0 || m_rows <= 0)
+        return false;
+    if (row < 0 || row >= m_rows)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    struct PendingWrite
+    {
+        int lr = 0;
+        int lc = 0;
+        GlyphId       old_cp = BlankGlyph();
+        ColourIndex16 old_fg = kUnsetIndex16;
+        ColourIndex16 old_bg = kUnsetIndex16;
+        Attrs         old_attrs = 0;
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+    };
+
+    std::vector<PendingWrite> writes;
+    writes.reserve((size_t)std::max(0, (m_rows - row) * m_columns));
+
+    // Build the write set first so the operation is all-or-nothing under transparency lock.
+    // Note: This operation is a selection structural op; it must NOT be clipped by ToolWriteAllowed().
+    for (int cy = row; cy < m_rows; ++cy)
+    {
+        for (int cx = 0; cx < m_columns; ++cx)
+        {
+            int dlr = 0, dlc = 0;
+            if (!CanvasToLayerLocalForReadFast(cy, cx, off_x, off_y, m_columns, m_rows, dlr, dlc))
+                continue;
+
+            const size_t didx = (size_t)dlr * (size_t)m_columns + (size_t)dlc;
+            const GlyphId       old_cp = (didx < layer.cells.size()) ? layer.cells[didx] : BlankGlyph();
+            const ColourIndex16 old_fg = (didx < layer.fg.size()) ? layer.fg[didx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (didx < layer.bg.size()) ? layer.bg[didx] : kUnsetIndex16;
+            const Attrs         old_attrs = (didx < layer.attrs.size()) ? layer.attrs[didx] : 0;
+
+            GlyphId       new_cp = BlankGlyph();
+            ColourIndex16 new_fg = kUnsetIndex16;
+            ColourIndex16 new_bg = kUnsetIndex16;
+            Attrs         new_attrs = 0;
+
+            if (cy < (m_rows - 1))
+            {
+                const int sy = cy + 1;
+                int slr = 0, slc = 0;
+                if (CanvasToLayerLocalForReadFast(sy, cx, off_x, off_y, m_columns, m_rows, slr, slc))
+                {
+                    const size_t sidx = (size_t)slr * (size_t)m_columns + (size_t)slc;
+                    if (sidx < layer.cells.size()) new_cp = layer.cells[sidx];
+                    if (sidx < layer.fg.size())    new_fg = layer.fg[sidx];
+                    if (sidx < layer.bg.size())    new_bg = layer.bg[sidx];
+                    if (sidx < layer.attrs.size()) new_attrs = layer.attrs[sidx];
+                }
+            }
+
+            if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+            {
+                // Structural op: avoid partial shifts under transparency lock.
+                return false;
+            }
+
+            PendingWrite w;
+            w.lr = dlr;
+            w.lc = dlc;
+            w.old_cp = old_cp;
+            w.old_fg = old_fg;
+            w.old_bg = old_bg;
+            w.old_attrs = old_attrs;
+            w.new_cp = new_cp;
+            w.new_fg = new_fg;
+            w.new_bg = new_bg;
+            w.new_attrs = new_attrs;
+            writes.push_back(w);
+        }
+    }
+
+    if (writes.empty())
+        return false;
+
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+
+    for (const auto& w : writes)
+        CaptureUndoPageIfNeeded(layer_index, w.lr);
+
+    for (const auto& w : writes)
+    {
+        const size_t idx = (size_t)w.lr * (size_t)m_columns + (size_t)w.lc;
+        if (idx < layer.cells.size()) layer.cells[idx] = w.new_cp;
+        if (idx < layer.fg.size())    layer.fg[idx]    = w.new_fg;
+        if (idx < layer.bg.size())    layer.bg[idx]    = w.new_bg;
+        if (idx < layer.attrs.size()) layer.attrs[idx] = w.new_attrs;
+    }
+
+    return true;
+}
+
+bool AnsiCanvas::RemoveColumnShiftLeft(int col, int layer_index)
+{
+    EnsureDocument();
+
+    if (m_columns <= 0 || m_rows <= 0)
+        return false;
+    if (col < 0 || col >= m_columns)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    struct PendingWrite
+    {
+        int lr = 0;
+        int lc = 0;
+        GlyphId       old_cp = BlankGlyph();
+        ColourIndex16 old_fg = kUnsetIndex16;
+        ColourIndex16 old_bg = kUnsetIndex16;
+        Attrs         old_attrs = 0;
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+    };
+
+    std::vector<PendingWrite> writes;
+    writes.reserve((size_t)std::max(0, m_rows * (m_columns - col)));
+
+    // Build the write set first so the operation is all-or-nothing under transparency lock.
+    // Note: This operation is a selection structural op; it must NOT be clipped by ToolWriteAllowed().
+    for (int cy = 0; cy < m_rows; ++cy)
+    {
+        for (int cx = col; cx < m_columns; ++cx)
+        {
+            int dlr = 0, dlc = 0;
+            if (!CanvasToLayerLocalForReadFast(cy, cx, off_x, off_y, m_columns, m_rows, dlr, dlc))
+                continue;
+
+            const size_t didx = (size_t)dlr * (size_t)m_columns + (size_t)dlc;
+            const GlyphId       old_cp = (didx < layer.cells.size()) ? layer.cells[didx] : BlankGlyph();
+            const ColourIndex16 old_fg = (didx < layer.fg.size()) ? layer.fg[didx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (didx < layer.bg.size()) ? layer.bg[didx] : kUnsetIndex16;
+            const Attrs         old_attrs = (didx < layer.attrs.size()) ? layer.attrs[didx] : 0;
+
+            GlyphId       new_cp = BlankGlyph();
+            ColourIndex16 new_fg = kUnsetIndex16;
+            ColourIndex16 new_bg = kUnsetIndex16;
+            Attrs         new_attrs = 0;
+
+            if (cx < (m_columns - 1))
+            {
+                const int sx = cx + 1;
+                int slr = 0, slc = 0;
+                if (CanvasToLayerLocalForReadFast(cy, sx, off_x, off_y, m_columns, m_rows, slr, slc))
+                {
+                    const size_t sidx = (size_t)slr * (size_t)m_columns + (size_t)slc;
+                    if (sidx < layer.cells.size()) new_cp = layer.cells[sidx];
+                    if (sidx < layer.fg.size())    new_fg = layer.fg[sidx];
+                    if (sidx < layer.bg.size())    new_bg = layer.bg[sidx];
+                    if (sidx < layer.attrs.size()) new_attrs = layer.attrs[sidx];
+                }
+            }
+
+            if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+            {
+                // Structural op: avoid partial shifts under transparency lock.
+                return false;
+            }
+
+            PendingWrite w;
+            w.lr = dlr;
+            w.lc = dlc;
+            w.old_cp = old_cp;
+            w.old_fg = old_fg;
+            w.old_bg = old_bg;
+            w.old_attrs = old_attrs;
+            w.new_cp = new_cp;
+            w.new_fg = new_fg;
+            w.new_bg = new_bg;
+            w.new_attrs = new_attrs;
+            writes.push_back(w);
+        }
+    }
+
+    if (writes.empty())
+        return false;
+
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+
+    for (const auto& w : writes)
+        CaptureUndoPageIfNeeded(layer_index, w.lr);
+
+    for (const auto& w : writes)
+    {
+        const size_t idx = (size_t)w.lr * (size_t)m_columns + (size_t)w.lc;
+        if (idx < layer.cells.size()) layer.cells[idx] = w.new_cp;
+        if (idx < layer.fg.size())    layer.fg[idx]    = w.new_fg;
+        if (idx < layer.bg.size())    layer.bg[idx]    = w.new_bg;
+        if (idx < layer.attrs.size()) layer.attrs[idx] = w.new_attrs;
+    }
+
+    return true;
+}
+
+bool AnsiCanvas::InsertRowShiftDown(int row, int layer_index)
+{
+    EnsureDocument();
+
+    if (m_columns <= 0 || m_rows <= 0)
+        return false;
+    if (row < 0 || row >= m_rows)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    struct PendingWrite
+    {
+        int lr = 0;
+        int lc = 0;
+        GlyphId       old_cp = BlankGlyph();
+        ColourIndex16 old_fg = kUnsetIndex16;
+        ColourIndex16 old_bg = kUnsetIndex16;
+        Attrs         old_attrs = 0;
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+    };
+
+    std::vector<PendingWrite> writes;
+    writes.reserve((size_t)std::max(0, (m_rows - row) * m_columns));
+
+    // Build the write set first so the operation is all-or-nothing under transparency lock.
+    // Note: This operation is a selection structural op; it must NOT be clipped by ToolWriteAllowed().
+    for (int cy = row; cy < m_rows; ++cy)
+    {
+        for (int cx = 0; cx < m_columns; ++cx)
+        {
+            int dlr = 0, dlc = 0;
+            if (!CanvasToLayerLocalForReadFast(cy, cx, off_x, off_y, m_columns, m_rows, dlr, dlc))
+                continue;
+
+            const size_t didx = (size_t)dlr * (size_t)m_columns + (size_t)dlc;
+            const GlyphId       old_cp = (didx < layer.cells.size()) ? layer.cells[didx] : BlankGlyph();
+            const ColourIndex16 old_fg = (didx < layer.fg.size()) ? layer.fg[didx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (didx < layer.bg.size()) ? layer.bg[didx] : kUnsetIndex16;
+            const Attrs         old_attrs = (didx < layer.attrs.size()) ? layer.attrs[didx] : 0;
+
+            GlyphId       new_cp = BlankGlyph();
+            ColourIndex16 new_fg = kUnsetIndex16;
+            ColourIndex16 new_bg = kUnsetIndex16;
+            Attrs         new_attrs = 0;
+
+            if (cy > row)
+            {
+                const int sy = cy - 1;
+                int slr = 0, slc = 0;
+                if (CanvasToLayerLocalForReadFast(sy, cx, off_x, off_y, m_columns, m_rows, slr, slc))
+                {
+                    const size_t sidx = (size_t)slr * (size_t)m_columns + (size_t)slc;
+                    if (sidx < layer.cells.size()) new_cp = layer.cells[sidx];
+                    if (sidx < layer.fg.size())    new_fg = layer.fg[sidx];
+                    if (sidx < layer.bg.size())    new_bg = layer.bg[sidx];
+                    if (sidx < layer.attrs.size()) new_attrs = layer.attrs[sidx];
+                }
+            }
+            // else: cy == row -> inserted blank row
+
+            if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+            {
+                // Structural op: avoid partial shifts under transparency lock.
+                return false;
+            }
+
+            PendingWrite w;
+            w.lr = dlr;
+            w.lc = dlc;
+            w.old_cp = old_cp;
+            w.old_fg = old_fg;
+            w.old_bg = old_bg;
+            w.old_attrs = old_attrs;
+            w.new_cp = new_cp;
+            w.new_fg = new_fg;
+            w.new_bg = new_bg;
+            w.new_attrs = new_attrs;
+            writes.push_back(w);
+        }
+    }
+
+    if (writes.empty())
+        return false;
+
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+
+    for (const auto& w : writes)
+        CaptureUndoPageIfNeeded(layer_index, w.lr);
+
+    for (const auto& w : writes)
+    {
+        const size_t idx = (size_t)w.lr * (size_t)m_columns + (size_t)w.lc;
+        if (idx < layer.cells.size()) layer.cells[idx] = w.new_cp;
+        if (idx < layer.fg.size())    layer.fg[idx]    = w.new_fg;
+        if (idx < layer.bg.size())    layer.bg[idx]    = w.new_bg;
+        if (idx < layer.attrs.size()) layer.attrs[idx] = w.new_attrs;
+    }
+
+    return true;
+}
+
+bool AnsiCanvas::InsertColumnShiftRight(int col, int layer_index)
+{
+    EnsureDocument();
+
+    if (m_columns <= 0 || m_rows <= 0)
+        return false;
+    if (col < 0 || col >= m_columns)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    struct PendingWrite
+    {
+        int lr = 0;
+        int lc = 0;
+        GlyphId       old_cp = BlankGlyph();
+        ColourIndex16 old_fg = kUnsetIndex16;
+        ColourIndex16 old_bg = kUnsetIndex16;
+        Attrs         old_attrs = 0;
+        GlyphId       new_cp = BlankGlyph();
+        ColourIndex16 new_fg = kUnsetIndex16;
+        ColourIndex16 new_bg = kUnsetIndex16;
+        Attrs         new_attrs = 0;
+    };
+
+    std::vector<PendingWrite> writes;
+    writes.reserve((size_t)std::max(0, m_rows * (m_columns - col)));
+
+    // Build the write set first so the operation is all-or-nothing under transparency lock.
+    // Note: This operation is a selection structural op; it must NOT be clipped by ToolWriteAllowed().
+    for (int cy = 0; cy < m_rows; ++cy)
+    {
+        for (int cx = col; cx < m_columns; ++cx)
+        {
+            int dlr = 0, dlc = 0;
+            if (!CanvasToLayerLocalForReadFast(cy, cx, off_x, off_y, m_columns, m_rows, dlr, dlc))
+                continue;
+
+            const size_t didx = (size_t)dlr * (size_t)m_columns + (size_t)dlc;
+            const GlyphId       old_cp = (didx < layer.cells.size()) ? layer.cells[didx] : BlankGlyph();
+            const ColourIndex16 old_fg = (didx < layer.fg.size()) ? layer.fg[didx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (didx < layer.bg.size()) ? layer.bg[didx] : kUnsetIndex16;
+            const Attrs         old_attrs = (didx < layer.attrs.size()) ? layer.attrs[didx] : 0;
+
+            GlyphId       new_cp = BlankGlyph();
+            ColourIndex16 new_fg = kUnsetIndex16;
+            ColourIndex16 new_bg = kUnsetIndex16;
+            Attrs         new_attrs = 0;
+
+            if (cx > col)
+            {
+                const int sx = cx - 1;
+                int slr = 0, slc = 0;
+                if (CanvasToLayerLocalForReadFast(cy, sx, off_x, off_y, m_columns, m_rows, slr, slc))
+                {
+                    const size_t sidx = (size_t)slr * (size_t)m_columns + (size_t)slc;
+                    if (sidx < layer.cells.size()) new_cp = layer.cells[sidx];
+                    if (sidx < layer.fg.size())    new_fg = layer.fg[sidx];
+                    if (sidx < layer.bg.size())    new_bg = layer.bg[sidx];
+                    if (sidx < layer.attrs.size()) new_attrs = layer.attrs[sidx];
+                }
+            }
+            // else: cx == col -> inserted blank column
+
+            if (old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+            {
+                // Structural op: avoid partial shifts under transparency lock.
+                return false;
+            }
+
+            PendingWrite w;
+            w.lr = dlr;
+            w.lc = dlc;
+            w.old_cp = old_cp;
+            w.old_fg = old_fg;
+            w.old_bg = old_bg;
+            w.old_attrs = old_attrs;
+            w.new_cp = new_cp;
+            w.new_fg = new_fg;
+            w.new_bg = new_bg;
+            w.new_attrs = new_attrs;
+            writes.push_back(w);
+        }
+    }
+
+    if (writes.empty())
+        return false;
+
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsPatch();
+
+    for (const auto& w : writes)
+        CaptureUndoPageIfNeeded(layer_index, w.lr);
+
+    for (const auto& w : writes)
+    {
+        const size_t idx = (size_t)w.lr * (size_t)m_columns + (size_t)w.lc;
+        if (idx < layer.cells.size()) layer.cells[idx] = w.new_cp;
+        if (idx < layer.fg.size())    layer.fg[idx]    = w.new_fg;
+        if (idx < layer.bg.size())    layer.bg[idx]    = w.new_bg;
+        if (idx < layer.attrs.size()) layer.attrs[idx] = w.new_attrs;
+    }
+
+    return true;
+}
+
 bool AnsiCanvas::SetLayerCell(int layer_index, int row, int col, char32_t cp)
 {
     EnsureDocument();

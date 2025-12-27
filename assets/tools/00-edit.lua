@@ -11,7 +11,9 @@ settings = {
   handles = {
     { action = "editor.backspace", when = "active" },
     { action = "editor.new_line", when = "active" },
-    { action = "selection.delete", when = "active" },
+    { action = "editor.delete_forward_shift", when = "active" },
+    -- Override selection clear/delete while Edit tool is active.
+    { action = "selection.clear", when = "active" },
   },
 }
 
@@ -83,6 +85,7 @@ function render(ctx, layer)
 
   -- Phase 0: keyboard + typed input
   local keys = ctx.keys or {}
+  local actions = ctx.actions or {}
 
   -- Arrow navigation (classic wrap rules).
   if keys.left then
@@ -111,7 +114,7 @@ function render(ctx, layer)
   if keys["end"] then caret.x = cols - 1 end
 
   -- Editing keys.
-  if keys.backspace then
+  if keys.backspace or actions["editor.backspace"] then
     if caret.x > 0 then
       caret.x = caret.x - 1
     elseif caret.y > 0 then
@@ -122,7 +125,7 @@ function render(ctx, layer)
     if layer.clearStyle then layer:clearStyle(caret.x, caret.y) end
   end
 
-  if keys["delete"] then
+  if keys["delete"] or actions["editor.delete_forward_shift"] then
     -- Forward delete: shift cells left (native op; undo-aware; respects transparency-lock).
     if ctx.canvas and ctx.canvas.deleteForwardShift then
       ctx.canvas:deleteForwardShift()
@@ -133,7 +136,7 @@ function render(ctx, layer)
     end
   end
 
-  if keys.enter then
+  if keys.enter or actions["editor.new_line"] then
     -- Insert the currently selected brush glyph (character palette / picker selection).
     if fg == nil and bg == nil and attrs == 0 then
       layer:set(caret.x, caret.y, brush_arg)

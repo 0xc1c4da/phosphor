@@ -177,14 +177,14 @@ static bool IsReservedToolPresetChord(const std::string& chord)
     if (!kb::ParseChordString(chord, pc, err))
         return false;
 
-    // Reserve exact Ctrl+[0-9] (no Shift/Alt/Super). (Ctrl+Alt+0 etc remains available.)
+    // Reserve exact Ctrl+[1-9] (no Shift/Alt/Super). (Ctrl+0 remains available for e.g. Reset Zoom.)
     if (!pc.mods.ctrl || pc.mods.shift || pc.mods.alt || pc.mods.super)
         return false;
 
     const int k = (int)pc.key;
-    const int k0 = (int)ImGuiKey_0;
+    const int k1 = (int)ImGuiKey_1;
     const int k9 = (int)ImGuiKey_9;
-    return (k >= k0 && k <= k9);
+    return (k >= k1 && k <= k9);
 }
 } // namespace
 
@@ -845,7 +845,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                 if (IsReservedToolPresetChord(chord) && !IsToolPresetSlotActionId(target_action_id))
                 {
                     capture_error_ =
-                        "Ctrl+[0-9] is reserved for Tool Preset Slots. Choose a different chord, or bind this to a tool.preset.slot.* action.";
+                        "Ctrl+[1-9] is reserved for Tool Preset Slots. Choose a different chord, or bind this to a tool.preset.slot.* action.";
                     // Keep the modal open; don't commit.
                     commit = false;
                     close = false;
@@ -1336,7 +1336,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                     {
                         b.chord = prev_chord;
                         chord_error_ =
-                            "Ctrl+[0-9] is reserved for Tool Preset Slots (tool.preset.slot.*).";
+                            "Ctrl+[1-9] is reserved for Tool Preset Slots (tool.preset.slot.*).";
                     }
                     else
                     {

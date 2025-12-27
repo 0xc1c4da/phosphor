@@ -481,8 +481,7 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
                                   SessionState& session,
                                   bool apply_placement_this_frame)
 {
-    if (!tool_engine.HasParams())
-        return false;
+    const bool has_params = tool_engine.HasParams();
 
     EnsurePresetsLoaded();
     HandlePresetFileOps();
@@ -494,9 +493,11 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
 
     ApplyImGuiWindowPlacement(session, base_id, apply_placement_this_frame);
     const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_AlwaysAutoResize | GetImGuiWindowChromeExtraFlags(session, base_id);
+        ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session, base_id);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session, base_id);
 
+    // Provide a sensible default size on first use; after that, placement persistence takes over.
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 260.0f), ImGuiCond_FirstUseEver);
     ImGui::Begin(wname.c_str(), nullptr, flags);
     CaptureImGuiWindowPlacement(session, base_id);
     ApplyImGuiWindowChromeZOrder(&session, base_id);
@@ -511,19 +512,37 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
         const bool has_presets = AnyPresetsForTool(presets_, compiled_tool_id);
         if (has_presets)
         {
+            ImGui::BeginDisabled(!has_params);
             params_changed =
                 RenderPresetButtonsRow(compiled_tool_id, presets_, selected_by_tool_, tool_engine, session, request_save_) || params_changed;
+            ImGui::EndDisabled();
         }
         else
         {
             // Always provide an obvious entry point to create a preset, even when none exist yet.
+            ImGui::BeginDisabled(!has_params);
             if (ImGui::SmallButton(PHOS_TR("tool_parameters.add_preset_button").c_str()))
                 open_new_popup_ = true;
+            ImGui::EndDisabled();
+
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", PHOS_TR("tool_parameters.add_preset_tooltip").c_str());
+            {
+                if (has_params)
+                    ImGui::SetTooltip("%s", PHOS_TR("tool_parameters.add_preset_tooltip").c_str());
+                else
+                    ImGui::SetTooltip("%s", PHOS_TR("common.no_parameters").c_str());
+            }
         }
     }
     ImGui::Separator();
+
+    if (!has_params)
+    {
+        ImGui::TextDisabled("%s", PHOS_TR("common.no_parameters").c_str());
+        ImGui::End();
+        PopImGuiWindowChromeAlpha(alpha_pushed);
+        return true;
+    }
 
     // Row 2 (reserved when present): Colour row (FG/BG + related options like Source).
     // Only surface these here when the tool author marked them primary. Otherwise they remain in Advanced (e.g. Font fallback toggles).

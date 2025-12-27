@@ -262,6 +262,10 @@ struct ToolCommand
         ToolActivatePrev,
         ToolActivate,
         CanvasCropToSelection,
+        CanvasRemoveRowShiftUp,
+        CanvasRemoveColShiftLeft,
+        CanvasInsertRowShiftDown,
+        CanvasInsertColShiftRight,
         BrushPreviewSet,
     };
 
@@ -281,6 +285,13 @@ struct ToolCommand
 
     // ToolActivate
     std::string tool_id;
+
+    // CanvasRemoveRowShiftUp / CanvasRemoveColShiftLeft / CanvasInsertRowShiftDown / CanvasInsertColShiftRight
+    // If layer < 0, uses active layer.
+    int layer = -1;
+    // Row/col index in canvas coordinates.
+    int x = 0;
+    int y = 0;
 
     // BrushPreviewSet
     // The tool can request a transient brush preview overlay (e.g. size indicator).

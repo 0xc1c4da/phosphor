@@ -9,7 +9,14 @@ settings = {
   -- - When inactive, we still want selection/clipboard actions to work as a fallback.
   handles = {
     { action = "selection.clear_or_cancel", when = "active" },
-    { action = "selection.delete", when = "active" },
+    { action = "selection.clear", when = "active" },
+    { action = "selection.shift_delete", when = "active" },
+    { action = "selection.remove_row_shift_up", when = "active" },
+    { action = "selection.remove_col_shift_left", when = "active" },
+    { action = "selection.insert_row_shift_down", when = "active" },
+    { action = "selection.insert_col_shift_right", when = "active" },
+    { action = "selection.select_row", when = "active" },
+    { action = "selection.select_column", when = "active" },
     { action = "edit.select_all", when = "active" },
     { action = "edit.copy", when = "active" },
     { action = "edit.cut", when = "active" },
@@ -21,7 +28,14 @@ settings = {
     { action = "selection.crop", when = "active" },
 
     { action = "selection.clear_or_cancel", when = "inactive" },
-    { action = "selection.delete", when = "inactive" },
+    { action = "selection.clear", when = "inactive" },
+    { action = "selection.shift_delete", when = "inactive" },
+    { action = "selection.remove_row_shift_up", when = "inactive" },
+    { action = "selection.remove_col_shift_left", when = "inactive" },
+    { action = "selection.insert_row_shift_down", when = "inactive" },
+    { action = "selection.insert_col_shift_right", when = "inactive" },
+    { action = "selection.select_row", when = "inactive" },
+    { action = "selection.select_column", when = "inactive" },
     { action = "edit.select_all", when = "inactive" },
     { action = "edit.copy", when = "inactive" },
     { action = "edit.cut", when = "inactive" },
@@ -269,6 +283,92 @@ local function selection_crop_contents(ctx, canvas, layer, cols, rows)
   return true
 end
 
+local function selection_select_row(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  canvas:setSelection(0, y, cols - 1, y)
+  return true
+end
+
+local function selection_select_column(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  canvas:setSelection(x, 0, x, rows - 1)
+  return true
+end
+
+local function selection_shift_delete(ctx, canvas, cols, rows)
+  if not canvas or not canvas:hasSelection() then return false end
+  commit_if_moving(canvas)
+  local x, y, w, h = canvas:getSelection()
+  x = to_int(x, 0); y = to_int(y, 0); w = to_int(w, 0); h = to_int(h, 0)
+  cols = to_int(cols, 0)
+  rows = to_int(rows, 0)
+  if w <= 0 or h <= 0 or cols <= 0 or rows <= 0 then return false end
+
+  -- Eligibility:
+  -- - full row: x==0, w==cols, h==1
+  -- - full col: y==0, h==rows, w==1
+  if x == 0 and w == cols and h == 1 then
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "canvas.remove_row_shift_up", y = y }
+      return true
+    end
+    -- Old hosts (no tool commands): no-op (avoid reimplementing heavy shifts in Lua).
+    return false
+  end
+  if y == 0 and h == rows and w == 1 then
+    if ctx.out ~= nil then
+      ctx.out[#ctx.out + 1] = { type = "canvas.remove_col_shift_left", x = x }
+      return true
+    end
+    return false
+  end
+
+  -- Ineligible selection: no-op (host may later add status.message tool command for feedback).
+  return false
+end
+
+local function selection_insert_row_shift_down(ctx, canvas, cols, rows, caret)
+  if not canvas or not caret then return false end
+  rows = to_int(rows, 0)
+  cols = to_int(cols, 0)
+  if rows <= 0 then rows = 1 end
+  if cols <= 0 then return false end
+  commit_if_moving(canvas)
+  if not selection_select_row(canvas, cols, rows, caret) then return false end
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  if ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.insert_row_shift_down", y = y }
+    return true
+  end
+  return false
+end
+
+local function selection_insert_col_shift_right(ctx, canvas, cols, rows, caret)
+  if not canvas or not caret then return false end
+  rows = to_int(rows, 0)
+  cols = to_int(cols, 0)
+  if rows <= 0 then rows = 1 end
+  if cols <= 0 then return false end
+  commit_if_moving(canvas)
+  if not selection_select_column(canvas, cols, rows, caret) then return false end
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  if ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.insert_col_shift_right", x = x }
+    return true
+  end
+  return false
+end
+
 function render(ctx, layer)
   if not ctx or not layer then return end
   if not ctx.focused then return end
@@ -335,6 +435,48 @@ function render(ctx, layer)
       return
     end
 
+    -- Select row/column (caret-based).
+    if actions["selection.select_row"] then
+      if selection_select_row(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.select_column"] then
+      if selection_select_column(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+
+    -- Alt+Arrow delete row/col (caret-based): auto-select, then shift-delete, keep selection.
+    if actions["selection.remove_row_shift_up"] then
+      if selection_select_row(canvas, cols, rows, caret) and selection_shift_delete(ctx, canvas, cols, rows) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.remove_col_shift_left"] then
+      if selection_select_column(canvas, cols, rows, caret) and selection_shift_delete(ctx, canvas, cols, rows) then
+        selecting = false
+        return
+      end
+    end
+
+    -- Alt+Arrow insert row/col (caret-based): auto-select, insert, keep selection on inserted row/col.
+    if actions["selection.insert_row_shift_down"] then
+      if selection_insert_row_shift_down(ctx, canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.insert_col_shift_right"] then
+      if selection_insert_col_shift_right(ctx, canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+
     -- Clipboard operations.
     if hotkeys.copy or actions["edit.copy"] then
       local mode = p.copyMode
@@ -359,16 +501,19 @@ function render(ctx, layer)
       return
     end
 
-    -- Backspace: delete selection contents (match eraser/edit-tool "backspace clears" behavior).
-    -- NOTE: Backspace is bound to the `selection.delete` action in key-bindings.json.
-    -- We intentionally do not special-case `keys.backspace` here to avoid double-execution
-    -- when the host Action Router dispatches `selection.delete`.
-
     -- Delete selection contents.
-    if (hotkeys.deleteSelection or actions["selection.delete"]) and canvas:hasSelection() then
+    if (hotkeys.deleteSelection or actions["selection.clear"]) and canvas:hasSelection() then
       canvas:deleteSelection()
       selecting = false
       return
+    end
+
+    -- Shift-delete selection (row/column only).
+    if actions["selection.shift_delete"] then
+      if selection_shift_delete(ctx, canvas, cols, rows) then
+        selecting = false
+        return
+      end
     end
 
     -- Selection transforms (key-bindings/actions; tool-gated here in Select tool).

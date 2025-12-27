@@ -2802,6 +2802,66 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     cmd.type = ToolCommand::Type::CanvasCropToSelection;
                     tool_cmds.out_commands->push_back(std::move(cmd));
                 }
+                else if (type == "canvas.remove_row_shift_up")
+                {
+                    cmd.type = ToolCommand::Type::CanvasRemoveRowShiftUp;
+                    // y (required)
+                    lua_getfield(L, -1, "y");
+                    if (lua_isnumber(L, -1))
+                        cmd.y = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    // layer (optional)
+                    lua_getfield(L, -1, "layer");
+                    if (lua_isnumber(L, -1))
+                        cmd.layer = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.remove_col_shift_left")
+                {
+                    cmd.type = ToolCommand::Type::CanvasRemoveColShiftLeft;
+                    // x (required)
+                    lua_getfield(L, -1, "x");
+                    if (lua_isnumber(L, -1))
+                        cmd.x = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    // layer (optional)
+                    lua_getfield(L, -1, "layer");
+                    if (lua_isnumber(L, -1))
+                        cmd.layer = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.insert_row_shift_down")
+                {
+                    cmd.type = ToolCommand::Type::CanvasInsertRowShiftDown;
+                    // y (required)
+                    lua_getfield(L, -1, "y");
+                    if (lua_isnumber(L, -1))
+                        cmd.y = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    // layer (optional)
+                    lua_getfield(L, -1, "layer");
+                    if (lua_isnumber(L, -1))
+                        cmd.layer = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.insert_col_shift_right")
+                {
+                    cmd.type = ToolCommand::Type::CanvasInsertColShiftRight;
+                    // x (required)
+                    lua_getfield(L, -1, "x");
+                    if (lua_isnumber(L, -1))
+                        cmd.x = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    // layer (optional)
+                    lua_getfield(L, -1, "layer");
+                    if (lua_isnumber(L, -1))
+                        cmd.layer = (int)lua_tointeger(L, -1);
+                    lua_pop(L, 1);
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
                 else if (type == "brush.preview")
                 {
                     cmd.type = ToolCommand::Type::BrushPreviewSet;

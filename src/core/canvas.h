@@ -755,6 +755,32 @@ public:
     //
     // Returns true if any cell changed.
     bool DeleteForwardShift(int layer_index = -1);
+
+    // ---------------------------------------------------------------------
+    // Selection structural ops (shift + keep size)
+    // ---------------------------------------------------------------------
+    // Remove a row/column by shifting content to fill the gap, keeping the canvas
+    // dimensions the same (last row/col is filled with a transparent blank).
+    //
+    // Important:
+    // - These are intended for explicit selection operations (e.g. Shift+Delete on a
+    //   full-row/full-column selection).
+    // - Unlike tool brush writes, these ops must NOT be clipped by selection-as-mask.
+    //
+    // Returns true if any cell changed.
+    bool RemoveRowShiftUp(int row, int layer_index = -1);
+    bool RemoveColumnShiftLeft(int col, int layer_index = -1);
+
+    // Insert a blank row/column at the given index by shifting content to make room,
+    // keeping the canvas dimensions the same (the shifted-out last row/col is discarded).
+    //
+    // Important:
+    // - These are intended for explicit selection operations (e.g. Alt+Down/Alt+Right).
+    // - Unlike tool brush writes, these ops must NOT be clipped by selection-as-mask.
+    //
+    // Returns true if any cell changed.
+    bool InsertRowShiftDown(int row, int layer_index = -1);
+    bool InsertColumnShiftRight(int col, int layer_index = -1);
     bool HasFocus() const { return m_has_focus; }
     // Forcefully clears focus (used by the app to ensure focus is exclusive across canvases).
     void ClearFocus()
