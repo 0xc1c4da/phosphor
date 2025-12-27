@@ -82,11 +82,11 @@ ru_RU {
       tutorials { "Руководства" }
       tutorials_failed { "(Не удалось загрузить руководства)" }
       tutorials_empty { "(Пусто)" }
-      tutorial_entry_fmt { "{0} by {1} ({2})" }
+      tutorial_entry_fmt { "{0} от {1} ({2})" }
       tutorials_errors {
-        failed_to_open_fmt { "Failed to open {0}" }
-        expected_top_level_array { "Expected top-level JSON array in ansi-tutorials.json" }
-        no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
+        failed_to_open_fmt { "Не удалось открыть {0}" }
+        expected_top_level_array { "Ожидался JSON-массив верхнего уровня в ansi-tutorials.json" }
+        no_valid_tutorials { "В ansi-tutorials.json не найдено корректных руководств" }
       }
 
       export { "Экспорт" }
@@ -137,22 +137,22 @@ ru_RU {
   // Generic/errors/status strings shared across multiple windows
   // ---------------------------------------------------------------------------
   app_strings {
-    missing_suffix { " (missing)" }
+    missing_suffix { " (отсутствует)" }
   }
 
   // ---------------------------------------------------------------------------
   // Quit / close confirmation (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   confirm {
-    quit_modal_title { "Quit" }
-    quit_question { "Quit Phosphor?" }
-    unsaved_count { "You have {0, plural, one{# canvas} other{# canvases}} with unsaved changes." }
-    save_before_quit { "Do you want to save your changes before quitting?" }
+    quit_modal_title { "Выход" }
+    quit_question { "Выйти из Phosphor?" }
+    unsaved_count { "У вас {0, plural, one{# холст} few{# холста} many{# холстов} other{# холста}} с несохранёнными изменениями." }
+    save_before_quit { "Сохранить изменения перед выходом?" }
 
-    close_canvas_modal_title { "Save changes?" }
+    close_canvas_modal_title { "Сохранить изменения?" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    close_canvas_question_with_path { "Save changes to" }
-    close_canvas_question_no_path { "Save changes to this canvas?" }
+    close_canvas_question_with_path { "Сохранить изменения в" }
+    close_canvas_question_no_path { "Сохранить изменения на этом холсте?" }
   }
 
   // ---------------------------------------------------------------------------
@@ -160,52 +160,52 @@ ru_RU {
   // ---------------------------------------------------------------------------
   io {
     errors {
-      failed_open_for_reading { "Failed to open file for reading." }
-      failed_read_file_size { "Failed to read file size." }
-      file_too_large { "File too large." }
-      failed_read_contents { "Failed to read file contents." }
-      no_canvas_to_save { "No canvas to save." }
-      save_failed { "Save failed." }
-      export_failed { "Export failed." }
+      failed_open_for_reading { "Не удалось открыть файл для чтения." }
+      failed_read_file_size { "Не удалось прочитать размер файла." }
+      file_too_large { "Файл слишком большой." }
+      failed_read_contents { "Не удалось прочитать содержимое файла." }
+      no_canvas_to_save { "Нет холста для сохранения." }
+      save_failed { "Сохранение не удалось." }
+      export_failed { "Экспорт не удался." }
 
-      unsupported_file_type_or_failed_load { "Unsupported file type or failed to load file." }
+      unsupported_file_type_or_failed_load { "Неподдерживаемый тип файла или не удалось загрузить файл." }
       failed_to_open_n_of_n_last_error_fmt {
-        "Failed to open {0}/{1} {1, plural, one{file} other{files}}. Last error: {2}"
+        "Не удалось открыть {0}/{1} {1, plural, one{файл} few{файла} many{файлов} other{файла}}. Последняя ошибка: {2}"
       }
 
-      no_focused_canvas_to_export { "No focused canvas to export." }
+      no_focused_canvas_to_export { "Нет активного холста для экспорта." }
 
-      internal_error_create_canvas_callback { "Internal error: create_canvas callback not set." }
-      internal_error_create_image_callback { "Internal error: create_image callback not set." }
-      internal_error_open_markdown_import_dialog_callback { "Internal error: open_markdown_import_dialog callback not set." }
-      multiple_markdown_selected { "Multiple Markdown files selected; only one Markdown import can be opened at a time." }
+      internal_error_create_canvas_callback { "Внутренняя ошибка: callback create_canvas не задан." }
+      internal_error_create_image_callback { "Внутренняя ошибка: callback create_image не задан." }
+      internal_error_open_markdown_import_dialog_callback { "Внутренняя ошибка: callback open_markdown_import_dialog не задан." }
+      multiple_markdown_selected { "Выбрано несколько файлов Markdown; одновременно можно открыть только один импорт Markdown." }
     }
 
     // File extensions should be dynamically generated from formats/, not hard coded
     file_dialog_filters {
-      all_files { "All files" }
+      all_files { "Все файлы" }
       // Historical keys retained for stability; do not embed extension patterns in translatable text.
-      phosphor_project { "Phosphor Project" }
-      phosphor_project_base { "Phosphor Project" }
-      supported_files { "Supported files" }
-      supported_files_base { "Supported files" }
+      phosphor_project { "Проект Phosphor" }
+      phosphor_project_base { "Проект Phosphor" }
+      supported_files { "Поддерживаемые файлы" }
+      supported_files_base { "Поддерживаемые файлы" }
       ansi_text { "ANSI / Text" }
       ansi_text_base { "ANSI / Text" }
-      gimp_palette { "GIMP Palette" }
-      gimp_palette_base { "GIMP Palette" }
+      gimp_palette { "Палитра GIMP" }
+      gimp_palette_base { "Палитра GIMP" }
       markdown { "Markdown" }
       markdown_base { "Markdown" }
       xbin { "XBin" }
       xbin_base { "XBin" }
       images { "Images" }
       images_base { "Images" }
-      export_base { "Export" }
+      export_base { "Экспорт" }
       image_base { "Image" }
     }
 
     status_windows {
-      file_error_title { "File Error" }
-      dismiss { "Dismiss" }
+      file_error_title { "Ошибка файла" }
+      dismiss { "Закрыть" }
     }
   }
 
@@ -213,22 +213,22 @@ ru_RU {
   // Export dialog (src/ui/export_dialog.cpp)
   // ---------------------------------------------------------------------------
   export_dialog {
-    unnamed_preset { "(unnamed)" }
-    no_active_canvas { "No active canvas to export." }
+    unnamed_preset { "(без имени)" }
+    no_active_canvas { "Нет активного холста для экспорта." }
 
     tabs {
       ansi { "ANSI" }
-      plaintext { "Plaintext" }
-      image { "Image" }
+      plaintext { "Текст" }
+      image { "Изображение" }
       xbin { "XBin" }
     }
 
     // Common controls
-    preset { "Preset" }
-    source { "Source" }
+    preset { "Предустановка" }
+    source { "Источник" }
     source_items {
-      composite { "Composite (what you see)" }
-      active_layer { "Active Layer" }
+      composite { "Композит (как видно)" }
+      active_layer { "Активный слой" }
     }
 
     // ANSI tab
@@ -410,6 +410,8 @@ ru_RU {
       byline { "by 0xc1c4da" }
       blurb { "A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Open in browser. If opening fails, the URL is copied to the clipboard." }
     }
 
     general_tab {

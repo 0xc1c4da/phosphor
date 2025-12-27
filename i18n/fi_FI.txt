@@ -82,11 +82,11 @@ fi_FI {
       tutorials { "Ohjeet" }
       tutorials_failed { "(Ohjeiden lataus epäonnistui)" }
       tutorials_empty { "(Tyhjä)" }
-      tutorial_entry_fmt { "{0} by {1} ({2})" }
+      tutorial_entry_fmt { "{0} / {1} ({2})" }
       tutorials_errors {
-        failed_to_open_fmt { "Failed to open {0}" }
-        expected_top_level_array { "Expected top-level JSON array in ansi-tutorials.json" }
-        no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
+        failed_to_open_fmt { "Tiedoston avaaminen epäonnistui: {0}" }
+        expected_top_level_array { "ansi-tutorials.json-tiedostossa odotettiin ylimmän tason JSON-taulukkoa" }
+        no_valid_tutorials { "ansi-tutorials.json-tiedostosta ei löytynyt kelvollisia ohjeita" }
       }
 
       export { "Vie" }
@@ -119,16 +119,16 @@ fi_FI {
     }
 
     window {
-      colour_picker { "Colour Picker" }
-      unicode_character_picker { "Unicode Character Picker" }
-      character_palette { "Character Palette" }
-      character_sets { "Character Sets" }
-      layer_manager { "Layer Manager" }
-      ansl_editor { "ANSL Editor" }
-      tool_palette { "Tool Palette" }
-      brush_palette { "Brush Palette" }
-      minimap { "Minimap" }
-      sixteen_colors_browser { "16colo.rs Browser" }
+      colour_picker { "Värivalitsin" }
+      unicode_character_picker { "Unicode-merkkivalitsin" }
+      character_palette { "Merkkipaletti" }
+      character_sets { "Merkistöt" }
+      layer_manager { "Tasohallinta" }
+      ansl_editor { "ANSL-editori" }
+      tool_palette { "Työkalupaletti" }
+      brush_palette { "Sivellinpaletti" }
+      minimap { "Minikartta" }
+      sixteen_colors_browser { "16colo.rs-selain" }
       fullscreen { "Koko näyttö" }
     }
   }
@@ -137,22 +137,22 @@ fi_FI {
   // Generic/errors/status strings shared across multiple windows
   // ---------------------------------------------------------------------------
   app_strings {
-    missing_suffix { " (missing)" }
+    missing_suffix { " (puuttuu)" }
   }
 
   // ---------------------------------------------------------------------------
   // Quit / close confirmation (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   confirm {
-    quit_modal_title { "Quit" }
-    quit_question { "Quit Phosphor?" }
-    unsaved_count { "You have {0, plural, one{# canvas} other{# canvases}} with unsaved changes." }
-    save_before_quit { "Do you want to save your changes before quitting?" }
+    quit_modal_title { "Lopeta" }
+    quit_question { "Lopetetaanko Phosphor?" }
+    unsaved_count { "Sinulla on {0, plural, one{# kangas} other{# kangasta}} tallentamattomilla muutoksilla." }
+    save_before_quit { "Haluatko tallentaa muutokset ennen lopettamista?" }
 
-    close_canvas_modal_title { "Save changes?" }
+    close_canvas_modal_title { "Tallennetaanko muutokset?" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    close_canvas_question_with_path { "Save changes to" }
-    close_canvas_question_no_path { "Save changes to this canvas?" }
+    close_canvas_question_with_path { "Tallennetaanko muutokset tiedostoon" }
+    close_canvas_question_no_path { "Tallennetaanko tämän kankaan muutokset?" }
   }
 
   // ---------------------------------------------------------------------------
@@ -160,35 +160,35 @@ fi_FI {
   // ---------------------------------------------------------------------------
   io {
     errors {
-      failed_open_for_reading { "Failed to open file for reading." }
-      failed_read_file_size { "Failed to read file size." }
-      file_too_large { "File too large." }
-      failed_read_contents { "Failed to read file contents." }
-      no_canvas_to_save { "No canvas to save." }
-      save_failed { "Save failed." }
-      export_failed { "Export failed." }
+      failed_open_for_reading { "Tiedostoa ei voitu avata luettavaksi." }
+      failed_read_file_size { "Tiedoston kokoa ei voitu lukea." }
+      file_too_large { "Tiedosto on liian suuri." }
+      failed_read_contents { "Tiedoston sisältöä ei voitu lukea." }
+      no_canvas_to_save { "Ei tallennettavaa kangasta." }
+      save_failed { "Tallennus epäonnistui." }
+      export_failed { "Vienti epäonnistui." }
 
-      unsupported_file_type_or_failed_load { "Unsupported file type or failed to load file." }
+      unsupported_file_type_or_failed_load { "Tiedostotyyppiä ei tueta tai tiedoston lataus epäonnistui." }
       failed_to_open_n_of_n_last_error_fmt {
-        "Failed to open {0}/{1} {1, plural, one{file} other{files}}. Last error: {2}"
+        "{0}/{1} {1, plural, one{tiedosto} other{tiedostoa}} ei voitu avata. Viimeisin virhe: {2}"
       }
 
-      no_focused_canvas_to_export { "No focused canvas to export." }
+      no_focused_canvas_to_export { "Ei kohdistettua kangasta vietäväksi." }
 
-      internal_error_create_canvas_callback { "Internal error: create_canvas callback not set." }
-      internal_error_create_image_callback { "Internal error: create_image callback not set." }
-      internal_error_open_markdown_import_dialog_callback { "Internal error: open_markdown_import_dialog callback not set." }
-      multiple_markdown_selected { "Multiple Markdown files selected; only one Markdown import can be opened at a time." }
+      internal_error_create_canvas_callback { "Sisäinen virhe: create_canvas-callbackia ei ole asetettu." }
+      internal_error_create_image_callback { "Sisäinen virhe: create_image-callbackia ei ole asetettu." }
+      internal_error_open_markdown_import_dialog_callback { "Sisäinen virhe: open_markdown_import_dialog-callbackia ei ole asetettu." }
+      multiple_markdown_selected { "Useita Markdown-tiedostoja valittu; vain yksi Markdown-tuonti voidaan avata kerrallaan." }
     }
 
     // File extensions should be dynamically generated from formats/, not hard coded
     file_dialog_filters {
-      all_files { "All files" }
+      all_files { "Kaikki tiedostot" }
       // Historical keys retained for stability; do not embed extension patterns in translatable text.
-      phosphor_project { "Phosphor Project" }
-      phosphor_project_base { "Phosphor Project" }
-      supported_files { "Supported files" }
-      supported_files_base { "Supported files" }
+      phosphor_project { "Phosphor-projekti" }
+      phosphor_project_base { "Phosphor-projekti" }
+      supported_files { "Tuetut tiedostot" }
+      supported_files_base { "Tuetut tiedostot" }
       ansi_text { "ANSI / Text" }
       ansi_text_base { "ANSI / Text" }
       gimp_palette { "GIMP Palette" }
@@ -197,15 +197,15 @@ fi_FI {
       markdown_base { "Markdown" }
       xbin { "XBin" }
       xbin_base { "XBin" }
-      images { "Images" }
-      images_base { "Images" }
-      export_base { "Export" }
-      image_base { "Image" }
+      images { "Kuvat" }
+      images_base { "Kuvat" }
+      export_base { "Vienti" }
+      image_base { "Kuva" }
     }
 
     status_windows {
-      file_error_title { "File Error" }
-      dismiss { "Dismiss" }
+      file_error_title { "Tiedostovirhe" }
+      dismiss { "Sulje" }
     }
   }
 
@@ -213,33 +213,33 @@ fi_FI {
   // Export dialog (src/ui/export_dialog.cpp)
   // ---------------------------------------------------------------------------
   export_dialog {
-    unnamed_preset { "(unnamed)" }
-    no_active_canvas { "No active canvas to export." }
+    unnamed_preset { "(nimetön)" }
+    no_active_canvas { "Ei aktiivista kangasta vietäväksi." }
 
     tabs {
       ansi { "ANSI" }
-      plaintext { "Plaintext" }
-      image { "Image" }
+      plaintext { "Teksti" }
+      image { "Kuva" }
       xbin { "XBin" }
     }
 
     // Common controls
-    preset { "Preset" }
-    source { "Source" }
+    preset { "Esiasetus" }
+    source { "Lähde" }
     source_items {
-      composite { "Composite (what you see)" }
-      active_layer { "Active Layer" }
+      composite { "Kooste (mitä näet)" }
+      active_layer { "Aktiivinen taso" }
     }
 
     // ANSI tab
     ansi_tab {
-      text_encoding { "Text Encoding" }
+      text_encoding { "Tekstikoodaus" }
       text_encoding_items {
-        eight_bit { "8-bit (codepage bytes)" }
+        eight_bit { "8-bittinen (koodisivun tavut)" }
         utf8 { "UTF-8" }
         utf8_bom { "UTF-8 (BOM)" }
       }
-      byte_encoding { "Byte Encoding" }
+      byte_encoding { "Tavukoodaus" }
       byte_encoding_default_preview { "CP437 (IBM PC OEM)" }
       byte_encoding_items {
         cp437 { "CP437 (IBM PC OEM)" }
@@ -262,24 +262,24 @@ fi_FI {
         amiga_1251 { "Amiga-1251" }
       }
       byte_encoding_help {
-        "Used when exporting an 8-bit ANSI byte stream. BitmapIndex glyph tokens export losslessly as their byte value when possible."
+        "Käytetään vietäessä 8-bittistä ANSI-tavuvirtaa. BitmapIndex-glyyfit viedään häviöttömästi tavuarvonaan, kun mahdollista."
       }
 
-      newlines { "Newlines" }
+      newlines { "Rivinvaihdot" }
       newlines_items {
-        crlf_scene_friendly { "CRLF (scene-friendly)" }
-        lf_terminal_friendly { "LF (terminal-friendly)" }
+        crlf_scene_friendly { "CRLF (scene-ystävällinen)" }
+        lf_terminal_friendly { "LF (päätteen-ystävällinen)" }
       }
 
-      screen_prep { "Screen Prep" }
+      screen_prep { "Näytön valmistelu" }
       screen_prep_items {
-        none { "None" }
-        clear_screen { "Clear Screen (ESC[2J)" }
-        home { "Home (ESC[H)" }
-        clear_plus_home { "Clear + Home" }
+        none { "Ei mitään" }
+        clear_screen { "Tyhjennä näyttö (ESC[2J)" }
+        home { "Alkuun (ESC[H)" }
+        clear_plus_home { "Tyhjennä + alkuun" }
       }
 
-      colour_mode { "Colour Mode" }
+      colour_mode { "Väritila" }
       colour_mode_items {
         ansi16_classic { "ANSI16 (classic)" }
         xterm256 { "xterm-256 (38;5/48;5)" }
@@ -287,110 +287,110 @@ fi_FI {
         pablo_t { "Pablo/Icy truecolour (...t)" }
       }
 
-      bright_ansi16 { "Bright ANSI16" }
+      bright_ansi16 { "Kirkas ANSI16" }
       bright_ansi16_items {
-        bold_ice { "Bold + iCE Blink (scene classic)" }
+        bold_ice { "Lihavointi + iCE-vilkku (scene-klassikko)" }
         sgr_90_97 { "SGR 90-97 / 100-107" }
       }
 
-      ice_colours { "iCE colours (blink => bright background)" }
-      xterm_240_safe { "240-colour safe (avoid indices 0..15)" }
-      pablo_t_overlay { "Emit ANSI16 fallback + ...t overlay" }
+      ice_colours { "iCE-värit (vilkku => kirkas tausta)" }
+      xterm_240_safe { "240-värinen turvallinen (vältä indeksit 0..15)" }
+      pablo_t_overlay { "Tuota ANSI16-varavaihtoehto + ...t-peite" }
 
-      override_default_foreground { "Override default foreground" }
-      override_default_background { "Override default background" }
-      prefer_sgr39 { "Prefer SGR 39 for unset foreground" }
-      prefer_sgr49 { "Prefer SGR 49 for unset background" }
+      override_default_foreground { "Ohita oletusetualaväri" }
+      override_default_background { "Ohita oletustaustaväri" }
+      prefer_sgr39 { "Suosi SGR 39:ää asettamattomalle etualalle" }
+      prefer_sgr49 { "Suosi SGR 49:ää asettamattomalle taustalle" }
 
-      output_policy { "Output policy" }
-      preserve_full_line_length { "Preserve full line length (fixed width)" }
-      compress_output { "Compress output" }
-      use_cursor_forward { "Use cursor-forward for spaces (CSI Ps C)" }
-      final_reset { "Final reset (ESC[0m)" }
+      output_policy { "Tulostuskäytäntö" }
+      preserve_full_line_length { "Säilytä koko rivin pituus (kiinteä leveys)" }
+      compress_output { "Pakkaa tuloste" }
+      use_cursor_forward { "Käytä kursori-etenevää välilyönneille (CSI Ps C)" }
+      final_reset { "Lopullinen nollaus (ESC[0m)" }
 
       sauce { "SAUCE" }
-      append_sauce { "Append SAUCE metadata" }
-      sauce_include_eof { "Include EOF byte (0x1A)" }
-      sauce_include_comnt { "Include COMNT block (if comments exist)" }
-      sauce_encode_cp437 { "Encode SAUCE fixed fields as CP437" }
-      sauce_fields_hint { "SAUCE fields are taken from the canvas metadata (Edit via the SAUCE editor)." }
+      append_sauce { "Lisää SAUCE-metatiedot" }
+      sauce_include_eof { "Sisällytä EOF-tavu (0x1A)" }
+      sauce_include_comnt { "Sisällytä COMNT-lohko (jos kommentteja on)" }
+      sauce_encode_cp437 { "Koodaa SAUCE:n kiinteät kentät CP437:nä" }
+      sauce_fields_hint { "SAUCE-kentät otetaan kankaan metatiedoista (muokkaa SAUCE-editorissa)." }
 
-      export_ansi_ellipsis { "Export ANSI…" }
+      export_ansi_ellipsis { "Vie ANSI…" }
 
       export_filters {
         // Labels only; patterns are supplied by code (translator-safe).
         ansi_ans { "ANSI" }
-        all_files { "All files" }
+        all_files { "Kaikki tiedostot" }
       }
     }
 
     // Plaintext tab
     plaintext_tab {
-      text_encoding { "Text Encoding" }
+      text_encoding { "Tekstikoodaus" }
       text_encoding_items {
         ascii { "ASCII" }
         utf8 { "UTF-8" }
         utf8_bom { "UTF-8 (BOM)" }
       }
-      newlines { "Newlines" }
+      newlines { "Rivinvaihdot" }
       newlines_items {
         crlf { "CRLF" }
         lf { "LF" }
       }
-      preserve_full_line_length { "Preserve full line length (fixed width)" }
-      final_newline { "Final newline" }
-      export_text_ellipsis { "Export Text…" }
+      preserve_full_line_length { "Säilytä koko rivin pituus (kiinteä leveys)" }
+      final_newline { "Loppurivinvaihto" }
+      export_text_ellipsis { "Vie teksti…" }
       // File extensions should be dynamically generated from formats/, not hard coded
       export_filters {
         // Labels only; patterns are supplied by code (translator-safe).
-        text_txt { "Text" }
+        text_txt { "Teksti" }
         ascii_asc { "ASCII" }
-        all_files { "All files" }
+        all_files { "Kaikki tiedostot" }
       }
     }
 
     // Image tab
     image_tab {
-      scale { "Scale" }
-      output_px { "Output: {0}x{1} px" }
-      output_na { "Output: (n/a)" }
-      transparent_unset_bg { "Transparent unset background" }
+      scale { "Mittakaava" }
+      output_px { "Tuloste: {0}x{1} px" }
+      output_na { "Tuloste: (ei käytettävissä)" }
+      transparent_unset_bg { "Läpinäkyvä asettamaton tausta" }
       transparent_unset_bg_help {
-        "When enabled, cells with bg==0 export as transparent.\nJPEG does not support transparency.\nPNG modes without alpha (RGB/Indexed) will reject this option."
+        "Kun käytössä, bg==0-solut viedään läpinäkyvinä.\nJPEG ei tue läpinäkyvyyttä.\nPNG-tilat ilman alfaa (RGB/Indeksoitu) hylkäävät tämän valinnan."
       }
-      png_format { "PNG format" }
+      png_format { "PNG-muoto" }
       png_format_items {
         rgb24 { "RGB 24-bit" }
         rgba32 { "RGBA 32-bit" }
         indexed8 { "Indexed 8-bit (xterm-256)" }
         indexed4 { "Indexed 4-bit (ANSI16)" }
       }
-      png_compression { "PNG compression" }
-      jpeg_quality { "JPEG quality" }
-      export_image_ellipsis { "Export Image…" }
+      png_compression { "PNG-pakkaus" }
+      jpeg_quality { "JPEG-laatu" }
+      export_image_ellipsis { "Vie kuva…" }
       // File extensions should be dynamically generated from formats/, not hard coded
       export_filters {
         // Labels only; patterns are supplied by code (translator-safe).
         png { "PNG" }
         jpeg { "JPEG" }
-        all_files { "All files" }
+        all_files { "Kaikki tiedostot" }
       }
     }
 
     // XBin tab
     xbin_tab {
-      include_palette_chunk { "Include palette chunk (16 colours)" }
-      include_embedded_font { "Include embedded font (if any)" }
-      compress_rle { "Compress (XBin RLE)" }
-      nonblink { "NonBlink (iCE / bright backgrounds)" }
-      mode_512_not_supported { "512-character mode (not supported)" }
+      include_palette_chunk { "Sisällytä palettiosio (16 väriä)" }
+      include_embedded_font { "Sisällytä upotettu fontti (jos on)" }
+      compress_rle { "Pakkaa (XBin RLE)" }
+      nonblink { "Ei vilkkua (iCE / kirkkaat taustat)" }
+      mode_512_not_supported { "512-merkkitila (ei tuettu)" }
       sauce { "SAUCE" }
-      append_sauce { "Append SAUCE metadata" }
-      export_xbin_ellipsis { "Export XBin…" }
+      append_sauce { "Lisää SAUCE-metatiedot" }
+      export_xbin_ellipsis { "Vie XBin…" }
       export_filters {
         // Labels only; patterns are supplied by code (translator-safe).
         xbin_xb { "XBin" }
-        all_files { "All files" }
+        all_files { "Kaikki tiedostot" }
       }
     }
   }
@@ -407,100 +407,102 @@ fi_FI {
     }
 
     about {
-      byline { "by 0xc1c4da" }
-      blurb { "A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font." }
+      byline { "tekijä 0xc1c4da" }
+      blurb { "Natiivi UTF-8 ANSI-/tekstimuototaide-editori, joka perustuu Unscii 8x16 -fonttiin." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Avaa selaimessa. Jos avaaminen epäonnistuu, URL kopioidaan leikepöydälle." }
     }
 
     general_tab {
-      session_state_missing { "Session state not attached; cannot persist settings." }
+      session_state_missing { "Istuntotilaa ei ole liitetty; asetuksia ei voi tallentaa pysyvästi." }
 
       language { "Kieli" }
       language_system_default { "Järjestelmän oletus" }
       language_help { "Tulee voimaan heti." }
 
-      undo_history { "Undo History" }
-      unlimited_undo { "Unlimited undo history" }
-      max_undo_steps { "Max undo steps" }
-      undo_tip { "Tip: large values can use a lot of memory for big canvases." }
-      undo_unlimited_note { "Unlimited keeps all undo snapshots in memory (can grow large)." }
+      undo_history { "Kumoushistoria" }
+      unlimited_undo { "Rajoittamaton kumoushistoria" }
+      max_undo_steps { "Enintään kumouksia" }
+      undo_tip { "Vinkki: suuret arvot voivat käyttää paljon muistia isoilla kankailla." }
+      undo_unlimited_note { "Rajoittamaton pitää kaikki kumous-tilannekuvat muistissa (voi kasvaa suureksi)." }
 
-      zoom { "Zoom" }
-      zoom_snapping { "Zoom snapping" }
+      zoom { "Zoomaus" }
+      zoom_snapping { "Zoomauksen napsautus" }
       zoom_snapping_items {
-        integer_scale { "Integer scale (N×)" }
-        pixel_aligned { "Pixel-aligned cell width" }
+        integer_scale { "Kokonaislukuskaala (N×)" }
+        pixel_aligned { "Pikselitasattu solun leveys" }
       }
       zoom_snapping_help {
-        "Integer: always snap to integer zoom steps.\nPixel-aligned: always snap by cell width (can introduce artifacts for bitmap fonts)."
+        "Kokonaisluku: napsauta aina kokonaislukuarvoisiin zoomausaskeliin.\nPikselitasattu: napsauta aina solun leveyden mukaan (voi aiheuttaa artefakteja bittikarttafonteilla)."
       }
 
-      lut_cache { "LUT Cache" }
-      unlimited_lut_cache { "Unlimited LUT cache" }
-      max_lut_cache_mib { "Max LUT cache (MiB)" }
-      budget_pressure { "Budget pressure" }
+      lut_cache { "LUT-välimuisti" }
+      unlimited_lut_cache { "Rajoittamaton LUT-välimuisti" }
+      max_lut_cache_mib { "LUT-välimuistin enimmäiskoko (MiB)" }
+      budget_pressure { "Budjettipaine" }
       budget_pressure_used_of_budget_fmt { "{0} / {1} MiB ({2}%)" }
-      unlimited_budget_used { "{0} MiB used (unlimited budget)" }
+      unlimited_budget_used { "{0} MiB käytössä (rajoittamaton budjetti)" }
 
-      glyph_atlas_cache { "Glyph Atlas Cache" }
-      unlimited_glyph_atlas_cache { "Unlimited glyph atlas cache" }
-      max_glyph_atlas_cache_mib { "Max glyph atlas cache (MiB)" }
-      glyph_atlas_tip { "Tip: this caches bitmap font atlases for fast/correct rendering across many open canvases." }
+      glyph_atlas_cache { "Glyyfiatlas-välimuisti" }
+      unlimited_glyph_atlas_cache { "Rajoittamaton glyyfiatlas-välimuisti" }
+      max_glyph_atlas_cache_mib { "Glyyfiatlas-välimuistin enimmäiskoko (MiB)" }
+      glyph_atlas_tip { "Vinkki: tämä välimuistittaa bittikarttafonttien atlas-tekstuurit nopeaa/oikeaa renderöintiä varten monissa avoimissa kankaissa." }
     }
 
     skin_tab {
-      session_state_missing { "Session state not attached; cannot persist theme." }
-      theme { "Theme" }
-      theme_saved_note { "Theme is saved in session.json and restored on startup." }
-      reset_to_default_fmt { "Reset to default ({0})" }
+      session_state_missing { "Istuntotilaa ei ole liitetty; teemaa ei voi tallentaa pysyvästi." }
+      theme { "Teema" }
+      theme_saved_note { "Teema tallennetaan tiedostoon session.json ja palautetaan käynnistyksessä." }
+      reset_to_default_fmt { "Palauta oletukseen ({0})" }
     }
 
     key_bindings_tab {
-      engine_missing { "Key bindings engine not attached." }
-      file_fmt { "File: {0}" }
-      modified_dot { "• Modified" }
+      engine_missing { "Pikanäppäinmoottoria ei ole liitetty." }
+      file_fmt { "Tiedosto: {0}" }
+      modified_dot { "• Muokattu" }
 
-      show_ids { "Show IDs" }
-      filter_actions_ellipsis { "Filter actions…" }
-      record_ellipsis { "Record…" }
+      show_ids { "Näytä tunnisteet" }
+      filter_actions_ellipsis { "Suodata toiminnot…" }
+      record_ellipsis { "Tallenna…" }
 
-      record_key_binding { "Record Key Binding" }
-      record_prompt { "Press a key to assign this binding." }
-      record_modifiers_included { "Held modifiers will be included (Ctrl/Shift/Alt/Super)." }
-      record_escape_backspace { "Escape: cancel   Backspace/Delete: clear" }
-      modifiers_fmt { "Modifiers: {0}" }
-      no_modifiers { "(no modifiers)" }
+      record_key_binding { "Tallenna pikanäppäin" }
+      record_prompt { "Paina näppäintä määrittääksesi tämän sidonnan." }
+      record_modifiers_included { "Pidetyt muunnosnäppäimet sisällytetään (Ctrl/Shift/Alt/Super)." }
+      record_escape_backspace { "Escape: peruuta   Backspace/Delete: tyhjennä" }
+      modifiers_fmt { "Muunnosnäppäimet: {0}" }
+      no_modifiers { "(ei muunnosnäppäimiä)" }
 
-      conflicts_header { "Keybinding Conflicts" }
-      chord_hint { "e.g. Ctrl+Z" }
+      conflicts_header { "Pikanäppäinristiriidat" }
+      chord_hint { "esim. Ctrl+Z" }
       // NOTE: historical keys retained for stability; punctuation (":") is owned by code.
-      report_conflicts_header { "Conflicts" }
-      report_invalid_header { "Invalid chords" }
+      report_conflicts_header { "Ristiriidat" }
+      report_invalid_header { "Virheelliset yhdistelmät" }
 
       repeat_tooltip_long {
-        "Repeat while held.\nWhen enabled, holding the chord will retrigger after a short delay\nand then repeat at a steady rate (uses ImGui key repeat timing)."
+        "Toista painettuna.\nKun käytössä, yhdistelmän pitäminen painettuna laukaisee toiminnon uudelleen pienen viiveen jälkeen\nja sitten toistaa tasaisella tahdilla (käyttää ImGui-näppäintoiston ajoitusta)."
       }
       repeat_tooltip_short {
-        "Repeat while held.\nEnable for navigation/backspace/delete; disable for one-shot actions."
+        "Toista painettuna.\nOta käyttöön navigoinnille/backspace/delete; poista käytöstä kertatoiminnoille."
       }
-      rpt_abbrev { "Rpt" }
+      rpt_abbrev { "To." }
 
-      action_col { "Action" }
-      bindings_col { "Bindings" }
+      action_col { "Toiminto" }
+      bindings_col { "Sidonnat" }
       enabled_any_windows_linux_macos {
-        "Any"
+        "Mikä tahansa"
       }
       platform_items {
-        any { "Any" }
+        any { "Mikä tahansa" }
         windows { "Windows" }
         linux { "Linux" }
         macos { "macOS" }
       }
       context_items {
-        global { "Global" }
-        editor { "Editor" }
-        selection { "Selection" }
-        canvas { "Canvas" }
+        global { "Yleinen" }
+        editor { "Editori" }
+        selection { "Valinta" }
+        canvas { "Kangas" }
       }
     }
   }
@@ -509,156 +511,156 @@ fi_FI {
   // Layer manager (src/ui/layer_manager.cpp)
   // ---------------------------------------------------------------------------
   layer_manager {
-    no_active_canvas { "No active canvas." }
-    no_layers_unexpected { "Canvas has no layers (unexpected)." }
+    no_active_canvas { "Ei aktiivista kangasta." }
+    no_layers_unexpected { "Kankaalla ei ole tasoja (odottamatonta)." }
 
-    add_layer { "+ Add" }
-    remove_layer { "- Remove" }
-    rename_ellipsis { "Rename…" }
-    rename_layer_modal { "Rename Layer" }
-    target_canvas_missing { "Target canvas no longer exists." }
+    add_layer { "+ Lisää" }
+    remove_layer { "- Poista" }
+    rename_ellipsis { "Nimeä uudelleen…" }
+    rename_layer_modal { "Nimeä taso uudelleen" }
+    target_canvas_missing { "Kohdekangasta ei enää ole olemassa." }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    layer_name_fmt { "Layer {0} name" }
-    layers_header { "Layers" }
+    layer_name_fmt { "Tason {0} nimi" }
+    layers_header { "Tasot" }
 
-    ctx_set_active { "Set Active" }
-    ctx_rename_ellipsis { "Rename…" }
-    ctx_move_to_front { "Move to Front" }
-    ctx_move_to_back { "Move to Back" }
-    ctx_remove_layer { "Remove Layer" }
-    drag_move_fmt { "Move: {0}" }
+    ctx_set_active { "Aseta aktiiviseksi" }
+    ctx_rename_ellipsis { "Nimeä uudelleen…" }
+    ctx_move_to_front { "Siirrä eteen" }
+    ctx_move_to_back { "Siirrä taakse" }
+    ctx_remove_layer { "Poista taso" }
+    drag_move_fmt { "Siirrä: {0}" }
 
-    visible { "Visible" }
-    lock_transparency { "Lock Transparency" }
+    visible { "Näkyvissä" }
+    lock_transparency { "Lukitse läpinäkyvyys" }
   }
 
   // ---------------------------------------------------------------------------
   // Tool palette (src/ui/tool_palette.cpp)
   // ---------------------------------------------------------------------------
   tool_palette {
-    titlebar_tools { "Tools" }
-    count_fmt { "Count: {0}" }
-    dir_fmt { "Dir: {0}" }
-    active_fmt { "Active: {0}" }
-    refresh_tools { "Refresh tools" }
-    no_tools_loaded { "No tools loaded." }
+    titlebar_tools { "Työkalut" }
+    count_fmt { "Määrä: {0}" }
+    dir_fmt { "Hakemisto: {0}" }
+    active_fmt { "Aktiivinen: {0}" }
+    refresh_tools { "Päivitä työkalut" }
+    no_tools_loaded { "Työkaluja ei ladattu." }
   }
 
   // ---------------------------------------------------------------------------
   // ANSL editor (src/ui/ansl_editor.cpp)
   // ---------------------------------------------------------------------------
   ansl_editor {
-    play { "Play" }
-    pause { "Pause" }
-    playing { "Playing" }
-    paused { "Paused" }
-    once { "(once)" }
-    once_ran { "(once: ran)" }
+    play { "Toista" }
+    pause { "Tauko" }
+    playing { "Toistetaan" }
+    paused { "Keskeytetty" }
+    once { "(kerran)" }
+    once_ran { "(kerran: ajettu)" }
 
-    open_canvas_to_run { "Open a Canvas window to run scripts." }
-    target_layer_active_fmt { "Target Layer: {0} (active)" }
-    clear_layer_each_frame { "Clear layer each frame" }
-    script_fps { "Script FPS" }
-    measured_script_fps_fmt { "Measured script FPS: {0}" }
-    compile { "Compile" }
-    run_once { "Run Once" }
+    open_canvas_to_run { "Avaa Kangas-ikkuna suorittaaksesi skriptejä." }
+    target_layer_active_fmt { "Kohdetaso: {0} (aktiivinen)" }
+    clear_layer_each_frame { "Tyhjennä taso joka ruudulla" }
+    script_fps { "Skriptin FPS" }
+    measured_script_fps_fmt { "Mitattu skriptin FPS: {0}" }
+    compile { "Käännä" }
+    run_once { "Aja kerran" }
 
-    refresh_examples { "Refresh Examples" }
-    no_examples_found_in_fmt { "No examples found in {0}" }
-    example { "Example" }
-    example_none { "<none>" }
-    failed_to_read_example_fmt { "Failed to read example: {0}" }
+    refresh_examples { "Päivitä esimerkit" }
+    no_examples_found_in_fmt { "Ei esimerkkejä kohteessa {0}" }
+    example { "Esimerkki" }
+    example_none { "<ei mitään>" }
+    failed_to_read_example_fmt { "Esimerkin lukeminen epäonnistui: {0}" }
 
-    parameters { "Parameters" }
-    examples_dir_not_found_fmt { "Examples dir not found: {0}" }
+    parameters { "Parametrit" }
+    examples_dir_not_found_fmt { "Esimerkkihakemistoa ei löydy: {0}" }
   }
 
   // ---------------------------------------------------------------------------
   // Status/error windows surfaced from the main frame (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   status_windows {
-    tool_error_title { "Tool Error" }
-    tools_error_title { "Tools Error" }
+    tool_error_title { "Työkalun virhe" }
+    tools_error_title { "Työkalujen virhe" }
   }
 
   // ---------------------------------------------------------------------------
   // Colour Picker window (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   colour_picker_window {
-    default_palette_title { "Default HSV" }
-    palette_load_error_fmt { "Palette load error: {0}" }
+    default_palette_title { "Oletus HSV" }
+    palette_load_error_fmt { "Paletin latausvirhe: {0}" }
     picker_mode_items {
-      hue_bar { "Hue Bar" }
-      hue_wheel { "Hue Wheel" }
+      hue_bar { "Sävypalkki" }
+      hue_wheel { "Sävyympyrä" }
     }
-    set_canvas_palette { "Set Canvas Palette" }
+    set_canvas_palette { "Aseta kankaan paletti" }
   }
 
   // ---------------------------------------------------------------------------
   // Tool parameters window (src/ui/tool_parameters_window.cpp)
   // ---------------------------------------------------------------------------
   tool_parameters {
-    window_title { "Tool Parameters" }
-    presets_popup_title { "Presets" }
-    advanced { "Advanced" }
+    window_title { "Työkalun parametrit" }
+    presets_popup_title { "Esiasetukset" }
+    advanced { "Lisäasetukset" }
 
-    file { "File" }
-    tool { "Tool" }
-    tool_unknown { "(unknown)" }
-    no_presets_yet { "(No presets for this tool yet)" }
-    preset { "Preset" }
+    file { "Tiedosto" }
+    tool { "Työkalu" }
+    tool_unknown { "(tuntematon)" }
+    no_presets_yet { "(Ei esiasetuksia tälle työkalulle vielä)" }
+    preset { "Esiasetus" }
 
-    overwrite_selected { "Overwrite selected" }
-    save_current_as_ellipsis { "Save current as…" }
-    rename_ellipsis { "Rename…" }
-    delete_ellipsis { "Delete…" }
+    overwrite_selected { "Korvaa valittu" }
+    save_current_as_ellipsis { "Tallenna nykyinen nimellä…" }
+    rename_ellipsis { "Nimeä uudelleen…" }
+    delete_ellipsis { "Poista…" }
 
-    add_preset_button { "+ Preset" }
-    add_preset_tooltip { "Save the current tool parameter values as a new preset." }
+    add_preset_button { "+ Esiasetus" }
+    add_preset_tooltip { "Tallenna nykyiset työkalun parametriarvot uutena esiasetuksena." }
 
-    new_preset_modal { "New Tool Param Preset" }
-    new_preset_help { "Save current parameter values as a preset." }
-    title { "Title" }
-    create { "Create" }
-    untitled { "Untitled" }
+    new_preset_modal { "Uusi työkalun parametriesiasetus" }
+    new_preset_help { "Tallenna nykyiset parametriarvot esiasetuksena." }
+    title { "Otsikko" }
+    create { "Luo" }
+    untitled { "Nimetön" }
 
-    rename_preset_modal { "Rename Tool Param Preset" }
-    rename_preset_help { "Rename the selected preset." }
+    rename_preset_modal { "Nimeä työkalun parametriesiasetus uudelleen" }
+    rename_preset_help { "Nimeä valittu esiasetus uudelleen." }
 
-    delete_preset_modal { "Delete Tool Param Preset?" }
-    delete_preset_help { "Delete the selected preset? This cannot be undone." }
+    delete_preset_modal { "Poistetaanko työkalun parametriesiasetus?" }
+    delete_preset_help { "Poistetaanko valittu esiasetus? Tätä ei voi kumota." }
   }
 
   // ---------------------------------------------------------------------------
   // Brush palette (src/ui/brush_palette_window.cpp)
   // ---------------------------------------------------------------------------
   brush_palette {
-    name_optional { "Name (optional)" }
-    add_from_selection { "Add from Selection" }
-    delete { "Delete" }
-    select_region_hint { "Select a region on the canvas to capture a brush." }
-    default_brush_name_fmt { "Brush {0}" }
-    composite { "Composite" }
-    no_brushes_yet { "(No brushes yet)" }
-    thumb_px { "Thumb" }
+    name_optional { "Nimi (valinnainen)" }
+    add_from_selection { "Lisää valinnasta" }
+    delete { "Poista" }
+    select_region_hint { "Valitse alue kankaalla kaapataksesi siveltimen." }
+    default_brush_name_fmt { "Sivellin {0}" }
+    composite { "Kooste" }
+    no_brushes_yet { "(Ei siveltimiä vielä)" }
+    thumb_px { "Pikkukuva" }
   }
 
   // ---------------------------------------------------------------------------
   // Character sets (src/ui/character_set.cpp)
   // ---------------------------------------------------------------------------
   character_sets {
-    active_set { "Active Set" }
-    make_default { "Make Default" }
-    edit_mode_explainer { "Edit mode (picker/palette assigns selected slot)" }
-    previous_set { "Previous set" }
-    next_set { "Next set" }
+    active_set { "Aktiivinen joukko" }
+    make_default { "Aseta oletukseksi" }
+    edit_mode_explainer { "Muokkaustila (valitsin/paletti asettaa valitun paikan)" }
+    previous_set { "Edellinen joukko" }
+    next_set { "Seuraava joukko" }
     slot_fmt { "Slot F{0}  {1}" }
-    clear_slot_space { "Clear slot (space)" }
-    insert_slot { "Insert slot" }
-    tooltip_set_fmt { "Set {0}" }
+    clear_slot_space { "Tyhjennä paikka (välilyönti)" }
+    insert_slot { "Lisää paikka" }
+    tooltip_set_fmt { "Joukko {0}" }
     tooltip_fn_fmt { "F{0}" }
-    tooltip_control { "(control)" }
-    tooltip_glyph_preview_matches { "Glyph preview matches canvas font." }
+    tooltip_control { "(Ctrl)" }
+    tooltip_glyph_preview_matches { "Glyyfin esikatselu vastaa kankaan fonttia." }
   }
 
   // ---------------------------------------------------------------------------
@@ -666,215 +668,215 @@ fi_FI {
   // ---------------------------------------------------------------------------
   character_palette {
     source_items {
-      json_palettes { "JSON Palettes" }
-      embedded_font_active_canvas { "Embedded Font (active canvas)" }
-      bitmap_indices_0_255 { "Bitmap Indices (0..255)" }
+      json_palettes { "JSON-paletit" }
+      embedded_font_active_canvas { "Upotettu fontti (aktiivinen kangas)" }
+      bitmap_indices_0_255 { "Bittikarttaindeksit (0..255)" }
     }
-    embedded_readonly { "Embedded palette is generated and read-only." }
-    bitmap_indices_readonly { "Bitmap index palette is generated and read-only." }
-    picker_edits_palette { "Picker edits palette (replace selected cell)" }
+    embedded_readonly { "Upotettu paletti generoidaan ja on vain luku -tilassa." }
+    bitmap_indices_readonly { "Bittikarttaindeksipaletti generoidaan ja on vain luku -tilassa." }
+    picker_edits_palette { "Valitsin muokkaa palettia (korvaa valittu solu)" }
     embedded_label { "(embedded)" }
     bitmap_indices_label { "(bitmap indices)" }
 
-    new_palette_modal { "New Palette" }
-    new_palette_default_title { "New Palette" }
-    create_new_palette_help { "Create a new palette." }
-    title { "Title" }
-    create { "Create" }
+    new_palette_modal { "Uusi paletti" }
+    new_palette_default_title { "Uusi paletti" }
+    create_new_palette_help { "Luo uusi paletti." }
+    title { "Otsikko" }
+    create { "Luo" }
 
-    rename_palette_modal { "Rename Palette" }
-    rename_palette_help { "Rename the current palette." }
-    delete_palette_modal { "Delete Palette?" }
-    delete_palette_help { "Delete the current palette? This cannot be undone." }
+    rename_palette_modal { "Nimeä paletti uudelleen" }
+    rename_palette_help { "Nimeä nykyinen paletti uudelleen." }
+    delete_palette_modal { "Poistetaanko paletti?" }
+    delete_palette_help { "Poistetaanko nykyinen paletti? Tätä ei voi kumota." }
 
-    idx_fmt { "Idx: {0}" }
+    idx_fmt { "Indeksi: {0}" }
   }
 
   // ---------------------------------------------------------------------------
   // Unicode character picker (src/ui/character_picker.cpp)
   // ---------------------------------------------------------------------------
   character_picker {
-    block { "Block" }
-    all_unicode_by_plane { "All Unicode (by Plane)" }
-    page { "Page" }
-    subpage { "Subpage" }
-    jump { "Jump" }
+    block { "Lohko" }
+    all_unicode_by_plane { "Kaikki Unicode (tasoittain)" }
+    page { "Sivu" }
+    subpage { "Alasivu" }
+    jump { "Hyppää" }
 
-    unknown_block { "Unknown block" }
+    unknown_block { "Tuntematon lohko" }
 
-    search_hint { "unicode name (e.g. greek small letter eta)" }
-    no_results { "No results." }
+    search_hint { "unicode-nimi (esim. greek small letter eta)" }
+    no_results { "Ei tuloksia." }
     results_range_fmt { "{0}–{1}" }
-    results_range_of_total_fmt { "{0}–{1} of {2}" }
-    plane_preview_fmt { "Plane {0}: {1}" }
-    row_col { "Row/Col" }
-    no_drawable_glyphs { "No drawable glyphs in this range." }
+    results_range_of_total_fmt { "{0}–{1} / {2}" }
+    plane_preview_fmt { "Taso {0}: {1}" }
+    row_col { "Rivi/Sarake" }
+    no_drawable_glyphs { "Tällä alueella ei ole piirrettäviä glyyfejä." }
 
-    selected { "Selected" }
-    glyph_prefix { "Glyph: {0}" }
-    name_prefix { "Name: {0}" }
-    block_prefix { "Block: {0}" }
+    selected { "Valittu" }
+    glyph_prefix { "Glyyfi: {0}" }
+    name_prefix { "Nimi: {0}" }
+    block_prefix { "Lohko: {0}" }
 
-    copy_character { "Copy Character" }
-    copy_u_plus { "Copy U+XXXX" }
+    copy_character { "Kopioi merkki" }
+    copy_u_plus { "Kopioi U+XXXX" }
 
-    confusables_header { "Confusables (ICU spoof)" }
-    limit_fmt { "(limit {0})" }
-    no_confusables { "No confusables found (or ICU data unavailable)." }
+    confusables_header { "Sekaannuttavat (ICU spoof)" }
+    limit_fmt { "(raja {0})" }
+    no_confusables { "Sekaannuttavia ei löytynyt (tai ICU-data ei ole saatavilla)." }
   }
 
   // ---------------------------------------------------------------------------
   // Markdown -> ANSI import dialog (src/ui/markdown_to_ansi_dialog.cpp)
   // ---------------------------------------------------------------------------
   markdown_import {
-    preview_title { "Markdown → Canvas" }
-    settings_title { "Markdown Import Settings" }
+    preview_title { "Markdown → Kangas" }
+    settings_title { "Markdown-tuonnin asetukset" }
 
-    source_fmt { "Source: {0}" }
+    source_fmt { "Lähde: {0}" }
     markdown_label { "(markdown)" }
-    bytes_fmt { "({0} {0, plural, one{byte} other{bytes}})" }
-    preview_updating_ellipsis { "Preview updating…" }
-    themes_error_fmt { "Themes: {0}" }
-    no_preview { "(no preview)" }
+    bytes_fmt { "({0} {0, plural, one{tavu} other{tavua}})" }
+    preview_updating_ellipsis { "Esikatselu päivittyy…" }
+    themes_error_fmt { "Teemat: {0}" }
+    no_preview { "(ei esikatselua)" }
 
-    pin_to_preview { "Pin to preview" }
+    pin_to_preview { "Kiinnitä esikatseluun" }
 
-    canvas { "Canvas" }
-    width_columns { "Width (columns)" }
-    max_rows { "Max rows" }
-    preserve_blank_lines { "Preserve blank lines" }
+    canvas { "Kangas" }
+    width_columns { "Leveys (saraketta)" }
+    max_rows { "Enimmäisrivit" }
+    preserve_blank_lines { "Säilytä tyhjät rivit" }
 
-    wrapping { "Wrapping" }
-    wrap_paragraphs { "Wrap paragraphs" }
-    soft_breaks { "Soft breaks" }
+    wrapping { "Rivitys" }
+    wrap_paragraphs { "Rivitä kappaleet" }
+    soft_breaks { "Pehmeät rivinvaihdot" }
     soft_break_items {
-      space { "Space" }
-      newline { "Newline" }
+      space { "Välilyönti" }
+      newline { "Rivinvaihto" }
     }
 
-    theme { "Theme" }
-    no_themes_loaded { "(no themes loaded)" }
+    theme { "Teema" }
+    no_themes_loaded { "(teemoja ei ladattu)" }
 
-    links { "Links" }
-    render_mode { "Render mode" }
+    links { "Linkit" }
+    render_mode { "Renderöintitila" }
     link_mode_items {
-      text_only { "Text only" }
-      inline_url { "Inline URL" }
+      text_only { "Vain teksti" }
+      inline_url { "Upotettu URL" }
     }
 
-    code_blocks { "Code blocks" }
-    show_language_label { "Show language label" }
+    code_blocks { "Koodilohkot" }
+    show_language_label { "Näytä kielimerkintä" }
   }
 
   // ---------------------------------------------------------------------------
   // Image -> ANSI (Chafa) dialog (src/ui/image_to_chafa_dialog.cpp)
   // ---------------------------------------------------------------------------
   chafa {
-    preview_title { "Image → ANSI (Chafa)" }
-    settings_title { "Chafa Settings" }
+    preview_title { "Kuva → ANSI (Chafa)" }
+    settings_title { "Chafa-asetukset" }
 
-    no_image_data { "No image data." }
-    source_fmt { "Source: {0}" }
-    image_label { "(image)" }
+    no_image_data { "Ei kuvadataa." }
+    source_fmt { "Lähde: {0}" }
+    image_label { "(kuva)" }
     dims_fmt { "({0}x{1})" }
-    preview_updating_ellipsis { "Preview updating…" }
-    no_preview { "(no preview)" }
+    preview_updating_ellipsis { "Esikatselu päivittyy…" }
+    no_preview { "(ei esikatselua)" }
 
-    pin_to_preview { "Pin to preview" }
+    pin_to_preview { "Kiinnitä esikatseluun" }
 
-    size_layout { "Size & layout" }
-    columns { "Columns" }
-    auto_rows { "Auto rows" }
-    rows { "Rows" }
-    rows_auto { "Rows: auto" }
-    font_ratio { "Font ratio (w/h)" }
-    zoom { "Zoom" }
-    stretch { "Stretch" }
+    size_layout { "Koko ja asettelu" }
+    columns { "Sarakkeet" }
+    auto_rows { "Automaattiset rivit" }
+    rows { "Rivit" }
+    rows_auto { "Rivit: automaattinen" }
+    font_ratio { "Fonttisuhde (l/k)" }
+    zoom { "Zoomaus" }
+    stretch { "Venytä" }
 
-    colour_processing { "Colour & processing" }
-    colour_mode { "Colour mode" }
+    colour_processing { "Värit ja käsittely" }
+    colour_mode { "Väritila" }
     colour_mode_items {
       indexed_256 { "Indexed 256 (xterm)" }
       indexed_240 { "Indexed 240" }
       indexed_16 { "Indexed 16" }
       indexed_16_8 { "Indexed 16/8" }
       indexed_8 { "Indexed 8" }
-      default_invert { "Default fg/bg + invert" }
-      default_no_codes { "Default fg/bg (no codes)" }
+      default_invert { "Oletus fg/bg + käännä" }
+      default_no_codes { "Oletus fg/bg (ei koodeja)" }
     }
-    colour_extractor { "Colour extractor" }
-    colour_extractor_items { average { "Average" } median { "Median" } }
-    colour_space { "Colour space" }
-    colour_space_items { rgb_fast { "RGB (fast)" } din99d { "DIN99d (perceptual)" } }
-    preprocessing { "Preprocessing" }
-    transparency_threshold { "Transparency threshold" }
-    foreground_only { "Foreground-only (fg-only)" }
-    custom_fg_bg { "Custom fg/bg colours" }
-    invert_fg_bg { "Invert fg/bg" }
+    colour_extractor { "Värinpoiminta" }
+    colour_extractor_items { average { "Keskiarvo" } median { "Mediaani" } }
+    colour_space { "Väriavaruus" }
+    colour_space_items { rgb_fast { "RGB (nopea)" } din99d { "DIN99d (havainnollinen)" } }
+    preprocessing { "Esikäsittely" }
+    transparency_threshold { "Läpinäkyvyyden kynnys" }
+    foreground_only { "Vain etuala (fg-only)" }
+    custom_fg_bg { "Mukautetut fg/bg-värit" }
+    invert_fg_bg { "Käännä fg/bg" }
     fg { "FG" }
     bg { "BG" }
-    work { "Work" }
-    work_help { "Higher work improves quality at the cost of CPU/time (maps to libchafa work_factor 0..1)." }
-    threads { "Threads (-1=auto)" }
+    work { "Työ" }
+    work_help { "Suurempi työ parantaa laatua CPU-ajan kustannuksella (vastaa libchafa work_factor 0..1)." }
+    threads { "Säikeet (-1=auto)" }
 
-    symbols { "Symbols" }
-    symbols_class { "Symbols Class" }
-    symbols_selectors { "Symbols Selectors" }
+    symbols { "Symbolit" }
+    symbols_class { "Symboliluokka" }
+    symbols_selectors { "Symbolivalitsimet" }
     symbols_selectors_hint { "e.g. block+border-diagonal" }
-    fill_class { "Fill Class" }
-    fill_selectors_same_as_symbols { "(same as symbols)" }
-    fill_selectors { "Fill Selectors" }
-    fill_selectors_hint { "(blank = same as symbols)" }
-    selectors_help { "Selectors follow chafa CLI syntax: combine with + and -, e.g. all-wide or block+border-diagonal." }
+    fill_class { "Täyttöluokka" }
+    fill_selectors_same_as_symbols { "(sama kuin symbolit)" }
+    fill_selectors { "Täyttövalitsimet" }
+    fill_selectors_hint { "(tyhjä = sama kuin symbolit)" }
+    selectors_help { "Valitsimet noudattavat chafa CLI -syntaksia: yhdistä + ja -, esim. all-wide tai block+border-diagonal." }
 
-    dithering { "Dithering" }
-    dither_mode { "Mode" }
-    dither_mode_items { none { "None" } ordered { "Ordered" } diffusion { "Diffusion" } noise { "Noise" } }
-    grain { "Grain" }
+    dithering { "Rasterointi" }
+    dither_mode { "Tila" }
+    dither_mode_items { none { "Ei mitään" } ordered { "Järjestetty" } diffusion { "Diffuusio" } noise { "Kohina" } }
+    grain { "Rakeisuus" }
     grain_items { g1 { "1x1" } g2 { "2x2" } g4 { "4x4" } g8 { "8x8" } }
-    intensity { "Intensity" }
+    intensity { "Voimakkuus" }
 
     debug { "Debug" }
-    debug_stdout { "Debug to stdout" }
-    dump_raw_ansi_danger { "Dump RAW ANSI (danger)" }
-    raw_tip { "Tip: keep RAW off; use escaped dump to avoid terminal garbage." }
+    debug_stdout { "Debug tulosteeksi stdoutiin" }
+    dump_raw_ansi_danger { "Tulosta RAW ANSI (vaara)" }
+    raw_tip { "Vinkki: pidä RAW pois päältä; käytä eskapoitua tulostetta välttääksesi päätteen sotkemisen." }
   }
 
   // ---------------------------------------------------------------------------
   // Image window (src/ui/image_window.cpp)
   // ---------------------------------------------------------------------------
   image_window {
-    title { "Image" }
-    no_image_data { "No image data." }
-    ctx_convert_to_ansi { "Convert to ANSI…" }
+    title { "Kuva" }
+    no_image_data { "Ei kuvadataa." }
+    ctx_convert_to_ansi { "Muunna ANSI:ksi…" }
   }
 
   // ---------------------------------------------------------------------------
   // SAUCE editor (src/ui/sauce_editor_dialog.cpp)
   // ---------------------------------------------------------------------------
   sauce_editor {
-    title { "SAUCE Editor" }
-    field_title { "Title" }
-    field_author { "Author" }
-    field_group { "Group" }
-    field_date { "Date" }
-    field_font { "Font" }
-    custom { "Custom" }
-    unknown { "(Unknown)" }
-    known_fonts_header { "Known fonts (SAUCE FontName)" }
+    title { "SAUCE-editori" }
+    field_title { "Otsikko" }
+    field_author { "Tekijä" }
+    field_group { "Ryhmä" }
+    field_date { "Päivä" }
+    field_font { "Fontti" }
+    custom { "Mukautettu" }
+    unknown { "(Tuntematon)" }
+    known_fonts_header { "Tunnetut fontit (SAUCE FontName)" }
     field_tinfos { "TInfoS" }
-    comments { "Comments" }
-    advanced { "Advanced" }
+    comments { "Kommentit" }
+    advanced { "Lisäasetukset" }
 
-    help_title { "SAUCE Title (35 chars): the title of the file/artwork. Fixed-width field in the 128-byte SAUCE record (space-padded when written)." }
-    help_author { "SAUCE Author (20 chars): the (nick)name or handle of the creator of the file/artwork. Fixed-width field in the SAUCE record." }
-    help_group { "SAUCE Group (20 chars): the name of the group or company the creator is affiliated with. Fixed-width field in the SAUCE record." }
-    help_date { "SAUCE Date (8 chars): creation date in the format CCYYMMDD. Example: May 4, 2013 is stored as \"20130504\"." }
+    help_title { "SAUCE Title (35 merkkiä): tiedoston/taideteoksen otsikko. Kiinteän leveyden kenttä 128-tavuisessa SAUCE-tietueessa (kirjoitettaessa täytetään välilyönneillä)." }
+    help_author { "SAUCE Author (20 merkkiä): tiedoston/taideteoksen tekijän (lempi)nimi tai handle. Kiinteän leveyden kenttä SAUCE-tietueessa." }
+    help_group { "SAUCE Group (20 merkkiä): ryhmän tai yrityksen nimi, johon tekijä liittyy. Kiinteän leveyden kenttä SAUCE-tietueessa." }
+    help_date { "SAUCE Date (8 merkkiä): luontipäivä muodossa CCYYMMDD. Esim. 4. toukokuuta 2013 tallennetaan muodossa \"20130504\"." }
     help_tinfos {
-      "SAUCE TInfoS (22 bytes, ZString): type-dependent string information field.\nFor DataType=Character, this is commonly used as the FontName."
+      "SAUCE TInfoS (22 tavua, ZString): tyypistä riippuva merkkijonotietokenttä.\nDataType=Character-tyypille tätä käytetään yleisesti FontName-kenttänä."
     }
     help_comments {
-      "SAUCE Comment Block: optional extra comment lines. Up to 255 lines, each 64 characters wide. When present in a file, it is stored as \"COMNT\" + (lines*64) right before the 128-byte SAUCE record."
+      "SAUCE Comment Block: valinnaiset lisäkommenttirivit. Enintään 255 riviä, kukin 64 merkkiä leveä. Kun olemassa, se tallennetaan tiedostoon muodossa \"COMNT\" + (rivit*64) juuri ennen 128-tavuista SAUCE-tietuetta."
     }
 
     // Buttons
@@ -896,79 +898,79 @@ fi_FI {
   // 16colo.rs browser (src/ui/sixteen_colors_browser.cpp)
   // ---------------------------------------------------------------------------
   sixteen_colors {
-    title { "16colo.rs Browser" }
+    title { "16colo.rs-selain" }
 
-    browse { "Browse" }
+    browse { "Selaa" }
     browse_items {
-      packs { "Packs" }
-      groups { "Groups" }
-      artists { "Artists" }
-      years { "Years" }
-      latest { "Latest" }
+      packs { "Paketit" }
+      groups { "Ryhmät" }
+      artists { "Artistit" }
+      years { "Vuodet" }
+      latest { "Uusimmat" }
     }
 
     datahoarder { "Datahoarder" }
     datahoarder_tooltip {
-      "This is a slow background spider of 16colo.rs.\nIt is used to pre-populate the cache to archive 16colo.rs for offline use.\nYou will have to intentionally turn this on between runs to continue archiving.\n\nEnqueued: {0}\nCompleted: {1}\nErrors: {2}\nPending: {3}\n"
+      "Tämä on hidas taustalla toimiva 16colo.rs-robotti.\nSitä käytetään välimuistin esitäyttämiseen 16colo.rs:n arkistointia varten offline-käyttöön.\nSinun on kytkettävä tämä erikseen päälle ajokertojen välillä jatkaaksesi arkistointia.\n\nJonossa: {0}\nValmiit: {1}\nVirheet: {2}\nOdottaa: {3}\n"
     }
 
-    back { "Back" }
+    back { "Takaisin" }
 
-    filter_hint_default { "Search (filter=...)" }
-    filter_hint_packs { "Search packs (filter=...)" }
-    filter_hint_groups { "Search groups (filter=...)" }
-    filter_hint_artists { "Search artists (filter=...)" }
-    filter_hint_years_optional { "Optional: filter packs within year (filter=...)" }
+    filter_hint_default { "Hae (filter=...)" }
+    filter_hint_packs { "Hae paketteja (filter=...)" }
+    filter_hint_groups { "Hae ryhmiä (filter=...)" }
+    filter_hint_artists { "Hae artisteja (filter=...)" }
+    filter_hint_years_optional { "Valinnainen: suodata paketteja vuoden sisällä (filter=...)" }
 
-    include_groups { "Include groups" }
-    include_artists { "Include artists" }
-    include_mags { "Include mags" }
-    sort { "Sort" }
-    order { "Order" }
+    include_groups { "Sisällytä ryhmät" }
+    include_artists { "Sisällytä artistit" }
+    include_mags { "Sisällytä mags" }
+    sort { "Lajittele" }
+    order { "Järjestys" }
 
-    loading_pack { "Loading pack…" }
-    loading { "Loading…" }
-    downloading_n_fmt { "Downloading {0}…" }
-    error_fmt { "Error: {0}" }
+    loading_pack { "Ladataan pakettia…" }
+    loading { "Ladataan…" }
+    downloading_n_fmt { "Ladataan {0}…" }
+    error_fmt { "Virhe: {0}" }
 
-    left_title_packs { "Packs" }
-    left_title_groups { "Groups" }
-    left_title_artists { "Artists" }
-    left_title_years { "Years" }
-    left_title_latest_packs { "Latest packs" }
+    left_title_packs { "Paketit" }
+    left_title_groups { "Ryhmät" }
+    left_title_artists { "Artistit" }
+    left_title_years { "Vuodet" }
+    left_title_latest_packs { "Uusimmat paketit" }
 
-    no_pack_list_yet { "No pack list loaded yet." }
-    no_latest_list_yet { "No latest list loaded yet." }
-    no_group_list_yet { "No group list loaded yet." }
-    no_artist_list_yet { "No artist list loaded yet." }
-    no_year_index_yet { "No year index loaded yet." }
-    unexpected_response { "Unexpected response." }
-    no_packs_loaded_yet { "No packs loaded yet." }
+    no_pack_list_yet { "Pakettilistaa ei ole vielä ladattu." }
+    no_latest_list_yet { "Uusimpien listaa ei ole vielä ladattu." }
+    no_group_list_yet { "Ryhmien listaa ei ole vielä ladattu." }
+    no_artist_list_yet { "Artistien listaa ei ole vielä ladattu." }
+    no_year_index_yet { "Vuosihakemistoa ei ole vielä ladattu." }
+    unexpected_response { "Odottamaton vastaus." }
+    no_packs_loaded_yet { "Paketteja ei ole vielä ladattu." }
 
-    pack_fmt { "Pack: {0}" }
-    pack_none { "(none)" }
-    filter_files_hint { "Filter files (substring)" }
-    filter_tag_hint { "Filter tag (substring)" }
-    no_thumbnail { "no thumbnail" }
-    thumb_failed { "thumb failed" }
-    thumb_loading { "loading…" }
-    no_files_for_pack { "No files for this pack." }
-    unexpected_pack_details { "Unexpected pack details response." }
-    no_pack_details_yet { "No pack details loaded yet." }
-    select_pack_left { "Select a pack on the left." }
-    unsupported_file_type_fmt { "Unsupported file type for import: {0}" }
-    internal_error_create_image { "Internal error: create_image callback not set." }
-    internal_error_create_canvas { "Internal error: create_canvas callback not set." }
+    pack_fmt { "Paketti: {0}" }
+    pack_none { "(ei mitään)" }
+    filter_files_hint { "Suodata tiedostoja (osajono)" }
+    filter_tag_hint { "Suodata tagia (osajono)" }
+    no_thumbnail { "ei esikatselukuvaa" }
+    thumb_failed { "esikatselu epäonnistui" }
+    thumb_loading { "ladataan…" }
+    no_files_for_pack { "Tälle paketille ei ole tiedostoja." }
+    unexpected_pack_details { "Odottamaton paketin tietojen vastaus." }
+    no_pack_details_yet { "Paketin tietoja ei ole vielä ladattu." }
+    select_pack_left { "Valitse paketti vasemmalta." }
+    unsupported_file_type_fmt { "Tuonnissa ei tuettu tiedostotyyppi: {0}" }
+    internal_error_create_image { "Sisäinen virhe: create_image-callbackia ei ole asetettu." }
+    internal_error_create_canvas { "Sisäinen virhe: create_canvas-callbackia ei ole asetettu." }
   }
 
   // ---------------------------------------------------------------------------
   // Window chrome (src/ui/imgui_window_chrome.cpp)
   // ---------------------------------------------------------------------------
   window_chrome {
-    z_normal { "Z-order: Normal" }
-    z_front { "Z-order: Pin to Front" }
-    z_back { "Z-order: Pin to Back" }
-    opacity { "Opacity" }
+    z_normal { "Z-järjestys: Normaali" }
+    z_front { "Z-järjestys: Kiinnitä eteen" }
+    z_back { "Z-järjestys: Kiinnitä taakse" }
+    opacity { "Peittävyys" }
   }
 
   // ---------------------------------------------------------------------------
@@ -976,7 +978,7 @@ fi_FI {
   // ---------------------------------------------------------------------------
   colour_palette {
     swatch_tooltip {
-      "Enter/LMB: set active (FG/BG)\nShift+Enter/RMB: set other (BG/FG)"
+      "Enter/VMB: aseta aktiiviseksi (FG/BG)\nShift+Enter/OMB: aseta toiseksi (BG/FG)"
     }
   }
 }

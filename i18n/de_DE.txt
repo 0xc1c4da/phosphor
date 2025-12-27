@@ -410,6 +410,8 @@ de_DE {
       byline { "von 0xc1c4da" }
       blurb { "Ein nativer UTF-8-ANSI-/Textmodus-Editor basierend auf der Unscii-8x16-Schrift." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Im Browser öffnen. Falls das Öffnen fehlschlägt, wird die URL in die Zwischenablage kopiert." }
     }
 
     general_tab {

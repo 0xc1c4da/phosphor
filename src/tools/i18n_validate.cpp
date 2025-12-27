@@ -5,6 +5,8 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -17,6 +19,7 @@ namespace fs = std::filesystem;
 
 struct Issues
 {
+    int bundle_open_errors = 0;
     int missing_keys = 0;
     int msgfmt_errors = 0;
     int ellipsis_inconsistencies = 0;
@@ -24,6 +27,18 @@ struct Issues
     int imgui_id_in_translation = 0;
     int file_pattern_in_translation = 0;
 };
+
+static void PrintUsage(const char* argv0)
+{
+    std::cerr
+        << "Usage:\n"
+        << "  " << (argv0 ? argv0 : "i18n_validate") << " [bundle_dir] [locale]\n"
+        << "  " << (argv0 ? argv0 : "i18n_validate") << " [bundle_dir] --all\n"
+        << "\n"
+        << "Notes:\n"
+        << "  - bundle_dir should contain ICU .res files (e.g. root.res, fr_FR.res).\n"
+        << "  - locale is the ICU bundle name (e.g. root, fr_FR).\n";
+}
 
 static void WalkBundle(UResourceBundle* rb,
                        std::string_view prefix,
@@ -222,12 +237,166 @@ static bool ContainsDisallowedAsciiEllipsis(std::string_view v)
     return true;
 }
 
+static std::vector<std::string> DiscoverLocalesInBundleDir(const std::string& bundle_dir_abs)
+{
+    std::vector<std::string> out;
+    std::error_code ec;
+    for (const auto& it : fs::directory_iterator(bundle_dir_abs, ec))
+    {
+        if (ec)
+            break;
+        if (!it.is_regular_file(ec) || ec)
+            continue;
+        const fs::path p = it.path();
+        if (p.extension() != ".res")
+            continue;
+        const std::string loc = p.stem().string();
+        if (loc.empty())
+            continue;
+        out.push_back(loc);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+static bool ValidateLocale(const std::string& bundle_dir_abs,
+                           const std::string& locale,
+                           const std::unordered_set<std::string>& used_keys,
+                           const std::unordered_set<std::string>& used_fmt_keys,
+                           Issues& issues)
+{
+    Issues local;
+
+    UErrorCode status = U_ZERO_ERROR;
+    UResourceBundle* rb = ures_openDirect(bundle_dir_abs.c_str(), locale.c_str(), &status);
+    if (U_FAILURE(status) || !rb)
+    {
+        ++local.bundle_open_errors;
+        std::cerr << locale << " OPEN_BUNDLE_ERROR"
+                  << " dir=" << bundle_dir_abs
+                  << " status=" << (int)status
+                  << "\n";
+        issues.bundle_open_errors += local.bundle_open_errors;
+        return false;
+    }
+
+    std::unordered_map<std::string, std::string> strings;
+    WalkBundle(rb, "", strings);
+    ures_close(rb);
+
+    // Missing keys (strict coverage: every locale must define every key used by the app).
+    for (const auto& k : used_keys)
+    {
+        if (strings.find(k) == strings.end())
+        {
+            ++local.missing_keys;
+            std::cerr << locale << " MISSING_KEY " << k << "\n";
+        }
+    }
+
+    // Translator safety checks: ImGui IDs and file-pattern blobs should not appear in translations.
+    for (const auto& [k, v] : strings)
+    {
+        if (v.find("##") != std::string::npos)
+        {
+            ++local.imgui_id_in_translation;
+            std::cerr << locale << " IMGUI_ID_IN_TRANSLATION " << k << " = " << v << "\n";
+        }
+        // Flag common "label (*.ext;...)" blobs. We intentionally allow patterns like "filter=..." elsewhere.
+        if (v.find("(*.") != std::string::npos)
+        {
+            ++local.file_pattern_in_translation;
+            std::cerr << locale << " FILE_PATTERN_IN_TRANSLATION " << k << " = " << v << "\n";
+        }
+
+        // Guardrail: avoid ASCII "..." for UI ellipsis outside known technical contexts.
+        // Note: *_ellipsis is handled separately below for clearer error messages.
+        if (!EndsWith(k, "_ellipsis") && ContainsDisallowedAsciiEllipsis(v))
+        {
+            ++local.ascii_ellipsis_in_translation;
+            std::cerr << locale << " ELLIPSIS_ASCII " << k << " = " << v << "\n";
+        }
+    }
+
+    // Ellipsis consistency: *_ellipsis should use Unicode ellipsis (…)
+    for (const auto& [k, v] : strings)
+    {
+        if (!EndsWith(k, "_ellipsis"))
+            continue;
+        if (v.find("...") != std::string::npos)
+        {
+            ++local.ellipsis_inconsistencies;
+            std::cerr << locale << " ELLIPSIS_ASCII " << k << " = " << v << "\n";
+        }
+    }
+
+    // MessageFormat parse validation:
+    // - Always validate keys used via PHOS_TRF
+    // - Also validate any key ending in _fmt (even if not currently used)
+    std::unordered_set<std::string> fmt_keys = used_fmt_keys;
+    for (const auto& [k, _v] : strings)
+    {
+        if (EndsWith(k, "_fmt"))
+            fmt_keys.insert(k);
+    }
+
+    icu::Locale loc(locale.c_str());
+    for (const auto& k : fmt_keys)
+    {
+        auto it = strings.find(k);
+        if (it == strings.end())
+            continue; // already counted missing
+        const std::string& pat_utf8 = it->second;
+        UErrorCode s = U_ZERO_ERROR;
+        icu::UnicodeString pat = icu::UnicodeString::fromUTF8(pat_utf8);
+        icu::MessageFormat mf(pat, loc, s);
+        if (U_FAILURE(s))
+        {
+            ++local.msgfmt_errors;
+            std::cerr << locale << " MSGFMT_PARSE_ERROR " << k << " = " << pat_utf8 << "\n";
+        }
+        (void)mf;
+    }
+
+    issues.bundle_open_errors += local.bundle_open_errors;
+    issues.missing_keys += local.missing_keys;
+    issues.msgfmt_errors += local.msgfmt_errors;
+    issues.ellipsis_inconsistencies += local.ellipsis_inconsistencies;
+    issues.ascii_ellipsis_in_translation += local.ascii_ellipsis_in_translation;
+    issues.imgui_id_in_translation += local.imgui_id_in_translation;
+    issues.file_pattern_in_translation += local.file_pattern_in_translation;
+
+    if (local.bundle_open_errors ||
+        local.missing_keys ||
+        local.msgfmt_errors ||
+        local.ellipsis_inconsistencies ||
+        local.ascii_ellipsis_in_translation ||
+        local.imgui_id_in_translation ||
+        local.file_pattern_in_translation)
+    {
+        std::cout << locale << " FAIL"
+                  << " (bundle_open_errors=" << local.bundle_open_errors
+                  << " missing_keys=" << local.missing_keys
+                  << " msgfmt_errors=" << local.msgfmt_errors
+                  << ")\n";
+        return false;
+    }
+
+    std::cout << locale << " OK"
+              << " (keys=" << strings.size()
+              << " used=" << used_keys.size()
+              << " fmt_used=" << used_fmt_keys.size()
+              << ")\n";
+    return true;
+}
+
 int main(int argc, char** argv)
 {
     // Default expected location from this repo's Makefile: build/i18n/root.res
-    std::string res_path = "build/i18n/root.res";
     std::string bundle_dir = "build/i18n";
     std::string locale = "root";
+    bool all_locales = false;
 
     if (argc >= 2)
         bundle_dir = argv[1];
@@ -235,6 +404,17 @@ int main(int argc, char** argv)
         locale = argv[2];
 
     Issues issues;
+
+    if (locale == "--help" || locale == "-h")
+    {
+        PrintUsage(argv[0]);
+        return 0;
+    }
+    if (locale == "--all" || locale == "all" || locale.empty())
+    {
+        all_locales = true;
+        locale.clear();
+    }
 
     // Load bundle (use absolute path; ICU file loaders can be picky about relative paths).
     try
@@ -245,21 +425,6 @@ int main(int argc, char** argv)
     {
         // Best effort only; keep original.
     }
-
-    UErrorCode status = U_ZERO_ERROR;
-    UResourceBundle* rb = ures_openDirect(bundle_dir.c_str(), locale.c_str(), &status);
-    if (U_FAILURE(status) || !rb)
-    {
-        std::cerr << "i18n_validate: failed to open bundle (dir=" << bundle_dir
-                  << " locale=" << locale
-                  << " status=" << (int)status
-                  << ")\n";
-        return 2;
-    }
-
-    std::unordered_map<std::string, std::string> strings;
-    WalkBundle(rb, "", strings);
-    ures_close(rb);
 
     // Scan uses in src/
     std::vector<Use> uses;
@@ -282,79 +447,32 @@ int main(int argc, char** argv)
             used_fmt_keys.insert(u.key);
     }
 
-    // Missing keys
-    for (const auto& k : used_keys)
+    // Validate locales.
+    std::vector<std::string> locales;
+    // Default behavior: validate all locales in the bundle dir unless a specific locale is provided.
+    if (all_locales || argc < 3)
     {
-        if (strings.find(k) == strings.end())
+        locales = DiscoverLocalesInBundleDir(bundle_dir);
+        if (locales.empty())
         {
-            ++issues.missing_keys;
-            std::cerr << "MISSING_KEY " << k << "\n";
+            std::cerr << "i18n_validate: no locales found (dir=" << bundle_dir << ")\n";
+            return 2;
         }
     }
-
-    // Translator safety checks: ImGui IDs and file-pattern blobs should not appear in translations.
-    for (const auto& [k, v] : strings)
+    else
     {
-        if (v.find("##") != std::string::npos)
-        {
-            ++issues.imgui_id_in_translation;
-            std::cerr << "IMGUI_ID_IN_TRANSLATION " << k << " = " << v << "\n";
-        }
-        // Flag common "label (*.ext;...)" blobs. We intentionally allow patterns like "filter=..." elsewhere.
-        if (v.find("(*.") != std::string::npos)
-        {
-            ++issues.file_pattern_in_translation;
-            std::cerr << "FILE_PATTERN_IN_TRANSLATION " << k << " = " << v << "\n";
-        }
-
-        // Guardrail: avoid ASCII "..." for UI ellipsis outside known technical contexts.
-        // Note: *_ellipsis is handled separately below for clearer error messages.
-        if (!EndsWith(k, "_ellipsis") && ContainsDisallowedAsciiEllipsis(v))
-        {
-            ++issues.ascii_ellipsis_in_translation;
-            std::cerr << "ELLIPSIS_ASCII " << k << " = " << v << "\n";
-        }
+        if (locale.empty())
+            locale = "root";
+        locales.push_back(locale);
     }
 
-    // Ellipsis consistency: *_ellipsis should use Unicode ellipsis (…)
-    for (const auto& [k, v] : strings)
+    for (const auto& loc : locales)
     {
-        if (!EndsWith(k, "_ellipsis"))
-            continue;
-        if (v.find("...") != std::string::npos)
-        {
-            ++issues.ellipsis_inconsistencies;
-            std::cerr << "ELLIPSIS_ASCII " << k << " = " << v << "\n";
-        }
+        ValidateLocale(bundle_dir, loc, used_keys, used_fmt_keys, issues);
     }
 
-    // MessageFormat parse validation:
-    // - Always validate keys used via PHOS_TRF
-    // - Also validate any key ending in _fmt (even if not currently used)
-    std::unordered_set<std::string> fmt_keys = used_fmt_keys;
-    for (const auto& [k, _v] : strings)
-    {
-        if (EndsWith(k, "_fmt"))
-            fmt_keys.insert(k);
-    }
-    for (const auto& k : fmt_keys)
-    {
-        auto it = strings.find(k);
-        if (it == strings.end())
-            continue; // already counted missing
-        const std::string& pat_utf8 = it->second;
-        UErrorCode s = U_ZERO_ERROR;
-        icu::UnicodeString pat = icu::UnicodeString::fromUTF8(pat_utf8);
-        icu::MessageFormat mf(pat, icu::Locale::getDefault(), s);
-        if (U_FAILURE(s))
-        {
-            ++issues.msgfmt_errors;
-            std::cerr << "MSGFMT_PARSE_ERROR " << k << " = " << pat_utf8 << "\n";
-        }
-        (void)mf;
-    }
-
-    if (issues.missing_keys ||
+    if (issues.bundle_open_errors ||
+        issues.missing_keys ||
         issues.msgfmt_errors ||
         issues.ellipsis_inconsistencies ||
         issues.ascii_ellipsis_in_translation ||
@@ -362,6 +480,7 @@ int main(int argc, char** argv)
         issues.file_pattern_in_translation)
     {
         std::cerr << "i18n_validate: FAIL"
+                  << " bundle_open_errors=" << issues.bundle_open_errors
                   << " missing_keys=" << issues.missing_keys
                   << " msgfmt_errors=" << issues.msgfmt_errors
                   << " ellipsis_ascii=" << issues.ellipsis_inconsistencies
@@ -373,7 +492,7 @@ int main(int argc, char** argv)
     }
 
     std::cout << "i18n_validate: OK"
-              << " (keys=" << strings.size()
+              << " (locales=" << locales.size()
               << " used=" << used_keys.size()
               << " fmt_used=" << used_fmt_keys.size()
               << ")\n";

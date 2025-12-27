@@ -410,6 +410,8 @@ root {
       byline { "by 0xc1c4da" }
       blurb { "A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Open in browser. If opening fails, the URL is copied to the clipboard." }
     }
 
     general_tab {

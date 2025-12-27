@@ -108,6 +108,7 @@ SOURCES  = \
            src/ui/settings.cpp \
            src/ui/tool_params.cpp \
            src/ui/tool_parameters_window.cpp \
+           src/ui/tool_presets_window.cpp \
            src/ui/export_dialog.cpp \
            src/ui/sauce_editor_dialog.cpp \
            src/ui/tool_palette.cpp \
@@ -235,8 +236,8 @@ $(FONT_SANITY_EXE): $(FONT_SANITY_SRCS)
 font-sanity: $(FONT_SANITY_EXE)
 
 # ---------------------------------------------------------------------------
-# i18n validation: checks PHOS_TR/PHOS_TRF keys exist in build/i18n/root.res
-# and validates MessageFormat patterns for PHOS_TRF keys.
+# i18n validation: checks PHOS_TR/PHOS_TRF keys exist in all build/i18n/*.res
+# and validates MessageFormat patterns for PHOS_TRF keys across locales.
 # ---------------------------------------------------------------------------
 I18N_VALIDATE_EXE = i18n_validate
 I18N_VALIDATE_SRCS = src/tools/i18n_validate.cpp
@@ -248,7 +249,7 @@ $(I18N_VALIDATE_EXE): $(I18N_VALIDATE_SRCS) $(I18N_RES)
 
 .PHONY: i18n-validate
 i18n-validate: $(I18N_VALIDATE_EXE)
-	@./$(I18N_VALIDATE_EXE) $(I18N_BUILD_DIR) root
+	@./$(I18N_VALIDATE_EXE) $(I18N_BUILD_DIR)
 
 # ---------------------------------------------------------------------------
 # palette validation: checks built-in palettes (src/) match assets/color-palettes.json

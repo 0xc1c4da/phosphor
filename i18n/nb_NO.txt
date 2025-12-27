@@ -82,11 +82,11 @@ nb_NO {
       tutorials { "Veiledninger" }
       tutorials_failed { "(Kunne ikke laste veiledninger)" }
       tutorials_empty { "(Tom)" }
-      tutorial_entry_fmt { "{0} by {1} ({2})" }
+      tutorial_entry_fmt { "{0} av {1} ({2})" }
       tutorials_errors {
-        failed_to_open_fmt { "Failed to open {0}" }
-        expected_top_level_array { "Expected top-level JSON array in ansi-tutorials.json" }
-        no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
+        failed_to_open_fmt { "Kunne ikke åpne {0}" }
+        expected_top_level_array { "Forventet JSON-toppnivåarray i ansi-tutorials.json" }
+        no_valid_tutorials { "Fant ingen gyldige veiledninger i ansi-tutorials.json" }
       }
 
       export { "Eksporter" }
@@ -137,22 +137,22 @@ nb_NO {
   // Generic/errors/status strings shared across multiple windows
   // ---------------------------------------------------------------------------
   app_strings {
-    missing_suffix { " (missing)" }
+    missing_suffix { " (mangler)" }
   }
 
   // ---------------------------------------------------------------------------
   // Quit / close confirmation (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   confirm {
-    quit_modal_title { "Quit" }
-    quit_question { "Quit Phosphor?" }
-    unsaved_count { "You have {0, plural, one{# canvas} other{# canvases}} with unsaved changes." }
-    save_before_quit { "Do you want to save your changes before quitting?" }
+    quit_modal_title { "Avslutt" }
+    quit_question { "Avslutte Phosphor?" }
+    unsaved_count { "Du har {0, plural, one{# lerret} other{# lerreter}} med ulagrede endringer." }
+    save_before_quit { "Vil du lagre endringene dine før du avslutter?" }
 
-    close_canvas_modal_title { "Save changes?" }
+    close_canvas_modal_title { "Lagre endringer?" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    close_canvas_question_with_path { "Save changes to" }
-    close_canvas_question_no_path { "Save changes to this canvas?" }
+    close_canvas_question_with_path { "Lagre endringer i" }
+    close_canvas_question_no_path { "Lagre endringer i dette lerretet?" }
   }
 
   // ---------------------------------------------------------------------------
@@ -160,52 +160,52 @@ nb_NO {
   // ---------------------------------------------------------------------------
   io {
     errors {
-      failed_open_for_reading { "Failed to open file for reading." }
-      failed_read_file_size { "Failed to read file size." }
-      file_too_large { "File too large." }
-      failed_read_contents { "Failed to read file contents." }
-      no_canvas_to_save { "No canvas to save." }
-      save_failed { "Save failed." }
-      export_failed { "Export failed." }
+      failed_open_for_reading { "Kunne ikke åpne filen for lesing." }
+      failed_read_file_size { "Kunne ikke lese filstørrelse." }
+      file_too_large { "Filen er for stor." }
+      failed_read_contents { "Kunne ikke lese filinnhold." }
+      no_canvas_to_save { "Ingen lerret å lagre." }
+      save_failed { "Lagring mislyktes." }
+      export_failed { "Eksport mislyktes." }
 
-      unsupported_file_type_or_failed_load { "Unsupported file type or failed to load file." }
+      unsupported_file_type_or_failed_load { "Ustøttet filtype eller filen kunne ikke lastes." }
       failed_to_open_n_of_n_last_error_fmt {
-        "Failed to open {0}/{1} {1, plural, one{file} other{files}}. Last error: {2}"
+        "Kunne ikke åpne {0}/{1} {1, plural, one{fil} other{filer}}. Siste feil: {2}"
       }
 
-      no_focused_canvas_to_export { "No focused canvas to export." }
+      no_focused_canvas_to_export { "Ingen fokusert lerret å eksportere." }
 
-      internal_error_create_canvas_callback { "Internal error: create_canvas callback not set." }
-      internal_error_create_image_callback { "Internal error: create_image callback not set." }
-      internal_error_open_markdown_import_dialog_callback { "Internal error: open_markdown_import_dialog callback not set." }
-      multiple_markdown_selected { "Multiple Markdown files selected; only one Markdown import can be opened at a time." }
+      internal_error_create_canvas_callback { "Intern feil: create_canvas-callback er ikke satt." }
+      internal_error_create_image_callback { "Intern feil: create_image-callback er ikke satt." }
+      internal_error_open_markdown_import_dialog_callback { "Intern feil: open_markdown_import_dialog-callback er ikke satt." }
+      multiple_markdown_selected { "Flere Markdown-filer valgt; bare én Markdown-import kan åpnes om gangen." }
     }
 
     // File extensions should be dynamically generated from formats/, not hard coded
     file_dialog_filters {
-      all_files { "All files" }
+      all_files { "Alle filer" }
       // Historical keys retained for stability; do not embed extension patterns in translatable text.
-      phosphor_project { "Phosphor Project" }
-      phosphor_project_base { "Phosphor Project" }
-      supported_files { "Supported files" }
-      supported_files_base { "Supported files" }
+      phosphor_project { "Phosphor-prosjekt" }
+      phosphor_project_base { "Phosphor-prosjekt" }
+      supported_files { "Støttede filer" }
+      supported_files_base { "Støttede filer" }
       ansi_text { "ANSI / Text" }
       ansi_text_base { "ANSI / Text" }
-      gimp_palette { "GIMP Palette" }
-      gimp_palette_base { "GIMP Palette" }
+      gimp_palette { "GIMP-palett" }
+      gimp_palette_base { "GIMP-palett" }
       markdown { "Markdown" }
       markdown_base { "Markdown" }
       xbin { "XBin" }
       xbin_base { "XBin" }
       images { "Images" }
       images_base { "Images" }
-      export_base { "Export" }
+      export_base { "Eksport" }
       image_base { "Image" }
     }
 
     status_windows {
-      file_error_title { "File Error" }
-      dismiss { "Dismiss" }
+      file_error_title { "Filfeil" }
+      dismiss { "Lukk" }
     }
   }
 
@@ -213,22 +213,22 @@ nb_NO {
   // Export dialog (src/ui/export_dialog.cpp)
   // ---------------------------------------------------------------------------
   export_dialog {
-    unnamed_preset { "(unnamed)" }
-    no_active_canvas { "No active canvas to export." }
+    unnamed_preset { "(uten navn)" }
+    no_active_canvas { "Ingen aktivt lerret å eksportere." }
 
     tabs {
       ansi { "ANSI" }
-      plaintext { "Plaintext" }
-      image { "Image" }
+      plaintext { "Tekst" }
+      image { "Bilde" }
       xbin { "XBin" }
     }
 
     // Common controls
-    preset { "Preset" }
-    source { "Source" }
+    preset { "Forhåndsinnstilling" }
+    source { "Kilde" }
     source_items {
-      composite { "Composite (what you see)" }
-      active_layer { "Active Layer" }
+      composite { "Sammensatt (det du ser)" }
+      active_layer { "Aktivt lag" }
     }
 
     // ANSI tab
@@ -410,6 +410,8 @@ nb_NO {
       byline { "by 0xc1c4da" }
       blurb { "A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Open in browser. If opening fails, the URL is copied to the clipboard." }
     }
 
     general_tab {

@@ -82,11 +82,11 @@ zh_TW {
       tutorials { "教學" }
       tutorials_failed { "（教學載入失敗）" }
       tutorials_empty { "（空）" }
-      tutorial_entry_fmt { "{0} by {1} ({2})" }
+      tutorial_entry_fmt { "{0} 由 {1}（{2}）" }
       tutorials_errors {
-        failed_to_open_fmt { "Failed to open {0}" }
-        expected_top_level_array { "Expected top-level JSON array in ansi-tutorials.json" }
-        no_valid_tutorials { "No valid tutorials found in ansi-tutorials.json" }
+        failed_to_open_fmt { "無法開啟 {0}" }
+        expected_top_level_array { "ansi-tutorials.json 預期為頂層 JSON 陣列" }
+        no_valid_tutorials { "ansi-tutorials.json 中找不到有效的教學" }
       }
 
       export { "匯出" }
@@ -137,22 +137,22 @@ zh_TW {
   // Generic/errors/status strings shared across multiple windows
   // ---------------------------------------------------------------------------
   app_strings {
-    missing_suffix { " (missing)" }
+    missing_suffix { "（缺少）" }
   }
 
   // ---------------------------------------------------------------------------
   // Quit / close confirmation (src/app/run_frame.cpp)
   // ---------------------------------------------------------------------------
   confirm {
-    quit_modal_title { "Quit" }
-    quit_question { "Quit Phosphor?" }
-    unsaved_count { "You have {0, plural, one{# canvas} other{# canvases}} with unsaved changes." }
-    save_before_quit { "Do you want to save your changes before quitting?" }
+    quit_modal_title { "結束" }
+    quit_question { "要結束 Phosphor 嗎？" }
+    unsaved_count { "您有 {0, plural, one{# 個畫布} other{# 個畫布}} 尚未儲存變更。" }
+    save_before_quit { "結束前要儲存變更嗎？" }
 
-    close_canvas_modal_title { "Save changes?" }
+    close_canvas_modal_title { "儲存變更？" }
     // NOTE: historical key retained for stability; punctuation (":") is owned by code.
-    close_canvas_question_with_path { "Save changes to" }
-    close_canvas_question_no_path { "Save changes to this canvas?" }
+    close_canvas_question_with_path { "將變更儲存至" }
+    close_canvas_question_no_path { "要儲存此畫布的變更嗎？" }
   }
 
   // ---------------------------------------------------------------------------
@@ -160,52 +160,52 @@ zh_TW {
   // ---------------------------------------------------------------------------
   io {
     errors {
-      failed_open_for_reading { "Failed to open file for reading." }
-      failed_read_file_size { "Failed to read file size." }
-      file_too_large { "File too large." }
-      failed_read_contents { "Failed to read file contents." }
-      no_canvas_to_save { "No canvas to save." }
-      save_failed { "Save failed." }
-      export_failed { "Export failed." }
+      failed_open_for_reading { "無法開啟檔案以讀取。" }
+      failed_read_file_size { "無法讀取檔案大小。" }
+      file_too_large { "檔案太大。" }
+      failed_read_contents { "無法讀取檔案內容。" }
+      no_canvas_to_save { "沒有可儲存的畫布。" }
+      save_failed { "儲存失敗。" }
+      export_failed { "匯出失敗。" }
 
-      unsupported_file_type_or_failed_load { "Unsupported file type or failed to load file." }
+      unsupported_file_type_or_failed_load { "不支援的檔案類型或載入失敗。" }
       failed_to_open_n_of_n_last_error_fmt {
-        "Failed to open {0}/{1} {1, plural, one{file} other{files}}. Last error: {2}"
+        "無法開啟 {0}/{1} {1, plural, one{個檔案} other{個檔案}}。最後錯誤：{2}"
       }
 
-      no_focused_canvas_to_export { "No focused canvas to export." }
+      no_focused_canvas_to_export { "沒有可匯出的焦點畫布。" }
 
-      internal_error_create_canvas_callback { "Internal error: create_canvas callback not set." }
-      internal_error_create_image_callback { "Internal error: create_image callback not set." }
-      internal_error_open_markdown_import_dialog_callback { "Internal error: open_markdown_import_dialog callback not set." }
-      multiple_markdown_selected { "Multiple Markdown files selected; only one Markdown import can be opened at a time." }
+      internal_error_create_canvas_callback { "內部錯誤：未設定 create_canvas callback。" }
+      internal_error_create_image_callback { "內部錯誤：未設定 create_image callback。" }
+      internal_error_open_markdown_import_dialog_callback { "內部錯誤：未設定 open_markdown_import_dialog callback。" }
+      multiple_markdown_selected { "已選取多個 Markdown 檔案；一次只能開啟一個 Markdown 匯入。" }
     }
 
     // File extensions should be dynamically generated from formats/, not hard coded
     file_dialog_filters {
-      all_files { "All files" }
+      all_files { "所有檔案" }
       // Historical keys retained for stability; do not embed extension patterns in translatable text.
-      phosphor_project { "Phosphor Project" }
-      phosphor_project_base { "Phosphor Project" }
-      supported_files { "Supported files" }
-      supported_files_base { "Supported files" }
+      phosphor_project { "Phosphor 專案" }
+      phosphor_project_base { "Phosphor 專案" }
+      supported_files { "支援的檔案" }
+      supported_files_base { "支援的檔案" }
       ansi_text { "ANSI / Text" }
       ansi_text_base { "ANSI / Text" }
-      gimp_palette { "GIMP Palette" }
-      gimp_palette_base { "GIMP Palette" }
+      gimp_palette { "GIMP 調色盤" }
+      gimp_palette_base { "GIMP 調色盤" }
       markdown { "Markdown" }
       markdown_base { "Markdown" }
       xbin { "XBin" }
       xbin_base { "XBin" }
-      images { "Images" }
-      images_base { "Images" }
-      export_base { "Export" }
-      image_base { "Image" }
+      images { "影像" }
+      images_base { "影像" }
+      export_base { "匯出" }
+      image_base { "影像" }
     }
 
     status_windows {
-      file_error_title { "File Error" }
-      dismiss { "Dismiss" }
+      file_error_title { "檔案錯誤" }
+      dismiss { "關閉" }
     }
   }
 
@@ -213,22 +213,22 @@ zh_TW {
   // Export dialog (src/ui/export_dialog.cpp)
   // ---------------------------------------------------------------------------
   export_dialog {
-    unnamed_preset { "(unnamed)" }
-    no_active_canvas { "No active canvas to export." }
+    unnamed_preset { "（未命名）" }
+    no_active_canvas { "沒有可匯出的作用中畫布。" }
 
     tabs {
       ansi { "ANSI" }
-      plaintext { "Plaintext" }
-      image { "Image" }
+      plaintext { "純文字" }
+      image { "影像" }
       xbin { "XBin" }
     }
 
     // Common controls
-    preset { "Preset" }
-    source { "Source" }
+    preset { "預設" }
+    source { "來源" }
     source_items {
-      composite { "Composite (what you see)" }
-      active_layer { "Active Layer" }
+      composite { "合成（所見即所得）" }
+      active_layer { "作用中圖層" }
     }
 
     // ANSI tab
@@ -410,6 +410,8 @@ zh_TW {
       byline { "by 0xc1c4da" }
       blurb { "A native UTF-8 ANSI / text-mode art editor based on the Unscii 8x16 font." }
       version_fmt { "Phosphor {0}" }
+      repo_label { "GitHub" }
+      repo_tooltip { "Open in browser. If opening fails, the URL is copied to the clipboard." }
     }
 
     general_tab {
