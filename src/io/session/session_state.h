@@ -120,6 +120,22 @@ struct SessionState
         std::string selected_example_path;
     };
 
+    struct CommandPaletteState
+    {
+        // Most recently used (MRU) items, persisted across sessions.
+        // IDs are stable strings from their respective domains (action id, tool id, window key).
+        std::vector<std::string> mru_action_ids; // cap enforced on load/save
+        std::vector<std::string> mru_tool_ids;   // cap enforced on load/save
+        std::vector<std::string> mru_window_keys; // cap enforced on load/save
+
+        // Recent colours (packed RGBA32; compatible with ImU32 / IM_COL32()).
+        std::vector<std::uint32_t> mru_fg_rgba32; // cap enforced on load/save
+        std::vector<std::uint32_t> mru_bg_rgba32; // cap enforced on load/save
+
+        // Enables "open palette then Enter to repeat last item".
+        std::string last_executed_item_id;
+    };
+
     // ---------------------------------------------------------------------
     // Tool Parameters (persisted)
     // ---------------------------------------------------------------------
@@ -236,6 +252,7 @@ struct SessionState
     bool character_palette_settings_open = true;
     XtermColourPickerState xterm_colour_picker;
     AnslEditorState ansl_editor;
+    CommandPaletteState command_palette;
 
     // A couple of useful "workspace" bits
     std::string last_import_image_dir;

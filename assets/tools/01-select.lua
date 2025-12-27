@@ -18,6 +18,10 @@ settings = {
     { action = "selection.insert_col_shift_right", when = "active" },
     { action = "selection.select_row", when = "active" },
     { action = "selection.select_column", when = "active" },
+    { action = "selection.select_row_to_start", when = "active" },
+    { action = "selection.select_row_to_end", when = "active" },
+    { action = "selection.select_column_to_top", when = "active" },
+    { action = "selection.select_column_to_bottom", when = "active" },
     { action = "edit.select_all", when = "active" },
     { action = "edit.copy", when = "active" },
     { action = "edit.cut", when = "active" },
@@ -37,6 +41,10 @@ settings = {
     { action = "selection.insert_col_shift_right", when = "inactive" },
     { action = "selection.select_row", when = "inactive" },
     { action = "selection.select_column", when = "inactive" },
+    { action = "selection.select_row_to_start", when = "inactive" },
+    { action = "selection.select_row_to_end", when = "inactive" },
+    { action = "selection.select_column_to_top", when = "inactive" },
+    { action = "selection.select_column_to_bottom", when = "inactive" },
     { action = "edit.select_all", when = "inactive" },
     { action = "edit.copy", when = "inactive" },
     { action = "edit.cut", when = "inactive" },
@@ -310,6 +318,30 @@ local function selection_select_row(canvas, cols, rows, caret)
   return true
 end
 
+local function selection_select_row_to_start(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  canvas:setSelection(0, y, x, y)
+  return true
+end
+
+local function selection_select_row_to_end(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  canvas:setSelection(x, y, cols - 1, y)
+  return true
+end
+
 local function selection_select_column(canvas, cols, rows, caret)
   if not canvas or not caret or cols <= 0 then return false end
   rows = to_int(rows, 0)
@@ -317,6 +349,30 @@ local function selection_select_column(canvas, cols, rows, caret)
   local x = to_int(caret.x, 0)
   x = clamp(x, 0, cols - 1)
   canvas:setSelection(x, 0, x, rows - 1)
+  return true
+end
+
+local function selection_select_column_to_top(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  canvas:setSelection(x, 0, x, y)
+  return true
+end
+
+local function selection_select_column_to_bottom(canvas, cols, rows, caret)
+  if not canvas or not caret or cols <= 0 then return false end
+  rows = to_int(rows, 0)
+  if rows <= 0 then rows = 1 end
+  local x = to_int(caret.x, 0)
+  x = clamp(x, 0, cols - 1)
+  local y = to_int(caret.y, 0)
+  y = clamp(y, 0, rows - 1)
+  canvas:setSelection(x, y, x, rows - 1)
   return true
 end
 
@@ -461,6 +517,32 @@ function render(ctx, layer)
     end
     if actions["selection.select_column"] then
       if selection_select_column(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+
+    -- Select row/column ranges (caret-based).
+    if actions["selection.select_row_to_start"] then
+      if selection_select_row_to_start(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.select_row_to_end"] then
+      if selection_select_row_to_end(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.select_column_to_top"] then
+      if selection_select_column_to_top(canvas, cols, rows, caret) then
+        selecting = false
+        return
+      end
+    end
+    if actions["selection.select_column_to_bottom"] then
+      if selection_select_column_to_bottom(canvas, cols, rows, caret) then
         selecting = false
         return
       end

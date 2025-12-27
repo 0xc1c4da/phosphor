@@ -707,6 +707,42 @@ bool KeyBindingsEngine::ActionPressed(std::string_view action_id, const EvalCont
     return false;
 }
 
+void KeyBindingsEngine::CollectPressedActions(const EvalContext& ctx,
+                                              std::vector<std::string_view>& out,
+                                              size_t max_actions) const
+{
+    if (runtime_dirty_)
+        RebuildRuntime();
+
+    out.clear();
+    if (max_actions == 0)
+        return;
+
+    const Platform plat = ctx.platform;
+    const ImGuiIO& io = ImGui::GetIO();
+
+    for (const RuntimeAction& ra : runtime_actions_)
+    {
+        for (const RuntimeBinding& b : ra.bindings)
+        {
+            if (!b.enabled)
+                continue;
+            if (!PlatformAllowed(b.platform, plat))
+                continue;
+            if (!ContextAllowed(b.ctx, ctx))
+                continue;
+            if (!IsChordPressed(b.chord, io, b.repeat))
+                continue;
+
+            out.push_back(std::string_view(ra.id));
+            break; // de-dup actions with multiple bindings
+        }
+
+        if (out.size() >= max_actions)
+            break;
+    }
+}
+
 Hotkeys KeyBindingsEngine::EvalCommonHotkeys(const EvalContext& ctx) const
 {
     Hotkeys hk;
@@ -790,7 +826,7 @@ std::vector<Action> DefaultActions()
                 {.enabled=true, .chord="Cmd+Shift+E", .context="global", .platform="macos"},
             }
         },
-        // TODO(support): Export as PNG/APNG/UTF-8 are common expectations (see references/hotkeys.md: Moebius).
+        // NOTE: PNG/APNG/UTF-8 export are common expectations (see references/hotkeys.md: Moebius).
         // Note: Moebius defaults conflict with our current Export ANSI binding; keep disabled until we reconcile.
         {
             .id="app.file.export_png", .title="Export PNG…", .category="File",
@@ -802,7 +838,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="app.file.export_apng", .title="Export Animated PNG…", .category="File",
-            .description="Export animation as APNG. TODO(support).",
+            .description="Export animation as APNG (support pending).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Shift+A", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Shift+A", .context="global", .platform="macos"},
@@ -816,7 +852,7 @@ std::vector<Action> DefaultActions()
                 {.enabled=true, .chord="Cmd+Shift+U", .context="global", .platform="macos"},
             }
         },
-        // TODO(support): SAUCE metadata editor is common in ANSI editors.
+        // NOTE: SAUCE metadata editing is common in ANSI editors.
         {
             .id="app.file.edit_sauce", .title="Edit SAUCE…", .category="File",
             .description="Edit SAUCE metadata.",
@@ -913,19 +949,19 @@ std::vector<Action> DefaultActions()
                 {.enabled=true, .chord="Cmd+A", .context="editor", .platform="macos"},
             }
         },
-        // TODO(wire): Optional clipboard mode used by some editors ("paste as selection").
+        // Optional clipboard mode used by some editors ("paste as selection").
         {
             .id="edit.paste_as_selection", .title="Paste As Selection", .category="Edit",
-            .description="Paste clipboard into a floating selection layer. TODO(wire).",
+            .description="Paste clipboard into a floating selection layer (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+V", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+V", .context="editor", .platform="macos"},
             }
         },
-        // TODO(wire): Swap foreground/background colours (common in Moebius).
+        // Swap foreground/background colours (common in Moebius).
         {
             .id="edit.swap_fg_bg", .title="Swap Foreground/Background", .category="Edit",
-            .description="Swap the active foreground and background colours. TODO(wire).",
+            .description="Swap the active foreground and background colours (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Shift+X", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+Shift+X", .context="editor", .platform="macos"},
@@ -1000,6 +1036,44 @@ std::vector<Action> DefaultActions()
             }
         },
         {
+            .id="selection.select_row_to_start", .title="Select Row to Start", .category="Selection",
+            .description="Select from start of row to caret.",
+            .bindings={
+                {.enabled=true, .chord="Shift+Home", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Ctrl+Shift+Left", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+Left", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+Left", .context="editor", .platform="macos"},
+            }
+        },
+        {
+            .id="selection.select_row_to_end", .title="Select Row to End", .category="Selection",
+            .description="Select from caret to end of row.",
+            .bindings={
+                {.enabled=true, .chord="Shift+End", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Ctrl+Shift+Right", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+Right", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+Right", .context="editor", .platform="macos"},
+            }
+        },
+        {
+            .id="selection.select_column_to_top", .title="Select Column to Top", .category="Selection",
+            .description="Select from top of column to caret.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+Up", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+Up", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+Up", .context="editor", .platform="macos"},
+            }
+        },
+        {
+            .id="selection.select_column_to_bottom", .title="Select Column to Bottom", .category="Selection",
+            .description="Select from caret to bottom of column.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+Down", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+Down", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+Down", .context="editor", .platform="macos"},
+            }
+        },
+        {
             .id="selection.start_block", .title="Start Selection / Block Select", .category="Selection",
             .description="Start a selection (block select).",
             .bindings={
@@ -1007,81 +1081,81 @@ std::vector<Action> DefaultActions()
             }
         },
 
-        // TODO(wire): Selection operations (move/copy/fill/stamp/transform) are common, but need stronger gating
+        // Selection operations (move/copy/fill/stamp/transform) are common, but need stronger gating
         // than our current EvalContext supports (these should only trigger when the selection tool is active).
         // Keep disabled-by-default until tools register these as tool actions or we add a 'tool' context.
         {
             .id="selection.op.move", .title="Move Block (Selection)", .category="Selection",
-            .description="Move the active selection block. TODO(wire; tool-gated).",
+            .description="Move the active selection block (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="M", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.copy", .title="Copy Block (Selection)", .category="Selection",
-            .description="Duplicate/copy the active selection block (not clipboard copy). TODO(wire; tool-gated).",
+            .description="Duplicate/copy the active selection block (not clipboard copy) (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="C", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.fill", .title="Fill Block (Selection)", .category="Selection",
-            .description="Fill the selection with the current brush/attribute. TODO(wire; tool-gated).",
+            .description="Fill the selection with the current brush/attribute (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="F", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.erase", .title="Erase Block (Selection)", .category="Selection",
-            .description="Erase the selection (alternate to Delete). TODO(wire; tool-gated).",
+            .description="Erase the selection (alternate to Delete) (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="E", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.stamp", .title="Stamp Block (Selection)", .category="Selection",
-            .description="Stamp/place the selection contents. TODO(wire; tool-gated).",
+            .description="Stamp/place the selection contents (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="S", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.place", .title="Place Block (Selection)", .category="Selection",
-            .description="Commit/place the floating selection. TODO(wire; careful with Enter conflicts).",
+            .description="Commit/place the floating selection (not wired; careful with Enter conflicts).",
             .bindings={ {.enabled=false, .chord="Enter", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.rotate_cw", .title="Rotate Selection (Clockwise)", .category="Selection",
-            .description="Rotate selection clockwise. TODO(wire; tool-gated).",
-            .bindings={ {.enabled=false, .chord="R", .context="selection", .platform="any"} }
+            .description="Rotate selection clockwise (tool-gated; not wired).",
+            .bindings={ {.enabled=true, .chord="R", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.flip_x", .title="Flip Selection (Horizontal)", .category="Selection",
-            .description="Flip selection horizontally. TODO(wire; tool-gated).",
-            .bindings={ {.enabled=false, .chord="X", .context="selection", .platform="any"} }
+            .description="Flip selection horizontally (tool-gated; not wired).",
+            .bindings={ {.enabled=true, .chord="X", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.flip_y", .title="Flip Selection (Vertical)", .category="Selection",
-            .description="Flip selection vertically. TODO(wire; tool-gated).",
-            .bindings={ {.enabled=false, .chord="Y", .context="selection", .platform="any"} }
+            .description="Flip selection vertically (tool-gated; not wired).",
+            .bindings={ {.enabled=true, .chord="Y", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.center", .title="Center Selection", .category="Selection",
-            .description="Center the selection on the canvas. TODO(wire; tool-gated).",
-            .bindings={ {.enabled=false, .chord="=", .context="selection", .platform="any"} }
+            .description="Center the selection on the canvas (tool-gated; not wired).",
+            .bindings={ {.enabled=true, .chord="=", .context="selection", .platform="any"} }
         },
         {
             .id="selection.paste.transparent_toggle", .title="Toggle Transparent Paste", .category="Selection",
-            .description="Toggle transparent-paste mode for selection placement. TODO(wire; tool-gated).",
+            .description="Toggle transparent-paste mode for selection placement (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="T", .context="selection", .platform="any"} }
         },
         {
             .id="selection.paste.over_toggle", .title="Paste Mode: Over", .category="Selection",
-            .description="Toggle 'Over' paste mode. TODO(wire; tool-gated).",
+            .description="Toggle 'Over' paste mode (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="O", .context="selection", .platform="any"} }
         },
         {
             .id="selection.paste.under_toggle", .title="Paste Mode: Under", .category="Selection",
-            .description="Toggle 'Under' paste mode. TODO(wire; tool-gated).",
+            .description="Toggle 'Under' paste mode (tool-gated; not wired).",
             .bindings={ {.enabled=false, .chord="U", .context="selection", .platform="any"} }
         },
-        // TODO(wire): Crop to selection.
+        // Crop to selection.
         {
             .id="selection.crop", .title="Crop to Selection", .category="Selection",
-            .description="Crop canvas to the active selection bounds. TODO(wire).",
+            .description="Crop canvas to the active selection bounds (not wired).",
             .bindings={
-                {.enabled=false, .chord="Ctrl+K", .context="selection", .platform="any"},
-                {.enabled=false, .chord="Cmd+K", .context="selection", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+K", .context="selection", .platform="any"},
+                {.enabled=true, .chord="Cmd+K", .context="selection", .platform="macos"},
             }
         },
 
@@ -1134,10 +1208,10 @@ std::vector<Action> DefaultActions()
             .id="nav.page_down", .title="Page Down", .category="Navigation", .description="",
             .bindings={ {.enabled=true, .chord="PageDown", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
-        // TODO(wire): Top/bottom of document (common in Icy Draw).
+        // Top/bottom of document (common in Icy Draw).
         {
             .id="nav.doc_top", .title="Top of Document", .category="Navigation",
-            .description="Move caret to the top of the document. TODO(wire).",
+            .description="Move caret to the top of the document (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Home", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+Home", .context="editor", .platform="macos"},
@@ -1145,7 +1219,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="nav.doc_bottom", .title="Bottom of Document", .category="Navigation",
-            .description="Move caret to the bottom of the document. TODO(wire).",
+            .description="Move caret to the bottom of the document (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+End", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+End", .context="editor", .platform="macos"},
@@ -1170,21 +1244,21 @@ std::vector<Action> DefaultActions()
             .description="Delete character under caret (shift cells left).",
             .bindings={ {.enabled=true, .chord="Delete", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
-        // TODO(wire): Tab / reverse-tab movement (common in Moebius/Icy Draw).
+        // Tab / reverse-tab movement (common in Moebius/Icy Draw).
         {
             .id="editor.tab", .title="Tab", .category="Editor",
-            .description="Move forward by tab stop / insert tab. TODO(wire).",
+            .description="Move forward by tab stop / insert tab (not wired).",
             .bindings={ {.enabled=false, .chord="Tab", .context="editor", .platform="any"} }
         },
         {
             .id="editor.reverse_tab", .title="Reverse Tab", .category="Editor",
-            .description="Move backward by tab stop. TODO(wire).",
+            .description="Move backward by tab stop (not wired).",
             .bindings={ {.enabled=false, .chord="Shift+Tab", .context="editor", .platform="any"} }
         },
-        // TODO(wire): Overwrite/mirror modes (Moebius).
+        // Overwrite/mirror modes (Moebius).
         {
             .id="editor.overwrite_mode_toggle", .title="Toggle Overwrite Mode", .category="Editor",
-            .description="Toggle overwrite mode. TODO(wire).",
+            .description="Toggle overwrite mode (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+O", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+O", .context="editor", .platform="macos"},
@@ -1192,7 +1266,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="editor.mirror_mode_toggle", .title="Toggle Mirror Mode", .category="Editor",
-            .description="Toggle mirror mode. TODO(wire).",
+            .description="Toggle mirror mode.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+M", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+M", .context="editor", .platform="macos"},
@@ -1227,105 +1301,99 @@ std::vector<Action> DefaultActions()
                 {.enabled=true, .chord="Cmd+D", .context="editor", .platform="macos"},
             }
         },
-        // TODO(wire): Toggle iCE colours (Moebius).
+        // Toggle iCE colours (Moebius).
         {
             .id="colour.ice_toggle", .title="Toggle iCE Colours", .category="Colour",
-            .description="Toggle iCE colours. TODO(wire).",
+            .description="Toggle iCE colours (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+E", .context="editor", .platform="any"},
                 {.enabled=false, .chord="Cmd+E", .context="editor", .platform="macos"},
             }
         },
-        // TODO(wire): Direct colour index selection is common, but conflicts with our current Ctrl+1..9 charset insert.
-        // Keep disabled until we decide a non-conflicting mapping or introduce a mode.
+        // Direct colour index selection (ANSI 16-colour jumps).
+        // Symmetric model:
+        // - Foreground: Ctrl+[0-9] then Ctrl+Shift+[0-5] for 10..15
+        // - Background: Alt+[0-9] then Alt+Shift+[0-5] for 10..15
         {
             .id="colour.fg.set_0", .title="Set Foreground Colour 0", .category="Colour",
-            .description="Set/toggle foreground colour index 0. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+0", .context="editor", .platform="any"} }
+            .description="Set foreground colour index 0.",
+            .bindings={ {.enabled=true, .chord="Ctrl+0", .context="editor", .platform="any"} }
         },
-        {
-            .id="colour.fg.set_1", .title="Set Foreground Colour 1", .category="Colour",
-            .description="Set/toggle foreground colour index 1. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+1", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_2", .title="Set Foreground Colour 2", .category="Colour",
-            .description="Set/toggle foreground colour index 2. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+2", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_3", .title="Set Foreground Colour 3", .category="Colour",
-            .description="Set/toggle foreground colour index 3. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+3", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_4", .title="Set Foreground Colour 4", .category="Colour",
-            .description="Set/toggle foreground colour index 4. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+4", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_5", .title="Set Foreground Colour 5", .category="Colour",
-            .description="Set/toggle foreground colour index 5. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+5", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_6", .title="Set Foreground Colour 6", .category="Colour",
-            .description="Set/toggle foreground colour index 6. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+6", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.fg.set_7", .title="Set Foreground Colour 7", .category="Colour",
-            .description="Set/toggle foreground colour index 7. TODO(wire; conflicts with charset).",
-            .bindings={ {.enabled=false, .chord="Ctrl+7", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_0", .title="Set Background Colour 0", .category="Colour",
-            .description="Set/toggle background colour index 0. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+0", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_1", .title="Set Background Colour 1", .category="Colour",
-            .description="Set/toggle background colour index 1. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+1", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_2", .title="Set Background Colour 2", .category="Colour",
-            .description="Set/toggle background colour index 2. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+2", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_3", .title="Set Background Colour 3", .category="Colour",
-            .description="Set/toggle background colour index 3. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+3", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_4", .title="Set Background Colour 4", .category="Colour",
-            .description="Set/toggle background colour index 4. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+4", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_5", .title="Set Background Colour 5", .category="Colour",
-            .description="Set/toggle background colour index 5. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+5", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_6", .title="Set Background Colour 6", .category="Colour",
-            .description="Set/toggle background colour index 6. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+6", .context="editor", .platform="any"} }
-        },
-        {
-            .id="colour.bg.set_7", .title="Set Background Colour 7", .category="Colour",
-            .description="Set/toggle background colour index 7. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+7", .context="editor", .platform="any"} }
-        },
+        {.id="colour.fg.set_1", .title="Set Foreground Colour 1", .category="Colour", .description="Set foreground colour index 1.",
+         .bindings={ {.enabled=true, .chord="Ctrl+1", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_2", .title="Set Foreground Colour 2", .category="Colour", .description="Set foreground colour index 2.",
+         .bindings={ {.enabled=true, .chord="Ctrl+2", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_3", .title="Set Foreground Colour 3", .category="Colour", .description="Set foreground colour index 3.",
+         .bindings={ {.enabled=true, .chord="Ctrl+3", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_4", .title="Set Foreground Colour 4", .category="Colour", .description="Set foreground colour index 4.",
+         .bindings={ {.enabled=true, .chord="Ctrl+4", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_5", .title="Set Foreground Colour 5", .category="Colour", .description="Set foreground colour index 5.",
+         .bindings={ {.enabled=true, .chord="Ctrl+5", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_6", .title="Set Foreground Colour 6", .category="Colour", .description="Set foreground colour index 6.",
+         .bindings={ {.enabled=true, .chord="Ctrl+6", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_7", .title="Set Foreground Colour 7", .category="Colour", .description="Set foreground colour index 7.",
+         .bindings={ {.enabled=true, .chord="Ctrl+7", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_8", .title="Set Foreground Colour 8", .category="Colour", .description="Set foreground colour index 8.",
+         .bindings={ {.enabled=true, .chord="Ctrl+8", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_9", .title="Set Foreground Colour 9", .category="Colour", .description="Set foreground colour index 9.",
+         .bindings={ {.enabled=true, .chord="Ctrl+9", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_10", .title="Set Foreground Colour 10", .category="Colour", .description="Set foreground colour index 10.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+0", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_11", .title="Set Foreground Colour 11", .category="Colour", .description="Set foreground colour index 11.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+1", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_12", .title="Set Foreground Colour 12", .category="Colour", .description="Set foreground colour index 12.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+2", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_13", .title="Set Foreground Colour 13", .category="Colour", .description="Set foreground colour index 13.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+3", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_14", .title="Set Foreground Colour 14", .category="Colour", .description="Set foreground colour index 14.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+4", .context="editor", .platform="any"} }},
+        {.id="colour.fg.set_15", .title="Set Foreground Colour 15", .category="Colour", .description="Set foreground colour index 15.",
+         .bindings={ {.enabled=true, .chord="Ctrl+Shift+5", .context="editor", .platform="any"} }},
+
+        {.id="colour.bg.set_0", .title="Set Background Colour 0", .category="Colour", .description="Set background colour index 0.",
+         .bindings={ {.enabled=true, .chord="Alt+0", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_1", .title="Set Background Colour 1", .category="Colour", .description="Set background colour index 1.",
+         .bindings={ {.enabled=true, .chord="Alt+1", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_2", .title="Set Background Colour 2", .category="Colour", .description="Set background colour index 2.",
+         .bindings={ {.enabled=true, .chord="Alt+2", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_3", .title="Set Background Colour 3", .category="Colour", .description="Set background colour index 3.",
+         .bindings={ {.enabled=true, .chord="Alt+3", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_4", .title="Set Background Colour 4", .category="Colour", .description="Set background colour index 4.",
+         .bindings={ {.enabled=true, .chord="Alt+4", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_5", .title="Set Background Colour 5", .category="Colour", .description="Set background colour index 5.",
+         .bindings={ {.enabled=true, .chord="Alt+5", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_6", .title="Set Background Colour 6", .category="Colour", .description="Set background colour index 6.",
+         .bindings={ {.enabled=true, .chord="Alt+6", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_7", .title="Set Background Colour 7", .category="Colour", .description="Set background colour index 7.",
+         .bindings={ {.enabled=true, .chord="Alt+7", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_8", .title="Set Background Colour 8", .category="Colour", .description="Set background colour index 8.",
+         .bindings={ {.enabled=true, .chord="Alt+8", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_9", .title="Set Background Colour 9", .category="Colour", .description="Set background colour index 9.",
+         .bindings={ {.enabled=true, .chord="Alt+9", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_10", .title="Set Background Colour 10", .category="Colour", .description="Set background colour index 10.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+0", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_11", .title="Set Background Colour 11", .category="Colour", .description="Set background colour index 11.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+1", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_12", .title="Set Background Colour 12", .category="Colour", .description="Set background colour index 12.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+2", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_13", .title="Set Background Colour 13", .category="Colour", .description="Set background colour index 13.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+3", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_14", .title="Set Background Colour 14", .category="Colour", .description="Set background colour index 14.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+4", .context="editor", .platform="any"} }},
+        {.id="colour.bg.set_15", .title="Set Background Colour 15", .category="Colour", .description="Set background colour index 15.",
+         .bindings={ {.enabled=true, .chord="Alt+Shift+5", .context="editor", .platform="any"} }},
 
         // --- View ---
         {
             .id="view.zoom_in", .title="Zoom In", .category="View", .description="",
             .bindings={
+                // Moebius/PabloDraw follow the common "Ctrl/Cmd + +/-" zoom model.
                 {.enabled=true, .chord="Ctrl+=", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+=", .context="global", .platform="macos"},
                 {.enabled=true, .chord="Ctrl++", .context="global", .platform="any"},
+                // Optional alternate (for consistency with our Ctrl+Alt+0 zoom reset).
+                {.enabled=false, .chord="Ctrl+Alt+=", .context="global", .platform="any"},
+                {.enabled=false, .chord="Ctrl+Alt++", .context="global", .platform="any"},
             }
         },
         {
@@ -1333,21 +1401,22 @@ std::vector<Action> DefaultActions()
             .bindings={
                 {.enabled=true, .chord="Ctrl+-", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+-", .context="global", .platform="macos"},
+                // Optional alternate (for consistency with our Ctrl+Alt+0 zoom reset).
+                {.enabled=false, .chord="Ctrl+Alt+-", .context="global", .platform="any"},
             }
         },
         {
             .id="view.zoom_reset", .title="Reset Zoom", .category="View", .description="",
             .bindings={
-                // Back-compat / alternate chord (useful on some layouts).
-                {.enabled=true, .chord="Ctrl+0", .context="global", .platform="any"},
+                // Ctrl+0 is reserved for direct foreground colour selection.
                 {.enabled=true, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=true, .chord="Cmd+0", .context="global", .platform="macos"},
             }
         },
-        // TODO(wire): View/UI toggles common in Moebius/Icy Draw.
+        // View/UI toggles common in Moebius/Icy Draw (many are optional / disabled by default).
         {
             .id="view.fullscreen_toggle", .title="Toggle Fullscreen", .category="View",
-            .description="Toggle fullscreen. TODO(wire).",
+            .description="Toggle fullscreen.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+F", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+F", .context="global", .platform="macos"},
@@ -1356,7 +1425,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="view.actual_size", .title="Actual Size", .category="View",
-            .description="Reset view scale to actual size. TODO(wire).",
+            .description="Reset view scale to actual size.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+0", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+0", .context="global", .platform="macos"},
@@ -1364,7 +1433,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="view.toggle_9px_font", .title="Toggle 9px Font", .category="View",
-            .description="Toggle 9px font mode. TODO(wire).",
+            .description="Toggle 9px font mode (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+F", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+F", .context="global", .platform="macos"},
@@ -1379,8 +1448,22 @@ std::vector<Action> DefaultActions()
             }
         },
         {
+            .id="ui.command_palette.open", .title="Open Command Palette", .category="UI",
+            .description="Open the command palette.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+;", .context="global", .platform="any"},
+            }
+        },
+        {
+            .id="ui.colour_palette.open", .title="Open Colour Palette", .category="UI",
+            .description="Open the command palette in colour mode.",
+            .bindings={
+                {.enabled=false, .chord="", .context="global", .platform="any"},
+            }
+        },
+        {
             .id="ui.toggle_tool_bar", .title="Toggle Tool Bar", .category="UI",
-            .description="Show/hide tool bar. TODO(wire).",
+            .description="Show/hide tool bar (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+T", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+T", .context="global", .platform="macos"},
@@ -1388,7 +1471,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="ui.toggle_preview", .title="Toggle Preview", .category="UI",
-            .description="Show/hide preview window/pane. TODO(wire).",
+            .description="Show/hide preview window/pane.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+P", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+P", .context="global", .platform="macos"},
@@ -1396,16 +1479,16 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="view.toggle_scroll_with_cursor", .title="Toggle Scroll With Cursor", .category="View",
-            .description="Toggle auto-scroll with caret/cursor. TODO(wire).",
+            .description="Toggle auto-scroll with caret/cursor.",
             .bindings={
                 {.enabled=false, .chord="Ctrl+R", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+R", .context="global", .platform="macos"},
             }
         },
-        // TODO(wire): Reference image support (Moebius/Icy Draw).
+        // Reference image support (Moebius/Icy Draw).
         {
             .id="view.reference_image.set", .title="Set Reference Image…", .category="View",
-            .description="Load/set a reference image overlay. TODO(support/wire).",
+            .description="Load/set a reference image overlay (support pending; not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Shift+O", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Shift+O", .context="global", .platform="macos"},
@@ -1413,112 +1496,61 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="view.reference_image.toggle", .title="Toggle Reference Image", .category="View",
-            .description="Toggle reference image overlay visibility. TODO(wire).",
+            .description="Toggle reference image overlay visibility (not wired).",
             .bindings={ {.enabled=false, .chord="Ctrl+Tab", .context="global", .platform="any"} }
         },
-        // TODO(wire): Canvas scroll via keyboard (Moebius).
+        // Canvas scroll via keyboard (Moebius).
         {
             .id="view.scroll_up", .title="Scroll View Up", .category="View",
-            .description="Scroll the canvas view up. TODO(wire).",
+            .description="Scroll the canvas view up.",
             .bindings={ {.enabled=false, .chord="Ctrl+Alt+Up", .context="canvas", .platform="any"} }
         },
         {
             .id="view.scroll_down", .title="Scroll View Down", .category="View",
-            .description="Scroll the canvas view down. TODO(wire).",
+            .description="Scroll the canvas view down.",
             .bindings={ {.enabled=false, .chord="Ctrl+Alt+Down", .context="canvas", .platform="any"} }
         },
         {
             .id="view.scroll_left", .title="Scroll View Left", .category="View",
-            .description="Scroll the canvas view left. TODO(wire).",
+            .description="Scroll the canvas view left.",
             .bindings={ {.enabled=false, .chord="Ctrl+Alt+Left", .context="canvas", .platform="any"} }
         },
         {
             .id="view.scroll_right", .title="Scroll View Right", .category="View",
-            .description="Scroll the canvas view right. TODO(wire).",
+            .description="Scroll the canvas view right.",
             .bindings={ {.enabled=false, .chord="Ctrl+Alt+Right", .context="canvas", .platform="any"} }
         },
-        // TODO(wire): Network/chat affordances (Moebius).
+        // Network/chat affordances (Moebius).
         {
             .id="net.connect", .title="Connect to Server…", .category="Network",
-            .description="Connect to a collaboration/chat server. TODO(support/wire).",
+            .description="Connect to a collaboration/chat server (support pending; not wired).",
             .bindings={ {.enabled=false, .chord="Ctrl+Alt+S", .context="global", .platform="any"} }
         },
         {
             .id="ui.toggle_chat", .title="Toggle Chat Window", .category="UI",
-            .description="Show/hide chat window. TODO(support/wire).",
+            .description="Show/hide chat window (support pending; not wired).",
             .bindings={ {.enabled=false, .chord="Ctrl+[", .context="global", .platform="any"} }
         },
 
-        // --- Canvas (row/col ops + justify/erase) ---
-        // TODO(wire): Row/column editing operations are common in ANSI editors (Moebius/Icy Draw).
-        {
-            .id="canvas.row.insert", .title="Insert Row", .category="Canvas",
-            .description="Insert a row at the caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Up", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.row.delete", .title="Delete Row", .category="Canvas",
-            .description="Delete the row at the caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Down", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.col.insert", .title="Insert Column", .category="Canvas",
-            .description="Insert a column at the caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Right", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.col.delete", .title="Delete Column", .category="Canvas",
-            .description="Delete the column at the caret. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Left", .context="editor", .platform="any"} }
-        },
+        // --- Canvas (justify/erase) ---
         {
             .id="canvas.justify_left", .title="Justify Line Left", .category="Canvas",
-            .description="Left-justify the current line. TODO(wire).",
+            .description="Left-justify the current line (not wired).",
             .bindings={ {.enabled=false, .chord="Alt+L", .context="editor", .platform="any"} }
         },
         {
             .id="canvas.justify_center", .title="Justify Line Center", .category="Canvas",
-            .description="Center the current line. TODO(wire).",
+            .description="Center the current line (not wired).",
             .bindings={ {.enabled=false, .chord="Alt+C", .context="editor", .platform="any"} }
         },
         {
             .id="canvas.justify_right", .title="Justify Line Right", .category="Canvas",
-            .description="Right-justify the current line. TODO(wire).",
+            .description="Right-justify the current line (not wired).",
             .bindings={ {.enabled=false, .chord="Alt+R", .context="editor", .platform="any"} }
         },
         {
-            .id="canvas.erase_row", .title="Erase Row", .category="Canvas",
-            .description="Erase the current row. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+E", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.erase_row_to_start", .title="Erase Row to Start", .category="Canvas",
-            .description="Erase from caret to start of row. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Home", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.erase_row_to_end", .title="Erase Row to End", .category="Canvas",
-            .description="Erase from caret to end of row. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+End", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.erase_col", .title="Erase Column", .category="Canvas",
-            .description="Erase the current column. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+Shift+E", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.erase_col_to_start", .title="Erase Column to Start", .category="Canvas",
-            .description="Erase from caret to top of column. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+PageUp", .context="editor", .platform="any"} }
-        },
-        {
-            .id="canvas.erase_col_to_end", .title="Erase Column to End", .category="Canvas",
-            .description="Erase from caret to bottom of column. TODO(wire).",
-            .bindings={ {.enabled=false, .chord="Alt+PageDown", .context="editor", .platform="any"} }
-        },
-        {
             .id="canvas.set_size", .title="Set Canvas Size…", .category="Canvas",
-            .description="Open canvas resize dialog. TODO(wire).",
+            .description="Open canvas resize dialog (not wired).",
             .bindings={
                 {.enabled=false, .chord="Ctrl+Alt+C", .context="global", .platform="any"},
                 {.enabled=false, .chord="Cmd+Alt+C", .context="global", .platform="macos"},
@@ -1588,94 +1620,94 @@ std::vector<Action> DefaultActions()
             .bindings={ {.enabled=true, .chord="F12", .context="editor", .platform="any"} }
         },
         // NOTE: We intentionally do NOT bind Ctrl+1..9/0 for character-set insertion.
-        // Those chords are reserved for editor/view shortcuts and tool presets (notably Ctrl+0 = Reset Zoom).
+        // Those chords are reserved for editor shortcuts (notably direct FG colour selection via Ctrl+[0-9]).
 
         // Character-set navigation (Moebius) is useful when multiple sets exist.
         {
             .id="charset.prev_set", .title="Previous Character Set", .category="Character Set",
-            .description="Select previous character set. TODO(wire).",
+            .description="Select previous character set.",
             .bindings={ {.enabled=true, .chord="Ctrl+,", .context="editor", .platform="any"} }
         },
         {
             .id="charset.next_set", .title="Next Character Set", .category="Character Set",
-            .description="Select next character set. TODO(wire).",
+            .description="Select next character set.",
             .bindings={ {.enabled=true, .chord="Ctrl+.", .context="editor", .platform="any"} }
         },
         {
             .id="charset.default_set", .title="Default Character Set", .category="Character Set",
-            .description="Select default character set. TODO(wire).",
+            .description="Select default character set (not wired).",
             .bindings={ {.enabled=false, .chord="Ctrl+/", .context="editor", .platform="any"} }
         },
 
-        // --- Tool presets (Ctrl+1..9 reserved; Ctrl+0 reserved for Reset Zoom) ---
+        // --- Tool presets ---
         // These are intentionally reserved for the active tool's parameter presets
         // (see assets/tool-presets.json and Tool Parameters window).
         {
             .id="tool.preset.slot.1", .title="Tool Preset Slot 1", .category="Tools",
             .description="Apply tool preset slot 1 (the 1st preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+1", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+1", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.2", .title="Tool Preset Slot 2", .category="Tools",
             .description="Apply tool preset slot 2 (the 2nd preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+2", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+2", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.3", .title="Tool Preset Slot 3", .category="Tools",
             .description="Apply tool preset slot 3 (the 3rd preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+3", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+3", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.4", .title="Tool Preset Slot 4", .category="Tools",
             .description="Apply tool preset slot 4 (the 4th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+4", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+4", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.5", .title="Tool Preset Slot 5", .category="Tools",
             .description="Apply tool preset slot 5 (the 5th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+5", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+5", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.6", .title="Tool Preset Slot 6", .category="Tools",
             .description="Apply tool preset slot 6 (the 6th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+6", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+6", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.7", .title="Tool Preset Slot 7", .category="Tools",
             .description="Apply tool preset slot 7 (the 7th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+7", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+7", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.8", .title="Tool Preset Slot 8", .category="Tools",
             .description="Apply tool preset slot 8 (the 8th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+8", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+8", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.preset.slot.9", .title="Tool Preset Slot 9", .category="Tools",
             .description="Apply tool preset slot 9 (the 9th preset for the active tool).",
-            .bindings={ {.enabled=true, .chord="Ctrl+9", .context="canvas", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Alt+9", .context="canvas", .platform="any"} }
         },
 
-        // TODO(wire): Tool mode switching (Moebius). These are intentionally disabled because
+        // Tool mode switching (Moebius). These are intentionally disabled because
         // they conflict with typing unless we add an explicit "tool mode" or "command mode".
         {
             .id="tool.mode.keyboard", .title="Tool Mode: Keyboard", .category="Tools",
-            .description="Switch to keyboard mode. TODO(wire; mode-gated).",
+            .description="Switch to keyboard mode (mode-gated; not wired).",
             .bindings={ {.enabled=false, .chord="K", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.mode.brush", .title="Tool Mode: Brush", .category="Tools",
-            .description="Switch to brush mode. TODO(wire; mode-gated).",
+            .description="Switch to brush mode (mode-gated; not wired).",
             .bindings={ {.enabled=false, .chord="B", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.mode.shifter", .title="Tool Mode: Shifter", .category="Tools",
-            .description="Switch to shifter mode. TODO(wire; mode-gated).",
+            .description="Switch to shifter mode (mode-gated; not wired).",
             .bindings={ {.enabled=false, .chord="I", .context="canvas", .platform="any"} }
         },
         {
             .id="tool.mode.paintbucket", .title="Tool Mode: Paintbucket", .category="Tools",
-            .description="Switch to paintbucket mode. TODO(wire; mode-gated).",
+            .description="Switch to paintbucket mode (mode-gated; not wired).",
             .bindings={ {.enabled=false, .chord="P", .context="canvas", .platform="any"} }
         },
     };

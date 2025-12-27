@@ -1,5 +1,5 @@
 {
-  "schema_version": 20,
+  "schema_version": 21,
   "window": {
     "fullscreen": false,
     "h": 1522,
@@ -20,7 +20,7 @@
     "lut_cache_budget_bytes": 67108864,
     "show_16colors_browser_window": true,
     "show_ansl_editor_window": true,
-    "show_brush_palette_window": false,
+    "show_brush_palette_window": true,
     "show_character_palette_window": true,
     "show_character_picker_window": false,
     "show_character_sets_window": true,
@@ -77,6 +77,13 @@
       "x": 1808.0,
       "y": 113.0
     },
+    "Brush Palette": {
+      "collapsed": false,
+      "h": 372.0,
+      "w": 439.0,
+      "x": 354.0,
+      "y": 741.0
+    },
     "Character Palette": {
       "collapsed": false,
       "h": 403.0,
@@ -121,7 +128,7 @@
     },
     "Tool Parameters": {
       "collapsed": false,
-      "h": 1041.0,
+      "h": 617.0,
       "w": 434.0,
       "x": 355.0,
       "y": 115.0

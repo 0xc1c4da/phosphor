@@ -14,7 +14,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-static constexpr int kSessionSchemaVersion = 20;
+static constexpr int kSessionSchemaVersion = 21;
 
 static std::string EnvOrEmpty(const char* name)
 {
@@ -131,6 +131,39 @@ static json ToJson(const SessionState& st)
     if (!st.recent_files.empty())
         ws["recent_files"] = st.recent_files;
     j["workspace"] = std::move(ws);
+
+    // Command palette (MRU + last item).
+    {
+        json cp = json::object();
+        auto clamp_vec = [](auto& v, size_t max_n) {
+            if (v.size() > max_n)
+                v.resize(max_n);
+        };
+
+        // Copy so we can clamp without mutating SessionState in a const function.
+        auto mru_action_ids = st.command_palette.mru_action_ids;
+        auto mru_tool_ids = st.command_palette.mru_tool_ids;
+        auto mru_window_keys = st.command_palette.mru_window_keys;
+        auto mru_fg = st.command_palette.mru_fg_rgba32;
+        auto mru_bg = st.command_palette.mru_bg_rgba32;
+
+        clamp_vec(mru_action_ids, 32);
+        clamp_vec(mru_tool_ids, 16);
+        clamp_vec(mru_window_keys, 16);
+        clamp_vec(mru_fg, 16);
+        clamp_vec(mru_bg, 16);
+
+        if (!mru_action_ids.empty()) cp["mru_action_ids"] = std::move(mru_action_ids);
+        if (!mru_tool_ids.empty()) cp["mru_tool_ids"] = std::move(mru_tool_ids);
+        if (!mru_window_keys.empty()) cp["mru_window_keys"] = std::move(mru_window_keys);
+        if (!mru_fg.empty()) cp["mru_fg_rgba32"] = std::move(mru_fg);
+        if (!mru_bg.empty()) cp["mru_bg_rgba32"] = std::move(mru_bg);
+        if (!st.command_palette.last_executed_item_id.empty())
+            cp["last_executed_item_id"] = st.command_palette.last_executed_item_id;
+
+        if (!cp.empty())
+            j["command_palette"] = std::move(cp);
+    }
 
     // Workspace content
     json content;
@@ -457,6 +490,58 @@ static void FromJson(const json& j, SessionState& out)
                     out.recent_files.push_back(v.get<std::string>());
             }
         }
+    }
+
+    if (j.contains("command_palette") && j["command_palette"].is_object())
+    {
+        const json& cp = j["command_palette"];
+
+        auto read_string_vec = [](const json& arr, std::vector<std::string>& out_v, size_t max_n) {
+            out_v.clear();
+            if (!arr.is_array())
+                return;
+            out_v.reserve(std::min(max_n, (size_t)arr.size()));
+            for (const auto& v : arr)
+            {
+                if (!v.is_string())
+                    continue;
+                out_v.push_back(v.get<std::string>());
+                if (out_v.size() >= max_n)
+                    break;
+            }
+        };
+
+        auto read_u32_vec = [](const json& arr, std::vector<std::uint32_t>& out_v, size_t max_n) {
+            out_v.clear();
+            if (!arr.is_array())
+                return;
+            out_v.reserve(std::min(max_n, (size_t)arr.size()));
+            for (const auto& v : arr)
+            {
+                if (v.is_number_unsigned())
+                {
+                    const auto n = v.get<std::uint64_t>();
+                    out_v.push_back((std::uint32_t)std::clamp<std::uint64_t>(n, 0ull, 0xFFFFFFFFull));
+                }
+                else if (v.is_number_integer())
+                {
+                    const auto n = v.get<std::int64_t>();
+                    if (n < 0)
+                        continue;
+                    out_v.push_back((std::uint32_t)std::clamp<std::uint64_t>((std::uint64_t)n, 0ull, 0xFFFFFFFFull));
+                }
+                if (out_v.size() >= max_n)
+                    break;
+            }
+        };
+
+        if (cp.contains("mru_action_ids")) read_string_vec(cp["mru_action_ids"], out.command_palette.mru_action_ids, 32);
+        if (cp.contains("mru_tool_ids")) read_string_vec(cp["mru_tool_ids"], out.command_palette.mru_tool_ids, 16);
+        if (cp.contains("mru_window_keys")) read_string_vec(cp["mru_window_keys"], out.command_palette.mru_window_keys, 16);
+        if (cp.contains("mru_fg_rgba32")) read_u32_vec(cp["mru_fg_rgba32"], out.command_palette.mru_fg_rgba32, 16);
+        if (cp.contains("mru_bg_rgba32")) read_u32_vec(cp["mru_bg_rgba32"], out.command_palette.mru_bg_rgba32, 16);
+        if (cp.contains("last_executed_item_id") && cp["last_executed_item_id"].is_string())
+            out.command_palette.last_executed_item_id = cp["last_executed_item_id"].get<std::string>();
     }
 
     if (j.contains("content") && j["content"].is_object())

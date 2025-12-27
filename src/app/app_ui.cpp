@@ -11,6 +11,7 @@
 #include "imgui.h"
 #include <nlohmann/json.hpp>
 
+#include "app/action_execute.h"
 #include "app/clipboard_utils.h"
 #include "core/colour_ops.h"
 #include "core/colour_system.h"
@@ -21,28 +22,6 @@
 
 namespace appui
 {
-
-// Some window managers ignore maximize requests while the window is still in the
-// fullscreen transition. We opportunistically maximize immediately, but also
-// retry once SDL reports we're no longer fullscreen.
-static bool g_pending_maximize_after_fullscreen_exit = false;
-
-static void MaybeApplyPendingMaximize(SDL_Window* window, SessionState& session_state)
-{
-    if (!g_pending_maximize_after_fullscreen_exit)
-        return;
-
-    const SDL_WindowFlags wf = SDL_GetWindowFlags(window);
-    if ((wf & SDL_WINDOW_FULLSCREEN) != 0)
-        return;
-
-    // Either we're already maximized (e.g. WM applied it asynchronously), or we can request it now.
-    if ((wf & SDL_WINDOW_MAXIMIZED) == 0)
-        SDL_MaximizeWindow(window);
-
-    session_state.window_maximized = true;
-    g_pending_maximize_after_fullscreen_exit = false;
-}
 
 struct TutorialEntry
 {
@@ -185,10 +164,19 @@ static int RequestedTopMenu(kb::KeyBindingsEngine& keybinds)
     kb::EvalContext mctx;
     mctx.global = true;
     mctx.platform = kb::RuntimePlatform();
-    if (keybinds.ActionPressed("menu.open.file", mctx)) requested_top_menu = 1;
-    if (keybinds.ActionPressed("menu.open.edit", mctx)) requested_top_menu = 2;
-    if (keybinds.ActionPressed("menu.open.view", mctx)) requested_top_menu = 3;
-    if (keybinds.ActionPressed("menu.open.window", mctx)) requested_top_menu = 4;
+
+    std::vector<std::string_view> pressed_action_ids;
+    keybinds.CollectPressedActions(mctx, pressed_action_ids, 64);
+
+    auto contains = [&](std::string_view id) -> bool {
+        return std::find(pressed_action_ids.begin(), pressed_action_ids.end(), id) != pressed_action_ids.end();
+    };
+
+    // Preserve existing priority/override behavior: later checks override earlier ones.
+    if (contains("menu.open.file")) requested_top_menu = 1;
+    if (contains("menu.open.edit")) requested_top_menu = 2;
+    if (contains("menu.open.view")) requested_top_menu = 3;
+    if (contains("menu.open.window")) requested_top_menu = 4;
     return requested_top_menu;
 }
 
@@ -217,8 +205,6 @@ void RenderMainMenuBar(SDL_Window* window,
                        bool& show_16colors_browser_window,
                        const std::function<void()>& create_new_canvas)
 {
-    MaybeApplyPendingMaximize(window, session_state);
-
     const int requested_top_menu = RequestedTopMenu(keybinds);
 
     if (!ImGui::BeginMainMenuBar())
@@ -564,26 +550,31 @@ void RenderMainMenuBar(SDL_Window* window,
         ImGui::MenuItem(mi_minimap.c_str(), nullptr, &show_minimap_window);
         ImGui::MenuItem(mi_16c.c_str(), nullptr, &show_16colors_browser_window);
         ImGui::Separator();
-        if (ImGui::MenuItem(mi_fullscreen.c_str(), nullptr, &window_fullscreen))
+        if (ImGui::MenuItem(mi_fullscreen.c_str(), nullptr, window_fullscreen))
         {
-            const bool exiting_fullscreen = !window_fullscreen;
-            if (!SDL_SetWindowFullscreen(window, window_fullscreen))
-            {
-                // Revert UI state if the window manager denies the request.
-                window_fullscreen = !window_fullscreen;
-            }
-            else
-            {
-                // Persist immediately in-memory; file is written at shutdown.
-                session_state.window_fullscreen = window_fullscreen;
-
-                if (exiting_fullscreen)
-                {
-                    // Best-effort: request maximize now, and retry once fullscreen is fully cleared.
-                    SDL_MaximizeWindow(window);
-                    g_pending_maximize_after_fullscreen_exit = true;
-                }
-            }
+            ImVec4 dummy_fg(0, 0, 0, 1);
+            ImVec4 dummy_bg(0, 0, 0, 1);
+            const app::ActionExecContext aexec = {
+                .window = window,
+                .session_state = session_state,
+                .io_manager = io_manager,
+                .file_dialogs = file_dialogs,
+                .export_dialog = export_dialog,
+                .settings_window = settings_window,
+                .focused_canvas = nullptr,
+                .focused_canvas_window = nullptr,
+                .active_canvas = active_canvas,
+                .active_canvas_window = nullptr,
+                .done = done,
+                .window_fullscreen = window_fullscreen,
+                .show_minimap_window = show_minimap_window,
+                .show_settings_window = show_settings_window,
+                .fg_colour = dummy_fg, // unused by this action
+                .bg_colour = dummy_bg, // unused by this action
+                .create_new_canvas = create_new_canvas,
+            };
+            // NOTE: ExecuteActionId handles toggling + persistence + maximize retry behavior.
+            (void)app::ExecuteActionId("view.fullscreen_toggle", aexec);
         }
         ImGui::EndMenu();
     }
@@ -613,8 +604,6 @@ void HandleKeybindings(SDL_Window* window,
                        ImVec4& bg_colour,
                        const std::function<void()>& create_new_canvas)
 {
-    MaybeApplyPendingMaximize(window, session_state);
-
     const bool any_popup =
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
@@ -625,236 +614,51 @@ void HandleKeybindings(SDL_Window* window,
     kctx.selection = (focused_canvas != nullptr && focused_canvas->HasSelection());
     kctx.platform = kb::RuntimePlatform();
 
-    // Settings window hotkey is truly global (no focused canvas required).
-    if (!any_popup && keybinds.ActionPressed("app.settings.open", kctx))
-    {
-        show_settings_window = true;
-        settings_window.SetOpen(true);
-    }
-
-    // File-level actions (no focused canvas required; Save is gated below).
+    // Centralized keybinding -> action execution for host actions.
+    // Tool-claimed actions (and tool-specific behaviors) are handled in RunFrame's tool routing.
     if (!any_popup)
     {
-        if (keybinds.ActionPressed("app.file.new", kctx))
-            create_new_canvas();
+        const app::ActionExecContext aexec = {
+            .window = window,
+            .session_state = session_state,
+            .io_manager = io_manager,
+            .file_dialogs = file_dialogs,
+            .export_dialog = export_dialog,
+            .settings_window = settings_window,
+            .focused_canvas = focused_canvas,
+            .focused_canvas_window = focused_canvas_window,
+            .active_canvas = active_canvas,
+            .active_canvas_window = active_canvas_window,
+            .done = done,
+            .window_fullscreen = window_fullscreen,
+            .show_minimap_window = show_minimap_window,
+            .show_settings_window = show_settings_window,
+            .fg_colour = fg_colour,
+            .bg_colour = bg_colour,
+            .create_new_canvas = create_new_canvas,
+        };
 
-        if (keybinds.ActionPressed("app.file.open", kctx))
-            io_manager.RequestLoadFile(window, file_dialogs);
-
-        if (keybinds.ActionPressed("app.file.save", kctx) && active_canvas)
-            io_manager.SaveProject(window, file_dialogs, active_canvas);
-        if (keybinds.ActionPressed("app.file.save_as", kctx) && active_canvas)
-            io_manager.SaveProjectAs(window, file_dialogs, active_canvas);
-
-        if (keybinds.ActionPressed("app.file.export_ansi", kctx) && active_canvas)
-            export_dialog.Open(ExportDialog::Tab::Ansi);
-
-        if (keybinds.ActionPressed("app.file.export_png", kctx) && active_canvas)
-            export_dialog.Open(ExportDialog::Tab::Image);
-
-        if (keybinds.ActionPressed("app.file.export_apng", kctx) && active_canvas)
-            export_dialog.Open(ExportDialog::Tab::Image);
-
-        if (keybinds.ActionPressed("app.file.export_utf8", kctx) && active_canvas)
-            export_dialog.OpenPlaintextPreset(formats::plaintext::PresetId::PlainUtf8);
-
-        // SAUCE editor dialog (canvas-scoped but opened via File hotkey).
-        if (keybinds.ActionPressed("app.file.edit_sauce", kctx))
+        std::vector<std::string_view> pressed_action_ids;
+        keybinds.CollectPressedActions(kctx, pressed_action_ids, 64);
+        for (const std::string_view id : pressed_action_ids)
         {
-            CanvasWindow* target = focused_canvas_window ? focused_canvas_window : active_canvas_window;
-            if (target)
-                target->sauce_dialog.OpenFromCanvas(target->canvas);
-        }
-
-        // Close the current canvas/document (uses run_frame.cpp's close-confirm flow).
-        if (keybinds.ActionPressed("canvas.close", kctx))
-        {
-            if (focused_canvas_window)
-                focused_canvas_window->open = false;
-            else if (active_canvas_window)
-                active_canvas_window->open = false;
-        }
-
-        // Close the application window / quit attempt (may trigger a quit confirmation modal).
-        if (keybinds.ActionPressed("app.file.close_window", kctx))
-            done = true;
-
-        if (keybinds.ActionPressed("app.quit", kctx))
-            done = true;
-
-        // Global view/UI toggles (typically disabled by default in key-bindings.json).
-        if (keybinds.ActionPressed("view.fullscreen_toggle", kctx))
-        {
-            window_fullscreen = !window_fullscreen;
-            const bool exiting_fullscreen = !window_fullscreen;
-            if (!SDL_SetWindowFullscreen(window, window_fullscreen))
-                window_fullscreen = !window_fullscreen;
-            else
+            // Tool switching (selection): keep legacy behavior, but consume it from the same
+            // pressed-action list so we don't need a separate ActionPressed() query.
+            if (focused_canvas && id == "selection.start_block")
             {
-                session_state.window_fullscreen = window_fullscreen;
-
-                if (exiting_fullscreen)
+                namespace fs = std::filesystem;
+                const std::string tools_dir =
+                    tool_palette.GetToolsDir().empty() ? PhosphorAssetPath("tools") : tool_palette.GetToolsDir();
+                const std::string select_path = (fs::path(tools_dir) / "select.lua").string();
+                if (!select_path.empty() && tool_palette.SetActiveToolByPath(select_path))
                 {
-                    SDL_MaximizeWindow(window);
-                    g_pending_maximize_after_fullscreen_exit = true;
+                    compile_tool_script(select_path);
+                    sync_tool_stack();
                 }
+                continue;
             }
-        }
-        if (keybinds.ActionPressed("ui.toggle_preview", kctx))
-            show_minimap_window = !show_minimap_window;
-        if (keybinds.ActionPressed("ui.toggle_status_bar", kctx))
-        {
-            if (focused_canvas)
-                focused_canvas->ToggleStatusLineVisible();
-            else if (active_canvas)
-                active_canvas->ToggleStatusLineVisible();
-        }
-    }
 
-    // Canvas-scoped edit/view shortcuts: only when a canvas grid is focused.
-    if (focused_canvas && !any_popup)
-    {
-        if (keybinds.ActionPressed("edit.undo", kctx))
-            focused_canvas->Undo();
-        if (keybinds.ActionPressed("edit.redo", kctx))
-            focused_canvas->Redo();
-
-        if (keybinds.ActionPressed("edit.select_all", kctx))
-            focused_canvas->SelectAll();
-        if (keybinds.ActionPressed("selection.clear_or_cancel", kctx))
-            focused_canvas->ClearSelection();
-
-        if (keybinds.ActionPressed("editor.mirror_mode_toggle", kctx))
-            focused_canvas->ToggleMirrorModeEnabled();
-
-        // Zoom via keybindings (mouse wheel zoom remains implemented in AnsiCanvas).
-        if (keybinds.ActionPressed("view.zoom_in", kctx))
-            focused_canvas->SetZoom(focused_canvas->GetZoom() * 1.10f);
-        if (keybinds.ActionPressed("view.zoom_out", kctx))
-            focused_canvas->SetZoom(focused_canvas->GetZoom() / 1.10f);
-        if (keybinds.ActionPressed("view.zoom_reset", kctx))
-            focused_canvas->SetZoom(1.0f);
-        if (keybinds.ActionPressed("view.actual_size", kctx))
-            focused_canvas->SetZoom(1.0f);
-
-        // Scroll controls (optional / disabled by default).
-        if (keybinds.ActionPressed("view.toggle_scroll_with_cursor", kctx))
-            focused_canvas->ToggleFollowCaretEnabled();
-        if (keybinds.ActionPressed("view.scroll_up", kctx) ||
-            keybinds.ActionPressed("view.scroll_down", kctx) ||
-            keybinds.ActionPressed("view.scroll_left", kctx) ||
-            keybinds.ActionPressed("view.scroll_right", kctx))
-        {
-            const auto& vs = focused_canvas->GetLastViewState();
-            float sx = vs.valid ? vs.scroll_x : 0.0f;
-            float sy = vs.valid ? vs.scroll_y : 0.0f;
-            const float step_x = (vs.valid && vs.cell_w > 0.0f) ? (vs.cell_w * 4.0f) : 64.0f;
-            const float step_y = (vs.valid && vs.cell_h > 0.0f) ? (vs.cell_h * 2.0f) : 48.0f;
-
-            if (keybinds.ActionPressed("view.scroll_up", kctx)) sy -= step_y;
-            if (keybinds.ActionPressed("view.scroll_down", kctx)) sy += step_y;
-            if (keybinds.ActionPressed("view.scroll_left", kctx)) sx -= step_x;
-            if (keybinds.ActionPressed("view.scroll_right", kctx)) sx += step_x;
-            if (sx < 0.0f) sx = 0.0f;
-            if (sy < 0.0f) sy = 0.0f;
-            focused_canvas->RequestScrollPixels(sx, sy);
-        }
-
-        // Colour hotkeys affect the shared fg/bg selection used by tools.
-        auto& cs = phos::colour::GetColourSystem();
-        phos::colour::PaletteInstanceId pal = cs.Palettes().Builtin(phos::colour::BuiltinPalette::Xterm256);
-        if (focused_canvas)
-        {
-            if (auto id = cs.Palettes().Resolve(focused_canvas->GetPaletteRef()))
-                pal = *id;
-        }
-        const phos::colour::Palette* pal_def = cs.Palettes().Get(pal);
-        const int pal_size = (pal_def && !pal_def->rgb.empty()) ? (int)pal_def->rgb.size() : 256;
-        const phos::colour::QuantizePolicy qp = phos::colour::DefaultQuantizePolicy();
-
-        auto to_idx = [&](const ImVec4& c) -> int {
-            const int r = (int)std::lround(c.x * 255.0f);
-            const int g = (int)std::lround(c.y * 255.0f);
-            const int b = (int)std::lround(c.z * 255.0f);
-            const std::uint8_t idx = phos::colour::ColourOps::NearestIndexRgb(cs.Palettes(),
-                                                                            pal,
-                                                                            (std::uint8_t)std::clamp(r, 0, 255),
-                                                                            (std::uint8_t)std::clamp(g, 0, 255),
-                                                                            (std::uint8_t)std::clamp(b, 0, 255),
-                                                                            qp);
-            return (int)std::clamp<int>((int)idx, 0, std::max(0, pal_size - 1));
-        };
-
-        auto apply_idx_to_colour = [&](int idx, ImVec4& dst) {
-            if (!pal_def || pal_def->rgb.empty())
-                return;
-            idx = std::clamp(idx, 0, std::max(0, pal_size - 1));
-            const phos::colour::Rgb8 rgb = pal_def->rgb[(size_t)idx];
-            dst.x = (float)rgb.r / 255.0f;
-            dst.y = (float)rgb.g / 255.0f;
-            dst.z = (float)rgb.b / 255.0f;
-            dst.w = 1.0f;
-        };
-
-        if (keybinds.ActionPressed("colour.prev_fg", kctx))
-        {
-            int idx = to_idx(fg_colour);
-            if (pal_size > 0)
-                idx = (idx + pal_size - 1) % pal_size;
-            apply_idx_to_colour(idx, fg_colour);
-        }
-        if (keybinds.ActionPressed("colour.next_fg", kctx))
-        {
-            int idx = to_idx(fg_colour);
-            if (pal_size > 0)
-                idx = (idx + 1) % pal_size;
-            apply_idx_to_colour(idx, fg_colour);
-        }
-        if (keybinds.ActionPressed("colour.prev_bg", kctx))
-        {
-            int idx = to_idx(bg_colour);
-            if (pal_size > 0)
-                idx = (idx + pal_size - 1) % pal_size;
-            apply_idx_to_colour(idx, bg_colour);
-        }
-        if (keybinds.ActionPressed("colour.next_bg", kctx))
-        {
-            int idx = to_idx(bg_colour);
-            if (pal_size > 0)
-                idx = (idx + 1) % pal_size;
-            apply_idx_to_colour(idx, bg_colour);
-        }
-        if (keybinds.ActionPressed("colour.default", kctx))
-        {
-            apply_idx_to_colour(std::min(7, std::max(0, pal_size - 1)), fg_colour);
-            apply_idx_to_colour(0, bg_colour);
-        }
-        if (keybinds.ActionPressed("colour.pick_attribute", kctx))
-        {
-            int cx = 0, cy = 0;
-            focused_canvas->GetCaretCell(cx, cy);
-            char32_t cp = U' ';
-            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
-            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
-            if (focused_canvas->GetCompositeCellPublicIndices(cy, cx, cp, fg, bg))
-            {
-                if (fg != AnsiCanvas::kUnsetIndex16) apply_idx_to_colour((int)fg, fg_colour);
-                if (bg != AnsiCanvas::kUnsetIndex16) apply_idx_to_colour((int)bg, bg_colour);
-            }
-        }
-
-        // Tool switching (selection).
-        if (keybinds.ActionPressed("selection.start_block", kctx))
-        {
-            namespace fs = std::filesystem;
-            const std::string tools_dir =
-                tool_palette.GetToolsDir().empty() ? PhosphorAssetPath("tools") : tool_palette.GetToolsDir();
-            const std::string select_path = (fs::path(tools_dir) / "select.lua").string();
-            if (!select_path.empty() && tool_palette.SetActiveToolByPath(select_path))
-            {
-                compile_tool_script(select_path);
-                sync_tool_stack();
-            }
+            (void)app::ExecuteActionId(id, aexec);
         }
     }
 }

@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -128,6 +129,15 @@ public:
     // This only checks key state + chord matching; the caller should gate based on
     // focus/popups as appropriate for their UI flow.
     bool ActionPressed(std::string_view action_id, const EvalContext& ctx) const;
+
+    // Collect a list of action ids whose bindings are pressed this frame for the given EvalContext.
+    //
+    // - Returned string_views reference stable internal storage (valid until bindings are rebuilt).
+    // - Callers must treat them as frame-local and not persist them.
+    // - The scan is deterministic (runtime action order) and de-duplicates actions with multiple bindings.
+    void CollectPressedActions(const EvalContext& ctx,
+                               std::vector<std::string_view>& out,
+                               size_t max_actions = 64) const;
 
     // Convenience: common editing hotkeys used by selection tools.
     Hotkeys EvalCommonHotkeys(const EvalContext& ctx) const;

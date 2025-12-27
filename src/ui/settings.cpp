@@ -165,24 +165,6 @@ static bool IsToolPresetSlotActionId(std::string_view action_id)
     return action_id.rfind("tool.preset.slot.", 0) == 0;
 }
 
-static bool IsReservedToolPresetChord(const std::string& chord)
-{
-    if (chord.empty())
-        return false;
-    kb::ParsedChord pc;
-    std::string err;
-    if (!kb::ParseChordString(chord, pc, err))
-        return false;
-
-    // Reserve exact Ctrl+[1-9] (no Shift/Alt/Super). (Ctrl+0 remains available for e.g. Reset Zoom.)
-    if (!pc.mods.ctrl || pc.mods.shift || pc.mods.alt || pc.mods.super)
-        return false;
-
-    const int k = (int)pc.key;
-    const int k1 = (int)ImGuiKey_1;
-    const int k9 = (int)ImGuiKey_9;
-    return (k >= k1 && k <= k9);
-}
 } // namespace
 
 SettingsWindow::SettingsWindow()
@@ -854,16 +836,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                     (capture_action_idx_ < actions.size());
                 const std::string_view target_action_id =
                     have_target ? std::string_view(actions[capture_action_idx_].id) : std::string_view();
-
-                if (IsReservedToolPresetChord(chord) && !IsToolPresetSlotActionId(target_action_id))
-                {
-                    capture_error_ =
-                        "Ctrl+[1-9] is reserved for Tool Preset Slots. Choose a different chord, or bind this to a tool.preset.slot.* action.";
-                    // Keep the modal open; don't commit.
-                    commit = false;
-                    close = false;
-                    break;
-                }
+                (void)target_action_id; // no special-case reserved chords; collisions are handled uniformly.
 
                 commit = true;
                 committed_chord = chord;
@@ -1345,17 +1318,9 @@ void SettingsWindow::RenderTab_KeyBindings()
                                              PHOS_TR("settings_window.key_bindings_tab.chord_hint").c_str(),
                                              &b.chord))
                 {
-                    if (IsReservedToolPresetChord(b.chord) && !IsToolPresetSlotActionId(a.id))
-                    {
-                        b.chord = prev_chord;
-                        chord_error_ =
-                            "Ctrl+[1-9] is reserved for Tool Preset Slots (tool.preset.slot.*).";
-                    }
-                    else
-                    {
-                        chord_error_.clear();
-                        keybinds_->MarkDirty();
-                    }
+                    (void)prev_chord;
+                    chord_error_.clear();
+                    keybinds_->MarkDirty();
                 }
                 if (!chord_error_.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     ImGui::SetTooltip("%s", chord_error_.c_str());

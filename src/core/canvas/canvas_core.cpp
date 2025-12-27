@@ -34,6 +34,32 @@ AnsiCanvas::AnsiCanvas(int columns)
     m_ui_palette_ref = m_palette_ref;
 }
 
+void AnsiCanvas::RequestFocus()
+{
+    // Mark for next Render() so we can safely call SetKeyboardFocusHere() on our hidden InputText.
+    m_has_focus = true;
+    m_focus_requested = true;
+}
+
+bool AnsiCanvas::GetCaretScreenPos(ImVec2& out) const
+{
+    if (!m_last_view.valid)
+        return false;
+    if (!(m_last_view.cell_w > 0.0f) || !(m_last_view.cell_h > 0.0f))
+        return false;
+
+    // Caret is stored in canvas cell coordinates.
+    const int col = m_caret_col;
+    const int row = m_caret_row;
+    if (col < 0 || row < 0)
+        return false;
+
+    const float x = m_last_view.origin_x + (float)col * m_last_view.cell_w - m_last_view.scroll_x;
+    const float y = m_last_view.origin_y + (float)row * m_last_view.cell_h - m_last_view.scroll_y;
+    out = ImVec2(x, y);
+    return true;
+}
+
 fonts::FontId AnsiCanvas::GetFontId() const
 {
     return fonts::FromSauceName(m_sauce.tinfos);

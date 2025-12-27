@@ -45,6 +45,7 @@
 #include "ui/character_palette.h"
 #include "ui/character_picker.h"
 #include "ui/character_set.h"
+#include "ui/command_palette.h"
 #include "ui/export_dialog.h"
 #include "ui/image_to_chafa_dialog.h"
 #include "ui/markdown_to_ansi_dialog.h"
@@ -328,6 +329,7 @@ int main(int argc, char** argv)
     CharacterPalette character_palette;
     CharacterSetWindow character_sets;
     BrushPaletteWindow brush_palette;
+    CommandPalette command_palette;
 
     // Current brush glyph for tools (from picker/palette selection).
     std::uint32_t tool_brush_cp = character_picker.SelectedCodePoint();
@@ -577,6 +579,7 @@ int main(int argc, char** argv)
     st.ui.bitmap_glyph_atlas = &bitmap_glyph_atlas;
     st.ui.sixteen_browser = &sixteen_browser;
     st.ui.brush_palette_window = &brush_palette;
+    st.ui.command_palette = &command_palette;
 
     st.tools.tool_brush_glyph = &tool_brush_glyph;
     st.tools.tool_brush_cp = &tool_brush_cp;

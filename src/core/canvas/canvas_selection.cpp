@@ -1660,6 +1660,20 @@ void AnsiCanvas::HandleCharInputWidget(const char* id)
         ImGui::SetKeyboardFocusHere();
     }
 
+    // Host-requested focus (e.g. closing a popup and returning to the last active canvas).
+    // We keep this separate from the normal "stay focused while hovered" path above so we can
+    // re-focus even when the mouse isn't hovering the canvas window.
+    if (m_focus_requested &&
+        m_has_focus &&
+        !other_widget_active &&
+        !hovering_title_bar &&
+        !any_mouse_interaction &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        ImGui::SetKeyboardFocusHere();
+        m_focus_requested = false;
+    }
+
     ImGui::InputText(input_id.c_str(), dummy, IM_ARRAYSIZE(dummy), flags, &AnsiCanvas::TextInputCallback, this);
 
     ImGui::PopStyleVar(2);

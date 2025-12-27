@@ -1644,6 +1644,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         m_last_view.view_h = clip_rect.GetHeight();
         m_last_view.scroll_x = ImGui::GetScrollX();
         m_last_view.scroll_y = ImGui::GetScrollY();
+        m_last_view.origin_x = origin.x;
+        m_last_view.origin_y = origin.y;
     }
 
     ImGui::EndChild();

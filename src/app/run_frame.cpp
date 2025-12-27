@@ -18,6 +18,9 @@
 
 #include "app/app_state.h"
 #include "app/app_ui.h"
+#include "app/action_execute.h"
+#include "app/action_route_execute.h"
+#include "app/tool_preset_apply.h"
 #include "app/workspace.h"
 #include "app/workspace_persist.h"
 #include "app/vulkan_state.h"
@@ -54,6 +57,7 @@
 #include "ui/character_set.h"
 #include "ui/colour_picker.h"
 #include "ui/colour_palette.h"
+#include "ui/command_palette.h"
 #include "ui/export_dialog.h"
 #include "ui/glyph_token.h"
 #include "ui/image_to_chafa_dialog.h"
@@ -80,83 +84,7 @@ namespace
 {
 using nlohmann::json;
 
-struct FallbackToolState
-{
-    std::unique_ptr<AnslScriptEngine> engine;
-    std::string                      last_source;
-    std::string                      last_error;
-};
-
-static std::string ReadFileToString(const std::string& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        return {};
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-static bool ToolClaimsAction(const ToolSpec* t, std::string_view action_id)
-{
-    if (!t)
-        return false;
-    for (const ToolSpec::HandleRule& r : t->handles)
-        if (r.when == ToolSpec::HandleWhen::Active && r.action == action_id)
-            return true;
-    return false;
-}
-
-static bool ToolFallbackClaimsAction(const ToolSpec& t, std::string_view action_id)
-{
-    for (const ToolSpec::HandleRule& r : t.handles)
-        if (r.when == ToolSpec::HandleWhen::Inactive && r.action == action_id)
-            return true;
-    return false;
-}
-
-static bool ApplyToolPresetDigit(const std::string& tool_id,
-                                 int digit,
-                                 AnslScriptEngine& tool_engine,
-                                 SessionState& session)
-{
-    if (tool_id.empty())
-        return false;
-    if (digit < 1 || digit > 9)
-        return false;
-
-    // Reserve Ctrl+1..9 as presets 1..9.
-    const std::string presets_path = PhosphorAssetPath("tool-presets.json");
-    std::vector<tool_params::ToolParamPreset> presets;
-    std::unordered_map<std::string, int> selected_by_tool_slot;
-    std::string err;
-    if (!tool_params::LoadToolParamPresetsFromFile(presets_path.c_str(), presets, selected_by_tool_slot, err))
-    {
-        return false;
-    }
-
-    // Find preset by explicit slot.
-    const tool_params::ToolParamPreset* found = nullptr;
-    for (const auto& p : presets)
-    {
-        if (p.tool_id == tool_id && p.slot == digit)
-        {
-            found = &p;
-            break;
-        }
-    }
-    if (!found)
-        return false;
-
-    // Apply and persist selection.
-    selected_by_tool_slot[tool_id] = digit;
-    tool_params::ApplyToolParams(found->values, tool_engine);
-    tool_params::SaveToolParamsToSession(session, tool_id, tool_engine);
-    if (!tool_params::SaveToolParamPresetsToFile(presets_path.c_str(), presets, selected_by_tool_slot, err))
-    {
-        return false;
-    }
-
-    return true;
-}
+// ApplyToolPresetDigit extracted to app/tool_preset_apply.* so it can be reused by the command palette.
 } // namespace
 
 void RunFrame(AppState& st)
@@ -192,7 +120,11 @@ void RunFrame(AppState& st)
     BitmapGlyphAtlasTextureCache& bitmap_glyph_atlas = *st.ui.bitmap_glyph_atlas;
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
     BrushPaletteWindow& brush_palette = *st.ui.brush_palette_window;
+    CommandPalette& command_palette = *st.ui.command_palette;
     static ToolPresetsWindow tool_presets_window;
+
+    // Deferred window ops (maximize retry after fullscreen transitions, etc).
+    app::TickDeferredWindowOps(window, session_state);
 
     // Advance the atlas cache clock and collect deferred frees.
     // (Safe to call every frame; no-ops if cache is uninitialized.)
@@ -227,6 +159,40 @@ void RunFrame(AppState& st)
     int& xterm_selected_palette = *st.colours.xterm_selected_palette;
     int& xterm_picker_preview_fb = *st.colours.xterm_picker_preview_fb;
     float& xterm_picker_last_hue = *st.colours.xterm_picker_last_hue;
+
+    // Keep command-palette colour MRU in sync when FG/BG changes from any source.
+    // (Palette itself also bumps MRU on apply; this covers picker/hotkeys/tools/etc.)
+    static std::uint32_t s_last_fg32 = 0;
+    static std::uint32_t s_last_bg32 = 0;
+    auto pack_rgba32 = [](const ImVec4& c) -> std::uint32_t {
+        const int r = (int)std::lround(std::clamp(c.x, 0.0f, 1.0f) * 255.0f);
+        const int g = (int)std::lround(std::clamp(c.y, 0.0f, 1.0f) * 255.0f);
+        const int b = (int)std::lround(std::clamp(c.z, 0.0f, 1.0f) * 255.0f);
+        const int a = (int)std::lround(std::clamp(c.w, 0.0f, 1.0f) * 255.0f);
+        return (std::uint32_t)((r & 0xFF) | ((g & 0xFF) << 8) | ((b & 0xFF) << 16) | ((a & 0xFF) << 24));
+    };
+    auto mru_bump_u32 = [](std::vector<std::uint32_t>& v, std::uint32_t rgba32, size_t cap) {
+        if (rgba32 == 0)
+            return;
+        v.erase(std::remove(v.begin(), v.end(), rgba32), v.end());
+        v.insert(v.begin(), rgba32);
+        if (v.size() > cap)
+            v.resize(cap);
+    };
+    {
+        const std::uint32_t fg32 = pack_rgba32(fg_colour);
+        const std::uint32_t bg32 = pack_rgba32(bg_colour);
+        if (fg32 != 0 && fg32 != s_last_fg32)
+        {
+            mru_bump_u32(session_state.command_palette.mru_fg_rgba32, fg32, 16);
+            s_last_fg32 = fg32;
+        }
+        if (bg32 != 0 && bg32 != s_last_bg32)
+        {
+            mru_bump_u32(session_state.command_palette.mru_bg_rgba32, bg32, 16);
+            s_last_bg32 = bg32;
+        }
+    }
 
     // ---------------------------------------------------------------------
     // Palette catalog (Option A): registry-backed palette list for UI
@@ -311,6 +277,21 @@ void RunFrame(AppState& st)
         tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
         s_restored_initial_tool_params = true;
     }
+
+    auto activate_tool_by_id_with_param_persistence = [&](std::string_view tool_id) {
+        if (tool_id.empty())
+            return;
+        // Match ToolCommand::ToolActivate behavior: persist params for old tool, switch, restore.
+        tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
+        activate_tool_by_id(std::string(tool_id));
+        if (tool_compile_error.empty())
+        {
+            s_compiled_tool_id = active_tool_id();
+            tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
+            if (const ToolSpec* at = tool_palette.GetActiveTool())
+                session_state.active_tool_path = at->path;
+        }
+    };
 
     // Idle throttling helpers
     auto now_s = []() -> double { return (double)SDL_GetTicks() / 1000.0; };
@@ -1011,15 +992,153 @@ void RunFrame(AppState& st)
     export_dialog.Render("Export", window, file_dialogs, io_manager, active_canvas,
                          &session_state, should_apply_placement("Export"));
 
-    appui::HandleKeybindings(window, keybinds, session_state,
-                             io_manager, file_dialogs, export_dialog,
-                             tool_palette, st.tools.compile_tool_script, st.tools.sync_tool_stack,
-                             focused_canvas, focused_canvas_window,
-                             active_canvas, active_canvas_window,
-                             st.done, window_fullscreen, show_minimap_window,
-                             show_settings_window, settings_window,
-                             fg_colour, bg_colour,
-                             create_new_canvas);
+    // Keybinding evaluation: compute pressed action ids once for the current focused-canvas context.
+    // Consumers (palette open, charset/tool/preset hotkeys, and tool routing) should use this list.
+    //
+    // IMPORTANT: the command palette must be able to open and steal focus BEFORE any other
+    // keybinding/canvas consumers run, otherwise the opening keystroke (and subsequent keys) can
+    // leak through to the canvas/tool stack.
+    bool any_popup =
+        ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    kb::EvalContext kctx;
+    kctx.global = true;
+    kctx.editor = (focused_canvas != nullptr);
+    kctx.canvas = (focused_canvas != nullptr);
+    kctx.selection = (focused_canvas != nullptr && focused_canvas->HasSelection());
+    kctx.platform = kb::RuntimePlatform();
+    std::vector<std::string_view> pressed_action_ids;
+    if (!any_popup)
+        keybinds.CollectPressedActions(kctx, pressed_action_ids, 64);
+
+    // Command palette open (gated by popup state).
+    {
+        if (!any_popup && !command_palette.IsOpen())
+        {
+            for (const std::string_view id : pressed_action_ids)
+            {
+                if (id == "ui.command_palette.open")
+                {
+                    command_palette.Open(CommandPalette::Mode::Default);
+                    // Drop focus on ALL canvases so none can keep consuming input behind the palette.
+                    for (auto& cptr : canvases)
+                    {
+                        if (!cptr || !cptr->open)
+                            continue;
+                        cptr->canvas.ClearFocus();
+                    }
+                    break;
+                }
+                if (id == "ui.colour_palette.open")
+                {
+                    command_palette.Open(CommandPalette::Mode::Colour);
+                    for (auto& cptr : canvases)
+                    {
+                        if (!cptr || !cptr->open)
+                            continue;
+                        cptr->canvas.ClearFocus();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Command palette render (popup overlay). Rendering here ensures the popup is "open"
+    // for the rest of the frame, so any_popup gating works reliably.
+    {
+        // Build action execution context used by palette items.
+        const app::ActionExecContext aexec = {
+            .window = window,
+            .session_state = session_state,
+            .io_manager = io_manager,
+            .file_dialogs = file_dialogs,
+            .export_dialog = export_dialog,
+            .settings_window = settings_window,
+            .focused_canvas = focused_canvas,
+            .focused_canvas_window = focused_canvas_window,
+            .active_canvas = active_canvas,
+            .active_canvas_window = active_canvas_window,
+            .done = st.done,
+            .window_fullscreen = window_fullscreen,
+            .show_minimap_window = show_minimap_window,
+            .show_settings_window = show_settings_window,
+            .fg_colour = fg_colour,
+            .bg_colour = bg_colour,
+            .create_new_canvas = create_new_canvas,
+        };
+
+        auto request_focus_last = [&]() {
+            for (auto& cptr : canvases)
+            {
+                if (!cptr || !cptr->open)
+                    continue;
+                if (cptr->id == last_active_canvas_id)
+                {
+                    cptr->canvas.RequestFocus();
+                    break;
+                }
+            }
+        };
+
+        std::vector<CommandPalette::WindowToggle> win_items;
+        win_items.push_back({"ui.window.colour_picker", "Colour Picker", "###Colour Picker", &show_colour_picker_window});
+        win_items.push_back({"ui.window.unicode_character_picker", "Unicode Character Picker", "Unicode Character Picker", &show_character_picker_window});
+        win_items.push_back({"ui.window.character_palette", "Character Palette", "Character Palette", &show_character_palette_window});
+        win_items.push_back({"ui.window.character_sets", "Character Sets", "Character Sets", &show_character_sets_window});
+        win_items.push_back({"ui.window.layer_manager", "Layer Manager", "Layer Manager", &show_layer_manager_window});
+        win_items.push_back({"ui.window.ansl_editor", "ANSL Editor", "###ANSL Editor", &show_ansl_editor_window});
+        win_items.push_back({"ui.window.tool_palette", "Tool Palette", "Tool Palette", &show_tool_palette_window});
+        win_items.push_back({"ui.window.tool_presets", "Tool Presets", "Tool Presets", &show_tool_presets_window});
+        win_items.push_back({"ui.window.brush_palette", "Brush Palette", "Brush Palette", &show_brush_palette_window});
+        win_items.push_back({"ui.window.minimap", "Minimap", "Minimap", &show_minimap_window});
+        win_items.push_back({"ui.window.settings", "Settings", "Settings", &show_settings_window});
+        win_items.push_back({"ui.window.16colors_browser", "16colo.rs Browser", "16colo.rs Browser", &show_16colors_browser_window});
+
+        CommandPalette::RenderContext cctx = {
+            .keybinds = keybinds,
+            .session = session_state,
+            .tool_palette = tool_palette,
+            .active_canvas = active_canvas,
+            .fg_colour = fg_colour,
+            .bg_colour = bg_colour,
+            .action_exec = aexec,
+            .tool_engine = tool_engine,
+            .compiled_tool_id = s_compiled_tool_id,
+            .activate_tool_by_id = [&](std::string_view id) {
+                if (st.tools.activate_tool_by_id)
+                    st.tools.activate_tool_by_id(std::string(id));
+            },
+            .apply_active_tool_preset_digit = [&](int digit) -> bool {
+                const bool ok = app::ApplyToolPresetDigit(s_compiled_tool_id, digit, tool_engine, session_state);
+                if (ok)
+                    tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, digit);
+                return ok;
+            },
+            .request_focus_last_canvas = request_focus_last,
+            .windows = std::move(win_items),
+        };
+
+        command_palette.Render(cctx);
+    }
+
+    // After rendering the palette, refresh popup state so downstream input/keybinding consumers
+    // treat the palette as an active popup in the *same frame it was opened*.
+    any_popup =
+        ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+    // Host keybindings should not run while a popup is open (including the command palette).
+    if (!any_popup)
+    {
+        appui::HandleKeybindings(window, keybinds, session_state,
+                                 io_manager, file_dialogs, export_dialog,
+                                 tool_palette, st.tools.compile_tool_script, st.tools.sync_tool_stack,
+                                 focused_canvas, focused_canvas_window,
+                                 active_canvas, active_canvas_window,
+                                 st.done, window_fullscreen, show_minimap_window,
+                                 show_settings_window, settings_window,
+                                 fg_colour, bg_colour,
+                                 create_new_canvas);
+    }
 
     // Optional: keep the ImGui demo available for reference
     if (show_demo_window)
@@ -1192,68 +1311,89 @@ void RunFrame(AppState& st)
         insert_glyph_into_canvas(dst, phos::glyph::MakeUnicodeScalar((char32_t)cp), advance_caret);
     };
 
-    // Hotkeys for character sets:
-    if (focused_canvas)
+    // Keybinding-driven canvas/tool behaviors that are not handled by host action execution
+    // (and are not tool-claimed routed actions).
+    //
+    // This block intentionally consumes the already-collected `pressed_action_ids` list so we don't
+    // need additional per-action ActionPressed() queries.
+    if (focused_canvas && !any_popup)
     {
-        const bool any_popup =
-            ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-        if (!any_popup)
-        {
-            kb::EvalContext kctx;
-            kctx.global = true;
-            kctx.editor = true;
-            kctx.canvas = true;
-            kctx.selection = focused_canvas->HasSelection();
-            kctx.platform = kb::RuntimePlatform();
-
-            for (int i = 0; i < 12; ++i)
+        auto parse_positive_int = [](std::string_view s, int& out) -> bool {
+            out = 0;
+            if (s.empty())
+                return false;
+            for (char c : s)
             {
-                const std::string id = "charset.insert.f" + std::to_string(i + 1);
-                if (keybinds.ActionPressed(id, kctx))
+                if (c < '0' || c > '9')
+                    return false;
+                out = out * 10 + (c - '0');
+            }
+            return true;
+        };
+
+        bool tool_switched_this_frame = false;
+        for (const std::string_view action_id : pressed_action_ids)
+        {
+            // Hotkeys for character sets: charset.insert.f1..f12
+            if (action_id.starts_with("charset.insert.f"))
+            {
+                int slot = 0;
+                if (parse_positive_int(action_id.substr(std::string_view("charset.insert.f").size()), slot) &&
+                    slot >= 1 && slot <= 12)
                 {
+                    const int i = slot - 1;
                     character_sets.SelectSlot(i);
                     const uint32_t cp = character_sets.GetSlotCodePoint(i);
                     insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
                 }
+                continue;
             }
 
             // Character set navigation (disabled by default in key-bindings due to chord conflicts).
-            if (keybinds.ActionPressed("charset.prev_set", kctx))
-                character_sets.CycleActiveSet(-1);
-            if (keybinds.ActionPressed("charset.next_set", kctx))
-                character_sets.CycleActiveSet(1);
-
-            // Tool activation via keybindings: tools register `tool.activate.<tool_id>` actions
-            // from Lua `settings.shortcut(s)`.
-            for (const ToolSpec& t : tool_palette.GetTools())
+            if (action_id == "charset.prev_set")
             {
-                if (t.id.empty())
-                    continue;
-                const std::string action_id = "tool.activate." + t.id;
-                if (!keybinds.ActionPressed(action_id, kctx))
-                    continue;
-
-                // Match ToolCommand::ToolActivate behavior: persist params for old tool, switch, restore.
-                tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
-                activate_tool_by_id(t.id);
-                if (tool_compile_error.empty())
-                {
-                    s_compiled_tool_id = active_tool_id();
-                    tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
-                    if (const ToolSpec* at = tool_palette.GetActiveTool())
-                        session_state.active_tool_path = at->path;
-                }
-                break; // only switch once per frame
+                character_sets.CycleActiveSet(-1);
+                continue;
+            }
+            if (action_id == "charset.next_set")
+            {
+                character_sets.CycleActiveSet(1);
+                continue;
             }
 
-            // Tool preset slots: reserve Ctrl+1..9 and apply the Nth preset for the active tool.
-            for (int d = 1; d <= 9; ++d)
+            // Tool activation via keybindings: `tool.activate.<tool_id>` actions (registered by tools).
+            if (!tool_switched_this_frame && action_id.starts_with("tool.activate."))
             {
-                const std::string id = "tool.preset.slot." + std::to_string(d);
-                if (!keybinds.ActionPressed(id, kctx))
-                    continue;
-                if (ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state))
-                    tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, d);
+                const std::string_view tid = action_id.substr(std::string_view("tool.activate.").size());
+                // Best-effort validate tool id exists.
+                bool tool_exists = false;
+                for (const ToolSpec& t : tool_palette.GetTools())
+                {
+                    if (t.id == tid)
+                    {
+                        tool_exists = true;
+                        break;
+                    }
+                }
+                if (tool_exists)
+                {
+                    activate_tool_by_id_with_param_persistence(tid);
+                    tool_switched_this_frame = true;
+                }
+                continue;
+            }
+
+            // Tool preset slots: `tool.preset.slot.1..9` apply the Nth preset for the active tool.
+            if (action_id.starts_with("tool.preset.slot."))
+            {
+                int d = 0;
+                if (parse_positive_int(action_id.substr(std::string_view("tool.preset.slot.").size()), d) &&
+                    d >= 1 && d <= 9)
+                {
+                    if (app::ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state))
+                        tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, d);
+                }
+                continue;
             }
         }
     }
@@ -2167,13 +2307,6 @@ void RunFrame(AppState& st)
                 ctx.mod_alt = io.KeyAlt;
                 ctx.mod_super = io.KeySuper;
 
-                kb::EvalContext kctx;
-                kctx.global = true;
-                kctx.editor = c.HasFocus();
-                kctx.canvas = c.HasFocus();
-                kctx.selection = c.HasSelection();
-                kctx.platform = kb::RuntimePlatform();
-
                 // -----------------------
                 // Action Router (Option A)
                 // -----------------------
@@ -2185,263 +2318,60 @@ void RunFrame(AppState& st)
                 // This makes actions like selection delete work even when Select isn't the active tool,
                 // while still letting tools (e.g. Edit) override behavior.
 
-                const ToolSpec* active_tool = tool_palette.GetActiveTool();
-
-                // Cache fallback tool engines across frames (path -> engine).
-                static std::unordered_map<std::string, FallbackToolState> fallback_tools;
-
-                auto ensure_fallback_engine = [&](const ToolSpec& t) -> AnslScriptEngine* {
-                    if (t.path.empty())
-                        return nullptr;
-                    FallbackToolState& st = fallback_tools[t.path];
-                    if (!st.engine)
-                    {
-                        st.engine = std::make_unique<AnslScriptEngine>();
-                        std::string err;
-                        if (!st.engine->Init(GetPhosphorAssetsDir(), err, &session_state.font_sanity_cache, false))
-                        {
-                            st.last_error = err;
-                            st.engine.reset();
-                            return nullptr;
-                        }
-                    }
-
-                    const std::string src = ReadFileToString(t.path);
-                    if (src.empty())
-                        return st.engine.get();
-                    if (src != st.last_source)
-                    {
-                        std::string err;
-                        // Compile with the active canvas so palette-aware helpers (ansl.colour.*)
-                        // produce indices in the correct palette at load time.
-                        if (!st.engine->CompileUserScript(src, active_canvas, err))
-                        {
-                            st.last_error = err;
-                            return st.engine.get();
-                        }
-                        st.last_error.clear();
-                        st.last_source = src;
-                    }
-                    return st.engine.get();
+                // Build a routed-action execution context (shared implementation with the command palette).
+                const app::ActionExecContext routed_host = {
+                    .window = window,
+                    .session_state = session_state,
+                    .io_manager = io_manager,
+                    .file_dialogs = file_dialogs,
+                    .export_dialog = export_dialog,
+                    .settings_window = settings_window,
+                    .focused_canvas = &c,
+                    .focused_canvas_window = &canvas,
+                    .active_canvas = active_canvas,
+                    .active_canvas_window = active_canvas_window,
+                    .done = st.done,
+                    .window_fullscreen = window_fullscreen,
+                    .show_minimap_window = show_minimap_window,
+                    .show_settings_window = show_settings_window,
+                    .fg_colour = fg_colour,
+                    .bg_colour = bg_colour,
+                    .create_new_canvas = create_new_canvas,
+                };
+                const app::RoutedActionExecContext routed_ctx = {
+                    .host = routed_host,
+                    .tool_palette = tool_palette,
+                    .tool_engine = tool_engine,
+                    .compiled_tool_id = s_compiled_tool_id,
+                    .allow_host_action_execute = false,
                 };
 
-                auto run_fallback_tool_action = [&](const ToolSpec& t, std::string_view action_id) -> bool {
-                    AnslScriptEngine* eng = ensure_fallback_engine(t);
-                    if (!eng)
-                        return false;
-
-                    std::vector<std::string> actions;
-                    actions.emplace_back(action_id);
-
-                    AnslFrameContext fctx = ctx;
-                    // Keyboard-only dispatch.
-                    fctx.phase = 0;
-                    // Avoid accidental key-driven behavior in the fallback tool: drive only via ctx.actions.
-                    fctx.key_left = false;
-                    fctx.key_right = false;
-                    fctx.key_up = false;
-                    fctx.key_down = false;
-                    fctx.key_home = false;
-                    fctx.key_end = false;
-                    fctx.key_backspace = false;
-                    fctx.key_delete = false;
-                    fctx.key_enter = false;
-                    fctx.key_c = false;
-                    fctx.key_v = false;
-                    fctx.key_x = false;
-                    fctx.key_a = false;
-                    fctx.key_escape = false;
-                    fctx.hotkeys = {};
-                    fctx.typed = nullptr;
-                    fctx.cursor_valid = false;
-                    fctx.actions_pressed = &actions;
-                    fctx.allow_caret_writeback = false;
-
-                    // Allow a small set of structural selection actions to run as fallback, since they
-                    // are intentionally implemented via tool commands (Lua -> ctx.out -> ToolCommand).
-                    const bool allow_tool_commands =
-                        (action_id == "selection.shift_delete") ||
-                        (action_id == "selection.remove_row_shift_up") ||
-                        (action_id == "selection.remove_col_shift_left") ||
-                        (action_id == "selection.insert_row_shift_down") ||
-                        (action_id == "selection.insert_col_shift_right");
-
-                    ToolCommandSink sink;
-                    std::vector<ToolCommand> cmds;
-                    sink.allow_tool_commands = allow_tool_commands;
-                    sink.out_commands = allow_tool_commands ? &cmds : nullptr;
-
-                    std::string err;
-                    const bool ok = eng->RunFrame(c, c.GetActiveLayerIndex(), fctx, sink, false, err);
-                    (void)ok;
-
-                    if (allow_tool_commands && !cmds.empty())
-                    {
-                        for (const ToolCommand& cmd : cmds)
-                        {
-                            switch (cmd.type)
-                            {
-                            case ToolCommand::Type::CanvasRemoveRowShiftUp:
-                            {
-                                if (c.IsMovingSelection())
-                                    (void)c.CommitMoveSelection();
-                                (void)c.RemoveRowShiftUp(cmd.y, cmd.layer);
-                            } break;
-                            case ToolCommand::Type::CanvasRemoveColShiftLeft:
-                            {
-                                if (c.IsMovingSelection())
-                                    (void)c.CommitMoveSelection();
-                                (void)c.RemoveColumnShiftLeft(cmd.x, cmd.layer);
-                            } break;
-                            case ToolCommand::Type::CanvasInsertRowShiftDown:
-                            {
-                                if (c.IsMovingSelection())
-                                    (void)c.CommitMoveSelection();
-                                (void)c.InsertRowShiftDown(cmd.y, cmd.layer);
-                            } break;
-                            case ToolCommand::Type::CanvasInsertColShiftRight:
-                            {
-                                if (c.IsMovingSelection())
-                                    (void)c.CommitMoveSelection();
-                                (void)c.InsertColumnShiftRight(cmd.x, cmd.layer);
-                            } break;
-                            default:
-                                break;
-                            }
-                        }
-                    }
-
-                    // Even if the tool errors, don't crash routing; treat as handled to avoid host fallback duplication.
-                    return true;
-                };
-
-                auto host_fallback = [&](std::string_view action_id) -> bool {
-                    if (action_id == "edit.select_all")
-                    {
-                        c.SelectAll();
-                        return true;
-                    }
-                    if (action_id == "selection.clear_or_cancel")
-                    {
-                        if (c.IsMovingSelection())
-                            (void)c.CancelMoveSelection();
-                        else
-                            c.ClearSelection();
-                        return true;
-                    }
-                    if (action_id == "selection.clear")
-                    {
-                        if (c.IsMovingSelection())
-                            (void)c.CommitMoveSelection();
-                        (void)c.DeleteSelection();
-                        return true;
-                    }
-                    if (action_id == "edit.copy")
-                    {
-                        (void)app::CopySelectionToSystemClipboardText(c);
-                        return c.CopySelectionToClipboard();
-                    }
-                    if (action_id == "edit.cut")
-                    {
-                        (void)app::CopySelectionToSystemClipboardText(c);
-                        return c.CutSelectionToClipboard();
-                    }
-                    if (action_id == "edit.paste")
-                    {
-                        if (app::PasteSystemClipboardText(c, ctx.caret_x, ctx.caret_y))
-                            return true;
-                        return c.PasteClipboard(ctx.caret_x, ctx.caret_y);
-                    }
-                    return false;
-                };
-
-                // Evaluate common semantic hotkeys from the keybinding engine.
-                const kb::Hotkeys hk_raw = keybinds.EvalCommonHotkeys(kctx);
-                const bool pressed_shift_delete = keybinds.ActionPressed("selection.shift_delete", kctx);
-                const bool pressed_select_row = keybinds.ActionPressed("selection.select_row", kctx);
-                const bool pressed_select_col = keybinds.ActionPressed("selection.select_column", kctx);
-                const bool pressed_remove_row = keybinds.ActionPressed("selection.remove_row_shift_up", kctx);
-                const bool pressed_remove_col = keybinds.ActionPressed("selection.remove_col_shift_left", kctx);
-                const bool pressed_insert_row = keybinds.ActionPressed("selection.insert_row_shift_down", kctx);
-                const bool pressed_insert_col = keybinds.ActionPressed("selection.insert_col_shift_right", kctx);
-                struct Candidate
-                {
-                    std::string_view id;
-                    bool             pressed = false;
-                };
-                Candidate candidates[] = {
-                    {"edit.copy", hk_raw.copy},
-                    {"edit.cut", hk_raw.cut},
-                    {"edit.paste", hk_raw.paste},
-                    {"edit.select_all", hk_raw.select_all},
-                    {"selection.clear_or_cancel", hk_raw.cancel},
-                    {"selection.clear", hk_raw.delete_selection},
-                    {"selection.shift_delete", pressed_shift_delete},
-                    {"selection.select_row", pressed_select_row},
-                    {"selection.select_column", pressed_select_col},
-                    {"selection.remove_row_shift_up", pressed_remove_row},
-                    {"selection.remove_col_shift_left", pressed_remove_col},
-                    {"selection.insert_row_shift_down", pressed_insert_row},
-                    {"selection.insert_col_shift_right", pressed_insert_col},
-                };
-
-                // Decide which of the common actions to deliver to the active tool, and which to handle via fallback.
-                // - If the active tool handles the action (when="active"): deliver it via ctx.hotkeys + ctx.actions.
-                // - Otherwise: run the first fallback tool that handles it (when="inactive"), excluding the active tool.
-                // - Otherwise: host fallback.
+                // Route pressed actions (tool claims + fallback tools + host fallback only).
+                // Host action execution is explicitly disabled here to avoid double-firing actions that are handled
+                // earlier in appui::HandleKeybindings (e.g. Undo/Redo/Zoom/etc).
                 kb::Hotkeys hk_to_tool;
                 pressed_actions.clear();
                 bool request_switch_to_select_tool = false;
-
-                for (const Candidate& cand : candidates)
+                if (!any_popup && c.HasFocus())
                 {
-                    if (!cand.pressed)
-                        continue;
-
-                    const bool claimed_by_active = ToolClaimsAction(active_tool, cand.id);
-                    if (claimed_by_active)
+                    for (const std::string_view action_id : pressed_action_ids)
                     {
-                        // If a tool claims clipboard actions, we still want OS clipboard interop:
-                        // - Copy/Cut: mirror selection to OS clipboard as UTF-8 text.
-                        // - Paste: prefer OS clipboard paste; if it succeeds, don't also deliver to the tool
-                        //          (to avoid double-paste). If it fails, fall back to tool behavior.
-                        if (cand.id == "edit.copy" || cand.id == "edit.cut")
-                        {
-                            (void)app::CopySelectionToSystemClipboardText(c);
-                        }
-                        else if (cand.id == "edit.paste")
-                        {
-                            if (app::PasteSystemClipboardText(c, ctx.caret_x, ctx.caret_y))
-                            {
-                                // After pasting, switch to Select so the pasted region can be moved immediately.
-                                request_switch_to_select_tool = true;
-                                continue;
-                            }
-                        }
-
-                        pressed_actions.push_back(std::string(cand.id));
-                        if (cand.id == "edit.copy") hk_to_tool.copy = true;
-                        else if (cand.id == "edit.cut") hk_to_tool.cut = true;
-                        else if (cand.id == "edit.paste") hk_to_tool.paste = true;
-                        else if (cand.id == "edit.select_all") hk_to_tool.select_all = true;
-                        else if (cand.id == "selection.clear_or_cancel") hk_to_tool.cancel = true;
-                        else if (cand.id == "selection.clear") hk_to_tool.delete_selection = true;
-                        continue;
-                    }
-
-                    bool handled = false;
-                    for (const ToolSpec& t : tool_palette.GetTools())
-                    {
-                        if (active_tool && t.id == active_tool->id)
+                        const app::RoutedActionRouteResult rr = app::RouteRoutedActionIdForKeybinding(action_id, routed_ctx);
+                        if (rr.request_switch_to_select_tool)
+                            request_switch_to_select_tool = true;
+                        if (!rr.handled)
                             continue;
-                        if (!ToolFallbackClaimsAction(t, cand.id))
+                        if (!rr.deliver_to_active_tool)
                             continue;
-                        handled = run_fallback_tool_action(t, cand.id);
-                        if (handled)
-                            break;
+
+                        pressed_actions.push_back(std::string(action_id));
+                        if (action_id == "edit.copy") hk_to_tool.copy = true;
+                        else if (action_id == "edit.cut") hk_to_tool.cut = true;
+                        else if (action_id == "edit.paste") hk_to_tool.paste = true;
+                        else if (action_id == "edit.select_all") hk_to_tool.select_all = true;
+                        else if (action_id == "selection.clear_or_cancel") hk_to_tool.cancel = true;
+                        else if (action_id == "selection.clear") hk_to_tool.delete_selection = true;
                     }
-                    if (!handled)
-                        (void)host_fallback(cand.id);
                 }
 
                 // Expose routed hotkeys/actions to the active tool.
@@ -2454,30 +2384,10 @@ void RunFrame(AppState& st)
 
                 if (request_switch_to_select_tool)
                 {
-                    tool_params::SaveToolParamsToSession(session_state, s_compiled_tool_id, tool_engine);
-                    activate_tool_by_id("01-select");
-                    if (tool_compile_error.empty())
-                    {
-                        s_compiled_tool_id = active_tool_id();
-                        tool_params::RestoreToolParamsFromSession(session_state, s_compiled_tool_id, tool_engine);
-                        if (const ToolSpec* at = tool_palette.GetActiveTool())
-                            session_state.active_tool_path = at->path;
-                    }
+                    activate_tool_by_id_with_param_persistence("01-select");
                 }
- 
-                if (active_tool_id() == "01-select")
-                {
-                    auto push_if_pressed = [&](std::string_view id) {
-                        if (keybinds.ActionPressed(id, kctx))
-                            pressed_actions.push_back(std::string(id));
-                    };
-                    push_if_pressed("selection.op.rotate_cw");
-                    push_if_pressed("selection.op.flip_x");
-                    push_if_pressed("selection.op.flip_y");
-                    push_if_pressed("selection.op.center");
-                    push_if_pressed("selection.crop");
-                }
-                ctx.actions_pressed = &pressed_actions;
+                if (!any_popup && c.HasFocus())
+                    ctx.actions_pressed = &pressed_actions;
             }
 
             std::string err;

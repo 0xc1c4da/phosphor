@@ -55,6 +55,9 @@ SOURCES  = \
            src/app/main.cpp \
            src/app/vulkan_state.cpp \
            src/app/app_ui.cpp \
+           src/app/action_execute.cpp \
+           src/app/action_route_execute.cpp \
+           src/app/tool_preset_apply.cpp \
            src/app/clipboard_utils.cpp \
            src/app/workspace_persist.cpp \
            src/app/run_frame.cpp \
@@ -92,6 +95,7 @@ SOURCES  = \
            src/ui/ansl_editor.cpp \
            src/ui/ansl_params_ui.cpp \
            src/ui/brush_palette_window.cpp \
+           src/ui/command_palette.cpp \
            src/ui/character_palette.cpp \
            src/ui/character_picker.cpp \
            src/ui/character_set.cpp \

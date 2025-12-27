@@ -39,6 +39,7 @@ class MinimapWindow;
 class CanvasPreviewTexture;
 class BitmapGlyphAtlasTextureCache;
 class SixteenColorsBrowserWindow;
+class CommandPalette;
 
 struct CanvasWindow;
 class ImageWindow;
@@ -129,6 +130,7 @@ struct AppState
         BitmapGlyphAtlasTextureCache* bitmap_glyph_atlas = nullptr;
         SixteenColorsBrowserWindow* sixteen_browser = nullptr;
         class BrushPaletteWindow* brush_palette_window = nullptr;
+        CommandPalette* command_palette = nullptr;
     } ui;
 
     struct Colours

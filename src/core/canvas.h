@@ -288,10 +288,18 @@ public:
         float view_h = 0.0f;
         float scroll_x = 0.0f;
         float scroll_y = 0.0f;
+
+        // Top-left of the rendered canvas grid in screen coordinates (ImGui space).
+        float origin_x = 0.0f;
+        float origin_y = 0.0f;
     };
 
     // Returns the last captured viewport state from Render().
     const ViewState& GetLastViewState() const { return m_last_view; }
+
+    // Returns the caret position in screen coordinates (ImGui space) using the last Render() view state.
+    // Returns false if view state is unavailable or invalid.
+    bool GetCaretScreenPos(ImVec2& out) const;
 
     // If enabled, the canvas auto-scrolls to keep the caret visible when navigating/typing.
     // Tools/scripts can still request explicit scroll positions via RequestScrollPixels().
@@ -790,6 +798,9 @@ public:
         m_cursor_valid = false;
         m_focus_gained = false;
     }
+    // Requests keyboard focus to the canvas grid on the next Render().
+    // This is intended for "return focus to last active canvas" flows (e.g. closing a popup).
+    void RequestFocus();
     // Returns true exactly once when this canvas gains focus via a click inside the grid.
     bool TakeFocusGained()
     {
@@ -1142,6 +1153,8 @@ private:
     bool m_has_focus = false;
     // Transient: set during Render() when focus becomes true due to a click in the grid.
     bool m_focus_gained = false;
+    // Transient: set by host to request focus on next Render().
+    bool m_focus_requested = false;
     // Last known mouse cursor state in cell space (updated during Render()).
     bool m_cursor_valid = false;
     int  m_cursor_col = 0;
