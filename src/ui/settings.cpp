@@ -5,6 +5,7 @@
 #include "core/encodings.h"
 #include "core/i18n.h"
 #include "core/paths.h"
+#include "core/version.h"
 #include "core/key_bindings.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/skin.h"
@@ -21,10 +22,6 @@
 
 #include <unicode/locid.h>
 #include <unicode/unistr.h>
-
-#ifndef PHOSPHOR_VERSION_STR
-#define PHOSPHOR_VERSION_STR "0.0.0+unknown"
-#endif
 
 namespace
 {

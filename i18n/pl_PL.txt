@@ -51,6 +51,7 @@ pl_PL {
     unknown_short { "?" }
     unnamed { "(bez nazwy)" }
     untitled { "Bez tytułu" }
+    empty { " " }
     empty_parens { "(puste)" }
     custom_parens { "(niestandardowe)" }
     none_parens { "(brak)" }

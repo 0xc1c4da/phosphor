@@ -51,6 +51,7 @@ ru_RU {
     unknown_short { "?" }
     unnamed { "(без имени)" }
     untitled { "Без названия" }
+    empty { " " }
     empty_parens { "(пусто)" }
     custom_parens { "(пользовательское)" }
     none_parens { "(нет)" }

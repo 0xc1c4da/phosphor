@@ -51,6 +51,7 @@ nl_NL {
     unknown_short { "?" }
     unnamed { "(naamloos)" }
     untitled { "Naamloos" }
+    empty { " " }
     empty_parens { "(leeg)" }
     custom_parens { "(aangepast)" }
     none_parens { "(geen)" }

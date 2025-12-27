@@ -17,6 +17,15 @@ ToolPresetsWindow::ToolPresetsWindow()
     path_ = PhosphorAssetPath("tool-presets.json");
 }
 
+void ToolPresetsWindow::NotifySelectedSlot(const std::string& tool_id, int slot)
+{
+    if (tool_id.empty())
+        return;
+    if (slot < 1 || slot > 9)
+        return;
+    selected_slot_by_tool_[tool_id] = slot;
+}
+
 void ToolPresetsWindow::EnsureLoaded()
 {
     if (!loaded_)
@@ -181,21 +190,115 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
     const int selected_slot =
         (tool_id.empty() ? 0 : (selected_slot_by_tool_.count(tool_id) ? selected_slot_by_tool_[tool_id] : 0));
 
+    // Put the buttons in a scrollable child so tiny windows never "lose" slots off-screen.
+    // Also reserve scrollbar width deterministically to avoid wrapping a button under it.
+    ImGui::BeginChild("##tool_presets_slots",
+                      /*size=*/ImVec2(0.0f, 0.0f),
+                      /*border=*/false,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    // Button sizing: prefer a single row of 1..9 when possible, otherwise wrap.
-    const float min_w = 96.0f;
-    const float min_h = 42.0f;
-    int cols = 9;
-    if (avail.x > 1.0f)
+    // Preset slot buttons: variable width sized to title (like a wrapping "chip" layout),
+    // with a consistent height. This reads better for long titles and naturally adapts
+    // to horizontal vs vertical window shapes via wrapping.
+    const float button_h = 42.0f;
+    const float min_button_w = 56.0f;
+    const float left_pad = 8.0f;   // space before slot number
+    const float mid_gap = 10.0f;   // space between slot number and title
+    const float right_pad = 10.0f; // space after title
+    const float top_pad = 6.0f;    // vertical placement for overlay text
+    const float avail_w = std::max(1.0f, avail.x);
+    float row_used = 0.0f; // in content coords
+
+    // Stepped font sizes for titles (max = current font size). We do two things:
+    // - A *global* step based on available width (so resizing actually changes typography).
+    // - A *per-title* fallback step only if the title still doesn't fit.
+    //
+    // Using discrete steps avoids "jitter" during resize.
+    const float base_font_size = ImGui::GetFontSize();
+    ImFont* font = ImGui::GetFont();
+    const float title_scales[] = { 1.0f, 0.90f, 0.82f, 0.74f };
+
+    // Choose the global step by simulating the wrapped layout for each scale and picking
+    // the largest one that fits in BOTH available width (wrap) and height (rows visible).
+    int global_title_step = 0; // index into title_scales (0 = largest)
+    if (font && avail_w > 1.0f && avail.y > 1.0f)
     {
-        cols = (int)std::floor((avail.x + style.ItemSpacing.x) / (min_w + style.ItemSpacing.x));
-        cols = std::clamp(cols, 1, 9);
+        auto title_text_for_slot = [&](int slot) -> std::string {
+            const int gi = find_preset_index_for_slot(slot);
+            const bool has = (gi >= 0 && gi < (int)presets_.size());
+            return has ? presets_[(size_t)gi].title : PHOS_TR("common.empty");
+        };
+
+        auto simulate_total_height_for_step = [&](int step) -> float {
+            const float title_fs = std::max(1.0f, base_font_size * title_scales[step]);
+            float row_used_sim = 0.0f;
+            int rows = 1;
+            for (int slot = 1; slot <= 9; ++slot)
+            {
+                const std::string label = std::to_string(slot);
+                const std::string title_txt = title_text_for_slot(slot);
+
+                const ImVec2 label_sz = ImGui::CalcTextSize(label.c_str());
+                const ImVec2 title_sz = font->CalcTextSizeA(title_fs, FLT_MAX, 0.0f, title_txt.c_str());
+                const float title_x = left_pad + label_sz.x + mid_gap;
+                float btn_w = std::max(min_button_w, title_x + title_sz.x + right_pad + style.FramePadding.x * 2.0f);
+                btn_w = std::clamp(btn_w, min_button_w, avail_w);
+
+                if (row_used_sim > 0.0f)
+                {
+                    const float need = style.ItemSpacing.x + btn_w;
+                    if (row_used_sim + need > avail_w)
+                    {
+                        row_used_sim = 0.0f;
+                        rows++;
+                    }
+                    else
+                    {
+                        row_used_sim += style.ItemSpacing.x;
+                    }
+                }
+                row_used_sim += btn_w;
+            }
+
+            return (float)rows * button_h + (float)std::max(0, rows - 1) * style.ItemSpacing.y;
+        };
+
+        int best_fit_step = -1;
+        float best_overflow = FLT_MAX;
+        for (int step = 0; step < (int)IM_ARRAYSIZE(title_scales); ++step)
+        {
+            const float total_h = simulate_total_height_for_step(step);
+            const float overflow = std::max(0.0f, total_h - avail.y);
+            if (overflow <= 0.0f)
+            {
+                best_fit_step = step;
+                break; // first fit is the largest font (steps are ordered largest->smallest)
+            }
+            if (overflow < best_overflow)
+            {
+                best_overflow = overflow;
+                global_title_step = step; // best so far (min overflow) in case none fit
+            }
+        }
+        if (best_fit_step >= 0)
+            global_title_step = best_fit_step;
     }
-    const float total_spacing_x = style.ItemSpacing.x * (cols - 1);
-    const float button_w = (cols > 0) ? std::max(min_w, (avail.x - total_spacing_x) / (float)cols) : min_w;
-    const ImVec2 btn_sz(button_w, min_h);
+
+    auto pick_title_font_size = [&](const std::string& text, float max_w) -> float {
+        if (!font || text.empty() || !(max_w > 1.0f))
+            return std::max(1.0f, base_font_size * title_scales[global_title_step]);
+        for (int i = global_title_step; i < (int)IM_ARRAYSIZE(title_scales); ++i)
+        {
+            const float fs = std::max(1.0f, base_font_size * title_scales[i]);
+            const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, text.c_str());
+            if (ts.x <= max_w)
+                return fs;
+        }
+        return std::max(1.0f, base_font_size * title_scales[(int)IM_ARRAYSIZE(title_scales) - 1]);
+    };
 
     auto capture_current = [&]() -> std::unordered_map<std::string, SessionState::ToolParamValue> {
         std::unordered_map<std::string, SessionState::ToolParamValue> vals;
@@ -222,24 +325,50 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
 
     for (int slot = 1; slot <= 9; ++slot)
     {
-        const int slot_index = slot - 1;
-        if (slot_index % cols != 0)
-            ImGui::SameLine();
-
         const int gi = find_preset_index_for_slot(slot);
         const bool has = (gi >= 0 && gi < (int)presets_.size());
 
         std::string label = std::to_string(slot);
-        std::string title_txt = has ? presets_[(size_t)gi].title : PHOS_TR("common.empty_parens");
-        const bool is_selected = has && (selected_slot == slot);
+        std::string title_txt = has ? presets_[(size_t)gi].title : PHOS_TR("common.empty");
+        const bool is_selected = (!tool_id.empty() && selected_slot == slot);
+
+        // Compute variable width based on label + title.
+        const ImVec2 label_sz = ImGui::CalcTextSize(label.c_str());
+        const float title_font_base = std::max(1.0f, base_font_size * title_scales[global_title_step]);
+        const ImVec2 title_sz = font ? font->CalcTextSizeA(title_font_base, FLT_MAX, 0.0f, title_txt.c_str())
+                                     : ImGui::CalcTextSize(title_txt.c_str());
+        const float title_x = left_pad + label_sz.x + mid_gap;
+        float btn_w = std::max(min_button_w, title_x + title_sz.x + right_pad + style.FramePadding.x * 2.0f);
+        btn_w = std::clamp(btn_w, min_button_w, avail_w);
+
+        // Wrap to next row if needed.
+        if (row_used > 0.0f)
+        {
+            const float need = style.ItemSpacing.x + btn_w;
+            if (row_used + need > avail_w)
+                row_used = 0.0f;
+            else
+            {
+                ImGui::SameLine();
+                row_used += style.ItemSpacing.x;
+            }
+        }
+        row_used += btn_w;
 
         ImGui::PushID(slot);
 
         // Button (like ToolPalette: button + draw overlay text).
         if (is_selected)
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button("##preset_btn", btn_sz))
+        if (ImGui::Button("##preset_btn", ImVec2(btn_w, button_h)))
         {
+            // Always select the slot on click so the highlight matches user intent.
+            if (!tool_id.empty() && (selected_slot_by_tool_.count(tool_id) == 0 || selected_slot_by_tool_[tool_id] != slot))
+            {
+                selected_slot_by_tool_[tool_id] = slot;
+                (void)Save(); // best-effort; errors shown in UI
+            }
+
             if (has)
                 apply_preset(presets_[(size_t)gi]);
             else
@@ -255,6 +384,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                     if (!p.values.empty())
                     {
                         presets_.push_back(std::move(p));
+                        selected_slot_by_tool_[tool_id] = slot;
                         dirty_ = true;
                         (void)Save();
                     }
@@ -269,16 +399,32 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         const ImVec2 rmin = ImGui::GetItemRectMin();
         const ImVec2 rmax = ImGui::GetItemRectMax();
         dl->PushClipRect(rmin, rmax, true);
-        dl->AddText(ImVec2(rmin.x + 8.0f, rmin.y + 6.0f), ImGui::GetColorU32(ImGuiCol_TextDisabled), label.c_str());
-        dl->AddText(ImVec2(rmin.x + 26.0f, rmin.y + 6.0f), ImGui::GetColorU32(ImGuiCol_Text), title_txt.c_str());
+        const ImVec2 label_pos(rmin.x + left_pad, rmin.y + top_pad);
+        const ImVec2 title_pos(rmin.x + title_x, rmin.y + top_pad);
+        const float max_title_w = std::max(1.0f, (rmax.x - right_pad) - title_pos.x);
+        const float title_font_size = pick_title_font_size(title_txt, max_title_w);
+
+        dl->AddText(font, base_font_size, label_pos,
+                    ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                    label.c_str());
+        dl->AddText(font, title_font_size, title_pos,
+                    ImGui::GetColorU32(has ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+                    title_txt.c_str(),
+                    /*text_end=*/nullptr,
+                    /*wrap_width=*/0.0f);
         dl->PopClipRect();
 
         if (ImGui::IsItemHovered())
         {
             ImGui::BeginTooltip();
-            ImGui::TextUnformatted(title_txt.c_str());
+            if (has)
+                ImGui::TextUnformatted(title_txt.c_str());
+            else
+                ImGui::TextUnformatted(PHOS_TR("common.empty_parens").c_str());
             if (has)
                 ImGui::TextDisabled("Ctrl+%d", slot);
+            else
+                ImGui::TextDisabled("%s", PHOS_TR("tool_presets_window.ctx_save_current_to_slot").c_str());
             ImGui::EndTooltip();
         }
 
@@ -325,6 +471,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                         if (!p.values.empty())
                         {
                             presets_.push_back(std::move(p));
+                            selected_slot_by_tool_[tool_id] = slot;
                             dirty_ = true;
                             (void)Save();
                         }
@@ -336,6 +483,8 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
 
         ImGui::PopID();
     }
+
+    ImGui::EndChild();
 
     // Rename modal
     if (ImGui::BeginPopupModal(rename_popup.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize))

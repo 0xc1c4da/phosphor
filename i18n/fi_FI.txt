@@ -51,6 +51,7 @@ fi_FI {
     unknown_short { "?" }
     unnamed { "(nimetön)" }
     untitled { "Nimetön" }
+    empty { " " }
     empty_parens { "(tyhjä)" }
     custom_parens { "(mukautettu)" }
     none_parens { "(ei mitään)" }

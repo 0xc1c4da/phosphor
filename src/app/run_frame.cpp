@@ -192,6 +192,7 @@ void RunFrame(AppState& st)
     BitmapGlyphAtlasTextureCache& bitmap_glyph_atlas = *st.ui.bitmap_glyph_atlas;
     SixteenColorsBrowserWindow& sixteen_browser = *st.ui.sixteen_browser;
     BrushPaletteWindow& brush_palette = *st.ui.brush_palette_window;
+    static ToolPresetsWindow tool_presets_window;
 
     // Advance the atlas cache clock and collect deferred frees.
     // (Safe to call every frame; no-ops if cache is uninitialized.)
@@ -1251,7 +1252,8 @@ void RunFrame(AppState& st)
                 const std::string id = "tool.preset.slot." + std::to_string(d);
                 if (!keybinds.ActionPressed(id, kctx))
                     continue;
-                (void)ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state);
+                if (ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state))
+                    tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, d);
             }
         }
     }
@@ -1708,7 +1710,6 @@ void RunFrame(AppState& st)
     // Tool Presets window (slots 1..9 for active tool).
     if (show_tool_presets_window)
     {
-        static ToolPresetsWindow tool_presets_window;
         (void)tool_presets_window.Render(tool_palette.GetActiveTool(),
                                          s_compiled_tool_id,
                                          tool_engine,

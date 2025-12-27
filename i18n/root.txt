@@ -51,6 +51,7 @@ root {
     unknown_short { "?" }
     unnamed { "(unnamed)" }
     untitled { "Untitled" }
+    empty { " " }
     empty_parens { "(empty)" }
     custom_parens { "(custom)" }
     none_parens { "(none)" }

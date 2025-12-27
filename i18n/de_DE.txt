@@ -51,6 +51,7 @@ de_DE {
     unknown_short { "?" }
     unnamed { "(unbenannt)" }
     untitled { "Unbenannt" }
+    empty { " " }
     empty_parens { "(leer)" }
     custom_parens { "(benutzerdefiniert)" }
     none_parens { "(keine)" }

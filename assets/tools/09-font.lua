@@ -7,16 +7,18 @@ settings = {
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
-    font = { type = "enum", label = "Font", ui = "combo_filter", section = "Font", placement = "quick", items = { "(no fonts)" }, default = "(no fonts)" },
-    place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", placement = "quick", inline = true },
-    clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", placement = "quick", inline = true },
+    -- Mirror 01-select UX: multiple quick-bar sections so the host shows section headers
+    -- (e.g. "Clipboard", "Transform"). This keeps the quick UI readable without changing labels.
+    font = { type = "enum", label = "Font", ui = "combo_filter", section = "Font", placement = "quick", order = 0, items = { "(no fonts)" }, default = "(no fonts)", width = 180 },
+    place = { type = "button", label = "Place (Enter)", ui = "action", section = "Actions", placement = "quick", order = 1, inline = true },
+    clearText = { type = "button", label = "Clear", ui = "action", section = "Actions", placement = "quick", order = 2, inline = true },
 
-    useFontColours = { type = "bool", label = "Use font colours", ui = "toggle", section = "Colour", default = true },
-    useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Colour", default = true, inline = true },
-    useBg = { type = "bool", label = "Fallback: Use BG", ui = "toggle", section = "Colour", default = false, inline = true },
+    useFontColours = { type = "bool", label = "Use font colours", ui = "toggle", section = "Colour", placement = "quick", order = 3, default = true },
+    useFg = { type = "bool", label = "Fallback: Use FG", ui = "toggle", section = "Colour", placement = "quick", order = 4, default = true, inline = true },
+    useBg = { type = "bool", label = "Fallback: Use BG", ui = "toggle", section = "Colour", placement = "quick", order = 5, default = false, inline = true },
 
-    editMode = { type = "bool", label = "Edit markers (outline)", ui = "toggle", section = "Outline", default = false },
-    outlineStyle = { type = "int", label = "Outline style", ui = "slider", section = "Outline", min = 0, max = 18, step = 1, default = 0, inline = true, width = 180 },
+    editMode = { type = "bool", label = "Edit markers (outline)", ui = "toggle", section = "Outline", placement = "quick", order = 6, default = false },
+    outlineStyle = { type = "int", label = "Outline style", ui = "slider", section = "Outline", placement = "quick", order = 7, min = 0, max = 18, step = 1, default = 0, inline = true, width = 180 },
   },
 }
 

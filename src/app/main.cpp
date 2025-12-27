@@ -34,6 +34,7 @@
 #include "core/i18n.h"
 #include "core/key_bindings.h"
 #include "core/paths.h"
+#include "core/version.h"
 
 #include "io/io_manager.h"
 #include "io/sdl_file_dialog_queue.h"
@@ -172,7 +173,8 @@ int main(int argc, char** argv)
         initial_h = clamp_i(session_state.window_h, 240, 16384);
     }
 
-    SDL_Window* window = SDL_CreateWindow("Phosphor", initial_w, initial_h, window_flags);
+    const std::string window_title = std::string("Phosphor ") + PHOSPHOR_VERSION_STR;
+    SDL_Window* window = SDL_CreateWindow(window_title.c_str(), initial_w, initial_h, window_flags);
     if (window == nullptr)
     {
         std::printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());

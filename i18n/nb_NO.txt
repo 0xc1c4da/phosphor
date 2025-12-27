@@ -51,6 +51,7 @@ nb_NO {
     unknown_short { "?" }
     unnamed { "(uten navn)" }
     untitled { "Uten tittel" }
+    empty { " " }
     empty_parens { "(tom)" }
     custom_parens { "(tilpasset)" }
     none_parens { "(ingen)" }

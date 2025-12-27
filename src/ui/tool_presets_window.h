@@ -14,6 +14,10 @@ class ToolPresetsWindow
 public:
     ToolPresetsWindow();
 
+    // Keep the window's in-memory selection in sync with external actions (e.g. Ctrl+1..9).
+    // This is purely UI state; persistence is handled elsewhere.
+    void NotifySelectedSlot(const std::string& tool_id, int slot);
+
     // Returns true if window was shown (built).
     bool Render(const ToolSpec* active_tool,
                 const std::string& tool_id,

@@ -1,4 +1,59 @@
 {
+  "schema_version": 20,
+  "window": {
+    "fullscreen": false,
+    "h": 1522,
+    "maximized": true,
+    "pos_valid": true,
+    "w": 2560,
+    "x": 0,
+    "y": 78
+  },
+  "ui": {
+    "ansl_editor": {
+      "selected_example_index": -1,
+      "target_fps": 30
+    },
+    "canvas_bg_white": false,
+    "character_palette_settings_open": false,
+    "glyph_atlas_cache_budget_bytes": 100663296,
+    "lut_cache_budget_bytes": 67108864,
+    "show_16colors_browser_window": true,
+    "show_ansl_editor_window": true,
+    "show_brush_palette_window": false,
+    "show_character_palette_window": true,
+    "show_character_picker_window": false,
+    "show_character_sets_window": true,
+    "show_colour_picker_window": true,
+    "show_layer_manager_window": true,
+    "show_minimap_window": true,
+    "show_settings_window": false,
+    "show_tool_palette_window": true,
+    "show_tool_presets_window": true,
+    "theme": "cherry",
+    "undo_limit": 0,
+    "xterm_colour_picker": {
+      "active_fb": 0,
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "fg": [
+        0.686274528503418,
+        0.843137264251709,
+        0.529411792755127,
+        1.0
+      ],
+      "last_hue": 0.25,
+      "picker_mode": 0,
+      "picker_preview_fb": 0,
+      "selected_palette": 0
+    },
+    "zoom_snap_mode": 2
+  },
+  "workspace": {},
   "content": {
     "last_active_canvas_id": -1,
     "next_canvas_id": 1,
@@ -10,17 +65,17 @@
   "imgui_windows": {
     "16colo.rs Browser": {
       "collapsed": false,
-      "h": 941.0,
-      "w": 809.0,
-      "x": 259.0,
-      "y": 165.0
+      "h": 991.0,
+      "w": 1008.0,
+      "x": 794.0,
+      "y": 113.0
     },
     "ANSL Editor": {
       "collapsed": false,
-      "h": 1079.0,
-      "w": 612.0,
-      "x": 1673.0,
-      "y": 33.0
+      "h": 999.0,
+      "w": 477.0,
+      "x": 1808.0,
+      "y": 113.0
     },
     "Character Palette": {
       "collapsed": false,
@@ -31,17 +86,17 @@
     },
     "Character Sets": {
       "collapsed": false,
-      "h": 129.0,
-      "w": 944.0,
-      "x": 734.0,
-      "y": 36.0
+      "h": 72.0,
+      "w": 533.0,
+      "x": 1759.0,
+      "y": 38.0
     },
     "Colour Picker": {
       "collapsed": false,
       "h": 1486.0,
       "w": 253.0,
-      "x": 3.0,
-      "y": 36.0
+      "x": 7.0,
+      "y": 39.0
     },
     "Layer Manager": {
       "collapsed": false,
@@ -54,15 +109,29 @@
       "collapsed": false,
       "h": 1076.0,
       "w": 278.0,
-      "x": 2288.0,
-      "y": 33.0
+      "x": 2289.0,
+      "y": 34.0
     },
     "Tool Palette": {
       "collapsed": false,
-      "h": 125.0,
-      "w": 469.0,
+      "h": 1082.0,
+      "w": 90.0,
       "x": 262.0,
       "y": 39.0
+    },
+    "Tool Parameters": {
+      "collapsed": false,
+      "h": 1041.0,
+      "w": 434.0,
+      "x": 355.0,
+      "y": 115.0
+    },
+    "Tool Presets": {
+      "collapsed": false,
+      "h": 69.0,
+      "w": 1391.0,
+      "x": 357.0,
+      "y": 36.0
     },
     "Unicode Character Picker": {
       "collapsed": false,
@@ -70,62 +139,6 @@
       "w": 608.0,
       "x": 1070.0,
       "y": 163.0
-    },
-    "Xterm-256 Colour Picker": {
-      "collapsed": false,
-      "h": 1476.0,
-      "w": 249.0,
-      "x": 7.0,
-      "y": 38.0
     }
-  },
-  "schema_version": 13,
-  "ui": {
-    "ansl_editor": {
-      "selected_example_index": -1,
-      "target_fps": 30
-    },
-    "canvas_bg_white": false,
-    "character_palette_settings_open": false,
-    "show_16colors_browser_window": true,
-    "show_ansl_editor_window": true,
-    "show_character_palette_window": true,
-    "show_character_picker_window": true,
-    "show_character_sets_window": true,
-    "show_colour_picker_window": true,
-    "show_layer_manager_window": true,
-    "show_minimap_window": true,
-    "show_settings_window": false,
-    "show_tool_palette_window": true,
-    "theme": "cherry",
-    "undo_limit": 0,
-    "xterm_colour_picker": {
-      "active_fb": 0,
-      "bg": [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-      ],
-      "fg": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ],
-      "last_hue": 0.0,
-      "picker_mode": 0,
-      "picker_preview_fb": 0,
-      "selected_palette": 0
-    }
-  },
-  "window": {
-    "h": 1522,
-    "maximized": true,
-    "pos_valid": true,
-    "w": 2560,
-    "x": 0,
-    "y": 78
-  },
-  "workspace": {}
+  }
 }

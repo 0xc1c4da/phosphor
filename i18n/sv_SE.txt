@@ -51,6 +51,7 @@ sv_SE {
     unknown_short { "?" }
     unnamed { "(namnlös)" }
     untitled { "Utan titel" }
+    empty { " " }
     empty_parens { "(tom)" }
     custom_parens { "(anpassad)" }
     none_parens { "(ingen)" }

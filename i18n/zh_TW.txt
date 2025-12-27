@@ -51,6 +51,7 @@ zh_TW {
     unknown_short { "?" }
     unnamed { "（未命名）" }
     untitled { "未命名" }
+    empty { " " }
     empty_parens { "（空）" }
     custom_parens { "（自訂）" }
     none_parens { "（無）" }

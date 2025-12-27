@@ -5,7 +5,7 @@
     {
       "tool_id": "01-select",
       "slot": 1,
-      "title": "Copy layer / Paste both",
+      "title": "Normal paste",
       "params": {
         "copyMode": { "type": 3, "s": "layer" },
         "pasteMode": { "type": 3, "s": "both" },
@@ -15,17 +15,17 @@
     {
       "tool_id": "01-select",
       "slot": 2,
-      "title": "Copy composite / Paste both",
+      "title": "Overlay paste",
       "params": {
-        "copyMode": { "type": 3, "s": "composite" },
+        "copyMode": { "type": 3, "s": "layer" },
         "pasteMode": { "type": 3, "s": "both" },
-        "transparentSpaces": { "type": 0, "b": false }
+        "transparentSpaces": { "type": 0, "b": true }
       }
     },
     {
       "tool_id": "01-select",
       "slot": 3,
-      "title": "Paste glyph-only (soft)",
+      "title": "Glyph only",
       "params": {
         "copyMode": { "type": 3, "s": "layer" },
         "pasteMode": { "type": 3, "s": "char" },
@@ -35,7 +35,7 @@
     {
       "tool_id": "01-select",
       "slot": 4,
-      "title": "Paste colour-only (soft)",
+      "title": "Colour only",
       "params": {
         "copyMode": { "type": 3, "s": "layer" },
         "pasteMode": { "type": 3, "s": "colour" },
@@ -45,28 +45,18 @@
     {
       "tool_id": "01-select",
       "slot": 5,
-      "title": "Hard paste (includes spaces)",
+      "title": "Flatten & paste",
       "params": {
-        "copyMode": { "type": 3, "s": "layer" },
+        "copyMode": { "type": 3, "s": "composite" },
         "pasteMode": { "type": 3, "s": "both" },
         "transparentSpaces": { "type": 0, "b": false }
-      }
-    },
-    {
-      "tool_id": "01-select",
-      "slot": 6,
-      "title": "Soft paste (transparent spaces)",
-      "params": {
-        "copyMode": { "type": 3, "s": "layer" },
-        "pasteMode": { "type": 3, "s": "both" },
-        "transparentSpaces": { "type": 0, "b": true }
       }
     },
 
     {
       "tool_id": "02-pencil",
       "slot": 1,
-      "title": "Char 1",
+      "title": "Draw",
       "params": {
         "mode": { "type": 3, "s": "char" },
         "size": { "type": 1, "i": 1 },
@@ -77,31 +67,9 @@
     {
       "tool_id": "02-pencil",
       "slot": 2,
-      "title": "Char 3",
+      "title": "Draw wide",
       "params": {
         "mode": { "type": 3, "s": "char" },
-        "size": { "type": 1, "i": 3 },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "02-pencil",
-      "slot": 3,
-      "title": "Char 7",
-      "params": {
-        "mode": { "type": 3, "s": "char" },
-        "size": { "type": 1, "i": 7 },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "02-pencil",
-      "slot": 4,
-      "title": "Spray 5",
-      "params": {
-        "mode": { "type": 3, "s": "spray" },
         "size": { "type": 1, "i": 5 },
         "useFg": { "type": 0, "b": true },
         "useBg": { "type": 0, "b": true }
@@ -109,8 +77,8 @@
     },
     {
       "tool_id": "02-pencil",
-      "slot": 5,
-      "title": "Colourize 3",
+      "slot": 3,
+      "title": "Tint",
       "params": {
         "mode": { "type": 3, "s": "colourize" },
         "size": { "type": 1, "i": 3 },
@@ -120,8 +88,8 @@
     },
     {
       "tool_id": "02-pencil",
-      "slot": 6,
-      "title": "Recolour 3",
+      "slot": 4,
+      "title": "Replace colour",
       "params": {
         "mode": { "type": 3, "s": "recolour" },
         "size": { "type": 1, "i": 3 },
@@ -131,8 +99,8 @@
     },
     {
       "tool_id": "02-pencil",
-      "slot": 7,
-      "title": "Half 1",
+      "slot": 5,
+      "title": "Half block",
       "params": {
         "mode": { "type": 3, "s": "half" },
         "size": { "type": 1, "i": 1 },
@@ -142,8 +110,8 @@
     },
     {
       "tool_id": "02-pencil",
-      "slot": 8,
-      "title": "Shade 1",
+      "slot": 6,
+      "title": "Shade step",
       "params": {
         "mode": { "type": 3, "s": "shade" },
         "size": { "type": 1, "i": 1 },
@@ -153,20 +121,42 @@
     },
     {
       "tool_id": "02-pencil",
-      "slot": 9,
-      "title": "Block 5",
+      "slot": 7,
+      "title": "Solid block",
       "params": {
         "mode": { "type": 3, "s": "block" },
-        "size": { "type": 1, "i": 5 },
+        "size": { "type": 1, "i": 1 },
         "useFg": { "type": 0, "b": true },
         "useBg": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "02-pencil",
+      "slot": 8,
+      "title": "Spray",
+      "params": {
+        "mode": { "type": 3, "s": "spray" },
+        "size": { "type": 1, "i": 7 },
+        "useFg": { "type": 0, "b": true },
+        "useBg": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "02-pencil",
+      "slot": 9,
+      "title": "FG only",
+      "params": {
+        "mode": { "type": 3, "s": "colourize" },
+        "size": { "type": 1, "i": 1 },
+        "useFg": { "type": 0, "b": true },
+        "useBg": { "type": 0, "b": false }
       }
     },
 
     {
       "tool_id": "02-brush",
       "slot": 1,
-      "title": "Stamp both / center / transparent / brush colours",
+      "title": "Stamp",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "anchor": { "type": 3, "s": "center" },
@@ -180,43 +170,7 @@
     {
       "tool_id": "02-brush",
       "slot": 2,
-      "title": "Stamp both / top-left / transparent / brush colours",
-      "params": {
-        "mode": { "type": 3, "s": "both" },
-        "anchor": { "type": 3, "s": "top-left" },
-        "transparent": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "fgSource": { "type": 3, "s": "brush" },
-        "useBg": { "type": 0, "b": true },
-        "bgSource": { "type": 3, "s": "brush" }
-      }
-    },
-    {
-      "tool_id": "02-brush",
-      "slot": 3,
-      "title": "Glyph only (preserve style)",
-      "params": {
-        "mode": { "type": 3, "s": "char" },
-        "anchor": { "type": 3, "s": "center" },
-        "transparent": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "02-brush",
-      "slot": 4,
-      "title": "Colour only (preserve glyph)",
-      "params": {
-        "mode": { "type": 3, "s": "colour" },
-        "anchor": { "type": 3, "s": "center" },
-        "transparent": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "02-brush",
-      "slot": 5,
-      "title": "Stamp with current colours",
+      "title": "Stamp recoloured",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "anchor": { "type": 3, "s": "center" },
@@ -229,22 +183,44 @@
     },
     {
       "tool_id": "02-brush",
-      "slot": 6,
-      "title": "FG current, BG brush",
+      "slot": 3,
+      "title": "Stamp corner",
       "params": {
         "mode": { "type": 3, "s": "both" },
-        "anchor": { "type": 3, "s": "center" },
+        "anchor": { "type": 3, "s": "top-left" },
         "transparent": { "type": 0, "b": true },
         "useFg": { "type": 0, "b": true },
-        "fgSource": { "type": 3, "s": "current" },
+        "fgSource": { "type": 3, "s": "brush" },
         "useBg": { "type": 0, "b": true },
         "bgSource": { "type": 3, "s": "brush" }
       }
     },
     {
       "tool_id": "02-brush",
-      "slot": 7,
-      "title": "Include spaces (non-transparent)",
+      "slot": 4,
+      "title": "Glyph mask",
+      "params": {
+        "mode": { "type": 3, "s": "char" },
+        "anchor": { "type": 3, "s": "center" },
+        "transparent": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "02-brush",
+      "slot": 5,
+      "title": "Colour mask",
+      "params": {
+        "mode": { "type": 3, "s": "colour" },
+        "anchor": { "type": 3, "s": "center" },
+        "transparent": { "type": 0, "b": true },
+        "useFg": { "type": 0, "b": true },
+        "useBg": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "02-brush",
+      "slot": 6,
+      "title": "Stamp solid",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "anchor": { "type": 3, "s": "center" },
@@ -255,37 +231,11 @@
         "bgSource": { "type": 3, "s": "brush" }
       }
     },
-    {
-      "tool_id": "02-brush",
-      "slot": 8,
-      "title": "Apply BG only (brush BG)",
-      "params": {
-        "mode": { "type": 3, "s": "colour" },
-        "anchor": { "type": 3, "s": "center" },
-        "transparent": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": false },
-        "useBg": { "type": 0, "b": true },
-        "bgSource": { "type": 3, "s": "brush" }
-      }
-    },
-    {
-      "tool_id": "02-brush",
-      "slot": 9,
-      "title": "Apply FG only (current FG)",
-      "params": {
-        "mode": { "type": 3, "s": "colour" },
-        "anchor": { "type": 3, "s": "center" },
-        "transparent": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "fgSource": { "type": 3, "s": "current" },
-        "useBg": { "type": 0, "b": false }
-      }
-    },
 
     {
       "tool_id": "04-deform",
       "slot": 1,
-      "title": "Move (default)",
+      "title": "Push",
       "params": {
         "mode": { "type": 3, "s": "move" },
         "size": { "type": 1, "i": 15 },
@@ -302,7 +252,7 @@
     {
       "tool_id": "04-deform",
       "slot": 2,
-      "title": "Move (fine detail)",
+      "title": "Push fine",
       "params": {
         "mode": { "type": 3, "s": "move" },
         "size": { "type": 1, "i": 7 },
@@ -319,10 +269,10 @@
     {
       "tool_id": "04-deform",
       "slot": 3,
-      "title": "Swirl CW",
+      "title": "Twirl CW",
       "params": {
         "mode": { "type": 3, "s": "swirl_cw" },
-        "size": { "type": 1, "i": 25 },
+        "size": { "type": 1, "i": 21 },
         "strength": { "type": 2, "f": 0.7 },
         "spacing": { "type": 2, "f": 0.3 },
         "hardness": { "type": 1, "i": 80 },
@@ -336,10 +286,10 @@
     {
       "tool_id": "04-deform",
       "slot": 4,
-      "title": "Swirl CCW",
+      "title": "Twirl CCW",
       "params": {
         "mode": { "type": 3, "s": "swirl_ccw" },
-        "size": { "type": 1, "i": 25 },
+        "size": { "type": 1, "i": 21 },
         "strength": { "type": 2, "f": 0.7 },
         "spacing": { "type": 2, "f": 0.3 },
         "hardness": { "type": 1, "i": 80 },
@@ -353,7 +303,7 @@
     {
       "tool_id": "04-deform",
       "slot": 5,
-      "title": "Grow",
+      "title": "Bloat",
       "params": {
         "mode": { "type": 3, "s": "grow" },
         "size": { "type": 1, "i": 21 },
@@ -370,7 +320,7 @@
     {
       "tool_id": "04-deform",
       "slot": 6,
-      "title": "Shrink",
+      "title": "Pinch",
       "params": {
         "mode": { "type": 3, "s": "shrink" },
         "size": { "type": 1, "i": 21 },
@@ -387,27 +337,10 @@
     {
       "tool_id": "04-deform",
       "slot": 7,
-      "title": "Sticky warp",
+      "title": "Smudge",
       "params": {
         "mode": { "type": 3, "s": "move" },
-        "size": { "type": 1, "i": 15 },
-        "strength": { "type": 2, "f": 0.75 },
-        "spacing": { "type": 2, "f": 0.25 },
-        "hardness": { "type": 1, "i": 80 },
-        "amount": { "type": 2, "f": 1.0 },
-        "algo": { "type": 3, "s": "warp_quantize_sticky" },
-        "sample": { "type": 3, "s": "layer" },
-        "scope": { "type": 3, "s": "selection_if_any" },
-        "hysteresis": { "type": 2, "f": 0.1 }
-      }
-    },
-    {
-      "tool_id": "04-deform",
-      "slot": 8,
-      "title": "Resample (smooth)",
-      "params": {
-        "mode": { "type": 3, "s": "move" },
-        "size": { "type": 1, "i": 15 },
+        "size": { "type": 1, "i": 11 },
         "strength": { "type": 2, "f": 0.4 },
         "spacing": { "type": 2, "f": 0.3 },
         "hardness": { "type": 1, "i": 50 },
@@ -418,28 +351,11 @@
         "hysteresis": { "type": 2, "f": 0.05 }
       }
     },
-    {
-      "tool_id": "04-deform",
-      "slot": 9,
-      "title": "Full-canvas warp",
-      "params": {
-        "mode": { "type": 3, "s": "move" },
-        "size": { "type": 1, "i": 15 },
-        "strength": { "type": 2, "f": 0.75 },
-        "spacing": { "type": 2, "f": 0.25 },
-        "hardness": { "type": 1, "i": 80 },
-        "amount": { "type": 2, "f": 1.0 },
-        "algo": { "type": 3, "s": "warp_quantize" },
-        "sample": { "type": 3, "s": "composite" },
-        "scope": { "type": 3, "s": "full_canvas" },
-        "hysteresis": { "type": 2, "f": 0.05 }
-      }
-    },
 
     {
       "tool_id": "05-fill",
       "slot": 1,
-      "title": "Both (exact)",
+      "title": "Exact match",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "exact": { "type": 0, "b": true },
@@ -451,7 +367,7 @@
     {
       "tool_id": "05-fill",
       "slot": 2,
-      "title": "Both (loose)",
+      "title": "Glyph match",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "exact": { "type": 0, "b": false },
@@ -463,6 +379,18 @@
     {
       "tool_id": "05-fill",
       "slot": 3,
+      "title": "Tint fill",
+      "params": {
+        "mode": { "type": 3, "s": "colourize" },
+        "exact": { "type": 0, "b": false },
+        "useFg": { "type": 0, "b": true },
+        "useBg": { "type": 0, "b": true },
+        "maxCells": { "type": 1, "i": 200000 }
+      }
+    },
+    {
+      "tool_id": "05-fill",
+      "slot": 4,
       "title": "Glyph fill",
       "params": {
         "mode": { "type": 3, "s": "char" },
@@ -474,20 +402,8 @@
     },
     {
       "tool_id": "05-fill",
-      "slot": 4,
-      "title": "Colourize fill",
-      "params": {
-        "mode": { "type": 3, "s": "colourize" },
-        "exact": { "type": 0, "b": false },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true },
-        "maxCells": { "type": 1, "i": 200000 }
-      }
-    },
-    {
-      "tool_id": "05-fill",
       "slot": 5,
-      "title": "Half fill",
+      "title": "Half-block fill",
       "params": {
         "mode": { "type": 3, "s": "half" },
         "exact": { "type": 0, "b": true },
@@ -499,7 +415,7 @@
     {
       "tool_id": "05-fill",
       "slot": 6,
-      "title": "BG-only",
+      "title": "BG only",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "exact": { "type": 0, "b": true },
@@ -511,7 +427,7 @@
     {
       "tool_id": "05-fill",
       "slot": 7,
-      "title": "FG-only",
+      "title": "FG only",
       "params": {
         "mode": { "type": 3, "s": "both" },
         "exact": { "type": 0, "b": true },
@@ -520,35 +436,11 @@
         "maxCells": { "type": 1, "i": 200000 }
       }
     },
-    {
-      "tool_id": "05-fill",
-      "slot": 8,
-      "title": "Safety low",
-      "params": {
-        "mode": { "type": 3, "s": "both" },
-        "exact": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true },
-        "maxCells": { "type": 1, "i": 50000 }
-      }
-    },
-    {
-      "tool_id": "05-fill",
-      "slot": 9,
-      "title": "Safety high",
-      "params": {
-        "mode": { "type": 3, "s": "both" },
-        "exact": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true },
-        "maxCells": { "type": 1, "i": 500000 }
-      }
-    },
 
     {
       "tool_id": "06-pipette",
       "slot": 1,
-      "title": "Pick all (composite), return",
+      "title": "Pick all",
       "params": {
         "sample": { "type": 3, "s": "composite" },
         "pickBg": { "type": 0, "b": true },
@@ -560,19 +452,7 @@
     {
       "tool_id": "06-pipette",
       "slot": 2,
-      "title": "Pick all (layer), return",
-      "params": {
-        "sample": { "type": 3, "s": "layer" },
-        "pickBg": { "type": 0, "b": true },
-        "pickFg": { "type": 0, "b": true },
-        "pickChar": { "type": 0, "b": true },
-        "returnToPrev": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "06-pipette",
-      "slot": 3,
-      "title": "Pick colours only",
+      "title": "Pick colours",
       "params": {
         "sample": { "type": 3, "s": "composite" },
         "pickBg": { "type": 0, "b": true },
@@ -583,8 +463,8 @@
     },
     {
       "tool_id": "06-pipette",
-      "slot": 4,
-      "title": "Pick glyph only",
+      "slot": 3,
+      "title": "Pick glyph",
       "params": {
         "sample": { "type": 3, "s": "composite" },
         "pickBg": { "type": 0, "b": false },
@@ -595,12 +475,24 @@
     },
     {
       "tool_id": "06-pipette",
-      "slot": 5,
-      "title": "Pick FG only",
+      "slot": 4,
+      "title": "Pick FG",
       "params": {
         "sample": { "type": 3, "s": "composite" },
         "pickBg": { "type": 0, "b": false },
         "pickFg": { "type": 0, "b": true },
+        "pickChar": { "type": 0, "b": false },
+        "returnToPrev": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "06-pipette",
+      "slot": 5,
+      "title": "Pick BG",
+      "params": {
+        "sample": { "type": 3, "s": "composite" },
+        "pickBg": { "type": 0, "b": true },
+        "pickFg": { "type": 0, "b": false },
         "pickChar": { "type": 0, "b": false },
         "returnToPrev": { "type": 0, "b": true }
       }
@@ -608,19 +500,7 @@
     {
       "tool_id": "06-pipette",
       "slot": 6,
-      "title": "Pick BG only",
-      "params": {
-        "sample": { "type": 3, "s": "composite" },
-        "pickBg": { "type": 0, "b": true },
-        "pickFg": { "type": 0, "b": false },
-        "pickChar": { "type": 0, "b": false },
-        "returnToPrev": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "06-pipette",
-      "slot": 7,
-      "title": "Inspector (stay active)",
+      "title": "Inspector",
       "params": {
         "sample": { "type": 3, "s": "composite" },
         "pickBg": { "type": 0, "b": true },
@@ -630,28 +510,19 @@
       }
     },
 
-    {
-      "tool_id": "07-eraser",
-      "slot": 1,
-      "title": "Size 1",
-      "params": { "size": { "type": 1, "i": 1 } }
-    },
-    { "tool_id": "07-eraser", "slot": 2, "title": "Size 2", "params": { "size": { "type": 1, "i": 2 } } },
-    { "tool_id": "07-eraser", "slot": 3, "title": "Size 3", "params": { "size": { "type": 1, "i": 3 } } },
-    { "tool_id": "07-eraser", "slot": 4, "title": "Size 5", "params": { "size": { "type": 1, "i": 5 } } },
-    { "tool_id": "07-eraser", "slot": 5, "title": "Size 8", "params": { "size": { "type": 1, "i": 8 } } },
-    { "tool_id": "07-eraser", "slot": 6, "title": "Size 12", "params": { "size": { "type": 1, "i": 12 } } },
-    { "tool_id": "07-eraser", "slot": 7, "title": "Size 20", "params": { "size": { "type": 1, "i": 20 } } },
-    { "tool_id": "07-eraser", "slot": 8, "title": "Size 30", "params": { "size": { "type": 1, "i": 30 } } },
-    { "tool_id": "07-eraser", "slot": 9, "title": "Size 50", "params": { "size": { "type": 1, "i": 50 } } },
+    { "tool_id": "07-eraser", "slot": 1, "title": "1px", "params": { "size": { "type": 1, "i": 1 } } },
+    { "tool_id": "07-eraser", "slot": 2, "title": "3px", "params": { "size": { "type": 1, "i": 3 } } },
+    { "tool_id": "07-eraser", "slot": 3, "title": "5px", "params": { "size": { "type": 1, "i": 5 } } },
+    { "tool_id": "07-eraser", "slot": 4, "title": "10px", "params": { "size": { "type": 1, "i": 10 } } },
+    { "tool_id": "07-eraser", "slot": 5, "title": "20px", "params": { "size": { "type": 1, "i": 20 } } },
 
     {
       "tool_id": "05-colour-blur",
       "slot": 1,
-      "title": "Subtle blend",
+      "title": "Soft blend",
       "params": {
         "size": { "type": 1, "i": 5 },
-        "flow": { "type": 2, "f": 0.3 },
+        "flow": { "type": 2, "f": 0.4 },
         "kernel": { "type": 1, "i": 1 },
         "sample": { "type": 3, "s": "composite" },
         "affectChar": { "type": 0, "b": false },
@@ -678,7 +549,7 @@
     {
       "tool_id": "05-colour-blur",
       "slot": 3,
-      "title": "Ultra smooth",
+      "title": "Wide blur",
       "params": {
         "size": { "type": 1, "i": 15 },
         "flow": { "type": 2, "f": 0.6 },
@@ -693,7 +564,7 @@
     {
       "tool_id": "05-colour-blur",
       "slot": 4,
-      "title": "Glyph smudge only",
+      "title": "Glyph blur",
       "params": {
         "size": { "type": 1, "i": 7 },
         "flow": { "type": 2, "f": 0.65 },
@@ -708,10 +579,10 @@
     {
       "tool_id": "05-colour-blur",
       "slot": 5,
-      "title": "FG blur only",
+      "title": "FG blur",
       "params": {
         "size": { "type": 1, "i": 7 },
-        "flow": { "type": 2, "f": 0.65 },
+        "flow": { "type": 2, "f": 0.5 },
         "kernel": { "type": 1, "i": 1 },
         "sample": { "type": 3, "s": "composite" },
         "affectChar": { "type": 0, "b": false },
@@ -723,59 +594,14 @@
     {
       "tool_id": "05-colour-blur",
       "slot": 6,
-      "title": "BG blur only",
+      "title": "BG blur",
       "params": {
         "size": { "type": 1, "i": 7 },
-        "flow": { "type": 2, "f": 0.65 },
+        "flow": { "type": 2, "f": 0.5 },
         "kernel": { "type": 1, "i": 1 },
         "sample": { "type": 3, "s": "composite" },
         "affectChar": { "type": 0, "b": false },
         "affectFg": { "type": 0, "b": false },
-        "affectBg": { "type": 0, "b": true },
-        "snapPalette": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "05-colour-blur",
-      "slot": 7,
-      "title": "Sample layer",
-      "params": {
-        "size": { "type": 1, "i": 5 },
-        "flow": { "type": 2, "f": 0.3 },
-        "kernel": { "type": 1, "i": 1 },
-        "sample": { "type": 3, "s": "layer" },
-        "affectChar": { "type": 0, "b": false },
-        "affectFg": { "type": 0, "b": true },
-        "affectBg": { "type": 0, "b": true },
-        "snapPalette": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "05-colour-blur",
-      "slot": 8,
-      "title": "No palette snap",
-      "params": {
-        "size": { "type": 1, "i": 5 },
-        "flow": { "type": 2, "f": 0.3 },
-        "kernel": { "type": 1, "i": 1 },
-        "sample": { "type": 3, "s": "composite" },
-        "affectChar": { "type": 0, "b": false },
-        "affectFg": { "type": 0, "b": true },
-        "affectBg": { "type": 0, "b": true },
-        "snapPalette": { "type": 0, "b": false }
-      }
-    },
-    {
-      "tool_id": "05-colour-blur",
-      "slot": 9,
-      "title": "Smear all (char+fg+bg)",
-      "params": {
-        "size": { "type": 1, "i": 7 },
-        "flow": { "type": 2, "f": 0.5 },
-        "kernel": { "type": 1, "i": 2 },
-        "sample": { "type": 3, "s": "composite" },
-        "affectChar": { "type": 0, "b": true },
-        "affectFg": { "type": 0, "b": true },
         "affectBg": { "type": 0, "b": true },
         "snapPalette": { "type": 0, "b": true }
       }
@@ -796,7 +622,7 @@
     {
       "tool_id": "09-font",
       "slot": 2,
-      "title": "Monochrome (FG)",
+      "title": "Current FG",
       "params": {
         "useFontColours": { "type": 0, "b": false },
         "useFg": { "type": 0, "b": true },
@@ -808,7 +634,7 @@
     {
       "tool_id": "09-font",
       "slot": 3,
-      "title": "Monochrome (FG+BG)",
+      "title": "Current FG+BG",
       "params": {
         "useFontColours": { "type": 0, "b": false },
         "useFg": { "type": 0, "b": true },
@@ -820,7 +646,7 @@
     {
       "tool_id": "09-font",
       "slot": 4,
-      "title": "Outline preview (mild)",
+      "title": "Light outline",
       "params": {
         "useFontColours": { "type": 0, "b": true },
         "useFg": { "type": 0, "b": true },
@@ -832,7 +658,7 @@
     {
       "tool_id": "09-font",
       "slot": 5,
-      "title": "Outline preview (heavy)",
+      "title": "Heavy outline",
       "params": {
         "useFontColours": { "type": 0, "b": true },
         "useFg": { "type": 0, "b": true },
@@ -841,35 +667,11 @@
         "outlineStyle": { "type": 1, "i": 12 }
       }
     },
-    {
-      "tool_id": "09-font",
-      "slot": 6,
-      "title": "No outline",
-      "params": {
-        "useFontColours": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": false },
-        "editMode": { "type": 0, "b": false },
-        "outlineStyle": { "type": 1, "i": 0 }
-      }
-    },
-    {
-      "tool_id": "09-font",
-      "slot": 7,
-      "title": "Enable BG fallback",
-      "params": {
-        "useFontColours": { "type": 0, "b": true },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true },
-        "editMode": { "type": 0, "b": false },
-        "outlineStyle": { "type": 1, "i": 0 }
-      }
-    },
 
     {
       "tool_id": "10-format",
       "slot": 1,
-      "title": "Set Bold (paint)",
+      "title": "Set Bold",
       "params": {
         "mode": { "type": 3, "s": "set" },
         "applyTo": { "type": 3, "s": "paint" },
@@ -881,19 +683,7 @@
     {
       "tool_id": "10-format",
       "slot": 2,
-      "title": "Set Underline (paint)",
-      "params": {
-        "mode": { "type": 3, "s": "set" },
-        "applyTo": { "type": 3, "s": "paint" },
-        "size": { "type": 1, "i": 1 },
-        "clipToSelection": { "type": 0, "b": false },
-        "underline": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "10-format",
-      "slot": 3,
-      "title": "Set Italic (paint)",
+      "title": "Set Italic",
       "params": {
         "mode": { "type": 3, "s": "set" },
         "applyTo": { "type": 3, "s": "paint" },
@@ -904,8 +694,20 @@
     },
     {
       "tool_id": "10-format",
+      "slot": 3,
+      "title": "Set Underline",
+      "params": {
+        "mode": { "type": 3, "s": "set" },
+        "applyTo": { "type": 3, "s": "paint" },
+        "size": { "type": 1, "i": 1 },
+        "clipToSelection": { "type": 0, "b": false },
+        "underline": { "type": 0, "b": true }
+      }
+    },
+    {
+      "tool_id": "10-format",
       "slot": 4,
-      "title": "Toggle Reverse (paint)",
+      "title": "Toggle Reverse",
       "params": {
         "mode": { "type": 3, "s": "toggle" },
         "applyTo": { "type": 3, "s": "paint" },
@@ -917,7 +719,7 @@
     {
       "tool_id": "10-format",
       "slot": 5,
-      "title": "Clear ALL attrs (paint)",
+      "title": "Clear all",
       "params": {
         "mode": { "type": 3, "s": "clear" },
         "applyTo": { "type": 3, "s": "paint" },
@@ -935,20 +737,7 @@
     {
       "tool_id": "10-format",
       "slot": 6,
-      "title": "Replace with (Bold+Underline) (paint)",
-      "params": {
-        "mode": { "type": 3, "s": "replace" },
-        "applyTo": { "type": 3, "s": "paint" },
-        "size": { "type": 1, "i": 1 },
-        "clipToSelection": { "type": 0, "b": false },
-        "bold": { "type": 0, "b": true },
-        "underline": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "10-format",
-      "slot": 7,
-      "title": "Set Bold (selection)",
+      "title": "Selection: Bold",
       "params": {
         "mode": { "type": 3, "s": "set" },
         "applyTo": { "type": 3, "s": "selection" },
@@ -959,8 +748,8 @@
     },
     {
       "tool_id": "10-format",
-      "slot": 8,
-      "title": "Clear ALL attrs (selection)",
+      "slot": 7,
+      "title": "Selection: Clear",
       "params": {
         "mode": { "type": 3, "s": "clear" },
         "applyTo": { "type": 3, "s": "selection" },
@@ -975,23 +764,11 @@
         "strike": { "type": 0, "b": true }
       }
     },
-    {
-      "tool_id": "10-format",
-      "slot": 9,
-      "title": "Clip paint to selection",
-      "params": {
-        "mode": { "type": 3, "s": "set" },
-        "applyTo": { "type": 3, "s": "paint" },
-        "size": { "type": 1, "i": 1 },
-        "clipToSelection": { "type": 0, "b": true },
-        "bold": { "type": 0, "b": true }
-      }
-    },
 
     {
       "tool_id": "08-shape",
       "slot": 1,
-      "title": "Line / brush / solid / char",
+      "title": "Line",
       "params": {
         "shape": { "type": 3, "s": "line" },
         "fill": { "type": 3, "s": "outline" },
@@ -1008,7 +785,7 @@
     {
       "tool_id": "08-shape",
       "slot": 2,
-      "title": "Rect / box single / outline",
+      "title": "Box outline",
       "params": {
         "shape": { "type": 3, "s": "rectangle" },
         "fill": { "type": 3, "s": "outline" },
@@ -1025,7 +802,7 @@
     {
       "tool_id": "08-shape",
       "slot": 3,
-      "title": "Rect / filled / block",
+      "title": "Filled rect",
       "params": {
         "shape": { "type": 3, "s": "rectangle" },
         "fill": { "type": 3, "s": "filled" },
@@ -1042,7 +819,7 @@
     {
       "tool_id": "08-shape",
       "slot": 4,
-      "title": "Ellipse / rounded / outline",
+      "title": "Ellipse outline",
       "params": {
         "shape": { "type": 3, "s": "ellipse" },
         "fill": { "type": 3, "s": "outline" },
@@ -1059,7 +836,7 @@
     {
       "tool_id": "08-shape",
       "slot": 5,
-      "title": "Ellipse / filled / block",
+      "title": "Filled ellipse",
       "params": {
         "shape": { "type": 3, "s": "ellipse" },
         "fill": { "type": 3, "s": "filled" },
@@ -1076,7 +853,7 @@
     {
       "tool_id": "08-shape",
       "slot": 6,
-      "title": "Triangle / ASCII / outline",
+      "title": "Triangle",
       "params": {
         "shape": { "type": 3, "s": "triangle" },
         "fill": { "type": 3, "s": "outline" },
@@ -1093,24 +870,7 @@
     {
       "tool_id": "08-shape",
       "slot": 7,
-      "title": "Line / dashed",
-      "params": {
-        "shape": { "type": 3, "s": "line" },
-        "fill": { "type": 3, "s": "outline" },
-        "style": { "type": 3, "s": "brush" },
-        "dash": { "type": 3, "s": "dashed" },
-        "mode": { "type": 3, "s": "char" },
-        "size": { "type": 1, "i": 1 },
-        "useFg": { "type": 0, "b": true },
-        "useBg": { "type": 0, "b": true },
-        "resolution": { "type": 3, "s": "cell" },
-        "selectAfter": { "type": 0, "b": true }
-      }
-    },
-    {
-      "tool_id": "08-shape",
-      "slot": 8,
-      "title": "Rect / filled / colourize",
+      "title": "Tint rect",
       "params": {
         "shape": { "type": 3, "s": "rectangle" },
         "fill": { "type": 3, "s": "filled" },
@@ -1126,8 +886,8 @@
     },
     {
       "tool_id": "08-shape",
-      "slot": 9,
-      "title": "Shading mode (half res)",
+      "slot": 8,
+      "title": "Half-block rect",
       "params": {
         "shape": { "type": 3, "s": "rectangle" },
         "fill": { "type": 3, "s": "outline" },
@@ -1145,11 +905,11 @@
     {
       "tool_id": "02.3-advanced-shading",
       "slot": 1,
-      "title": "Clean / Darken",
+      "title": "Darken",
       "params": {
         "mode": { "type": 3, "s": "clean" },
         "primary": { "type": 3, "s": "darken" },
-        "size": { "type": 1, "i": 7 },
+        "size": { "type": 1, "i": 9 },
         "strength": { "type": 2, "f": 0.7 },
         "lightAngle": { "type": 1, "i": 315 },
         "snap8": { "type": 0, "b": true },
@@ -1162,11 +922,11 @@
     {
       "tool_id": "02.3-advanced-shading",
       "slot": 2,
-      "title": "Clean / Lighten",
+      "title": "Lighten",
       "params": {
         "mode": { "type": 3, "s": "clean" },
         "primary": { "type": 3, "s": "lighten" },
-        "size": { "type": 1, "i": 7 },
+        "size": { "type": 1, "i": 9 },
         "strength": { "type": 2, "f": 0.7 },
         "lightAngle": { "type": 1, "i": 315 },
         "snap8": { "type": 0, "b": true },
@@ -1179,28 +939,11 @@
     {
       "tool_id": "02.3-advanced-shading",
       "slot": 3,
-      "title": "Clean+ / Darken",
-      "params": {
-        "mode": { "type": 3, "s": "clean_plus" },
-        "primary": { "type": 3, "s": "darken" },
-        "size": { "type": 1, "i": 7 },
-        "strength": { "type": 2, "f": 0.65 },
-        "lightAngle": { "type": 1, "i": 315 },
-        "snap8": { "type": 0, "b": true },
-        "relaxPasses": { "type": 1, "i": 1 },
-        "seed": { "type": 1, "i": 1 },
-        "allowHardTextures": { "type": 0, "b": false },
-        "allow08Transition": { "type": 0, "b": false }
-      }
-    },
-    {
-      "tool_id": "02.3-advanced-shading",
-      "slot": 4,
-      "title": "Toon / Darken (punchy)",
+      "title": "Toon shade",
       "params": {
         "mode": { "type": 3, "s": "toon" },
         "primary": { "type": 3, "s": "darken" },
-        "size": { "type": 1, "i": 9 },
+        "size": { "type": 1, "i": 11 },
         "strength": { "type": 2, "f": 0.85 },
         "lightAngle": { "type": 1, "i": 315 },
         "snap8": { "type": 0, "b": true },
@@ -1212,8 +955,25 @@
     },
     {
       "tool_id": "02.3-advanced-shading",
+      "slot": 4,
+      "title": "Smooth blend",
+      "params": {
+        "mode": { "type": 3, "s": "clean_plus" },
+        "primary": { "type": 3, "s": "darken" },
+        "size": { "type": 1, "i": 9 },
+        "strength": { "type": 2, "f": 0.6 },
+        "lightAngle": { "type": 1, "i": 315 },
+        "snap8": { "type": 0, "b": true },
+        "relaxPasses": { "type": 1, "i": 1 },
+        "seed": { "type": 1, "i": 1 },
+        "allowHardTextures": { "type": 0, "b": false },
+        "allow08Transition": { "type": 0, "b": false }
+      }
+    },
+    {
+      "tool_id": "02.3-advanced-shading",
       "slot": 5,
-      "title": "Halshade texture",
+      "title": "Halaster style",
       "params": {
         "mode": { "type": 3, "s": "halshade" },
         "primary": { "type": 3, "s": "darken" },
@@ -1230,7 +990,7 @@
     {
       "tool_id": "02.3-advanced-shading",
       "slot": 6,
-      "title": "Plus-chroma grit",
+      "title": "Grit texture",
       "params": {
         "mode": { "type": 3, "s": "plus_chroma" },
         "primary": { "type": 3, "s": "darken" },
@@ -1247,28 +1007,11 @@
     {
       "tool_id": "02.3-advanced-shading",
       "slot": 7,
-      "title": "Pnakotic subtle",
-      "params": {
-        "mode": { "type": 3, "s": "pnakotic" },
-        "primary": { "type": 3, "s": "darken" },
-        "size": { "type": 1, "i": 7 },
-        "strength": { "type": 2, "f": 0.5 },
-        "lightAngle": { "type": 1, "i": 315 },
-        "snap8": { "type": 0, "b": true },
-        "relaxPasses": { "type": 1, "i": 1 },
-        "seed": { "type": 1, "i": 1 },
-        "allowHardTextures": { "type": 0, "b": false },
-        "allow08Transition": { "type": 0, "b": false }
-      }
-    },
-    {
-      "tool_id": "02.3-advanced-shading",
-      "slot": 8,
-      "title": "Softblend gentle",
+      "title": "Soft gradient",
       "params": {
         "mode": { "type": 3, "s": "softblend" },
         "primary": { "type": 3, "s": "darken" },
-        "size": { "type": 1, "i": 11 },
+        "size": { "type": 1, "i": 13 },
         "strength": { "type": 2, "f": 0.4 },
         "lightAngle": { "type": 1, "i": 315 },
         "snap8": { "type": 0, "b": true },
@@ -1280,8 +1023,8 @@
     },
     {
       "tool_id": "02.3-advanced-shading",
-      "slot": 9,
-      "title": "BG blend feather",
+      "slot": 8,
+      "title": "Edge feather",
       "params": {
         "mode": { "type": 3, "s": "bg_blend" },
         "primary": { "type": 3, "s": "darken" },

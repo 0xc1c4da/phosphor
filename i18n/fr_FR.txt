@@ -51,6 +51,7 @@ fr_FR {
     unknown_short { "?" }
     unnamed { "(sans nom)" }
     untitled { "Sans titre" }
+    empty { " " }
     empty_parens { "(vide)" }
     custom_parens { "(personnalisé)" }
     none_parens { "(aucun)" }
