@@ -2,7 +2,8 @@ settings = {
   id = "01-select",
   icon = "⬚",
   label = "Select",
-  shortcut = "Ctrl+Alt+S",
+  -- PabloDraw selection tool = Alt+E
+  shortcut = "Alt+E",
 
   -- Action routing hints (used by host Action Router).
   -- - When active, this tool handles selection ops + clipboard + selection transforms.
@@ -140,6 +141,10 @@ end
 local function selection_flip_x(ctx, canvas, layer)
   if not canvas:hasSelection() then return false end
   commit_if_moving(canvas)
+  if ctx and ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.selection.flip_x" }
+    return true
+  end
   local x, y, w, h, src = read_selection(canvas, layer)
   if not x then return false end
   local idx = 1
@@ -157,6 +162,10 @@ end
 local function selection_flip_y(ctx, canvas, layer)
   if not canvas:hasSelection() then return false end
   commit_if_moving(canvas)
+  if ctx and ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.selection.flip_y" }
+    return true
+  end
   local x, y, w, h, src = read_selection(canvas, layer)
   if not x then return false end
   for j = 0, h - 1 do
@@ -172,6 +181,10 @@ end
 local function selection_rotate_cw(ctx, canvas, layer, cols)
   if not canvas:hasSelection() then return false end
   commit_if_moving(canvas)
+  if ctx and ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.selection.rotate_cw" }
+    return true
+  end
   local x, y, w, h, src = read_selection(canvas, layer)
   if not x then return false end
 
@@ -221,6 +234,10 @@ end
 local function selection_center(ctx, canvas, layer, cols, rows)
   if not canvas:hasSelection() then return false end
   commit_if_moving(canvas)
+  if ctx and ctx.out ~= nil then
+    ctx.out[#ctx.out + 1] = { type = "canvas.selection.center" }
+    return true
+  end
   local x, y, w, h, src = read_selection(canvas, layer)
   if not x then return false end
   if cols and w > cols then return false end

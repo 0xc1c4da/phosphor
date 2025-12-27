@@ -2,7 +2,7 @@ settings = {
     id = "03-shifter",
     icon = "⇌",
     label = "Shifter",
-    shortcut = "Ctrl+Alt+R"
+    shortcut = "Alt+S"
 }
 
 -- Shifter tool (inspired by Moebius / IcyDraw):

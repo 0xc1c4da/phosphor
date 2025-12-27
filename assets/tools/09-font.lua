@@ -2,7 +2,8 @@ settings = {
   id = "09-font",
   icon = "𝔉",
   label = "Font",
-  shortcut = "Ctrl+Alt+T",
+  -- Text/font tool: avoid Ctrl+Alt+T (KDE global). Use Alt+T (PabloDraw RIP text tool uses T).
+  shortcut = "Alt+T",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

@@ -2,7 +2,8 @@ settings = {
   id = "05-fill",
   icon = "🪣",
   label = "Fill",
-  shortcut = "Ctrl+Alt+F",
+  -- PabloDraw fill tool = F (RIP) / Alt+F is a common ANSI-editor-friendly mapping
+  shortcut = "Alt+F",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

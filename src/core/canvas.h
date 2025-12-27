@@ -891,6 +891,15 @@ public:
     void ClearSelection();
     bool SelectionContains(int x, int y) const;
 
+    // Selection transforms (structural ops; should be undoable as a single step).
+    // If layer_index < 0, uses the active layer.
+    bool FlipSelectionX(int layer_index = -1);
+    bool FlipSelectionY(int layer_index = -1);
+    bool RotateSelectionCw(int layer_index = -1);
+    bool CenterSelection(int layer_index = -1);
+    // Crop is canvas-wide (affects geometry + all layers).
+    bool CropToSelection();
+
     // Clipboard is shared across all canvases (copy/paste between canvases).
     static bool ClipboardHas();
     static Rect ClipboardRect(); // returns {0,0,w,h} (w/h may be 0)

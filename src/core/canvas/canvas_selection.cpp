@@ -454,6 +454,660 @@ bool AnsiCanvas::DeleteSelection(int layer_index)
     return did_anything;
 }
 
+bool AnsiCanvas::FlipSelectionX(int layer_index)
+{
+    EnsureDocument();
+    if (IsMovingSelection())
+        (void)CommitMoveSelection(layer_index);
+    if (!HasSelection())
+        return false;
+    if (m_columns <= 0)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const Rect r = GetSelectionRect();
+    if (r.w <= 0 || r.h <= 0)
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    std::vector<ClipCell> src;
+    src.assign((size_t)r.w * (size_t)r.h, ClipCell{});
+
+    // Capture source (token-safe).
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int sx = r.x + i;
+            const int sy = r.y + j;
+            const size_t out = (size_t)j * (size_t)r.w + (size_t)i;
+            if (sx < 0 || sx >= m_columns || sy < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, m_columns, m_rows, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.cells.size()) src[out].cp = layer.cells[idx];
+            if (idx < layer.fg.size())    src[out].fg = layer.fg[idx];
+            if (idx < layer.bg.size())    src[out].bg = layer.bg[idx];
+            if (idx < layer.attrs.size()) src[out].attrs = layer.attrs[idx];
+        }
+
+    bool did_anything = false;
+    bool prepared = false;
+    auto prepare = [&]()
+    {
+        if (!prepared)
+        {
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
+            prepared = true;
+        }
+    };
+
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int dx = r.x + i;
+            const int dy = r.y + j;
+            if (dx < 0 || dx >= m_columns || dy < 0)
+                continue;
+
+            const int si = (r.w - 1 - i);
+            const size_t sidx = (size_t)j * (size_t)r.w + (size_t)si;
+            if (sidx >= src.size())
+                continue;
+            const ClipCell& s = src[sidx];
+
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(dy, dx, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = s.cp;
+            const ColourIndex16 new_fg = s.fg;
+            const ColourIndex16 new_bg = s.bg;
+            const Attrs    new_attrs = s.attrs;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+    return did_anything;
+}
+
+bool AnsiCanvas::FlipSelectionY(int layer_index)
+{
+    EnsureDocument();
+    if (IsMovingSelection())
+        (void)CommitMoveSelection(layer_index);
+    if (!HasSelection())
+        return false;
+    if (m_columns <= 0)
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const Rect r = GetSelectionRect();
+    if (r.w <= 0 || r.h <= 0)
+        return false;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    std::vector<ClipCell> src;
+    src.assign((size_t)r.w * (size_t)r.h, ClipCell{});
+
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int sx = r.x + i;
+            const int sy = r.y + j;
+            const size_t out = (size_t)j * (size_t)r.w + (size_t)i;
+            if (sx < 0 || sx >= m_columns || sy < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, m_columns, m_rows, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.cells.size()) src[out].cp = layer.cells[idx];
+            if (idx < layer.fg.size())    src[out].fg = layer.fg[idx];
+            if (idx < layer.bg.size())    src[out].bg = layer.bg[idx];
+            if (idx < layer.attrs.size()) src[out].attrs = layer.attrs[idx];
+        }
+
+    bool did_anything = false;
+    bool prepared = false;
+    auto prepare = [&]()
+    {
+        if (!prepared)
+        {
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
+            prepared = true;
+        }
+    };
+
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int dx = r.x + i;
+            const int dy = r.y + j;
+            if (dx < 0 || dx >= m_columns || dy < 0)
+                continue;
+
+            const int sj = (r.h - 1 - j);
+            const size_t sidx = (size_t)sj * (size_t)r.w + (size_t)i;
+            if (sidx >= src.size())
+                continue;
+            const ClipCell& s = src[sidx];
+
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(dy, dx, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = s.cp;
+            const ColourIndex16 new_fg = s.fg;
+            const ColourIndex16 new_bg = s.bg;
+            const Attrs    new_attrs = s.attrs;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+    return did_anything;
+}
+
+static inline int RoundInt(float v)
+{
+    return (int)std::floor(v + 0.5f);
+}
+
+bool AnsiCanvas::RotateSelectionCw(int layer_index)
+{
+    EnsureDocument();
+    if (IsMovingSelection())
+        (void)CommitMoveSelection(layer_index);
+    if (!HasSelection())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const Rect r = GetSelectionRect();
+    if (r.w <= 0 || r.h <= 0)
+        return false;
+
+    const int new_w = r.h;
+    const int new_h = r.w;
+    if (m_columns <= 0 || new_w > m_columns)
+        return false;
+
+    // Rotate around center to minimize drift (match Lua policy).
+    const float cx = (float)r.x + ((float)r.w - 1.0f) * 0.5f;
+    const float cy = (float)r.y + ((float)r.h - 1.0f) * 0.5f;
+    int nx = RoundInt(cx - ((float)new_w - 1.0f) * 0.5f);
+    int ny = RoundInt(cy - ((float)new_h - 1.0f) * 0.5f);
+    nx = std::clamp(nx, 0, std::max(0, m_columns - new_w));
+    if (ny < 0) ny = 0;
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    std::vector<ClipCell> src;
+    src.assign((size_t)r.w * (size_t)r.h, ClipCell{});
+    for (int oy = 0; oy < r.h; ++oy)
+        for (int ox = 0; ox < r.w; ++ox)
+        {
+            const int sx = r.x + ox;
+            const int sy = r.y + oy;
+            const size_t out = (size_t)oy * (size_t)r.w + (size_t)ox;
+            if (sx < 0 || sx >= m_columns || sy < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, m_columns, m_rows, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.cells.size()) src[out].cp = layer.cells[idx];
+            if (idx < layer.fg.size())    src[out].fg = layer.fg[idx];
+            if (idx < layer.bg.size())    src[out].bg = layer.bg[idx];
+            if (idx < layer.attrs.size()) src[out].attrs = layer.attrs[idx];
+        }
+
+    std::vector<ClipCell> dst;
+    dst.assign((size_t)new_w * (size_t)new_h, ClipCell{});
+    for (int oy = 0; oy < r.h; ++oy)
+        for (int ox = 0; ox < r.w; ++ox)
+        {
+            const size_t sidx = (size_t)oy * (size_t)r.w + (size_t)ox;
+            const int dx = (r.h - 1 - oy);
+            const int dy = ox;
+            const size_t didx = (size_t)dy * (size_t)new_w + (size_t)dx;
+            if (sidx < src.size() && didx < dst.size())
+                dst[didx] = src[sidx];
+        }
+
+    bool did_anything = false;
+    bool prepared = false;
+    auto prepare = [&]()
+    {
+        if (!prepared)
+        {
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
+            prepared = true;
+        }
+    };
+
+    // Clear old rect.
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int px = r.x + i;
+            const int py = r.y + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = BlankGlyph();
+            const ColourIndex16 new_fg = kUnsetIndex16;
+            const ColourIndex16 new_bg = kUnsetIndex16;
+            const Attrs    new_attrs = 0;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+
+    // Write rotated rect.
+    for (int j = 0; j < new_h; ++j)
+        for (int i = 0; i < new_w; ++i)
+        {
+            const int px = nx + i;
+            const int py = ny + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+
+            const size_t sidx = (size_t)j * (size_t)new_w + (size_t)i;
+            if (sidx >= dst.size())
+                continue;
+            const ClipCell& s = dst[sidx];
+
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = s.cp;
+            const ColourIndex16 new_fg = s.fg;
+            const ColourIndex16 new_bg = s.bg;
+            const Attrs    new_attrs = s.attrs;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+
+    SetSelectionCorners(nx, ny, nx + new_w - 1, ny + new_h - 1);
+    return did_anything;
+}
+
+bool AnsiCanvas::CenterSelection(int layer_index)
+{
+    EnsureDocument();
+    if (IsMovingSelection())
+        (void)CommitMoveSelection(layer_index);
+    if (!HasSelection())
+        return false;
+
+    layer_index = NormalizeLayerIndex(*this, layer_index);
+    if (layer_index < 0 || layer_index >= (int)m_layers.size())
+        return false;
+
+    const Rect r = GetSelectionRect();
+    if (r.w <= 0 || r.h <= 0)
+        return false;
+    if (m_columns <= 0)
+        return false;
+
+    int nx = 0;
+    int ny = 0;
+    if (m_columns > 0)
+        nx = (m_columns - r.w) / 2;
+    if (m_rows > 0)
+        ny = (m_rows - r.h) / 2;
+    if (nx < 0) nx = 0;
+    if (ny < 0) ny = 0;
+    nx = std::clamp(nx, 0, std::max(0, m_columns - r.w));
+
+    if (nx == r.x && ny == r.y)
+        return true; // no-op
+
+    Layer& layer = m_layers[(size_t)layer_index];
+    const int off_x = layer.offset_x;
+    const int off_y = layer.offset_y;
+
+    std::vector<ClipCell> src;
+    src.assign((size_t)r.w * (size_t)r.h, ClipCell{});
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int sx = r.x + i;
+            const int sy = r.y + j;
+            const size_t out = (size_t)j * (size_t)r.w + (size_t)i;
+            if (sx < 0 || sx >= m_columns || sy < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, m_columns, m_rows, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (idx < layer.cells.size()) src[out].cp = layer.cells[idx];
+            if (idx < layer.fg.size())    src[out].fg = layer.fg[idx];
+            if (idx < layer.bg.size())    src[out].bg = layer.bg[idx];
+            if (idx < layer.attrs.size()) src[out].attrs = layer.attrs[idx];
+        }
+
+    bool did_anything = false;
+    bool prepared = false;
+    auto prepare = [&]()
+    {
+        if (!prepared)
+        {
+            PrepareUndoForMutation();
+            EnsureUndoCaptureIsPatch();
+            prepared = true;
+        }
+    };
+
+    // Clear old rect.
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int px = r.x + i;
+            const int py = r.y + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = BlankGlyph();
+            const ColourIndex16 new_fg = kUnsetIndex16;
+            const ColourIndex16 new_bg = kUnsetIndex16;
+            const Attrs    new_attrs = 0;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+
+    // Paste at new origin.
+    for (int j = 0; j < r.h; ++j)
+        for (int i = 0; i < r.w; ++i)
+        {
+            const int px = nx + i;
+            const int py = ny + j;
+            if (px < 0 || px >= m_columns || py < 0)
+                continue;
+            const size_t sidx = (size_t)j * (size_t)r.w + (size_t)i;
+            if (sidx >= src.size())
+                continue;
+            const ClipCell& s = src[sidx];
+
+            int lr = 0, lc = 0;
+            if (!CanvasToLayerLocalForWriteFast(py, px, off_x, off_y, m_columns, lr, lc))
+                continue;
+            const size_t idx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            const bool in_bounds = (lr < m_rows);
+            const GlyphId  old_cp = (in_bounds && idx < layer.cells.size()) ? layer.cells[idx] : BlankGlyph();
+            const ColourIndex16 old_fg = (in_bounds && idx < layer.fg.size()) ? layer.fg[idx] : kUnsetIndex16;
+            const ColourIndex16 old_bg = (in_bounds && idx < layer.bg.size()) ? layer.bg[idx] : kUnsetIndex16;
+            const Attrs    old_attrs = (in_bounds && idx < layer.attrs.size()) ? layer.attrs[idx] : 0;
+
+            const GlyphId  new_cp = s.cp;
+            const ColourIndex16 new_fg = s.fg;
+            const ColourIndex16 new_bg = s.bg;
+            const Attrs    new_attrs = s.attrs;
+
+            if (!TransparencyTransitionAllowed(layer.lock_transparency,
+                                               old_cp, old_fg, old_bg, old_attrs,
+                                               new_cp, new_fg, new_bg, new_attrs))
+                continue;
+            if (in_bounds && old_cp == new_cp && old_fg == new_fg && old_bg == new_bg && old_attrs == new_attrs)
+                continue;
+
+            prepare();
+            CaptureUndoPageIfNeeded(layer_index, lr);
+            if (lr >= m_rows)
+                EnsureRows(lr + 1);
+            const size_t widx = (size_t)lr * (size_t)m_columns + (size_t)lc;
+            if (widx < layer.cells.size()) layer.cells[widx] = new_cp;
+            if (widx < layer.fg.size())    layer.fg[widx]    = new_fg;
+            if (widx < layer.bg.size())    layer.bg[widx]    = new_bg;
+            if (widx < layer.attrs.size()) layer.attrs[widx] = new_attrs;
+            did_anything = true;
+        }
+
+    SetSelectionCorners(nx, ny, nx + r.w - 1, ny + r.h - 1);
+    return did_anything;
+}
+
+bool AnsiCanvas::CropToSelection()
+{
+    EnsureDocument();
+    if (IsMovingSelection())
+        (void)CommitMoveSelection();
+    if (!HasSelection())
+        return false;
+
+    const Rect r = GetSelectionRect();
+    if (r.w <= 0 || r.h <= 0)
+        return false;
+
+    // Ensure this is one coherent undo step even if geometry doesn't change.
+    PrepareUndoForMutation();
+    EnsureUndoCaptureIsSnapshot();
+
+    const int old_cols = m_columns;
+    const int old_rows = m_rows;
+
+    struct SavedLayer
+    {
+        std::vector<ClipCell> cells; // size r.w * r.h (row-major)
+    };
+
+    const int layer_count = GetLayerCount();
+    std::vector<SavedLayer> saved;
+    saved.resize((size_t)std::max(0, layer_count));
+    const size_t n = (size_t)r.w * (size_t)r.h;
+    for (int li = 0; li < layer_count; ++li)
+    {
+        SavedLayer s;
+        s.cells.assign(n, ClipCell{});
+
+        const Layer& layer = m_layers[(size_t)li];
+        const int off_x = layer.offset_x;
+        const int off_y = layer.offset_y;
+        for (int y = 0; y < r.h; ++y)
+            for (int x = 0; x < r.w; ++x)
+            {
+                const int sx = r.x + x;
+                const int sy = r.y + y;
+                const size_t idx_out = (size_t)y * (size_t)r.w + (size_t)x;
+                if (sx < 0 || sx >= old_cols || sy < 0)
+                    continue;
+
+                int lr = 0, lc = 0;
+                if (!CanvasToLayerLocalForReadFast(sy, sx, off_x, off_y, old_cols, old_rows, lr, lc))
+                    continue;
+
+                const size_t idx = (size_t)lr * (size_t)old_cols + (size_t)lc;
+                if (idx < layer.cells.size()) s.cells[idx_out].cp = layer.cells[idx];
+                if (idx < layer.fg.size())    s.cells[idx_out].fg = layer.fg[idx];
+                if (idx < layer.bg.size())    s.cells[idx_out].bg = layer.bg[idx];
+                if (idx < layer.attrs.size()) s.cells[idx_out].attrs = layer.attrs[idx];
+            }
+        saved[(size_t)li] = std::move(s);
+    }
+
+    SetColumns(r.w);
+    SetRows(r.h);
+
+    // Crop is a structural "rebase" op: bake content into the new canvas coordinate space.
+    // To avoid offset-induced out-of-bounds mapping after geometry changes, reset offsets.
+    for (int li = 0; li < layer_count; ++li)
+    {
+        Layer& layer = m_layers[(size_t)li];
+        layer.offset_x = 0;
+        layer.offset_y = 0;
+    }
+
+    // Clear all layers, then restore saved region into new canvas coordinates.
+    const size_t need = (size_t)std::max(0, m_rows) * (size_t)std::max(0, m_columns);
+    for (int li = 0; li < layer_count; ++li)
+    {
+        Layer& layer = m_layers[(size_t)li];
+        layer.cells.assign(need, BlankGlyph());
+        layer.fg.assign(need, kUnsetIndex16);
+        layer.bg.assign(need, kUnsetIndex16);
+        layer.attrs.assign(need, 0);
+
+        const SavedLayer& s = saved[(size_t)li];
+        for (int y = 0; y < r.h; ++y)
+            for (int x = 0; x < r.w; ++x)
+            {
+                const size_t src_idx = (size_t)y * (size_t)r.w + (size_t)x;
+                if (src_idx >= s.cells.size())
+                    continue;
+                const ClipCell& cell = s.cells[src_idx];
+                if (x < 0 || x >= m_columns || y < 0 || y >= m_rows)
+                    continue;
+                const size_t dst_idx = (size_t)y * (size_t)m_columns + (size_t)x;
+                if (dst_idx >= layer.cells.size())
+                    continue;
+                layer.cells[dst_idx] = cell.cp;
+                if (dst_idx < layer.fg.size()) layer.fg[dst_idx] = cell.fg;
+                if (dst_idx < layer.bg.size()) layer.bg[dst_idx] = cell.bg;
+                if (dst_idx < layer.attrs.size()) layer.attrs[dst_idx] = cell.attrs;
+            }
+    }
+
+    SetSelectionCorners(0, 0, r.w - 1, r.h - 1);
+    return true;
+}
+
 bool AnsiCanvas::CutSelectionToClipboard(int layer_index)
 {
     if (!CopySelectionToClipboard(layer_index))

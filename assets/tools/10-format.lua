@@ -2,7 +2,8 @@ settings = {
   id = "10-format",
   icon = "¶",
   label = "Format",
-  shortcut = "Ctrl+Alt+O",
+  -- Attributes/formatting
+  shortcut = "Alt+A",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

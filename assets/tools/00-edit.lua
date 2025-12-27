@@ -2,7 +2,8 @@ settings = {
   id = "00-edit",
   icon = "⌶",
   label = "Edit",
-  shortcut = "Ctrl+Alt+E"
+  -- Keyboard/caret editing mode (Moebius-style "Keyboard Mode" is K)
+  shortcut = "Alt+K"
   ,
   -- Action routing hints (used by host Action Router).
   -- This tool intentionally overrides selection-delete semantics: with an active selection,

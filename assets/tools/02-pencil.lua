@@ -2,7 +2,8 @@ settings = {
   id = "02-pencil",
   icon = "🖉",
   label = "Pencil",
-  shortcut = "Ctrl+Alt+P",
+  -- PabloDraw pencil tool = Alt+P
+  shortcut = "Alt+P",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

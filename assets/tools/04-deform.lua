@@ -2,7 +2,7 @@ settings = {
   id = "04-deform",
   icon = "≋",
   label = "Deform",
-  shortcut = "Ctrl+Alt+D",
+  shortcut = "Alt+D",
 
   params = {
     size = { type = "int", label = "Size", ui = "slider", section = "Brush", primary = true, order = 0, min = 1, max = 61, step = 1, default = 15, width = 160 },

@@ -2,7 +2,9 @@ settings = {
   id = "08-shape",
   icon = "⌺",
   label = "Shape",
-  shortcut = "Ctrl+Alt+G",
+  -- PabloDraw splits these into separate tools (Line=L, Rectangle=R, Ellipse=O).
+  -- Phosphor's Shape tool combines them, so we accept multiple accelerators.
+  shortcuts = { "Alt+L", "Alt+R", "Alt+O" },
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

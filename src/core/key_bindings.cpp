@@ -731,22 +731,22 @@ std::vector<Action> DefaultActions()
         {
             .id="menu.open.file", .title="Open File Menu", .category="Menu",
             .description="Open the File menu (keyboard navigation).",
-            .bindings={ {.enabled=true, .chord="Alt+F", .context="global", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Shift+Alt+F", .context="global", .platform="any"} }
         },
         {
             .id="menu.open.edit", .title="Open Edit Menu", .category="Menu",
             .description="Open the Edit menu (keyboard navigation).",
-            .bindings={ {.enabled=true, .chord="Alt+E", .context="global", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Shift+Alt+E", .context="global", .platform="any"} }
         },
         {
             .id="menu.open.window", .title="Open Window Menu", .category="Menu",
             .description="Open the Window menu (keyboard navigation).",
-            .bindings={ {.enabled=true, .chord="Alt+W", .context="global", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Shift+Alt+W", .context="global", .platform="any"} }
         },
         {
             .id="menu.open.view", .title="Open View Menu", .category="Menu",
             .description="Open the View menu (keyboard navigation).",
-            .bindings={ {.enabled=true, .chord="Alt+V", .context="global", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Ctrl+Shift+Alt+V", .context="global", .platform="any"} }
         },
 
         // --- File ---
@@ -847,7 +847,8 @@ std::vector<Action> DefaultActions()
             .id="app.quit", .title="Quit", .category="File",
             .description="Exit the application.",
             .bindings={
-                {.enabled=true, .chord="Alt+X", .context="global", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Q", .context="global", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Q", .context="global", .platform="linux"},
                 {.enabled=true, .chord="Cmd+Q", .context="global", .platform="macos"},
             }
         },
@@ -1002,7 +1003,7 @@ std::vector<Action> DefaultActions()
             .id="selection.start_block", .title="Start Selection / Block Select", .category="Selection",
             .description="Start a selection (block select).",
             .bindings={
-                {.enabled=true, .chord="Alt+B", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Alt+Shift+B", .context="editor", .platform="any"},
             }
         },
 
@@ -1217,7 +1218,7 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="colour.pick_attribute", .title="Pick Attribute Under Caret", .category="Colour", .description="",
-            .bindings={ {.enabled=true, .chord="Alt+U", .context="editor", .platform="any"} }
+            .bindings={ {.enabled=true, .chord="Alt+Shift+U", .context="editor", .platform="any"} }
         },
         {
             .id="colour.default", .title="Default Colour", .category="Colour", .description="",

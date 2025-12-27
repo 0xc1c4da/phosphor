@@ -2,7 +2,7 @@ settings = {
   id = "07-eraser",
   icon = "🧽",
   label = "Eraser",
-  shortcut = "Ctrl+Alt+X",
+  shortcut = "Alt+X",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

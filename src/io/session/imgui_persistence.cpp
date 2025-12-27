@@ -1,6 +1,7 @@
 #include "io/session/imgui_persistence.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 void ApplyImGuiWindowPlacement(const SessionState& session, const char* window_name, bool apply_this_frame)
 {
@@ -55,8 +56,11 @@ void ApplyImGuiWindowPlacement(const SessionState& session, const char* window_n
     // Size: keep within viewport bounds (and keep a sane minimum).
     float w = p.w;
     float h = p.h;
-    const float min_w = 200.0f;
-    const float min_h = 150.0f;
+    // Keep this aligned with the capture-side guard (kMinW/kMinH) so users can
+    // intentionally keep narrow/small utility windows (tool palettes, etc.)
+    // across restarts, while still rejecting transient/invalid 0-sized windows.
+    const float min_w = 64.0f;
+    const float min_h = 64.0f;
     const float max_w = std::max(min_w, work_size.x - margin);
     const float max_h = std::max(min_h, work_size.y - margin);
     w = clampf(w, min_w, max_w);
@@ -85,10 +89,14 @@ void CaptureImGuiWindowPlacement(SessionState& session, const char* window_name)
         return;
 
     ImGuiWindowPlacement& p = session.imgui_windows[window_name];
-    const ImVec2 pos = ImGui::GetWindowPos();
-    const ImVec2 sz  = ImGui::GetWindowSize();
-
     const bool collapsed = ImGui::IsWindowCollapsed();
+
+    // Prefer internal window metrics so we can persist the "full" size even
+    // while the window is collapsed (GetWindowSize() returns the collapsed size).
+    // This avoids losing the user's expanded size between application runs.
+    const ImGuiWindow* w = ImGui::GetCurrentWindowRead();
+    const ImVec2 pos = w ? w->Pos : ImGui::GetWindowPos();
+    const ImVec2 sz  = w ? (collapsed ? w->SizeFull : w->Size) : ImGui::GetWindowSize();
 
     // Guard against transient / invalid sizes (common on the first Begin() of a newly-created window,
     // and can also happen during certain docking/layout transitions). If we persist these, future

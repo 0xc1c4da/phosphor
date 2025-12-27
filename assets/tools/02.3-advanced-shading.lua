@@ -2,7 +2,7 @@ settings = {
   id = "02.3-advanced-shading",
   icon = "🌓",
   label = "Advanced Shading (Experimental)",
-  shortcut = "Ctrl+Alt+H",
+  shortcut = "Alt+H",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

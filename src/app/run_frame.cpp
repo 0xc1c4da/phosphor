@@ -2565,63 +2565,23 @@ void RunFrame(AppState& st)
                     } break;
                     case ToolCommand::Type::CanvasCropToSelection:
                     {
-                        if (c.IsMovingSelection())
-                            (void)c.CommitMoveSelection();
-                        if (!c.HasSelection())
-                            break;
-
-                        const AnsiCanvas::Rect r = c.GetSelectionRect();
-                        if (r.w <= 0 || r.h <= 0)
-                            break;
-
-                        struct CropCell
-                        {
-                            char32_t cp = U' ';
-                            AnsiCanvas::ColourIndex16 fg = AnsiCanvas::kUnsetIndex16;
-                            AnsiCanvas::ColourIndex16 bg = AnsiCanvas::kUnsetIndex16;
-                            AnsiCanvas::Attrs attrs = 0;
-                        };
-
-                        const int layer_count = c.GetLayerCount();
-                        std::vector<std::vector<CropCell>> saved;
-                        saved.resize(std::max(0, layer_count));
-                        const size_t n = (size_t)r.w * (size_t)r.h;
-                        for (int li = 0; li < layer_count; ++li)
-                        {
-                            saved[(size_t)li].assign(n, CropCell{});
-                            for (int y = 0; y < r.h; ++y)
-                                for (int x = 0; x < r.w; ++x)
-                                {
-                                    const int sx = r.x + x;
-                                    const int sy = r.y + y;
-                                    const size_t idx = (size_t)y * (size_t)r.w + (size_t)x;
-                                    CropCell cell;
-                                    cell.cp = c.GetLayerCell(li, sy, sx);
-                                    (void)c.GetLayerCellIndices(li, sy, sx, cell.fg, cell.bg);
-                                    (void)c.GetLayerCellAttrs(li, sy, sx, cell.attrs);
-                                    saved[(size_t)li][idx] = cell;
-                                }
-                        }
-
-                        c.SetColumns(r.w);
-                        c.SetRows(r.h);
-
-                        for (int li = 0; li < layer_count; ++li)
-                        {
-                            (void)c.ClearLayer(li, U' ');
-                            const std::vector<CropCell>& cells = saved[(size_t)li];
-                            for (int y = 0; y < r.h; ++y)
-                                for (int x = 0; x < r.w; ++x)
-                                {
-                                    const size_t idx = (size_t)y * (size_t)r.w + (size_t)x;
-                                    if (idx >= cells.size())
-                                        continue;
-                                    const CropCell& cell = cells[idx];
-                                    (void)c.SetLayerCellIndices(li, y, x, cell.cp, cell.fg, cell.bg, cell.attrs);
-                                }
-                        }
-
-                        c.SetSelectionCorners(0, 0, r.w - 1, r.h - 1);
+                        (void)c.CropToSelection();
+                    } break;
+                    case ToolCommand::Type::CanvasSelectionFlipX:
+                    {
+                        (void)c.FlipSelectionX(cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasSelectionFlipY:
+                    {
+                        (void)c.FlipSelectionY(cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasSelectionRotateCw:
+                    {
+                        (void)c.RotateSelectionCw(cmd.layer);
+                    } break;
+                    case ToolCommand::Type::CanvasSelectionCenter:
+                    {
+                        (void)c.CenterSelection(cmd.layer);
                     } break;
                     case ToolCommand::Type::CanvasRemoveRowShiftUp:
                     {

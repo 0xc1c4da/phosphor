@@ -2802,6 +2802,26 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
                     cmd.type = ToolCommand::Type::CanvasCropToSelection;
                     tool_cmds.out_commands->push_back(std::move(cmd));
                 }
+                else if (type == "canvas.selection.flip_x")
+                {
+                    cmd.type = ToolCommand::Type::CanvasSelectionFlipX;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.selection.flip_y")
+                {
+                    cmd.type = ToolCommand::Type::CanvasSelectionFlipY;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.selection.rotate_cw")
+                {
+                    cmd.type = ToolCommand::Type::CanvasSelectionRotateCw;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
+                else if (type == "canvas.selection.center")
+                {
+                    cmd.type = ToolCommand::Type::CanvasSelectionCenter;
+                    tool_cmds.out_commands->push_back(std::move(cmd));
+                }
                 else if (type == "canvas.remove_row_shift_up")
                 {
                     cmd.type = ToolCommand::Type::CanvasRemoveRowShiftUp;

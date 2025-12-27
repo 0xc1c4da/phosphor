@@ -2,7 +2,7 @@ settings = {
   id = "11-colour-blur",
   icon = "🌈",
   label = "Colour Blur",
-  shortcut = "Ctrl+Alt+U",
+  shortcut = "Alt+U",
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {

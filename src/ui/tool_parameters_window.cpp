@@ -491,13 +491,33 @@ bool ToolParametersWindow::Render(const ToolSpec* active_tool,
     const std::string fallback_title = PHOS_TR("tool_parameters.window_title");
     std::string wname = std::string(active_tool ? active_tool->label : fallback_title.c_str()) + "###" + base_id;
 
+    // Provide a sensible default size/position for first-time users, but prefer persisted placement.
+    // IMPORTANT: Don't use ImGuiCond_FirstUseEver here: we use our own persistence (SessionState),
+    // so "first use ever" would re-apply after every restart and effectively prevent size restore.
+    if (apply_placement_this_frame)
+    {
+        auto it = session.imgui_windows.find(base_id);
+        const bool has = (it != session.imgui_windows.end() && it->second.valid);
+        if (!has)
+        {
+            // Match ApplyImGuiWindowPlacement's default spawn logic, but with a Tool Params-appropriate size.
+            ImGuiViewport* vp = ImGui::GetMainViewport();
+            const ImVec2 work_pos = vp ? vp->WorkPos : ImVec2(0, 0);
+            const ImVec2 work_size = vp ? vp->WorkSize : ImVec2(1280, 720);
+            const ImVec2 center(work_pos.x + work_size.x * 0.5f,
+                                work_pos.y + work_size.y * 0.5f);
+            const ImVec2 default_size(420.0f, 260.0f);
+            const ImVec2 top_left(center.x - default_size.x * 0.5f,
+                                  center.y - default_size.y * 0.5f);
+            ImGui::SetNextWindowPos(top_left, ImGuiCond_Appearing);
+            ImGui::SetNextWindowSize(default_size, ImGuiCond_Appearing);
+        }
+    }
     ApplyImGuiWindowPlacement(session, base_id, apply_placement_this_frame);
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_None | GetImGuiWindowChromeExtraFlags(session, base_id);
     const bool alpha_pushed = PushImGuiWindowChromeAlpha(&session, base_id);
 
-    // Provide a sensible default size on first use; after that, placement persistence takes over.
-    ImGui::SetNextWindowSize(ImVec2(420.0f, 260.0f), ImGuiCond_FirstUseEver);
     ImGui::Begin(wname.c_str(), nullptr, flags);
     CaptureImGuiWindowPlacement(session, base_id);
     ApplyImGuiWindowChromeZOrder(&session, base_id);
