@@ -151,7 +151,7 @@ function render(ctx, layer)
     end
   end
 
-  if keys.enter or actions["editor.new_line"] then
+  if (not has_sel) and (keys.enter or actions["editor.new_line"]) then
     -- Insert the currently selected brush glyph (character palette / picker selection).
     if fg == nil and bg == nil and attrs == 0 then
       layer:set(caret.x, caret.y, brush_arg)
@@ -167,7 +167,7 @@ function render(ctx, layer)
 
   -- Typed characters.
   local typed = ctx.typed or {}
-  if type(typed) == "table" then
+  if (not has_sel) and type(typed) == "table" then
     for i = 1, #typed do
       local ch = typed[i]
       if type(ch) == "string" and #ch > 0 then

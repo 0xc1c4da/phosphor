@@ -83,7 +83,14 @@ static bool AllowToolCommandsForAction(std::string_view action_id)
            (action_id == "selection.remove_row_shift_up") ||
            (action_id == "selection.remove_col_shift_left") ||
            (action_id == "selection.insert_row_shift_down") ||
-           (action_id == "selection.insert_col_shift_right");
+           (action_id == "selection.insert_col_shift_right") ||
+           // Selection transforms/crop should be available even when Select is not the active tool.
+           // These are emitted as tool commands by the Select tool when ctx.out is available.
+           (action_id == "selection.op.rotate_cw") ||
+           (action_id == "selection.op.flip_x") ||
+           (action_id == "selection.op.flip_y") ||
+           (action_id == "selection.op.center") ||
+           (action_id == "selection.crop");
 }
 
 static void ApplyToolCommands(AnsiCanvas& c, const std::vector<ToolCommand>& cmds)
@@ -92,6 +99,26 @@ static void ApplyToolCommands(AnsiCanvas& c, const std::vector<ToolCommand>& cmd
     {
         switch (cmd.type)
         {
+        case ToolCommand::Type::CanvasCropToSelection:
+        {
+            (void)c.CropToSelection();
+        } break;
+        case ToolCommand::Type::CanvasSelectionFlipX:
+        {
+            (void)c.FlipSelectionX(cmd.layer);
+        } break;
+        case ToolCommand::Type::CanvasSelectionFlipY:
+        {
+            (void)c.FlipSelectionY(cmd.layer);
+        } break;
+        case ToolCommand::Type::CanvasSelectionRotateCw:
+        {
+            (void)c.RotateSelectionCw(cmd.layer);
+        } break;
+        case ToolCommand::Type::CanvasSelectionCenter:
+        {
+            (void)c.CenterSelection(cmd.layer);
+        } break;
         case ToolCommand::Type::CanvasRemoveRowShiftUp:
         {
             if (c.IsMovingSelection())
@@ -410,6 +437,18 @@ RoutedActionRouteResult RouteRoutedActionIdForKeybinding(std::string_view action
         rr.handled = true;
         rr.deliver_to_active_tool = true;
         return rr;
+    }
+
+    // Selection verb language ergonomics:
+    // When a user invokes move/copy/stamp/place while another tool is active (typically Edit),
+    // we want to switch to Select so subsequent arrow-key nudges are handled consistently.
+    // (The action itself is still executed via the fallback Select tool path below.)
+    if (action_id == "selection.op.move" ||
+        action_id == "selection.op.copy" ||
+        action_id == "selection.op.stamp" ||
+        action_id == "selection.op.place")
+    {
+        rr.request_switch_to_select_tool = true;
     }
 
     // Fallback tools.

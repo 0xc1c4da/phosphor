@@ -148,14 +148,15 @@ function render(ctx, layer)
     local x = clamp(tonumber(cursor.x) or 0, 0, cols - 1)
     local y = clamp(tonumber(cursor.y) or 0, 0, rows - 1)
 
-    -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
-    -- from the last mouse interaction.
-    caret.x = x
-    caret.y = y
-
     local left = (cursor.left == true)
     local right = (cursor.right == true)
     if not left and not right then return end
+
+    -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+    -- from the last mouse interaction. Important: do NOT update on hover-only frames,
+    -- otherwise the mouse pointer fights keyboard-driven caret usage.
+    caret.x = x
+    caret.y = y
 
     local px = tonumber(cursor.p and cursor.p.x)
     local py = tonumber(cursor.p and cursor.p.y)

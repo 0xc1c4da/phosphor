@@ -34,6 +34,13 @@ settings = {
     { action = "selection.op.flip_y", when = "active" },
     { action = "selection.op.center", when = "active" },
     { action = "selection.crop", when = "active" },
+    -- Selection verb language (Moebius/PabloDraw-style).
+    { action = "selection.op.move", when = "active" },
+    { action = "selection.op.copy", when = "active" },
+    { action = "selection.op.fill", when = "active" },
+    { action = "selection.op.erase", when = "active" },
+    { action = "selection.op.stamp", when = "active" },
+    { action = "selection.op.place", when = "active" },
 
     { action = "selection.clear_or_cancel", when = "inactive" },
     { action = "selection.clear", when = "inactive" },
@@ -53,6 +60,22 @@ settings = {
     { action = "edit.copy", when = "inactive" },
     { action = "edit.cut", when = "inactive" },
     { action = "edit.paste", when = "inactive" },
+
+    -- Selection transforms should also work as fallback handlers (Moebius/PabloDraw feel):
+    -- invoke transforms without switching tools, as long as a selection exists.
+    { action = "selection.op.rotate_cw", when = "inactive" },
+    { action = "selection.op.flip_x", when = "inactive" },
+    { action = "selection.op.flip_y", when = "inactive" },
+    { action = "selection.op.center", when = "inactive" },
+    { action = "selection.crop", when = "inactive" },
+    -- Selection verb language as fallback handlers too. Note: move/copy typically auto-switches
+    -- to Select tool so arrow-key nudging is handled here (see host router).
+    { action = "selection.op.move", when = "inactive" },
+    { action = "selection.op.copy", when = "inactive" },
+    { action = "selection.op.fill", when = "inactive" },
+    { action = "selection.op.erase", when = "inactive" },
+    { action = "selection.op.stamp", when = "inactive" },
+    { action = "selection.op.place", when = "inactive" },
   },
 
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
@@ -68,13 +91,31 @@ settings = {
     flipY = { type = "button", label = "Flip Y", ui = "action", section = "Transform", placement = "quick", inline = true },
     center = { type = "button", label = "Center", ui = "action", section = "Transform", placement = "quick", inline = true },
     crop = { type = "button", label = "Crop", ui = "action", section = "Transform", placement = "quick", inline = true },
+
+    -- Selection operation options (rect fill/erase).
+    -- Note: this is distinct from the Fill tool (05-fill.lua), which is a flood-fill.
+    verbFillMode = { type = "enum", label = "Rect fill", ui = "segmented", section = "Selection Ops", placement = "quick", items = { "both", "char", "colour" }, default = "both" },
+    verbUseFg = { type = "bool", label = "FG", ui = "toggle", section = "Selection Ops", placement = "quick", default = true, inline = true },
+    verbUseBg = { type = "bool", label = "BG", ui = "toggle", section = "Selection Ops", placement = "quick", default = true, inline = true },
+    verbUseAttrs = { type = "bool", label = "Attrs", ui = "toggle", section = "Selection Ops", placement = "quick", default = true, inline = true },
   },
 }
 
 local selecting = false
+local selecting_mode = nil -- "keyboard" | "mouse" | nil
 local sel_x0 = 0
 local sel_y0 = 0
 local prev_enter_down = false
+local last_hover_x = nil
+local last_hover_y = nil
+
+-- Selection "verb language" state (for stamp/place workflows).
+-- We keep this minimal and derived from canvas state where possible.
+local move_mode = nil -- "move" | "copy" | nil
+local move_src_x = nil
+local move_src_y = nil
+local move_src_w = nil
+local move_src_h = nil
 
 local function is_table(t) return type(t) == "table" end
 
@@ -88,6 +129,12 @@ local function clamp(v, lo, hi)
   if v < lo then return lo end
   if v > hi then return hi end
   return v
+end
+
+-- Return (min, max) ordering for selection bounds.
+local function reorientate(a, b)
+  if a <= b then return a, b end
+  return b, a
 end
 
 -- Read the selection contents from the active layer.
@@ -149,6 +196,170 @@ local function commit_if_moving(canvas)
   if canvas and canvas:isMovingSelection() then
     canvas:commitMoveSelection()
   end
+end
+
+local function get_brush_state(ctx)
+  if not ctx then return " ", nil, nil, 0 end
+
+  local fg = ctx.fg
+  if type(fg) ~= "number" then fg = nil end
+  local bg = ctx.bg
+  if type(bg) ~= "number" then bg = nil end
+  local attrs = ctx.attrs
+  if type(attrs) ~= "number" then attrs = 0 end
+  attrs = math.floor(attrs)
+  if attrs < 0 then attrs = 0 end
+
+  local brush = ctx.glyph
+  if type(brush) ~= "string" or #brush == 0 then brush = " " end
+  local brush_glyph_id = ctx.glyphId
+  local brush_arg = brush
+  if type(brush_glyph_id) == "number" and brush_glyph_id >= 0x80000000 then
+    brush_arg = brush_glyph_id
+  end
+
+  return brush_arg, fg, bg, attrs
+end
+
+local function selection_erase(ctx, canvas, layer)
+  if not canvas or not layer or not canvas:hasSelection() then return false end
+  commit_if_moving(canvas)
+  local x, y, w, h = canvas:getSelection()
+  x = to_int(x, 0); y = to_int(y, 0); w = to_int(w, 0); h = to_int(h, 0)
+  if w <= 0 or h <= 0 then return false end
+  clear_rect(layer, x, y, w, h)
+  return true
+end
+
+local function selection_fill(ctx, canvas, layer)
+  if not canvas or not layer or not canvas:hasSelection() then return false end
+  commit_if_moving(canvas)
+  local x, y, w, h = canvas:getSelection()
+  x = to_int(x, 0); y = to_int(y, 0); w = to_int(w, 0); h = to_int(h, 0)
+  if w <= 0 or h <= 0 then return false end
+
+  local brush_arg, fg, bg, attrs = get_brush_state(ctx)
+  local p = (ctx and ctx.params) or {}
+  local mode = p.verbFillMode
+  if type(mode) ~= "string" then mode = "both" end
+  local useFg = (p.verbUseFg ~= false)
+  local useBg = (p.verbUseBg ~= false)
+  local useAttrs = (p.verbUseAttrs ~= false)
+
+  local fg_arg = (useFg and type(fg) == "number") and fg or nil
+  local bg_arg = (useBg and type(bg) == "number") and bg or nil
+  local attrs_arg = (useAttrs and type(attrs) == "number") and attrs or nil
+
+  for j = 0, h - 1 do
+    for i = 0, w - 1 do
+      local px = x + i
+      local py = y + j
+      if mode == "colour" then
+        -- Preserve glyph; apply only selected channels.
+        local _, _, _, _, _, gid = layer:get(px, py)
+        if type(gid) ~= "number" then
+          -- Fallback: preserve as best-effort Unicode representative.
+          local ch = layer:get(px, py)
+          layer:set(px, py, ch, fg_arg, bg_arg, attrs_arg)
+        else
+          layer:set(px, py, gid, fg_arg, bg_arg, attrs_arg)
+        end
+      elseif mode == "char" then
+        -- Apply glyph; preserve style unless a channel is explicitly enabled.
+        layer:set(px, py, brush_arg, fg_arg, bg_arg, attrs_arg)
+      else
+        -- both
+        layer:set(px, py, brush_arg, fg_arg, bg_arg, attrs_arg)
+      end
+    end
+  end
+  return true
+end
+
+local function begin_move_selection(canvas, copy)
+  if not canvas or not canvas:hasSelection() then return false end
+  if canvas:isMovingSelection() then return true end
+  local x, y, w, h = canvas:getSelection()
+  x = to_int(x, 0); y = to_int(y, 0); w = to_int(w, 0); h = to_int(h, 0)
+  if w <= 0 or h <= 0 then return false end
+
+  -- Grab at the top-left so UpdateMoveSelection(cursor_x,cursor_y) maps directly to dst_x/dst_y.
+  if not canvas:beginMoveSelection(x, y, (copy == true)) then
+    return false
+  end
+
+  move_mode = (copy == true) and "copy" or "move"
+  move_src_x = x
+  move_src_y = y
+  move_src_w = w
+  move_src_h = h
+  return true
+end
+
+local function move_nudge(canvas, cols, rows, caret, keys)
+  if not canvas or not canvas:isMovingSelection() then return false end
+  local x, y, w, h = canvas:getSelection()
+  x = to_int(x, 0); y = to_int(y, 0); w = to_int(w, 0); h = to_int(h, 0)
+  if w <= 0 or h <= 0 then return false end
+
+  local nx = x
+  local ny = y
+  local moved = false
+
+  if keys.left then nx = nx - 1; moved = true end
+  if keys.right then nx = nx + 1; moved = true end
+  if keys.up then ny = ny - 1; moved = true end
+  if keys.down then ny = ny + 1; moved = true end
+  if not moved then return false end
+
+  if type(cols) == "number" and cols > 0 then
+    nx = clamp(nx, 0, math.max(0, cols - w))
+  else
+    if nx < 0 then nx = 0 end
+  end
+  if ny < 0 then ny = 0 end
+
+  canvas:updateMoveSelection(nx, ny)
+  if type(caret) == "table" then
+    caret.x = nx
+    caret.y = ny
+  end
+  return true
+end
+
+local function selection_place(canvas)
+  if not canvas or not canvas:isMovingSelection() then return false end
+  canvas:commitMoveSelection()
+  move_mode = nil
+  move_src_x = nil; move_src_y = nil; move_src_w = nil; move_src_h = nil
+  return true
+end
+
+local function selection_stamp(canvas)
+  if not canvas or not canvas:isMovingSelection() then return false end
+  -- Stamp: commit a placement, but keep the move active (only meaningful for copy-mode).
+  local dst_x, dst_y, _, _ = canvas:getSelection()
+  dst_x = to_int(dst_x, 0); dst_y = to_int(dst_y, 0)
+
+  canvas:commitMoveSelection()
+
+  if move_mode ~= "copy" then
+    -- For move-mode, "stamp" behaves like place.
+    move_mode = nil
+    move_src_x = nil; move_src_y = nil; move_src_w = nil; move_src_h = nil
+    return true
+  end
+  if move_src_x == nil or move_src_y == nil or move_src_w == nil or move_src_h == nil then
+    return true
+  end
+
+  -- Re-enter copy-move from the original source (which was never cleared), but keep the preview at the
+  -- current destination so the user can keep stamping without teleporting back to the source.
+  canvas:setSelection(move_src_x, move_src_y, move_src_x + move_src_w - 1, move_src_y + move_src_h - 1)
+  if canvas:beginMoveSelection(move_src_x, move_src_y, true) then
+    canvas:updateMoveSelection(dst_x, dst_y)
+  end
+  return true
 end
 
 local function selection_flip_x(ctx, canvas, layer)
@@ -470,6 +681,64 @@ function render(ctx, layer)
     caret.x = clamp(to_int(caret.x, 0), 0, cols - 1)
     caret.y = clamp(to_int(caret.y, 0), 0, rows - 1)
 
+    -- If a move/copy operation is active, arrow keys nudge the floating selection instead of moving caret.
+    -- (This is the core of the "selection verb language" workflow.)
+    if canvas:isMovingSelection() then
+      if move_nudge(canvas, cols, rows, caret, keys) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+
+    -- Place/stamp (only when a floating selection is active).
+    if actions["selection.op.place"] then
+      if selection_place(canvas) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+    if actions["selection.op.stamp"] then
+      if selection_stamp(canvas) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+
+    -- Start move/copy (create floating selection).
+    if actions["selection.op.move"] and canvas:hasSelection() and (not canvas:isMovingSelection()) then
+      if begin_move_selection(canvas, false) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+    if actions["selection.op.copy"] and canvas:hasSelection() and (not canvas:isMovingSelection()) then
+      if begin_move_selection(canvas, true) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+
+    -- Fill/erase (in-place).
+    if actions["selection.op.fill"] and canvas:hasSelection() then
+      if selection_fill(ctx, canvas, layer) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+    if actions["selection.op.erase"] and canvas:hasSelection() then
+      if selection_erase(ctx, canvas, layer) then
+        selecting = false
+        selecting_mode = nil
+        return
+      end
+    end
+
     -- Keyboard selection (rubber-band) using Enter:
     -- - first Enter: start selection at caret
     -- - move caret: live resize selection
@@ -480,11 +749,13 @@ function render(ctx, layer)
       if not selecting then
         canvas:clearSelection()
         selecting = true
+        selecting_mode = "keyboard"
         sel_x0 = to_int(caret.x, 0)
         sel_y0 = to_int(caret.y, 0)
         canvas:setSelection(sel_x0, sel_y0, sel_x0, sel_y0)
       else
         selecting = false
+        selecting_mode = nil
       end
       prev_enter_down = enter_down
       return
@@ -572,6 +843,7 @@ function render(ctx, layer)
         canvas:clearSelection()
       end
       selecting = false
+      selecting_mode = nil
       return
     end
 
@@ -579,6 +851,7 @@ function render(ctx, layer)
     if (hotkeys.selectAll or actions["edit.select_all"]) and cols > 0 and rows > 0 then
       canvas:setSelection(0, 0, cols - 1, rows - 1)
       selecting = false
+      selecting_mode = nil
       return
     end
 
@@ -661,6 +934,7 @@ function render(ctx, layer)
       -- Cut is always per-layer (destructive). Copy mode doesn't apply.
       canvas:cutSelection()
       selecting = false
+      selecting_mode = nil
       return
     end
     if hotkeys.paste or actions["edit.paste"] then
@@ -671,6 +945,7 @@ function render(ctx, layer)
       local transparent = (p.transparentSpaces == true)
       canvas:pasteClipboard(x, y, nil, mode, transparent)
       selecting = false
+      selecting_mode = nil
       return
     end
 
@@ -680,15 +955,18 @@ function render(ctx, layer)
     if actions["selection.delete_destructive"] and canvas:hasSelection() then
       if selection_shift_delete(ctx, canvas, cols, rows) then
         selecting = false
+        selecting_mode = nil
         return
       end
       canvas:deleteSelection()
       selecting = false
+      selecting_mode = nil
       return
     end
     if (hotkeys.deleteSelection or actions["selection.clear"]) and canvas:hasSelection() then
       canvas:deleteSelection()
       selecting = false
+      selecting_mode = nil
       return
     end
 
@@ -696,6 +974,7 @@ function render(ctx, layer)
     if actions["selection.shift_delete"] then
       if selection_shift_delete(ctx, canvas, cols, rows) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
@@ -704,24 +983,28 @@ function render(ctx, layer)
     if actions["selection.op.rotate_cw"] and canvas:hasSelection() then
       if selection_rotate_cw(ctx, canvas, layer, cols) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
     if actions["selection.op.flip_x"] and canvas:hasSelection() then
       if selection_flip_x(ctx, canvas, layer) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
     if actions["selection.op.flip_y"] and canvas:hasSelection() then
       if selection_flip_y(ctx, canvas, layer) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
     if actions["selection.op.center"] and canvas:hasSelection() then
       if selection_center(ctx, canvas, layer, cols, rows) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
@@ -730,11 +1013,13 @@ function render(ctx, layer)
       if ctx.out ~= nil then
         ctx.out[#ctx.out + 1] = { type = "canvas.crop_to_selection" }
         selecting = false
+        selecting_mode = nil
         return
       end
       -- Fallback: "crop contents" (does not resize geometry).
       if selection_crop_contents(ctx, canvas, layer, cols, rows) then
         selecting = false
+        selecting_mode = nil
         return
       end
     end
@@ -749,12 +1034,10 @@ function render(ctx, layer)
   local x = to_int(cursor.x, 0)
   local y = to_int(cursor.y, 0)
 
-  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
-  -- from the last mouse interaction.
-  if type(caret) == "table" then
-    caret.x = clamp(x, 0, cols - 1)
-    caret.y = clamp(y, 0, rows - 1)
-  end
+  -- Track whether the hover cell actually changed.
+  local hover_moved = (last_hover_x == nil) or (last_hover_y == nil) or (x ~= last_hover_x) or (y ~= last_hover_y)
+  last_hover_x = x
+  last_hover_y = y
 
   local prev = cursor.p or {}
   local left = (cursor.left == true)
@@ -766,10 +1049,39 @@ function render(ctx, layer)
   local release_left = (not left) and prev_left
   local press_right = right and not prev_right
 
+  -- Keyboard rubber-band selection mode (started via Enter):
+  -- - ignore stationary mouse hover so it doesn't fight keyboard caret movement
+  -- - if the mouse *moves to a new cell*, allow it to drive live resize without requiring a click
+  if selecting and selecting_mode == "keyboard" and (not left) and (not right) then
+    if hover_moved then
+      -- Sync caret to mouse and update selection bounds.
+      if type(caret) == "table" then
+        caret.x = clamp(x, 0, cols - 1)
+        caret.y = clamp(y, 0, rows - 1)
+      end
+      local x0 = clamp(to_int(sel_x0, 0), 0, cols - 1)
+      local y0 = clamp(to_int(sel_y0, 0), 0, rows - 1)
+      local x1 = clamp(x, 0, cols - 1)
+      local y1 = clamp(y, 0, rows - 1)
+      local x_min, x_max = reorientate(x0, x1)
+      local y_min, y_max = reorientate(y0, y1)
+      canvas:setSelection(x_min, y_min, x_max, y_max)
+    end
+    return
+  end
+
+  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+  -- from the last mouse interaction.
+  if type(caret) == "table" then
+    caret.x = clamp(x, 0, cols - 1)
+    caret.y = clamp(y, 0, rows - 1)
+  end
+
   -- Right-click: clear selection (if not actively moving).
   if press_right and not canvas:isMovingSelection() then
     canvas:clearSelection()
     selecting = false
+    selecting_mode = nil
     return
   end
 
@@ -794,8 +1106,10 @@ function render(ctx, layer)
       local duplicate = (mods.ctrl == true)
       canvas:beginMoveSelection(x, y, duplicate)
       selecting = false
+      selecting_mode = nil
     else
       selecting = true
+      selecting_mode = "mouse"
       sel_x0 = x
       sel_y0 = y
       canvas:setSelection(sel_x0, sel_y0, sel_x0, sel_y0)
@@ -809,6 +1123,7 @@ function render(ctx, layer)
 
   if selecting and release_left then
     selecting = false
+    selecting_mode = nil
   end
 end
 

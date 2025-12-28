@@ -722,54 +722,54 @@
       "id": "selection.op.move",
       "title": "Move Block (Selection)",
       "category": "Selection",
-      "description": "Move the active selection block (tool-gated; not wired).",
+      "description": "Move the active selection block (cut to floating selection).",
       "bindings": [
-        { "enabled": false, "chord": "M", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "M", "context": "selection", "platform": "any" }
       ]
     },
     {
       "id": "selection.op.copy",
       "title": "Copy Block (Selection)",
       "category": "Selection",
-      "description": "Duplicate/copy the active selection block (not clipboard copy) (tool-gated; not wired).",
+      "description": "Duplicate/copy the active selection block (not clipboard copy).",
       "bindings": [
-        { "enabled": false, "chord": "C", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "C", "context": "selection", "platform": "any" }
       ]
     },
     {
       "id": "selection.op.fill",
       "title": "Fill Block (Selection)",
       "category": "Selection",
-      "description": "Fill the selection with the current brush/attribute (tool-gated; not wired).",
+      "description": "Fill the selection rectangle (not flood-fill) with the current brush/attribute (configurable in Select tool).",
       "bindings": [
-        { "enabled": false, "chord": "F", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "F", "context": "selection", "platform": "any" }
       ]
     },
     {
       "id": "selection.op.erase",
       "title": "Erase Block (Selection)",
       "category": "Selection",
-      "description": "Erase the selection (alternate to Delete) (tool-gated; not wired).",
+      "description": "Erase the selection contents (alternate to Delete).",
       "bindings": [
-        { "enabled": false, "chord": "E", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "E", "context": "selection", "platform": "any" }
       ]
     },
     {
       "id": "selection.op.stamp",
       "title": "Stamp Block (Selection)",
       "category": "Selection",
-      "description": "Stamp/place the selection contents (tool-gated; not wired).",
+      "description": "Stamp/place the floating selection contents (keeps floating selection active for copy-mode).",
       "bindings": [
-        { "enabled": false, "chord": "S", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "S", "context": "selection", "platform": "any" }
       ]
     },
     {
       "id": "selection.op.place",
       "title": "Place Block (Selection)",
       "category": "Selection",
-      "description": "Commit/place the floating selection (not wired; careful with Enter conflicts).",
+      "description": "Commit/place the floating selection.",
       "bindings": [
-        { "enabled": false, "chord": "Enter", "context": "selection", "platform": "any" }
+        { "enabled": true, "chord": "Enter", "context": "selection", "platform": "any" }
       ]
     },
     {

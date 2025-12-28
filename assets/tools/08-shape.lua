@@ -1085,11 +1085,6 @@ function render(ctx, layer)
   local y = to_int(cursor.y, 0)
   local hy = to_int(cursor.half_y, y * 2)
 
-  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
-  -- from the last mouse interaction.
-  caret.x = clamp_int(x, 0, cols - 1)
-  caret.y = clamp_int(y, 0, rows - 1)
-
   local prev = cursor.p or {}
   local left = (cursor.left == true)
   local right = (cursor.right == true)
@@ -1104,6 +1099,16 @@ function render(ctx, layer)
   local any_down = left or right
   local any_release = release_left or release_right
   local pressed = press_left or press_right
+
+  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+  -- from the last mouse interaction.
+  --
+  -- Important: only sync while the mouse is actively interacting (button down),
+  -- otherwise hover-only frames will fight the keyboard-driven caret/preview mode.
+  if any_down then
+    caret.x = clamp_int(x, 0, cols - 1)
+    caret.y = clamp_int(y, 0, rows - 1)
+  end
 
   if pressed then
     -- Start a new shape preview.

@@ -1187,37 +1187,38 @@ std::vector<Action> DefaultActions()
         },
 
         // Selection operations (move/copy/fill/stamp/transform) are common, but need stronger gating
-        // than our current EvalContext supports (these should only trigger when the selection tool is active).
-        // Keep disabled-by-default until tools register these as tool actions or we add a 'tool' context.
+        // than our current EvalContext supports. We gate them with Context::Selection (only true when a selection
+        // exists), and the host router switches to the Select tool for move/copy/stamp/place so arrow-key nudging
+        // is handled by the Select tool (see src/app/action_route_execute.cpp).
         {
             .id="selection.op.move", .title="Move Block (Selection)", .category="Selection",
-            .description="Move the active selection block (tool-gated; not wired).",
-            .bindings={ {.enabled=false, .chord="M", .context="selection", .platform="any"} }
+            .description="Move the active selection block (cut to floating selection).",
+            .bindings={ {.enabled=true, .chord="M", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.copy", .title="Copy Block (Selection)", .category="Selection",
-            .description="Duplicate/copy the active selection block (not clipboard copy) (tool-gated; not wired).",
-            .bindings={ {.enabled=false, .chord="C", .context="selection", .platform="any"} }
+            .description="Duplicate/copy the active selection block (not clipboard copy).",
+            .bindings={ {.enabled=true, .chord="C", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.fill", .title="Fill Block (Selection)", .category="Selection",
-            .description="Fill the selection with the current brush/attribute (tool-gated; not wired).",
-            .bindings={ {.enabled=false, .chord="F", .context="selection", .platform="any"} }
+            .description="Fill the selection rectangle (not flood-fill) with the current brush/attribute (configurable in Select tool).",
+            .bindings={ {.enabled=true, .chord="F", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.erase", .title="Erase Block (Selection)", .category="Selection",
-            .description="Erase the selection (alternate to Delete) (tool-gated; not wired).",
-            .bindings={ {.enabled=false, .chord="E", .context="selection", .platform="any"} }
+            .description="Erase the selection contents (alternate to Delete).",
+            .bindings={ {.enabled=true, .chord="E", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.stamp", .title="Stamp Block (Selection)", .category="Selection",
-            .description="Stamp/place the selection contents (tool-gated; not wired).",
-            .bindings={ {.enabled=false, .chord="S", .context="selection", .platform="any"} }
+            .description="Stamp/place the floating selection contents (keeps floating selection active for copy-mode).",
+            .bindings={ {.enabled=true, .chord="S", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.place", .title="Place Block (Selection)", .category="Selection",
-            .description="Commit/place the floating selection (not wired; careful with Enter conflicts).",
-            .bindings={ {.enabled=false, .chord="Enter", .context="selection", .platform="any"} }
+            .description="Commit/place the floating selection.",
+            .bindings={ {.enabled=true, .chord="Enter", .context="selection", .platform="any"} }
         },
         {
             .id="selection.op.rotate_cw", .title="Rotate Selection (Clockwise)", .category="Selection",
