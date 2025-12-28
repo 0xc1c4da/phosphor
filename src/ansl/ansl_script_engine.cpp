@@ -2541,6 +2541,8 @@ bool AnslScriptEngine::RunFrame(AnsiCanvas& canvas,
         lua_pushboolean(L, frame_ctx.key_down);      lua_setfield(L, -2, "down");
         lua_pushboolean(L, frame_ctx.key_home);      lua_setfield(L, -2, "home");
         lua_pushboolean(L, frame_ctx.key_end);       lua_setfield(L, -2, "end");
+        lua_pushboolean(L, frame_ctx.key_doc_top);   lua_setfield(L, -2, "doc_top");
+        lua_pushboolean(L, frame_ctx.key_doc_bottom);lua_setfield(L, -2, "doc_bottom");
         lua_pushboolean(L, frame_ctx.key_backspace); lua_setfield(L, -2, "backspace");
         lua_pushboolean(L, frame_ctx.key_delete);    lua_setfield(L, -2, "delete");
         lua_pushboolean(L, frame_ctx.key_enter);     lua_setfield(L, -2, "enter");

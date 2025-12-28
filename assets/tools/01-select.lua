@@ -793,6 +793,14 @@ function render(ctx, layer)
     end
     if keys.home then caret.x = 0; moved = true end
     if keys["end"] then caret.x = cols - 1; moved = true end
+    if keys.doc_top then
+      caret.y = 0
+      moved = true
+    end
+    if keys.doc_bottom then
+      caret.y = rows - 1
+      moved = true
+    end
 
     -- Live resize keyboard selection while selecting.
     if moved and selecting then

@@ -1713,6 +1713,8 @@ void AnsiCanvas::CaptureKeyEvents()
         m_key_events.down  = m_keybinds->ActionPressed("nav.caret_down", kctx);
         m_key_events.home  = m_keybinds->ActionPressed("nav.home", kctx);
         m_key_events.end   = m_keybinds->ActionPressed("nav.end", kctx);
+        m_key_events.doc_top = m_keybinds->ActionPressed("nav.doc_top", kctx);
+        m_key_events.doc_bottom = m_keybinds->ActionPressed("nav.doc_bottom", kctx);
 
         m_key_events.backspace = m_keybinds->ActionPressed("editor.backspace", kctx);
 
@@ -1733,6 +1735,14 @@ void AnsiCanvas::CaptureKeyEvents()
         m_key_events.down      = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
         m_key_events.home      = ImGui::IsKeyPressed(ImGuiKey_Home);
         m_key_events.end       = ImGui::IsKeyPressed(ImGuiKey_End);
+        // Best-effort defaults when keybindings engine is not attached:
+        // - Ctrl+PageUp/PageDown => doc top/bottom (PabloDraw-style)
+        // - Ctrl+Home/End        => doc top/bottom (Icy Draw-style)
+        ImGuiIO& io = ImGui::GetIO();
+        m_key_events.doc_top =
+            (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_PageUp) || ImGui::IsKeyPressed(ImGuiKey_Home)));
+        m_key_events.doc_bottom =
+            (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_PageDown) || ImGui::IsKeyPressed(ImGuiKey_End)));
         m_key_events.backspace = ImGui::IsKeyPressed(ImGuiKey_Backspace);
         m_key_events.del       = ImGui::IsKeyPressed(ImGuiKey_Delete);
         m_key_events.enter     = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);

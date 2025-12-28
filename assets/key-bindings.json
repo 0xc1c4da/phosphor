@@ -413,7 +413,8 @@
       "title": "Line Start",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "Home", "context": "editor", "platform": "any", "repeat": true }
+        { "enabled": true, "chord": "Home", "context": "editor", "platform": "any", "repeat": true },
+        { "enabled": true, "chord": "Cmd+Left", "context": "editor", "platform": "macos", "repeat": true }
       ]
     },
     {
@@ -421,7 +422,8 @@
       "title": "Line End",
       "category": "Navigation",
       "bindings": [
-        { "enabled": true, "chord": "End", "context": "editor", "platform": "any", "repeat": true }
+        { "enabled": true, "chord": "End", "context": "editor", "platform": "any", "repeat": true },
+        { "enabled": true, "chord": "Cmd+Right", "context": "editor", "platform": "macos", "repeat": true }
       ]
     },
     {
@@ -851,7 +853,8 @@
       "category": "Navigation",
       "description": "Move caret to the top of the document (not wired).",
       "bindings": [
-        { "enabled": false, "chord": "Ctrl+Home", "context": "editor", "platform": "any" },
+        { "enabled": false, "chord": "Ctrl+PageUp", "context": "editor", "platform": "windows" },
+        { "enabled": false, "chord": "Ctrl+PageUp", "context": "editor", "platform": "linux" },
         { "enabled": false, "chord": "Cmd+Home", "context": "editor", "platform": "macos" }
       ]
     },
@@ -861,7 +864,8 @@
       "category": "Navigation",
       "description": "Move caret to the bottom of the document (not wired).",
       "bindings": [
-        { "enabled": false, "chord": "Ctrl+End", "context": "editor", "platform": "any" },
+        { "enabled": false, "chord": "Ctrl+PageDown", "context": "editor", "platform": "windows" },
+        { "enabled": false, "chord": "Ctrl+PageDown", "context": "editor", "platform": "linux" },
         { "enabled": false, "chord": "Cmd+End", "context": "editor", "platform": "macos" }
       ]
     },
@@ -1258,6 +1262,28 @@
       "description": "Open the command palette.",
       "bindings": [
         { "enabled": true, "chord": "Ctrl+;", "context": "global", "platform": "any" }
+      ]
+    },
+    {
+      "id": "ui.focus_next_canvas",
+      "title": "Focus Next Canvas",
+      "category": "UI",
+      "description": "Cycle focus to the next open canvas window.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Shift+PageDown", "context": "global", "platform": "windows" },
+        { "enabled": true, "chord": "Ctrl+Shift+PageDown", "context": "global", "platform": "linux" },
+        { "enabled": true, "chord": "Cmd+Shift+PageDown", "context": "global", "platform": "macos" }
+      ]
+    },
+    {
+      "id": "ui.focus_prev_canvas",
+      "title": "Focus Previous Canvas",
+      "category": "UI",
+      "description": "Cycle focus to the previous open canvas window.",
+      "bindings": [
+        { "enabled": true, "chord": "Ctrl+Shift+PageUp", "context": "global", "platform": "windows" },
+        { "enabled": true, "chord": "Ctrl+Shift+PageUp", "context": "global", "platform": "linux" },
+        { "enabled": true, "chord": "Cmd+Shift+PageUp", "context": "global", "platform": "macos" }
       ]
     },
     {

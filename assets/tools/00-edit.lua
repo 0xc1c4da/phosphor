@@ -127,6 +127,15 @@ function render(ctx, layer)
   end
   if keys.home then caret.x = 0 end
   if keys["end"] then caret.x = cols - 1 end
+  if keys.doc_top then
+    caret.y = 0
+  end
+  if keys.doc_bottom then
+    local rows = tonumber(ctx.rows) or 0
+    if rows > 0 then
+      caret.y = rows - 1
+    end
+  end
 
   -- Editing keys.
   if (not has_sel) and actions["editor.backspace"] then

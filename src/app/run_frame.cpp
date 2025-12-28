@@ -84,6 +84,38 @@ namespace
 {
 using nlohmann::json;
 
+static std::string SanitizeImGuiId(std::string s)
+{
+    // ImGui uses "##" / "###" separators; ensure file paths can't accidentally introduce extra separators.
+    for (;;)
+    {
+        const size_t pos = s.find("##");
+        if (pos == std::string::npos)
+            break;
+        s.replace(pos, 2, "#");
+    }
+    return s;
+}
+
+static std::string CanvasPathForWindow(const CanvasWindow& canvas)
+{
+    std::string canvas_path;
+    if (canvas.canvas.HasFilePath())
+        canvas_path = canvas.canvas.GetFilePath();
+    else if (!canvas.restore_phos_cache_rel.empty())
+        canvas_path = PhosphorCachePath(canvas.restore_phos_cache_rel);
+    else
+        canvas_path = PhosphorCachePath("session_canvases/canvas_" + std::to_string(canvas.id) + ".phos");
+    return canvas_path;
+}
+
+static std::string CanvasWindowImGuiId(const CanvasWindow& canvas)
+{
+    // Must match the window ID suffix used when creating canvas windows later in RunFrame.
+    const std::string doc_id = SanitizeImGuiId(CanvasPathForWindow(canvas));
+    return "canvas:" + doc_id + "#" + std::to_string(canvas.id);
+}
+
 // ApplyToolPresetDigit extracted to app/tool_preset_apply.* so it can be reused by the command palette.
 } // namespace
 
@@ -1149,6 +1181,67 @@ void RunFrame(AppState& st)
     // treat the palette as an active popup in the *same frame it was opened*.
     any_popup =
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+    // Canvas focus cycling (host-owned actions).
+    // These depend on workspace state + canvas window IDs, so we handle them here (not in app::ExecuteActionId()).
+    if (!any_popup)
+    {
+        auto find_open_index_by_id = [&](int id) -> int {
+            if (id > 0)
+            {
+                for (size_t i = 0; i < canvases.size(); ++i)
+                {
+                    if (canvases[i] && canvases[i]->open && canvases[i]->id == id)
+                        return (int)i;
+                }
+            }
+            for (size_t i = 0; i < canvases.size(); ++i)
+                if (canvases[i] && canvases[i]->open)
+                    return (int)i;
+            return -1;
+        };
+
+        auto focus_next_prev = [&](int dir) {
+            const int cur = find_open_index_by_id(last_active_canvas_id);
+            if (cur < 0 || canvases.empty())
+                return;
+
+            const int n = (int)canvases.size();
+            for (int step = 1; step <= n; ++step)
+            {
+                const int idx = (cur + dir * step + n) % n;
+                if (!canvases[(size_t)idx] || !canvases[(size_t)idx]->open)
+                    continue;
+
+                // Clear focus on all canvases to avoid stale grid focus behind the active window.
+                for (auto& cptr : canvases)
+                    if (cptr && cptr->open)
+                        cptr->canvas.ClearFocus();
+
+                CanvasWindow& target = *canvases[(size_t)idx];
+                last_active_canvas_id = target.id;
+                target.canvas.RequestFocus();
+
+                // Focus by stable ImGui window ID (ignore visible title).
+                pending_imgui_focus_window = "###" + CanvasWindowImGuiId(target);
+                break;
+            }
+        };
+
+        for (const std::string_view id : pressed_action_ids)
+        {
+            if (id == "ui.focus_next_canvas")
+            {
+                focus_next_prev(+1);
+                break;
+            }
+            if (id == "ui.focus_prev_canvas")
+            {
+                focus_next_prev(-1);
+                break;
+            }
+        }
+    }
 
     // Host keybindings should not run while a popup is open (including the command palette).
     if (!any_popup)
@@ -2338,6 +2431,8 @@ void RunFrame(AppState& st)
                 ctx.key_down = keys.down;
                 ctx.key_home = keys.home;
                 ctx.key_end = keys.end;
+                ctx.key_doc_top = keys.doc_top;
+                ctx.key_doc_bottom = keys.doc_bottom;
                 ctx.key_backspace = keys.backspace;
                 ctx.key_delete = keys.del;
                 ctx.key_enter = keys.enter;

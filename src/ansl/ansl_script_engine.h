@@ -146,6 +146,8 @@ struct AnslFrameContext
     bool key_down = false;
     bool key_home = false;
     bool key_end = false;
+    bool key_doc_top = false;
+    bool key_doc_bottom = false;
     bool key_backspace = false;
     bool key_delete = false;
     bool key_enter = false;

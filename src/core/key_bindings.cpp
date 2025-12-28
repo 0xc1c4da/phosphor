@@ -1300,11 +1300,19 @@ std::vector<Action> DefaultActions()
         },
         {
             .id="nav.home", .title="Line Start", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="Home", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
+            .bindings={
+                {.enabled=true, .chord="Home", .context="editor", .platform="any", .repeat=true, .repeat_set=true},
+                // PabloDraw/Moebius-style macOS mapping.
+                {.enabled=true, .chord="Cmd+Left", .context="editor", .platform="macos", .repeat=true, .repeat_set=true},
+            }
         },
         {
             .id="nav.end", .title="Line End", .category="Navigation", .description="",
-            .bindings={ {.enabled=true, .chord="End", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
+            .bindings={
+                {.enabled=true, .chord="End", .context="editor", .platform="any", .repeat=true, .repeat_set=true},
+                // PabloDraw/Moebius-style macOS mapping.
+                {.enabled=true, .chord="Cmd+Right", .context="editor", .platform="macos", .repeat=true, .repeat_set=true},
+            }
         },
         {
             .id="nav.page_up", .title="Page Up", .category="Navigation", .description="",
@@ -1314,12 +1322,14 @@ std::vector<Action> DefaultActions()
             .id="nav.page_down", .title="Page Down", .category="Navigation", .description="",
             .bindings={ {.enabled=true, .chord="PageDown", .context="editor", .platform="any", .repeat=true, .repeat_set=true} }
         },
-        // Top/bottom of document (common in Icy Draw).
+        // Top/bottom of document (common in PabloDraw/Icy Draw).
         {
             .id="nav.doc_top", .title="Top of Document", .category="Navigation",
             .description="Move caret to the top of the document (not wired).",
             .bindings={
-                {.enabled=false, .chord="Ctrl+Home", .context="editor", .platform="any"},
+                // PabloDraw (Win/Linux): Ctrl+PageUp.
+                {.enabled=false, .chord="Ctrl+PageUp", .context="editor", .platform="windows"},
+                {.enabled=false, .chord="Ctrl+PageUp", .context="editor", .platform="linux"},
                 {.enabled=false, .chord="Cmd+Home", .context="editor", .platform="macos"},
             }
         },
@@ -1327,7 +1337,9 @@ std::vector<Action> DefaultActions()
             .id="nav.doc_bottom", .title="Bottom of Document", .category="Navigation",
             .description="Move caret to the bottom of the document (not wired).",
             .bindings={
-                {.enabled=false, .chord="Ctrl+End", .context="editor", .platform="any"},
+                // PabloDraw (Win/Linux): Ctrl+PageDown.
+                {.enabled=false, .chord="Ctrl+PageDown", .context="editor", .platform="windows"},
+                {.enabled=false, .chord="Ctrl+PageDown", .context="editor", .platform="linux"},
                 {.enabled=false, .chord="Cmd+End", .context="editor", .platform="macos"},
             }
         },
@@ -1558,6 +1570,24 @@ std::vector<Action> DefaultActions()
             .description="Open the command palette.",
             .bindings={
                 {.enabled=true, .chord="Ctrl+;", .context="global", .platform="any"},
+            }
+        },
+        {
+            .id="ui.focus_next_canvas", .title="Focus Next Canvas", .category="UI",
+            .description="Cycle focus to the next open canvas window.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+PageDown", .context="global", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+PageDown", .context="global", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+PageDown", .context="global", .platform="macos"},
+            }
+        },
+        {
+            .id="ui.focus_prev_canvas", .title="Focus Previous Canvas", .category="UI",
+            .description="Cycle focus to the previous open canvas window.",
+            .bindings={
+                {.enabled=true, .chord="Ctrl+Shift+PageUp", .context="global", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+Shift+PageUp", .context="global", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Shift+PageUp", .context="global", .platform="macos"},
             }
         },
         {

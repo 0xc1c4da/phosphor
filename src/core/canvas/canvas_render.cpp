@@ -1442,7 +1442,8 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const bool had_typed_input = !m_typed_queue.empty();
     const bool had_key_input =
         m_key_events.left || m_key_events.right || m_key_events.up || m_key_events.down ||
-        m_key_events.home || m_key_events.end || m_key_events.backspace || m_key_events.del ||
+        m_key_events.home || m_key_events.end || m_key_events.doc_top || m_key_events.doc_bottom ||
+        m_key_events.backspace || m_key_events.del ||
         m_key_events.enter;
     if (tool_runner)
     {

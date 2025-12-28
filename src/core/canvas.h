@@ -821,6 +821,8 @@ public:
         bool down = false;
         bool home = false;
         bool end = false;
+        bool doc_top = false;
+        bool doc_bottom = false;
         bool backspace = false;
         bool del = false;
         bool enter = false;
