@@ -1059,10 +1059,10 @@ std::vector<Action> DefaultActions()
         // Swap foreground/background colours (common in Moebius).
         {
             .id="edit.swap_fg_bg", .title="Swap Foreground/Background", .category="Edit",
-            .description="Swap the active foreground and background colours (not wired).",
+            .description="Swap the active foreground and background colours.",
             .bindings={
-                {.enabled=false, .chord="Ctrl+Shift+X", .context="editor", .platform="any"},
-                {.enabled=false, .chord="Cmd+Shift+X", .context="editor", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+Shift+X", .context="editor", .platform="any"},
+                {.enabled=true, .chord="Cmd+Shift+X", .context="editor", .platform="macos"},
             }
         },
 
@@ -1325,22 +1325,22 @@ std::vector<Action> DefaultActions()
         // Top/bottom of document (common in PabloDraw/Icy Draw).
         {
             .id="nav.doc_top", .title="Top of Document", .category="Navigation",
-            .description="Move caret to the top of the document (not wired).",
+            .description="Move caret to the top of the document.",
             .bindings={
                 // PabloDraw (Win/Linux): Ctrl+PageUp.
-                {.enabled=false, .chord="Ctrl+PageUp", .context="editor", .platform="windows"},
-                {.enabled=false, .chord="Ctrl+PageUp", .context="editor", .platform="linux"},
-                {.enabled=false, .chord="Cmd+Home", .context="editor", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+PageUp", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+PageUp", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+Home", .context="editor", .platform="macos"},
             }
         },
         {
             .id="nav.doc_bottom", .title="Bottom of Document", .category="Navigation",
-            .description="Move caret to the bottom of the document (not wired).",
+            .description="Move caret to the bottom of the document.",
             .bindings={
                 // PabloDraw (Win/Linux): Ctrl+PageDown.
-                {.enabled=false, .chord="Ctrl+PageDown", .context="editor", .platform="windows"},
-                {.enabled=false, .chord="Ctrl+PageDown", .context="editor", .platform="linux"},
-                {.enabled=false, .chord="Cmd+End", .context="editor", .platform="macos"},
+                {.enabled=true, .chord="Ctrl+PageDown", .context="editor", .platform="windows"},
+                {.enabled=true, .chord="Ctrl+PageDown", .context="editor", .platform="linux"},
+                {.enabled=true, .chord="Cmd+End", .context="editor", .platform="macos"},
             }
         },
 

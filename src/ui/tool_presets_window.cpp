@@ -205,15 +205,14 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
 
-    // Preset slot buttons: variable width sized to title (like a wrapping "chip" layout),
-    // with a consistent height. This reads better for long titles and naturally adapts
-    // to horizontal vs vertical window shapes via wrapping.
-    const float button_h = 42.0f;
+    // Preset slot buttons: variable width sized to title (like a wrapping "chip" layout).
+    // Height should track the current UI font size (Unscii) so the control stays crisp
+    // and consistent with the rest of the UI.
+    const float button_h = std::floor(ImGui::GetFrameHeight() + 0.5f);
     const float min_button_w = 56.0f;
     const float left_pad = 8.0f;   // space before slot number
     const float mid_gap = 10.0f;   // space between slot number and title
     const float right_pad = 10.0f; // space after title
-    const float top_pad = 6.0f;    // vertical placement for overlay text
     const float avail_w = std::max(1.0f, avail.x);
     float row_used = 0.0f; // in content coords
 
@@ -224,11 +223,40 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
     // Using discrete steps avoids "jitter" during resize.
     const float base_font_size = ImGui::GetFontSize();
     ImFont* font = ImGui::GetFont();
-    const float title_scales[] = { 1.0f, 0.90f, 0.82f, 0.74f };
+
+    // Pixel-aligned font size steps (for crisp bitmap-style UI fonts like Unscii 8x16).
+    //
+    // ImGui scales glyphs from the baked atlas; arbitrary fractional scaling produces blur.
+    // For monospaced pixel fonts, we prefer snapping so the *rendered glyph cell width* is an
+    // integer number of pixels (similar to AnsiCanvas zoom snapping).
+    //
+    // We derive steps from the base glyph cell width in pixels (at the current font size),
+    // and quantize to integer cell widths down to 1px.
+    const float base_cell_w_px = std::max(1.0f, ImGui::CalcTextSize("M").x);
+    std::vector<float> title_font_sizes;
+    title_font_sizes.reserve(16);
+    if (font && base_cell_w_px > 0.0f && base_font_size > 0.0f)
+    {
+        const int max_cell_w = std::clamp((int)std::floor(base_cell_w_px + 0.5f), 1, 256);
+        for (int cell_w = max_cell_w; cell_w >= 1; --cell_w)
+        {
+            const float scale = (float)cell_w / base_cell_w_px;
+            const float fs = std::max(1.0f, std::floor(base_font_size * scale + 0.5f));
+            if (title_font_sizes.empty() || std::fabs(title_font_sizes.back() - fs) > 0.01f)
+                title_font_sizes.push_back(fs);
+        }
+    }
+    if (title_font_sizes.empty())
+        title_font_sizes.push_back(std::max(1.0f, base_font_size));
+    // Only allow a small number of snap steps; if the title still doesn't fit, we'll clip it.
+    // This preserves the pixel-font look (avoid ultra-tiny blurry text).
+    const int kMaxTitleSteps = 6;
+    if ((int)title_font_sizes.size() > kMaxTitleSteps)
+        title_font_sizes.resize((size_t)kMaxTitleSteps);
 
     // Choose the global step by simulating the wrapped layout for each scale and picking
     // the largest one that fits in BOTH available width (wrap) and height (rows visible).
-    int global_title_step = 0; // index into title_scales (0 = largest)
+    int global_title_step = 0; // index into title_font_sizes (0 = largest)
     if (font && avail_w > 1.0f && avail.y > 1.0f)
     {
         auto title_text_for_slot = [&](int slot) -> std::string {
@@ -238,7 +266,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         };
 
         auto simulate_total_height_for_step = [&](int step) -> float {
-            const float title_fs = std::max(1.0f, base_font_size * title_scales[step]);
+            const float title_fs = title_font_sizes[(size_t)std::clamp(step, 0, (int)title_font_sizes.size() - 1)];
             float row_used_sim = 0.0f;
             int rows = 1;
             for (int slot = 1; slot <= 9; ++slot)
@@ -246,7 +274,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                 const std::string label = std::to_string(slot);
                 const std::string title_txt = title_text_for_slot(slot);
 
-                const ImVec2 label_sz = ImGui::CalcTextSize(label.c_str());
+                const ImVec2 label_sz = font->CalcTextSizeA(title_fs, FLT_MAX, 0.0f, label.c_str());
                 const ImVec2 title_sz = font->CalcTextSizeA(title_fs, FLT_MAX, 0.0f, title_txt.c_str());
                 const float title_x = left_pad + label_sz.x + mid_gap;
                 float btn_w = std::max(min_button_w, title_x + title_sz.x + right_pad + style.FramePadding.x * 2.0f);
@@ -273,7 +301,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
 
         int best_fit_step = -1;
         float best_overflow = FLT_MAX;
-        for (int step = 0; step < (int)IM_ARRAYSIZE(title_scales); ++step)
+        for (int step = 0; step < (int)title_font_sizes.size(); ++step)
         {
             const float total_h = simulate_total_height_for_step(step);
             const float overflow = std::max(0.0f, total_h - avail.y);
@@ -293,17 +321,21 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
     }
 
     auto pick_title_font_size = [&](const std::string& text, float max_w) -> float {
-        if (!font || text.empty() || !(max_w > 1.0f))
-            return std::max(1.0f, base_font_size * title_scales[global_title_step]);
-        for (int i = global_title_step; i < (int)IM_ARRAYSIZE(title_scales); ++i)
+        if (!font || text.empty() || !(max_w > 1.0f) || title_font_sizes.empty())
+            return title_font_sizes.empty() ? std::max(1.0f, base_font_size) : title_font_sizes[(size_t)std::clamp(global_title_step, 0, (int)title_font_sizes.size() - 1)];
+        for (int i = std::clamp(global_title_step, 0, (int)title_font_sizes.size() - 1); i < (int)title_font_sizes.size(); ++i)
         {
-            const float fs = std::max(1.0f, base_font_size * title_scales[i]);
+            const float fs = title_font_sizes[(size_t)i];
             const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, text.c_str());
             if (ts.x <= max_w)
                 return fs;
         }
-        return std::max(1.0f, base_font_size * title_scales[(int)IM_ARRAYSIZE(title_scales) - 1]);
+        return title_font_sizes.back();
     };
+
+    const float global_text_font_size =
+        title_font_sizes.empty() ? std::max(1.0f, base_font_size)
+                                 : title_font_sizes[(size_t)std::clamp(global_title_step, 0, (int)title_font_sizes.size() - 1)];
 
     auto capture_current = [&]() -> std::unordered_map<std::string, SessionState::ToolParamValue> {
         std::unordered_map<std::string, SessionState::ToolParamValue> vals;
@@ -338,8 +370,10 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         const bool is_selected = (!tool_id.empty() && selected_slot == slot);
 
         // Compute variable width based on label + title.
-        const ImVec2 label_sz = ImGui::CalcTextSize(label.c_str());
-        const float title_font_base = std::max(1.0f, base_font_size * title_scales[global_title_step]);
+        const float title_font_base = global_text_font_size;
+        const ImVec2 label_sz =
+            font ? font->CalcTextSizeA(title_font_base, FLT_MAX, 0.0f, label.c_str())
+                 : ImGui::CalcTextSize(label.c_str());
         const ImVec2 title_sz = font ? font->CalcTextSizeA(title_font_base, FLT_MAX, 0.0f, title_txt.c_str())
                                      : ImGui::CalcTextSize(title_txt.c_str());
         const float title_x = left_pad + label_sz.x + mid_gap;
@@ -404,12 +438,14 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         const ImVec2 rmin = ImGui::GetItemRectMin();
         const ImVec2 rmax = ImGui::GetItemRectMax();
         dl->PushClipRect(rmin, rmax, true);
-        const ImVec2 label_pos(rmin.x + left_pad, rmin.y + top_pad);
-        const ImVec2 title_pos(rmin.x + title_x, rmin.y + top_pad);
+        // Vertically center text inside the button using snapped global text size.
+        const float text_y = std::floor(rmin.y + std::max(0.0f, (button_h - global_text_font_size) * 0.5f));
+        const ImVec2 label_pos(std::floor(rmin.x + left_pad), text_y);
+        const ImVec2 title_pos(std::floor(rmin.x + title_x), text_y);
         const float max_title_w = std::max(1.0f, (rmax.x - right_pad) - title_pos.x);
         const float title_font_size = pick_title_font_size(title_txt, max_title_w);
 
-        dl->AddText(font, base_font_size, label_pos,
+        dl->AddText(font, global_text_font_size, label_pos,
                     ImGui::GetColorU32(ImGuiCol_TextDisabled),
                     label.c_str());
         dl->AddText(font, title_font_size, title_pos,

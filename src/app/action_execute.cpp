@@ -136,6 +136,7 @@ bool CanExecuteActionId(std::string_view action_id, const ActionExecContext& ctx
                id == "edit.cut" ||
                id == "edit.paste" ||
                id == "edit.select_all" ||
+               id == "edit.swap_fg_bg" ||
                id == "selection.start_block" ||
                id == "selection.clear_or_cancel" ||
                id == "selection.clear" ||
@@ -400,6 +401,14 @@ bool ExecuteActionId(std::string_view action_id, const ActionExecContext& ctx)
                 }
                 return true;
             }
+        }
+
+        if (action_id == "edit.swap_fg_bg")
+        {
+            const ImVec4 tmp = ctx.fg_colour;
+            ctx.fg_colour = ctx.bg_colour;
+            ctx.bg_colour = tmp;
+            return true;
         }
 
         // Direct FG/BG palette index jumps (0..15 by default, but clamp to palette size).
