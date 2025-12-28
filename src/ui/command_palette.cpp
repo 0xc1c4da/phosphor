@@ -266,6 +266,30 @@ static void MruBump(std::vector<std::uint32_t>& v, std::uint32_t rgba32, size_t 
         v.resize(cap);
 }
 
+static app::ActionExecContext MakePaletteHostExecContext(const CommandPalette::RenderContext& ctx)
+{
+    // When the command palette popup is open, Dear ImGui focus typically moves away from the canvas
+    // window, and the app may consider there to be no "focused canvas" for this frame.
+    //
+    // For command palette actions, we want canvas-scoped actions (undo/redo/colour pick/etc) to apply to
+    // the active/last canvas the user was editing, not to be disabled/ineffective just because the popup
+    // owns focus.
+    app::ActionExecContext host = ctx.action_exec;
+    if (!host.focused_canvas && ctx.active_canvas)
+    {
+        host.focused_canvas = ctx.active_canvas;
+        if (!host.focused_canvas_window)
+            host.focused_canvas_window = host.active_canvas_window;
+    }
+    if (!host.active_canvas && ctx.active_canvas)
+    {
+        host.active_canvas = ctx.active_canvas;
+        if (!host.active_canvas_window)
+            host.active_canvas_window = host.focused_canvas_window;
+    }
+    return host;
+}
+
 static bool IsColourModeQuery(std::string_view q_trimmed)
 {
     if (q_trimmed.rfind("fg:", 0) == 0)
@@ -407,8 +431,9 @@ void CommandPalette::rebuild_all_items(const RenderContext& ctx)
             else
             {
                 std::string reason;
+                const app::ActionExecContext host = MakePaletteHostExecContext(ctx);
                 app::RoutedActionExecContext rctx = {
-                    .host = ctx.action_exec,
+                    .host = host,
                     .tool_palette = ctx.tool_palette,
                     .tool_engine = ctx.tool_engine,
                     .compiled_tool_id = ctx.compiled_tool_id,
@@ -1183,15 +1208,16 @@ void CommandPalette::Render(const RenderContext& ctx)
                 }
                 else
                 {
-                app::RoutedActionExecContext rexec = {
-                    .host = ctx.action_exec,
-                    .tool_palette = ctx.tool_palette,
-                    .tool_engine = ctx.tool_engine,
-                    .compiled_tool_id = ctx.compiled_tool_id,
-                };
-                executed = app::ExecuteRoutedActionId(it.id, rexec);
-                if (executed)
-                    MruBump(ctx.session.command_palette.mru_action_ids, it.id, 32);
+                    const app::ActionExecContext host = MakePaletteHostExecContext(ctx);
+                    app::RoutedActionExecContext rexec = {
+                        .host = host,
+                        .tool_palette = ctx.tool_palette,
+                        .tool_engine = ctx.tool_engine,
+                        .compiled_tool_id = ctx.compiled_tool_id,
+                    };
+                    executed = app::ExecuteRoutedActionId(it.id, rexec);
+                    if (executed)
+                        MruBump(ctx.session.command_palette.mru_action_ids, it.id, 32);
                 }
             }
             else if (it.kind == Item::Kind::Tool)

@@ -116,6 +116,73 @@ static bool ParseColourSetIndex(std::string_view action_id, std::string_view pre
 }
 } // namespace
 
+bool IsHostHandledActionId(std::string_view action_id)
+{
+    // NOTE: Keep this in sync with `ExecuteActionId()` below (but without performing side effects).
+    // We intentionally list only actions the host *recognizes*, not actions that might be tool-owned.
+
+    // Truly-global UI actions.
+    if (action_id == "app.settings.open")
+        return true;
+
+    // File-level actions.
+    if (action_id == "app.file.new" ||
+        action_id == "app.file.open" ||
+        action_id == "app.file.save" ||
+        action_id == "app.file.save_as" ||
+        action_id == "app.file.export_ansi" ||
+        action_id == "app.file.export_png" ||
+        action_id == "app.file.export_apng" ||
+        action_id == "app.file.export_utf8" ||
+        action_id == "app.file.edit_sauce" ||
+        action_id == "canvas.close" ||
+        action_id == "app.file.close_window" ||
+        action_id == "app.quit")
+    {
+        return true;
+    }
+
+    // Global view/UI toggles.
+    if (action_id == "view.fullscreen_toggle" ||
+        action_id == "ui.toggle_preview" ||
+        action_id == "ui.toggle_status_bar")
+    {
+        return true;
+    }
+
+    // Canvas-scoped host actions (require focused canvas; availability is checked by CanExecuteActionId()).
+    if (action_id == "colour.prev_fg" ||
+        action_id == "colour.next_fg" ||
+        action_id == "colour.prev_bg" ||
+        action_id == "colour.next_bg" ||
+        action_id == "colour.default" ||
+        action_id == "colour.pick_attribute" ||
+        action_id == "edit.swap_fg_bg" ||
+        action_id == "edit.undo" ||
+        action_id == "edit.redo" ||
+        action_id == "edit.select_all" ||
+        action_id == "selection.clear_or_cancel" ||
+        action_id == "editor.mirror_mode_toggle" ||
+        action_id == "view.zoom_in" ||
+        action_id == "view.zoom_out" ||
+        action_id == "view.zoom_reset" ||
+        action_id == "view.actual_size" ||
+        action_id == "view.toggle_scroll_with_cursor" ||
+        action_id == "view.scroll_up" ||
+        action_id == "view.scroll_down" ||
+        action_id == "view.scroll_left" ||
+        action_id == "view.scroll_right")
+    {
+        return true;
+    }
+
+    // Direct FG/BG palette index jumps are host-handled.
+    if (action_id.starts_with("colour.fg.set_") || action_id.starts_with("colour.bg.set_"))
+        return true;
+
+    return false;
+}
+
 void TickDeferredWindowOps(SDL_Window* window, SessionState& session_state)
 {
     MaybeApplyPendingMaximize(window, session_state);

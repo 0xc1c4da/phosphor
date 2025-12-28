@@ -5,6 +5,12 @@ settings = {
   -- PabloDraw ink dropper = Alt+I
   shortcut = "Alt+I",
 
+  -- Action routing hints (used by host Action Router).
+  -- Fallback: allow `colour.pick_attribute` to be handled even if the host doesn't recognize it.
+  handles = {
+    { action = "colour.pick_attribute", when = "inactive" },
+  },
+
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     sample = { type = "enum", label = "Sample", ui = "segmented", section = "Pipette", placement = "quick", order = 0, items = { "composite", "layer" }, default = "composite" },
@@ -59,6 +65,33 @@ end
 local function any_down(cursor)
   if not is_table(cursor) or not cursor.valid then return false end
   return (cursor.left == true) or (cursor.right == true)
+end
+
+local function pick_attribute_at(ctx, layer, x, y)
+  -- Match `colour.pick_attribute` intent: pick FG/BG under caret (no glyph pick).
+  local ch, fg, bg, cp
+  local attrs, gid
+  local canvas = ctx.canvas
+  if canvas and canvas.getCell then
+    ch, fg, bg, cp, attrs, gid = canvas:getCell(x, y, "composite")
+  else
+    ch, fg, bg, cp = layer:get(x, y)
+  end
+
+  local pal = { type = "palette.set" }
+  local any = false
+  if type(fg) == "number" then
+    pal.fg = to_int(fg, 0)
+    any = true
+  end
+  if type(bg) == "number" then
+    pal.bg = to_int(bg, 0)
+    any = true
+  end
+  if any then
+    emit(ctx, pal)
+  end
+  return true
 end
 
 local function sample_at(ctx, layer, x, y)
@@ -135,7 +168,14 @@ function render(ctx, layer)
 
   local phase = to_int(ctx.phase, 0)
   local keys = ctx.keys or {}
+  local actions = ctx.actions or {}
   local cursor = ctx.cursor or {}
+
+  -- Action-based dispatch (keyboard-driven routing path).
+  if actions["colour.pick_attribute"] == true then
+    pick_attribute_at(ctx, layer, caret.x, caret.y)
+    return
+  end
 
   -- Phase 1: mouse -> caret (caret-based pipette, consistent with edit.lua)
   if phase == 1 then

@@ -50,6 +50,10 @@ void TickDeferredWindowOps(SDL_Window* window, SessionState& session_state);
 // This is intentionally conservative: unknown actions return true (so the palette doesn't over-disable).
 bool CanExecuteActionId(std::string_view action_id, const ActionExecContext& ctx, std::string& out_reason);
 
+// Returns true if `ExecuteActionId()` recognizes/handles this action id (even if it might be currently disabled).
+// Use this for UI/routers that need to distinguish "host-handled" actions from tool-owned actions.
+bool IsHostHandledActionId(std::string_view action_id);
+
 // Execute a Phosphor action id using the same semantics as hotkeys/menus where possible.
 // Returns true if the action was recognized and executed (or at least handled).
 bool ExecuteActionId(std::string_view action_id, const ActionExecContext& ctx);

@@ -268,6 +268,12 @@ bool CanExecuteRoutedActionId(std::string_view action_id,
         // We only add additional disabling below for tool-owned actions that nobody can claim.
     }
 
+    // If the host recognizes/handles this action, do NOT require any tool claim. This keeps
+    // routing parity with `ExecuteRoutedActionId()` (which runs host actions first), and avoids
+    // greying out host-handled actions like `colour.pick_attribute` in the command palette.
+    if (ctx.allow_host_action_execute && app::IsHostHandledActionId(action_id))
+        return true;
+
     // If this is a host-fallback selection/clipboard action, CanExecuteActionId already enforced the right guards.
     if (HostFallbackHandles(action_id))
         return true;
