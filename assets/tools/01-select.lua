@@ -9,6 +9,8 @@ settings = {
   -- - When active, this tool handles selection ops + clipboard + selection transforms.
   -- - When inactive, we still want selection/clipboard actions to work as a fallback.
   handles = {
+    -- When active: Enter is used for keyboard-driven selection start/end (not create a new line).
+    { action = "editor.new_line", when = "active" },
     { action = "selection.clear_or_cancel", when = "active" },
     { action = "selection.clear", when = "active" },
     { action = "selection.shift_delete", when = "active" },
@@ -70,6 +72,7 @@ settings = {
 local selecting = false
 local sel_x0 = 0
 local sel_y0 = 0
+local prev_enter_down = false
 
 local function is_table(t) return type(t) == "table" end
 
@@ -461,6 +464,75 @@ function render(ctx, layer)
 
   -- Phase 0: keyboard shortcuts.
   if phase == 0 then
+    -- Normalize caret.
+    caret.x = clamp(to_int(caret.x, 0), 0, cols - 1)
+    caret.y = clamp(to_int(caret.y, 0), 0, rows - 1)
+
+    -- Keyboard selection (rubber-band) using Enter:
+    -- - first Enter: start selection at caret
+    -- - move caret: live resize selection
+    -- - second Enter: finish (keep selection)
+    local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+    if enter_down and not prev_enter_down then
+      commit_if_moving(canvas)
+      if not selecting then
+        canvas:clearSelection()
+        selecting = true
+        sel_x0 = to_int(caret.x, 0)
+        sel_y0 = to_int(caret.y, 0)
+        canvas:setSelection(sel_x0, sel_y0, sel_x0, sel_y0)
+      else
+        selecting = false
+      end
+      prev_enter_down = enter_down
+      return
+    end
+    prev_enter_down = enter_down
+
+    -- Caret navigation (classic wrap rules; match Edit tool).
+    local moved = false
+    if keys.left then
+      if caret.x > 0 then
+        caret.x = caret.x - 1
+      elseif caret.y > 0 then
+        caret.y = caret.y - 1
+        caret.x = cols - 1
+      end
+      moved = true
+    end
+    if keys.right then
+      if caret.x < cols - 1 then
+        caret.x = caret.x + 1
+      else
+        caret.y = caret.y + 1
+        if caret.y > rows - 1 then caret.y = rows - 1 end
+        caret.x = 0
+      end
+      moved = true
+    end
+    if keys.up then
+      if caret.y > 0 then caret.y = caret.y - 1 end
+      moved = true
+    end
+    if keys.down then
+      if caret.y < rows - 1 then caret.y = caret.y + 1 end
+      moved = true
+    end
+    if keys.home then caret.x = 0; moved = true end
+    if keys["end"] then caret.x = cols - 1; moved = true end
+
+    -- Live resize keyboard selection while selecting.
+    if moved and selecting then
+      local x0 = clamp(to_int(sel_x0, 0), 0, cols - 1)
+      local y0 = clamp(to_int(sel_y0, 0), 0, rows - 1)
+      local x1 = clamp(to_int(caret.x, 0), 0, cols - 1)
+      local y1 = clamp(to_int(caret.y, 0), 0, rows - 1)
+      local x_min, x_max = reorientate(x0, x1)
+      local y_min, y_max = reorientate(y0, y1)
+      canvas:setSelection(x_min, y_min, x_max, y_max)
+      return
+    end
+
     -- UI-driven transforms (direct buttons).
     if canvas:hasSelection() then
       if p.rotateCW == true then
@@ -663,6 +735,13 @@ function render(ctx, layer)
 
   local x = to_int(cursor.x, 0)
   local y = to_int(cursor.y, 0)
+
+  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+  -- from the last mouse interaction.
+  if type(caret) == "table" then
+    caret.x = clamp(x, 0, cols - 1)
+    caret.y = clamp(y, 0, rows - 1)
+  end
 
   local prev = cursor.p or {}
   local left = (cursor.left == true)

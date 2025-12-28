@@ -14,7 +14,7 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-static constexpr int kSessionSchemaVersion = 21;
+static constexpr int kSessionSchemaVersion = 22;
 
 static std::string EnvOrEmpty(const char* name)
 {
@@ -90,6 +90,13 @@ static json ToJson(const SessionState& st)
     if (!st.ui_locale.empty())
         ui["locale"] = st.ui_locale;
     ui["undo_limit"] = st.undo_limit;
+    // Autosave / crash recovery (workspace snapshots).
+    {
+        json as;
+        as["enabled"] = st.autosave_enabled;
+        as["interval_s"] = st.autosave_interval_s;
+        ui["autosave"] = std::move(as);
+    }
     ui["zoom_snap_mode"] = st.zoom_snap_mode;
     ui["lut_cache_budget_bytes"] = st.lut_cache_budget_bytes;
     ui["glyph_atlas_cache_budget_bytes"] = st.glyph_atlas_cache_budget_bytes;
@@ -388,6 +395,18 @@ static void FromJson(const json& j, SessionState& out)
         {
             const int v = ui["undo_limit"].get<int>();
             out.undo_limit = (v > 0) ? static_cast<size_t>(v) : 0;
+        }
+
+        if (ui.contains("autosave") && ui["autosave"].is_object())
+        {
+            const json& as = ui["autosave"];
+            if (as.contains("enabled") && as["enabled"].is_boolean())
+                out.autosave_enabled = as["enabled"].get<bool>();
+            if (as.contains("interval_s") && as["interval_s"].is_number_integer())
+            {
+                const int v = as["interval_s"].get<int>();
+                out.autosave_interval_s = std::clamp(v, 5, 3600);
+            }
         }
 
         if (ui.contains("zoom_snap_mode") && ui["zoom_snap_mode"].is_number_integer())

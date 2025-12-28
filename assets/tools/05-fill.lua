@@ -5,6 +5,12 @@ settings = {
   -- PabloDraw fill tool = F (RIP) / Alt+F is a common ANSI-editor-friendly mapping
   shortcut = "Alt+F",
 
+  -- Action routing hints (used by host Action Router).
+  -- When active: Enter should apply fill at caret (not create a new line).
+  handles = {
+    { action = "editor.new_line", when = "active" },
+  },
+
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     mode = { type = "enum", label = "Mode", ui = "segmented", section = "Fill", placement = "quick", items = { "char", "colourize", "both", "half" }, default = "both" },
@@ -365,6 +371,10 @@ local function fill(ctx, layer, sx, sy, shalfy)
   end
 end
 
+-- Track Enter press-edge for keyboard-driven fill (avoids repeating fill if a host ever
+-- reports key state rather than discrete presses).
+local prev_enter_down = false
+
 function render(ctx, layer)
   if not ctx or not layer then return end
   if not ctx.focused then return end
@@ -396,5 +406,51 @@ function render(ctx, layer)
     end
     return
   end
+
+  -- Phase 0: keyboard-driven caret + fill-on-Enter.
+  local keys = ctx.keys or {}
+  local mods = ctx.mods or {}
+  local actions = ctx.actions or {}
+
+  -- Caret navigation (classic wrap rules; match Edit tool).
+  if keys.left then
+    if caret.x > 0 then
+      caret.x = caret.x - 1
+    elseif caret.y > 0 then
+      caret.y = caret.y - 1
+      caret.x = cols - 1
+    end
+  end
+  if keys.right then
+    if caret.x < cols - 1 then
+      caret.x = caret.x + 1
+    else
+      caret.y = caret.y + 1
+      if caret.y > rows - 1 then caret.y = rows - 1 end
+      caret.x = 0
+    end
+  end
+  if keys.up then
+    if caret.y > 0 then caret.y = caret.y - 1 end
+  end
+  if keys.down then
+    if caret.y < rows - 1 then caret.y = caret.y + 1 end
+  end
+  if keys.home then caret.x = 0 end
+  if keys["end"] then caret.x = cols - 1 end
+
+  -- Apply fill at caret on Enter (or editor.new_line action).
+  local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+  if enter_down and not prev_enter_down then
+    -- In half mode, use Shift as a deterministic "lower half" selector (match Pencil keyboard behavior).
+    local shalfy = nil
+    local p = ctx.params or {}
+    if type(p) == "table" and p.mode == "half" then
+      local parity = (mods.shift == true) and 1 or 0
+      shalfy = (caret.y * 2) + parity
+    end
+    fill(ctx, layer, caret.x, caret.y, shalfy)
+  end
+  prev_enter_down = enter_down
 end
 

@@ -386,6 +386,36 @@ void SettingsWindow::RenderTab_General()
     ImGui::Spacing();
     ImGui::Spacing();
 
+    // ---------------------------------------------------------------------
+    // Autosave / crash recovery
+    // ---------------------------------------------------------------------
+    ImGui::TextUnformatted("Autosave / Crash Recovery");
+    ImGui::Separator();
+    {
+        if (ImGui::Checkbox("Enable autosave snapshots", &session_->autosave_enabled))
+        {
+            // Nothing else to do; RunFrame reads session_state every frame.
+        }
+
+        ImGui::BeginDisabled(!session_->autosave_enabled);
+        int interval_s = std::clamp(session_->autosave_interval_s, 5, 3600);
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::InputInt("Interval (seconds)", &interval_s, 5, 30))
+        {
+            interval_s = std::clamp(interval_s, 5, 3600);
+            session_->autosave_interval_s = interval_s;
+        }
+        ImGui::EndDisabled();
+
+        const std::string cfg = GetPhosphorConfigDir();
+        ImGui::TextDisabled("Phosphor periodically saves workspace snapshots for crash recovery.");
+        ImGui::TextDisabled("These snapshots are stored under: %s", cfg.c_str());
+        ImGui::TextDisabled("This does not overwrite imported files (e.g. .ans) unless you explicitly Save.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
     ImGui::TextUnformatted(PHOS_TR("settings_window.general_tab.zoom").c_str());
     ImGui::Separator();
     {

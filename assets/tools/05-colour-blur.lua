@@ -4,6 +4,12 @@ settings = {
   label = "Colour Blur",
   shortcut = "Alt+U",
 
+  -- Action routing hints (used by host Action Router).
+  -- When active: Enter is used to toggle keyboard blur (not create a new line).
+  handles = {
+    { action = "editor.new_line", when = "active" },
+  },
+
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     size = { type = "int", label = "Size", ui = "slider", section = "Brush", placement = "quick", order = 0, min = 1, max = 31, step = 1, default = 7, width = 180 },
@@ -187,6 +193,9 @@ local function end_stroke()
   stroke.active = false
 end
 
+local keyboard_blur_enabled = false
+local prev_enter_down = false
+
 local function colour_blur_step(ctx, layer, x, y)
   local cols = tonumber(ctx.cols) or 0
   if cols <= 0 then return end
@@ -293,7 +302,12 @@ function render(ctx, layer)
   end
 
   local cols = tonumber(ctx.cols) or 0
+  local rows = tonumber(ctx.rows) or 0
   if cols <= 0 then
+    end_stroke()
+    return
+  end
+  if rows <= 0 then
     end_stroke()
     return
   end
@@ -305,17 +319,20 @@ function render(ctx, layer)
   end
 
   caret.x = clamp(to_int(caret.x, 0), 0, cols - 1)
-  caret.y = math.max(0, to_int(caret.y, 0))
+  caret.y = clamp(to_int(caret.y, 0), 0, rows - 1)
 
   -- Cancel stroke (Escape / tool cancel hotkey).
   local keys = ctx.keys or {}
   local hotkeys = ctx.hotkeys or {}
   if keys.escape == true or hotkeys.cancel == true then
     end_stroke()
+    keyboard_blur_enabled = false
     return
   end
 
   local phase = to_int(ctx.phase, 0)
+  local actions = ctx.actions or {}
+  local mods = ctx.mods or {}
 
   -- Brush size preview (host overlay; transient).
   do
@@ -327,9 +344,89 @@ function render(ctx, layer)
     end
   end
 
+  -- Phase 0: keyboard-driven blur (toggle with Enter, apply while moving).
   if phase ~= 1 then
-    -- Mouse-only for now.
-    if not any_down(ctx.cursor or {}) then
+    local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+    if enter_down and not prev_enter_down then
+      if mods.shift == true then
+        -- One-shot blur at caret.
+        colour_blur_step(ctx, layer, caret.x, caret.y)
+        stroke.last_x = caret.x
+        stroke.last_y = caret.y
+      else
+        keyboard_blur_enabled = not keyboard_blur_enabled
+        stroke.active = keyboard_blur_enabled
+        stroke.last_x = caret.x
+        stroke.last_y = caret.y
+        if keyboard_blur_enabled then
+          colour_blur_step(ctx, layer, caret.x, caret.y)
+        end
+      end
+    end
+    prev_enter_down = enter_down
+
+    -- Caret navigation (classic wrap rules; match Edit tool).
+    local x0 = caret.x
+    local y0 = caret.y
+    local moved = false
+    if keys.left then
+      if caret.x > 0 then
+        caret.x = caret.x - 1
+      elseif caret.y > 0 then
+        caret.y = caret.y - 1
+        caret.x = cols - 1
+      end
+      moved = true
+    end
+    if keys.right then
+      if caret.x < cols - 1 then
+        caret.x = caret.x + 1
+      else
+        caret.y = caret.y + 1
+        if caret.y > rows - 1 then caret.y = rows - 1 end
+        caret.x = 0
+      end
+      moved = true
+    end
+    if keys.up then
+      if caret.y > 0 then caret.y = caret.y - 1 end
+      moved = true
+    end
+    if keys.down then
+      if caret.y < rows - 1 then caret.y = caret.y + 1 end
+      moved = true
+    end
+    if keys.home then caret.x = 0; moved = true end
+    if keys["end"] then caret.x = cols - 1; moved = true end
+
+    if moved and keyboard_blur_enabled and (caret.x ~= x0 or caret.y ~= y0) then
+      -- Interpolate between previous and current caret to avoid gaps.
+      local function bresenham(xa, ya, xb, yb, fn)
+        xa, ya, xb, yb = math.floor(xa), math.floor(ya), math.floor(xb), math.floor(yb)
+        local dx = math.abs(xb - xa)
+        local sx = (xa < xb) and 1 or -1
+        local dy = -math.abs(yb - ya)
+        local sy = (ya < yb) and 1 or -1
+        local err = dx + dy
+        while true do
+          fn(xa, ya)
+          if xa == xb and ya == yb then break end
+          local e2 = 2 * err
+          if e2 >= dy then err = err + dy; xa = xa + sx end
+          if e2 <= dx then err = err + dx; ya = ya + sy end
+        end
+      end
+
+      bresenham(stroke.last_x, stroke.last_y, caret.x, caret.y, function(ix, iy)
+        ix = clamp(ix, 0, cols - 1)
+        iy = clamp(iy, 0, rows - 1)
+        colour_blur_step(ctx, layer, ix, iy)
+      end)
+      stroke.last_x = caret.x
+      stroke.last_y = caret.y
+    end
+
+    if not keyboard_blur_enabled then
       end_stroke()
     end
     return

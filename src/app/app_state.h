@@ -178,6 +178,10 @@ struct AppState
     bool quit_waiting_on_save = false;
     size_t quit_save_queue_index = 0;
     std::vector<int> quit_save_queue_ids;
+    // If true, the user explicitly chose Quit -> "Don't Save" for dirty file-backed canvases.
+    // This should discard those canvases' unsaved edits by closing them (without Save prompts)
+    // so session persistence doesn't restore their cached .phos state next launch.
+    bool quit_discard_dirty_file_backed = false;
 
     double autosave_last_s = 0.0;
 };

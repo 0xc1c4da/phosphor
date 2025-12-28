@@ -795,6 +795,7 @@ public:
     {
         m_has_focus = false;
         m_mouse_capture = false;
+        m_suppress_tool_mouse_until_release = false;
         m_cursor_valid = false;
         m_focus_gained = false;
     }
@@ -1155,6 +1156,9 @@ private:
     bool m_focus_gained = false;
     // Transient: set by host to request focus on next Render().
     bool m_focus_requested = false;
+    // Transient: when focus is gained by clicking an inactive canvas, suppress tool-visible mouse-down
+    // state until all mouse buttons are released. This prevents accidental paint-on-focus.
+    bool m_suppress_tool_mouse_until_release = false;
     // Last known mouse cursor state in cell space (updated during Render()).
     bool m_cursor_valid = false;
     int  m_cursor_col = 0;

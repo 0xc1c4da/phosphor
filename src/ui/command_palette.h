@@ -43,6 +43,12 @@ public:
         AnsiCanvas* active_canvas = nullptr;
         ImVec4& fg_colour;
         ImVec4& bg_colour;
+        // Optional: shared "active foreground/background focus" used by the colour picker.
+        // Semantics: 0 = foreground, 1 = background.
+        // When provided, the command palette will:
+        // - target '#...' (without fg:/bg:) to the active focus
+        // - update it when the user interacts with FG/BG lanes (keeps semantics consistent across UI)
+        int* active_fb = nullptr;
 
         const app::ActionExecContext& action_exec;
         AnslScriptEngine& tool_engine; // active tool engine (compiled tool script)
@@ -54,6 +60,9 @@ public:
         // Should return true if a preset was found and applied.
         std::function<bool(int digit)> apply_active_tool_preset_digit;
         std::function<void()> request_focus_last_canvas;
+        // Optional: request that an ImGui window be focused after the palette closes.
+        // Intended for "Focus <panel>" items, since those panels may be created later in the frame.
+        std::function<void(std::string_view imgui_window_name)> request_focus_imgui_window;
 
         std::vector<WindowToggle> windows;
     };
@@ -69,6 +78,7 @@ private:
     bool is_open_ = false;
     bool open_requested_ = false;
     bool focus_query_on_open_ = false;
+    bool colour_lane_interacted_ = false; // true when user navigates/clicks colour lanes (enables Enter-to-apply)
 
     std::string query_;
     int selected_index_ = 0;
@@ -114,7 +124,6 @@ private:
     std::vector<Item> results_;
 
     // Colour-lane UI state (spec: two lanes with independent selection).
-    int active_colour_lane_ = 0; // 0=FG, 1=BG
     int fg_lane_index_ = 0;
     int bg_lane_index_ = 0;
     std::vector<Item> fg_lane_;

@@ -113,17 +113,35 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
     const bool hovered = ImGui::IsItemHovered();
     const bool active  = ImGui::IsItemActive(); // stays true during click+drag if the item captured the mouse button
 
-    const bool left_down  = io.MouseDown[ImGuiMouseButton_Left];
-    const bool right_down = io.MouseDown[ImGuiMouseButton_Right];
-    const bool any_down   = left_down || right_down;
+    const bool physical_left_down  = io.MouseDown[ImGuiMouseButton_Left];
+    const bool physical_right_down = io.MouseDown[ImGuiMouseButton_Right];
+    const bool physical_any_down   = physical_left_down || physical_right_down;
     const bool any_clicked =
         (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)));
 
+    // If we just focused this canvas via a click (previously inactive window), treat that click as
+    // "focus only": do not let tools interpret it as a paint/gesture start. Keep suppressing until
+    // all mouse buttons are released (covers click+hold cases).
+    bool left_down = physical_left_down;
+    bool right_down = physical_right_down;
+    bool any_down = physical_any_down;
+    bool tool_any_clicked = any_clicked;
+    if (m_suppress_tool_mouse_until_release)
+    {
+        left_down = false;
+        right_down = false;
+        any_down = false;
+        tool_any_clicked = false;
+        m_mouse_capture = false; // do not keep capture alive during suppression
+        if (!physical_any_down)
+            m_suppress_tool_mouse_until_release = false;
+    }
+
     // Capture mouse for tool interactions (pencil/brush) so click+drag continues to update
     // even if ImGui ActiveId is owned by another widget (e.g. our hidden InputText).
-    if (any_clicked)
+    if (tool_any_clicked)
         m_mouse_capture = true;
-    if (!any_down)
+    if (!physical_any_down)
         m_mouse_capture = false;
 
     const bool tracking = hovered || active || m_mouse_capture;
@@ -147,7 +165,7 @@ void AnsiCanvas::HandleMouseInteraction(const ImVec2& origin, float cell_w, floa
 
         // Don't let hover accidentally grow the document; only allow row growth when interacting.
         // (This keeps keyboard editing stable even if the mouse is moving around.)
-        if (!any_down && !any_clicked)
+        if (!any_down && !tool_any_clicked)
         {
             if (row >= m_rows) row = m_rows - 1;
             if (row < 0) row = 0;
@@ -1565,6 +1583,10 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     }
     if (!was_focused && m_has_focus)
         m_focus_gained = true;
+    // If focus was gained via a click inside the grid, suppress tool-visible mouse-down
+    // until the user releases buttons. This makes "click to activate canvas" non-destructive.
+    if (m_focus_gained)
+        m_suppress_tool_mouse_until_release = true;
 
     HandleMouseInteraction(origin, scaled_cell_w, scaled_cell_h);
 

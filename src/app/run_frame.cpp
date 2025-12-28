@@ -824,6 +824,22 @@ void RunFrame(AppState& st)
             ImGui::SameLine();
             if (!st.quit_waiting_on_save && ImGui::Button(b_dont_save.c_str()))
             {
+                // Semantics: "Don't Save" means discard the unsaved edits for file-backed canvases.
+                // We do this by closing them (without Save prompts) before shutdown so the session
+                // persistence layer won't restore their cached .phos snapshots next launch.
+                st.quit_discard_dirty_file_backed = true;
+                for (auto& cptr : canvases)
+                {
+                    if (!cptr)
+                        continue;
+                    CanvasWindow& cw = *cptr;
+                    if (should_prompt_save_on_quit(cw))
+                    {
+                        cw.close_modal_open = false;
+                        cw.close_waiting_on_save = false;
+                        cw.open = false;
+                    }
+                }
                 st.quit_modal_open = false;
                 st.done = true;
                 ImGui::CloseCurrentPopup();
@@ -1010,6 +1026,10 @@ void RunFrame(AppState& st)
     if (!any_popup)
         keybinds.CollectPressedActions(kctx, pressed_action_ids, 64);
 
+    // Deferred panel/window focus request (typically set by the command palette).
+    // Must be applied later in the frame after the target window has been created.
+    std::string pending_imgui_focus_window;
+
     // Command palette open (gated by popup state).
     {
         if (!any_popup && !command_palette.IsOpen())
@@ -1101,6 +1121,7 @@ void RunFrame(AppState& st)
             .active_canvas = active_canvas,
             .fg_colour = fg_colour,
             .bg_colour = bg_colour,
+            .active_fb = &session_state.xterm_colour_picker.active_fb,
             .action_exec = aexec,
             .tool_engine = tool_engine,
             .compiled_tool_id = s_compiled_tool_id,
@@ -1115,6 +1136,9 @@ void RunFrame(AppState& st)
                 return ok;
             },
             .request_focus_last_canvas = request_focus_last,
+            .request_focus_imgui_window = [&](std::string_view name) {
+                pending_imgui_focus_window = std::string(name);
+            },
             .windows = std::move(win_items),
         };
 
@@ -1878,10 +1902,18 @@ void RunFrame(AppState& st)
         auto request_close = [&]() {
             if (canvas.canvas.IsModifiedSinceLastSave())
             {
-                // Veto the close, re-open, and ask.
-                canvas.open = true;
-                canvas.close_modal_open = true;
-                ImGui::OpenPopup(close_popup_id.c_str());
+                if (st.quit_discard_dirty_file_backed && canvas.canvas.HasFilePath())
+                {
+                    // During Quit->Don't Save, discard dirty file-backed canvases without prompting.
+                    queue_close();
+                }
+                else
+                {
+                    // Veto the close, re-open, and ask.
+                    canvas.open = true;
+                    canvas.close_modal_open = true;
+                    ImGui::OpenPopup(close_popup_id.c_str());
+                }
             }
             else
             {
@@ -2155,6 +2187,21 @@ void RunFrame(AppState& st)
         auto tool_runner = [&](AnsiCanvas& c, int phase) {
             if (!tool_engine.HasRenderFunction())
                 return;
+
+            // Prevent UI popups (notably the command palette) from leaking keyboard/mouse intent
+            // into the canvas/tools. We still drain the canvas' queued key/typed events during
+            // the keyboard phase so those inputs don't apply on the next frame after the popup closes
+            // (e.g. Enter used to confirm a command palette item inserting a character).
+            if (any_popup)
+            {
+                if (phase == 0)
+                {
+                    std::vector<char32_t> discard_typed;
+                    c.TakeTypedCodepoints(discard_typed);
+                    (void)c.TakeKeyEvents();
+                }
+                return;
+            }
 
             if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
                 pal = *id;
@@ -2926,14 +2973,25 @@ void RunFrame(AppState& st)
     // Enforce pinned z-order globally.
     ApplyImGuiWindowChromeGlobalZOrder(session_state);
 
+    // Apply any deferred panel/window focus request after all windows have been rendered.
+    // (E.g. "Focus Brush Palette" from the command palette.)
+    if (!pending_imgui_focus_window.empty())
+        ImGui::SetWindowFocus(pending_imgui_focus_window.c_str());
+
     // Autosave / crash recovery:
     // Periodically persist session.json + cached canvas projects so crashes restore recent work.
     {
         const double now_s = ImGui::GetTime();
-        const double kAutosaveIntervalS = 30.0;
         if (st.autosave_last_s <= 0.0)
             st.autosave_last_s = now_s;
-        if (!st.done && (now_s - st.autosave_last_s) >= kAutosaveIntervalS)
+        const int interval_s = std::clamp(session_state.autosave_interval_s, 5, 3600);
+        const double interval = (double)interval_s;
+        if (!session_state.autosave_enabled)
+        {
+            // Keep the timer "fresh" so re-enabling doesn't immediately trigger.
+            st.autosave_last_s = now_s;
+        }
+        else if (!st.done && (now_s - st.autosave_last_s) >= interval)
         {
             // Only autosave if there's something worth saving.
             bool any_open = false;

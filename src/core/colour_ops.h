@@ -44,6 +44,18 @@ public:
 
     // Palette index -> packed ImGui ABGR (opaque). Caller handles fg/bg unset semantics.
     static std::uint32_t IndexToColour32(const PaletteRegistry& reg, PaletteInstanceId pal, ColourIndex idx);
+
+    // Convenience: RGB -> snapped packed ImGui ABGR colour using the provided palette + policy.
+    static inline std::uint32_t SnapRgbToColour32(const PaletteRegistry& reg,
+                                                  PaletteInstanceId pal,
+                                                  std::uint8_t r,
+                                                  std::uint8_t g,
+                                                  std::uint8_t b,
+                                                  const QuantizePolicy& policy)
+    {
+        const std::uint8_t idx = NearestIndexRgb(reg, pal, r, g, b, policy);
+        return IndexToColour32(reg, pal, ColourIndex{idx});
+    }
 };
 
 } // namespace phos::colour

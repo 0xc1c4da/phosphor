@@ -6,6 +6,12 @@ settings = {
   -- Phosphor's Shape tool combines them, so we accept multiple accelerators.
   shortcuts = { "Alt+L", "Alt+R", "Alt+O" },
 
+  -- Action routing hints (used by host Action Router).
+  -- When active: Enter should be used for keyboard-driven shape placement (not create a new line).
+  handles = {
+    { action = "editor.new_line", when = "active" },
+  },
+
   -- Tool parameters (host renders UI; values are available under ctx.params.*)
   params = {
     size = { type = "int", label = "Size", ui = "slider", section = "Render", placement = "quick", order = 0, min = 1, max = 20, step = 1, default = 1, width = 160 },
@@ -724,6 +730,7 @@ end
 -- -----------------------------------------------------------------------------
 
 local active = nil
+local prev_enter_down = false
 
 local function clear_active(ctx, layer, also_clear_selection)
   if active ~= nil and active.backup ~= nil and layer ~= nil then
@@ -968,7 +975,10 @@ function render(ctx, layer)
 
   local phase = to_int(ctx.phase, 0)
   local keys = ctx.keys or {}
+  local mods = ctx.mods or {}
+  local actions = ctx.actions or {}
   local cursor = ctx.cursor or {}
+  local caret = ctx.caret
 
   -- Cancel preview (works even when dragging).
   if keys.escape == true then
@@ -976,19 +986,109 @@ function render(ctx, layer)
     return
   end
 
-  if phase ~= 1 then
-    return
-  end
-
-  if type(cursor) ~= "table" or cursor.valid ~= true then return end
+  -- Normalize caret (keyboard-driven shape mode).
+  if type(caret) ~= "table" then return end
+  local cols = tonumber(ctx.cols or 0) or 0
+  local rows = tonumber(ctx.rows or 0) or 0
+  if cols <= 0 or rows <= 0 then return end
+  caret.x = clamp_int(caret.x or 0, 0, cols - 1)
+  caret.y = clamp_int(caret.y or 0, 0, rows - 1)
 
   local p = ctx.params or {}
   local resolution = p.resolution
   if type(resolution) ~= "string" then resolution = "cell" end
 
+  local function caret_point()
+    local x = clamp_int(caret.x or 0, 0, cols - 1)
+    local y = clamp_int(caret.y or 0, 0, rows - 1)
+    if resolution == "half" then
+      -- Keyboard half-res selector:
+      -- - Ctrl chooses the lower half; default is the top half.
+      -- (Shift is reserved for shape constraints.)
+      local parity = (mods.ctrl == true) and 1 or 0
+      return x, (y * 2) + parity
+    end
+    return x, y
+  end
+
+  -- Phase 0: keyboard-driven placement.
+  if phase ~= 1 then
+    -- Caret navigation (classic wrap rules; match Edit tool).
+    local moved = false
+    if keys.left then
+      if caret.x > 0 then
+        caret.x = caret.x - 1
+      elseif caret.y > 0 then
+        caret.y = caret.y - 1
+        caret.x = cols - 1
+      end
+      moved = true
+    end
+    if keys.right then
+      if caret.x < cols - 1 then
+        caret.x = caret.x + 1
+      else
+        caret.y = caret.y + 1
+        if caret.y > rows - 1 then caret.y = rows - 1 end
+        caret.x = 0
+      end
+      moved = true
+    end
+    if keys.up then
+      if caret.y > 0 then caret.y = caret.y - 1 end
+      moved = true
+    end
+    if keys.down then
+      if caret.y < rows - 1 then caret.y = caret.y + 1 end
+      moved = true
+    end
+    if keys.home then caret.x = 0; moved = true end
+    if keys["end"] then caret.x = cols - 1; moved = true end
+
+    -- Update preview end point while moving.
+    if moved and active ~= nil then
+      local x, y = caret_point()
+      if active.ex ~= x or active.ey ~= y then
+        active.ex = x
+        active.ey = y
+        redraw_preview(ctx, layer)
+      end
+    end
+
+    -- Enter toggles start/commit:
+    -- - first Enter: start preview at caret
+    -- - second Enter: commit shape from start->current caret
+    local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+    if enter_down and not prev_enter_down then
+      local x, y = caret_point()
+      if active == nil then
+        clear_active(ctx, layer, false)
+        active = { preview = true, backup = nil, button = "left", sx = x, sy = y, ex = x, ey = y }
+        redraw_preview(ctx, layer)
+      else
+        active.ex = x
+        active.ey = y
+        redraw_preview(ctx, layer)
+        -- Commit: stop preview mode (do not restore backup anymore).
+        active.preview = false
+        active.backup = nil
+        active = nil
+      end
+    end
+    prev_enter_down = enter_down
+    return
+  end
+
+  if type(cursor) ~= "table" or cursor.valid ~= true then return end
+
   local x = to_int(cursor.x, 0)
   local y = to_int(cursor.y, 0)
   local hy = to_int(cursor.half_y, y * 2)
+
+  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+  -- from the last mouse interaction.
+  caret.x = clamp_int(x, 0, cols - 1)
+  caret.y = clamp_int(y, 0, rows - 1)
 
   local prev = cursor.p or {}
   local left = (cursor.left == true)

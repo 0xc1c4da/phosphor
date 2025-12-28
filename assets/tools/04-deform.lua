@@ -4,6 +4,12 @@ settings = {
   label = "Deform",
   shortcut = "Alt+D",
 
+  -- Action routing hints (used by host Action Router).
+  -- When active: Enter is used to toggle keyboard deform (not create a new line).
+  handles = {
+    { action = "editor.new_line", when = "active" },
+  },
+
   params = {
     size = { type = "int", label = "Size", ui = "slider", section = "Brush", placement = "quick", order = 0, min = 1, max = 61, step = 1, default = 15, width = 160 },
     mode = { type = "enum", label = "Mode", ui = "segmented", section = "Deform", placement = "quick", order = 1, inline = true, items = { "move", "grow", "shrink", "swirl_cw", "swirl_ccw" }, default = "move" },
@@ -25,6 +31,8 @@ local stroke_active = false
 local prev_x = nil
 local prev_y = nil
 local carry = 0.0
+local keyboard_deform_enabled = false
+local prev_enter_down = false
 
 local function clamp(v, a, b)
   if v < a then return a end
@@ -87,7 +95,123 @@ function render(ctx, layer)
   if ctx.focused ~= true then return end
 
   local phase = tonumber(ctx.phase) or 0
-  if phase ~= 1 then return end
+  local cols = tonumber(ctx.cols) or 0
+  local rows = tonumber(ctx.rows) or 0
+  if cols <= 0 or rows <= 0 then return end
+
+  local caret = ctx.caret
+  if type(caret) ~= "table" then return end
+
+  caret.x = clamp(math.floor(tonumber(caret.x) or 0), 0, cols - 1)
+  caret.y = clamp(math.floor(tonumber(caret.y) or 0), 0, rows - 1)
+
+  local keys = ctx.keys or {}
+  local actions = ctx.actions or {}
+
+  -- Phase 0: keyboard-driven deform.
+  if phase ~= 1 then
+    -- Toggle keyboard deform on Enter. (Shift+Enter applies a single dab without toggling.)
+    local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+    if enter_down and not prev_enter_down then
+      if (ctx.mods and ctx.mods.shift) == true then
+        -- One-shot dab at caret.
+        apply_dab(ctx, layer, caret.x, caret.y, prev_x, prev_y)
+        prev_x = caret.x
+        prev_y = caret.y
+        carry = 0.0
+      else
+        keyboard_deform_enabled = not keyboard_deform_enabled
+        if keyboard_deform_enabled then
+          stroke_active = true
+          prev_x = caret.x
+          prev_y = caret.y
+          carry = 0.0
+          -- Initial dab (non-move modes will apply immediately).
+          apply_dab(ctx, layer, caret.x, caret.y, nil, nil)
+        else
+          stroke_active = false
+          prev_x = nil
+          prev_y = nil
+          carry = 0.0
+        end
+      end
+    end
+    prev_enter_down = enter_down
+
+    local p = ctx.params or {}
+    local size = tonumber(p.size) or 15
+    size = clamp(math.floor(size), 1, 61)
+    local spacing = tonumber(p.spacing) or 0.25
+    spacing = clamp(spacing, 0.01, 10.0)
+    local step = math.max(0.01, size * spacing)
+
+    local function apply_segment(x, y)
+      if not keyboard_deform_enabled then return end
+      if not stroke_active or type(prev_x) ~= "number" or type(prev_y) ~= "number" then
+        stroke_active = true
+        prev_x = x
+        prev_y = y
+        carry = 0.0
+        apply_dab(ctx, layer, x, y, nil, nil)
+        return
+      end
+      local d = dist(prev_x, prev_y, x, y)
+      if d <= 0.0001 then return end
+      local t = carry
+      while t + step <= d do
+        t = t + step
+        local a = t / d
+        local sx = prev_x + (x - prev_x) * a
+        local sy = prev_y + (y - prev_y) * a
+        apply_dab(ctx, layer, sx, sy, prev_x, prev_y)
+        prev_x = sx
+        prev_y = sy
+      end
+      carry = t - d
+      prev_x = x
+      prev_y = y
+    end
+
+    -- Caret navigation (classic wrap rules; match Edit tool).
+    local x0 = caret.x
+    local y0 = caret.y
+    local moved = false
+    if keys.left then
+      if caret.x > 0 then
+        caret.x = caret.x - 1
+      elseif caret.y > 0 then
+        caret.y = caret.y - 1
+        caret.x = cols - 1
+      end
+      moved = true
+    end
+    if keys.right then
+      if caret.x < cols - 1 then
+        caret.x = caret.x + 1
+      else
+        caret.y = caret.y + 1
+        if caret.y > rows - 1 then caret.y = rows - 1 end
+        caret.x = 0
+      end
+      moved = true
+    end
+    if keys.up then
+      if caret.y > 0 then caret.y = caret.y - 1 end
+      moved = true
+    end
+    if keys.down then
+      if caret.y < rows - 1 then caret.y = caret.y + 1 end
+      moved = true
+    end
+    if keys.home then caret.x = 0; moved = true end
+    if keys["end"] then caret.x = cols - 1; moved = true end
+
+    if moved and (caret.x ~= x0 or caret.y ~= y0) then
+      apply_segment(caret.x, caret.y)
+    end
+
+    return
+  end
 
   local cursor = ctx.cursor or {}
   if type(cursor) ~= "table" or cursor.valid ~= true then return end
@@ -99,6 +223,13 @@ function render(ctx, layer)
   local x = tonumber(cursor.x)
   local y = tonumber(cursor.y)
   if type(x) ~= "number" or type(y) ~= "number" then return end
+
+  -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+  -- from the last mouse interaction.
+  if down then
+    caret.x = clamp(math.floor(x), 0, cols - 1)
+    caret.y = clamp(math.floor(y), 0, rows - 1)
+  end
 
   local p = ctx.params or {}
   local size = tonumber(p.size) or 15

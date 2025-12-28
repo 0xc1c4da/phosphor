@@ -3,6 +3,12 @@ settings = {
     icon = "⇌",
     label = "Shifter",
     shortcut = "Alt+S"
+    ,
+    -- Action routing hints (used by host Action Router).
+    -- When active: Enter should apply the shifter at caret (not create a new line).
+    handles = {
+      { action = "editor.new_line", when = "active" },
+    },
 }
 
 -- Shifter tool (inspired by Moebius / IcyDraw):
@@ -42,9 +48,11 @@ end
 local function shift_cell(ctx, layer, x, y, secondary, clear)
   if not ctx or not layer then return end
   local cols = tonumber(ctx.cols) or 0
+  local rows = tonumber(ctx.rows) or 0
   if cols <= 0 then return end
+  if rows <= 0 then return end
   if x < 0 or x >= cols then return end
-  if y < 0 then return end
+  if y < 0 or y >= rows then return end
 
   if clear then
     clear_cell(layer, x, y)
@@ -109,26 +117,42 @@ local function shift_cell(ctx, layer, x, y, secondary, clear)
   return
 end
 
+-- Track Enter press-edge for keyboard-driven shifter.
+local prev_enter_down = false
+
 function render(ctx, layer)
   if not ctx or not layer then return end
   if not ctx.focused then return end
 
   local cols = tonumber(ctx.cols) or 0
-  if cols <= 0 then return end
+  local rows = tonumber(ctx.rows) or 0
+  if cols <= 0 or rows <= 0 then return end
+
+  local caret = ctx.caret
+  if type(caret) ~= "table" then return end
+  caret.x = clamp(tonumber(caret.x) or 0, 0, cols - 1)
+  caret.y = clamp(tonumber(caret.y) or 0, 0, rows - 1)
 
   local cursor = ctx.cursor or {}
-  if cursor.valid ~= true then return end
-
-  local x = clamp(tonumber(cursor.x) or 0, 0, cols - 1)
-  local y = math.max(0, tonumber(cursor.y) or 0)
 
   local keys = ctx.keys or {}
   local mods = ctx.mods or {}
+  local actions = ctx.actions or {}
 
   local phase = tonumber(ctx.phase) or 0
 
   -- Mouse-driven editing (hold+drag across cells).
   if phase == 1 then
+    if cursor.valid ~= true then return end
+
+    local x = clamp(tonumber(cursor.x) or 0, 0, cols - 1)
+    local y = clamp(tonumber(cursor.y) or 0, 0, rows - 1)
+
+    -- Keep tool caret in sync with mouse-driven target so keyboard navigation continues
+    -- from the last mouse interaction.
+    caret.x = x
+    caret.y = y
+
     local left = (cursor.left == true)
     local right = (cursor.right == true)
     if not left and not right then return end
@@ -148,9 +172,48 @@ function render(ctx, layer)
     return
   end
 
-  -- Keyboard support: Delete clears current cell.
+  -- Phase 0: keyboard-driven caret navigation + apply.
+  if keys.left then
+    if caret.x > 0 then
+      caret.x = caret.x - 1
+    elseif caret.y > 0 then
+      caret.y = caret.y - 1
+      caret.x = cols - 1
+    end
+  end
+  if keys.right then
+    if caret.x < cols - 1 then
+      caret.x = caret.x + 1
+    else
+      caret.y = caret.y + 1
+      if caret.y > rows - 1 then caret.y = rows - 1 end
+      caret.x = 0
+    end
+  end
+  if keys.up then
+    if caret.y > 0 then caret.y = caret.y - 1 end
+  end
+  if keys.down then
+    if caret.y < rows - 1 then caret.y = caret.y + 1 end
+  end
+  if keys.home then caret.x = 0 end
+  if keys["end"] then caret.x = cols - 1 end
+
+  -- Keyboard semantics:
+  -- - Enter: cycle (primary)
+  -- - Ctrl+Enter: cycle (secondary) (like right-click)
+  -- - Shift+Enter: clear (like shift+click)
+  local enter_down = (keys.enter == true) or (actions["editor.new_line"] == true)
+  if enter_down and not prev_enter_down then
+    local secondary = (mods.ctrl == true)
+    local clear = (mods.shift == true)
+    shift_cell(ctx, layer, caret.x, caret.y, secondary, clear)
+  end
+  prev_enter_down = enter_down
+
+  -- Delete clears current caret cell.
   if keys.delete == true then
-    shift_cell(ctx, layer, x, y, false, true)
+    shift_cell(ctx, layer, caret.x, caret.y, false, true)
   end
 end
 

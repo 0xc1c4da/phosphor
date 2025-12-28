@@ -222,6 +222,12 @@ struct SessionState
     // 0 = unlimited (default).
     size_t undo_limit = 0;
 
+    // Autosave / crash recovery snapshots:
+    // Periodically persists session.json + cached canvas projects under the user's config dir.
+    // NOTE: This does NOT save/export your source imports (e.g. .ans) unless you explicitly Save.
+    bool autosave_enabled = true;
+    int  autosave_interval_s = 30; // seconds; clamped on load/UI
+
     // Zoom snapping mode (applies to all canvases).
     //
     // 1 = Integer scale (always snap to N×)
