@@ -83,20 +83,6 @@ private:
     std::string query_;
     int selected_index_ = 0;
 
-    // Optional debug/telemetry state (not persisted).
-    bool show_debug_window_ = false;
-    int  dbg_open_count_ = 0;
-    int  dbg_close_count_ = 0;
-    double dbg_opened_at_s_ = 0.0;
-    bool   dbg_recorded_first_result_ = false;
-    double dbg_time_to_first_result_ms_ = 0.0;
-    int    dbg_last_result_count_ = 0;
-    std::string dbg_last_selected_id_;
-    std::string dbg_last_selected_kind_;
-    std::string dbg_last_executed_id_;
-    std::string dbg_last_executed_kind_;
-    bool dbg_last_execute_success_ = false;
-
     struct Item
     {
         enum class Kind
@@ -128,6 +114,25 @@ private:
     int bg_lane_index_ = 0;
     std::vector<Item> fg_lane_;
     std::vector<Item> bg_lane_;
+
+    // Dominant-colour cache (to avoid re-histogramming every time the query changes).
+    struct DominantCacheEntry
+    {
+        // Store as int to avoid requiring full `AnsiCanvas` definition in this header.
+        // This corresponds to a palette index in the active canvas (see `AnsiCanvas::ColourIndex16`).
+        int idx = -1;
+        std::uint32_t rgba32 = 0;
+    };
+    struct DominantCache
+    {
+        const AnsiCanvas* canvas = nullptr;
+        std::uint64_t content_rev = 0;
+        int c0 = 0, c1 = 0, r0 = 0, r1 = 0;
+        int cols = 0, rows = 0;
+        std::vector<DominantCacheEntry> fg;
+        std::vector<DominantCacheEntry> bg;
+    };
+    DominantCache dominant_cache_;
 
     void rebuild_all_items(const RenderContext& ctx);
     void rebuild_results(const RenderContext& ctx);

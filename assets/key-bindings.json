@@ -211,6 +211,15 @@
       "category": "Selection",
       "description": "Clear (erase) selection contents (no shift).",
       "bindings": [
+        { "enabled": true, "chord": "Backspace", "context": "selection", "platform": "any" }
+      ]
+    },
+    {
+      "id": "selection.delete_destructive",
+      "title": "Delete Selection (Destructive)",
+      "category": "Selection",
+      "description": "Delete selection. If selection spans full row width or full column height, shift-delete; otherwise clear in place.",
+      "bindings": [
         { "enabled": true, "chord": "Delete", "context": "selection", "platform": "any" }
       ]
     },

@@ -6,15 +6,21 @@ settings = {
   shortcut = "Alt+K"
   ,
   -- Action routing hints (used by host Action Router).
-  -- This tool intentionally overrides selection-delete semantics: with an active selection,
-  -- Backspace/Delete continue to behave like text editing (single-cell delete) rather than
-  -- deleting the whole selection.
+  -- Edit-mode caret semantics:
+  -- - Backspace: clear previous cell (no shifting)
+  -- - Delete: forward delete (shifts remainder of the line left)
+  --
+  -- Additionally, we register these actions as *inactive* handlers so Backspace/Delete
+  -- keep working even when other tools are active (but we explicitly no-op when a selection
+  -- exists to avoid conflicting with selection delete semantics handled by the Select tool).
   handles = {
     { action = "editor.backspace", when = "active" },
     { action = "editor.new_line", when = "active" },
     { action = "editor.delete_forward_shift", when = "active" },
-    -- Override selection clear/delete while Edit tool is active.
-    { action = "selection.clear", when = "active" },
+
+    -- Fallback handlers when Edit is not the active tool.
+    { action = "editor.backspace", when = "inactive" },
+    { action = "editor.delete_forward_shift", when = "inactive" },
   },
 }
 
@@ -46,6 +52,14 @@ function render(ctx, layer)
 
   local caret = ctx.caret
   if type(caret) ~= "table" then return end
+
+  -- If a selection exists, do not apply caret-edit deletes.
+  -- Selection deletion/structural ops are handled by the Select tool via routed actions.
+  local canvas = ctx.canvas
+  local has_sel = false
+  if canvas ~= nil and canvas.hasSelection ~= nil then
+    has_sel = (canvas:hasSelection() == true)
+  end
 
   -- Current editor-selected colours (indices in the active canvas palette). nil means "unset".
   local fg = ctx.fg
@@ -115,7 +129,7 @@ function render(ctx, layer)
   if keys["end"] then caret.x = cols - 1 end
 
   -- Editing keys.
-  if keys.backspace or actions["editor.backspace"] then
+  if (not has_sel) and actions["editor.backspace"] then
     if caret.x > 0 then
       caret.x = caret.x - 1
     elseif caret.y > 0 then
@@ -126,7 +140,7 @@ function render(ctx, layer)
     if layer.clearStyle then layer:clearStyle(caret.x, caret.y) end
   end
 
-  if keys["delete"] or actions["editor.delete_forward_shift"] then
+  if (not has_sel) and actions["editor.delete_forward_shift"] then
     -- Forward delete: shift cells left (native op; undo-aware; respects transparency-lock).
     if ctx.canvas and ctx.canvas.deleteForwardShift then
       ctx.canvas:deleteForwardShift()

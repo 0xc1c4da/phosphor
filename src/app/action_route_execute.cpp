@@ -71,7 +71,15 @@ static const ToolSpec* FindToolById(const ToolPalette& tp, std::string_view id)
 
 static bool AllowToolCommandsForAction(std::string_view action_id)
 {
-    return (action_id == "selection.shift_delete") ||
+    // Tool commands are the only way tools can request structural canvas operations
+    // (row/col shifts, inserts, etc.) without reimplementing heavy mutations in Lua.
+    //
+    // Important: `selection.delete_destructive` must be allowed here too. When the Select tool
+    // runs as an INACTIVE fallback tool (i.e. another tool is active), it implements the
+    // "delete selection" semantics by emitting tool commands for eligible full-row/full-col
+    // selections; if we block commands, Delete degenerates into clear.
+    return (action_id == "selection.delete_destructive") ||
+           (action_id == "selection.shift_delete") ||
            (action_id == "selection.remove_row_shift_up") ||
            (action_id == "selection.remove_col_shift_left") ||
            (action_id == "selection.insert_row_shift_down") ||

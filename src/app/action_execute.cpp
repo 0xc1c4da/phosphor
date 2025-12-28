@@ -139,6 +139,7 @@ bool CanExecuteActionId(std::string_view action_id, const ActionExecContext& ctx
                id == "selection.start_block" ||
                id == "selection.clear_or_cancel" ||
                id == "selection.clear" ||
+               id == "selection.delete_destructive" ||
                id == "selection.shift_delete" ||
                id == "selection.remove_row_shift_up" ||
                id == "selection.remove_col_shift_left" ||
@@ -177,6 +178,7 @@ bool CanExecuteActionId(std::string_view action_id, const ActionExecContext& ctx
                    id == "edit.cut" ||
                    id == "selection.clear_or_cancel" ||
                    id == "selection.clear" ||
+                   id == "selection.delete_destructive" ||
                    id == "selection.shift_delete" ||
                    id == "selection.remove_row_shift_up" ||
                    id == "selection.remove_col_shift_left" ||

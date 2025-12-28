@@ -167,7 +167,7 @@ function render(ctx, layer)
     if not moved_cell and not pressed_edge then return end
 
     local secondary = right
-    local clear = (mods.shift == true) or (keys.delete == true)
+    local clear = (mods.shift == true)
     shift_cell(ctx, layer, x, y, secondary, clear)
     return
   end
@@ -210,10 +210,5 @@ function render(ctx, layer)
     shift_cell(ctx, layer, caret.x, caret.y, secondary, clear)
   end
   prev_enter_down = enter_down
-
-  -- Delete clears current caret cell.
-  if keys.delete == true then
-    shift_cell(ctx, layer, caret.x, caret.y, false, true)
-  end
 end
 

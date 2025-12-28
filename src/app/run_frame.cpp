@@ -2417,7 +2417,8 @@ void RunFrame(AppState& st)
                         else if (action_id == "edit.paste") hk_to_tool.paste = true;
                         else if (action_id == "edit.select_all") hk_to_tool.select_all = true;
                         else if (action_id == "selection.clear_or_cancel") hk_to_tool.cancel = true;
-                        else if (action_id == "selection.clear") hk_to_tool.delete_selection = true;
+                        else if (action_id == "selection.clear" || action_id == "selection.delete_destructive")
+                            hk_to_tool.delete_selection = true;
                     }
                 }
 

@@ -13,6 +13,7 @@ settings = {
     { action = "editor.new_line", when = "active" },
     { action = "selection.clear_or_cancel", when = "active" },
     { action = "selection.clear", when = "active" },
+    { action = "selection.delete_destructive", when = "active" },
     { action = "selection.shift_delete", when = "active" },
     { action = "selection.remove_row_shift_up", when = "active" },
     { action = "selection.remove_col_shift_left", when = "active" },
@@ -36,6 +37,7 @@ settings = {
 
     { action = "selection.clear_or_cancel", when = "inactive" },
     { action = "selection.clear", when = "inactive" },
+    { action = "selection.delete_destructive", when = "inactive" },
     { action = "selection.shift_delete", when = "inactive" },
     { action = "selection.remove_row_shift_up", when = "inactive" },
     { action = "selection.remove_col_shift_left", when = "inactive" },
@@ -673,6 +675,17 @@ function render(ctx, layer)
     end
 
     -- Delete selection contents.
+    -- - Backspace -> selection.clear (always clears in place)
+    -- - Delete -> selection.delete_destructive (shift-delete only for full row/col selections)
+    if actions["selection.delete_destructive"] and canvas:hasSelection() then
+      if selection_shift_delete(ctx, canvas, cols, rows) then
+        selecting = false
+        return
+      end
+      canvas:deleteSelection()
+      selecting = false
+      return
+    end
     if (hotkeys.deleteSelection or actions["selection.clear"]) and canvas:hasSelection() then
       canvas:deleteSelection()
       selecting = false

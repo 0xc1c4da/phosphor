@@ -1719,7 +1719,7 @@ void AnsiCanvas::CaptureKeyEvents()
         // "Delete" is ambiguous: when selection exists, treat it as "clear selection";
         // otherwise allow the forward-delete editor action.
         if (kctx.selection)
-            m_key_events.del = m_keybinds->ActionPressed("selection.clear", kctx);
+            m_key_events.del = m_keybinds->ActionPressed("selection.delete_destructive", kctx);
         else
             m_key_events.del = m_keybinds->ActionPressed("editor.delete_forward_shift", kctx);
 

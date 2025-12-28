@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -197,6 +198,54 @@ static ImVec4 SnapRgbToActiveCanvasPalette(const ImVec4& rgb, const AnsiCanvas* 
     return out;
 }
 
+static std::uint32_t SnapRgba32ToActiveCanvasPalette(std::uint32_t rgba32, const AnsiCanvas* active_canvas)
+{
+    if (rgba32 == 0)
+        return 0;
+    const ImVec4 raw = UnpackRgba32(rgba32);
+    const ImVec4 snapped = SnapRgbToActiveCanvasPalette(raw, active_canvas);
+    return PackRgba32(snapped);
+}
+
+struct DominantBounds
+{
+    int c0 = 0, c1 = 0, r0 = 0, r1 = 0;
+    int cols = 0, rows = 0;
+};
+
+static DominantBounds ComputeDominantSamplingBounds(const AnsiCanvas& canvas)
+{
+    const auto& vs = canvas.GetLastViewState();
+    const bool can_sample =
+        vs.valid && vs.cell_w > 0.0f && vs.cell_h > 0.0f && vs.view_w > 0.0f && vs.view_h > 0.0f;
+
+    const int cols = canvas.GetColumns();
+    const int rows = canvas.GetRows();
+    DominantBounds b;
+    b.cols = cols;
+    b.rows = rows;
+    b.c0 = 0;
+    b.r0 = 0;
+    b.c1 = cols - 1;
+    b.r1 = rows - 1;
+
+    if (cols <= 0 || rows <= 0)
+        return b;
+
+    if (can_sample)
+    {
+        b.c0 = (int)std::floor(vs.scroll_x / vs.cell_w);
+        b.r0 = (int)std::floor(vs.scroll_y / vs.cell_h);
+        b.c1 = (int)std::ceil((vs.scroll_x + vs.view_w) / vs.cell_w);
+        b.r1 = (int)std::ceil((vs.scroll_y + vs.view_h) / vs.cell_h);
+        b.c0 = std::clamp(b.c0, 0, cols - 1);
+        b.r0 = std::clamp(b.r0, 0, rows - 1);
+        b.c1 = std::clamp(b.c1, 0, cols - 1);
+        b.r1 = std::clamp(b.r1, 0, rows - 1);
+    }
+    return b;
+}
+
 static void MruBump(std::vector<std::string>& v, const std::string& id, size_t cap)
 {
     if (id.empty())
@@ -292,12 +341,6 @@ void CommandPalette::Open(Mode mode)
     focus_query_on_open_ = true;
     colour_lane_interacted_ = false;
 
-    dbg_open_count_ += 1;
-    dbg_opened_at_s_ = ImGui::GetTime();
-    dbg_recorded_first_result_ = false;
-    dbg_time_to_first_result_ms_ = 0.0;
-    dbg_last_result_count_ = 0;
-
     query_.clear();
     selected_index_ = 0;
     all_items_.clear();
@@ -309,7 +352,6 @@ void CommandPalette::Close()
     is_open_ = false;
     open_requested_ = false;
     focus_query_on_open_ = false;
-    dbg_close_count_ += 1;
     ImGui::CloseCurrentPopup();
 }
 
@@ -449,15 +491,6 @@ void CommandPalette::rebuild_results(const RenderContext& ctx)
     fg_lane_.clear();
     bg_lane_.clear();
 
-    auto record_results = [&](int n) {
-        dbg_last_result_count_ = n;
-        if (!dbg_recorded_first_result_)
-        {
-            dbg_time_to_first_result_ms_ = (ImGui::GetTime() - dbg_opened_at_s_) * 1000.0;
-            dbg_recorded_first_result_ = true;
-        }
-    };
-
     std::string q = Trim(query_);
     const bool in_colour_mode = (mode_ == Mode::Colour) || IsColourModeQuery(q);
 
@@ -528,92 +561,136 @@ void CommandPalette::rebuild_results(const RenderContext& ctx)
     }
 
     // 2) MRU colours (FG/BG).
+    // NOTE: We intentionally do NOT dedupe against Current/Typed, but we DO treat MRU+Dominant as a
+    // single suggestion set (deduped after quantization) to avoid repeated swatches.
+    std::unordered_set<std::uint32_t> fg_suggest_seen;
+    std::unordered_set<std::uint32_t> bg_suggest_seen;
+    fg_suggest_seen.reserve(ctx.session.command_palette.mru_fg_rgba32.size() + 32);
+    bg_suggest_seen.reserve(ctx.session.command_palette.mru_bg_rgba32.size() + 32);
+
     for (std::uint32_t c32 : ctx.session.command_palette.mru_fg_rgba32)
     {
+        const std::uint32_t snapped = SnapRgba32ToActiveCanvasPalette(c32, ctx.active_canvas);
+        if (snapped == 0 || fg_suggest_seen.count(snapped) != 0)
+            continue;
+        fg_suggest_seen.insert(snapped);
         Item it;
         it.kind = Item::Kind::ColourFg;
-        it.id = "mru_fg_" + std::to_string(c32);
+        it.id = "mru_fg_" + std::to_string(snapped);
         it.label = "MRU";
         it.detail.clear();
-        it.rgba32 = c32;
+        it.rgba32 = snapped;
         fg_lane_.push_back(std::move(it));
     }
     for (std::uint32_t c32 : ctx.session.command_palette.mru_bg_rgba32)
     {
+        const std::uint32_t snapped = SnapRgba32ToActiveCanvasPalette(c32, ctx.active_canvas);
+        if (snapped == 0 || bg_suggest_seen.count(snapped) != 0)
+            continue;
+        bg_suggest_seen.insert(snapped);
         Item it;
         it.kind = Item::Kind::ColourBg;
-        it.id = "mru_bg_" + std::to_string(c32);
+        it.id = "mru_bg_" + std::to_string(snapped);
         it.label = "MRU";
         it.detail.clear();
-        it.rgba32 = c32;
+        it.rgba32 = snapped;
         bg_lane_.push_back(std::move(it));
     }
 
     // 3) Dominant colours from active canvas (simple visible-region histogram on indices).
     if (ctx.active_canvas)
     {
-        const auto& vs = ctx.active_canvas->GetLastViewState();
-        const bool can_sample = vs.valid && vs.cell_w > 0.0f && vs.cell_h > 0.0f && vs.view_w > 0.0f && vs.view_h > 0.0f;
-        const int cols = ctx.active_canvas->GetColumns();
-        const int rows = ctx.active_canvas->GetRows();
-        int c0 = 0, c1 = cols - 1, r0 = 0, r1 = rows - 1;
-        if (can_sample)
-        {
-            c0 = (int)std::floor(vs.scroll_x / vs.cell_w);
-            r0 = (int)std::floor(vs.scroll_y / vs.cell_h);
-            c1 = (int)std::ceil((vs.scroll_x + vs.view_w) / vs.cell_w);
-            r1 = (int)std::ceil((vs.scroll_y + vs.view_h) / vs.cell_h);
-            c0 = std::clamp(c0, 0, cols - 1);
-            r0 = std::clamp(r0, 0, rows - 1);
-            c1 = std::clamp(c1, 0, cols - 1);
-            r1 = std::clamp(r1, 0, rows - 1);
-        }
+        const AnsiCanvas& canvas = *ctx.active_canvas;
+        const DominantBounds b = ComputeDominantSamplingBounds(canvas);
+        const std::uint64_t rev = canvas.GetContentRevision();
 
-        std::unordered_map<AnsiCanvas::ColourIndex16, int> fg_hist;
-        std::unordered_map<AnsiCanvas::ColourIndex16, int> bg_hist;
-        fg_hist.reserve(128);
-        bg_hist.reserve(128);
+        const bool cache_ok =
+            dominant_cache_.canvas == &canvas &&
+            dominant_cache_.content_rev == rev &&
+            dominant_cache_.c0 == b.c0 && dominant_cache_.c1 == b.c1 &&
+            dominant_cache_.r0 == b.r0 && dominant_cache_.r1 == b.r1 &&
+            dominant_cache_.cols == b.cols && dominant_cache_.rows == b.rows;
 
-        for (int rr = r0; rr <= r1; ++rr)
+        if (!cache_ok)
         {
-            for (int cc = c0; cc <= c1; ++cc)
+            dominant_cache_.canvas = &canvas;
+            dominant_cache_.content_rev = rev;
+            dominant_cache_.c0 = b.c0;
+            dominant_cache_.c1 = b.c1;
+            dominant_cache_.r0 = b.r0;
+            dominant_cache_.r1 = b.r1;
+            dominant_cache_.cols = b.cols;
+            dominant_cache_.rows = b.rows;
+            dominant_cache_.fg.clear();
+            dominant_cache_.bg.clear();
+
+            std::unordered_map<AnsiCanvas::ColourIndex16, int> fg_hist;
+            std::unordered_map<AnsiCanvas::ColourIndex16, int> bg_hist;
+            fg_hist.reserve(128);
+            bg_hist.reserve(128);
+
+            for (int rr = b.r0; rr <= b.r1; ++rr)
             {
-                char32_t cp = 0;
-                AnsiCanvas::ColourIndex16 fi = AnsiCanvas::kUnsetIndex16;
-                AnsiCanvas::ColourIndex16 bi = AnsiCanvas::kUnsetIndex16;
-                if (!ctx.active_canvas->GetCompositeCellPublicIndices(rr, cc, cp, fi, bi))
-                    continue;
-                if (fi != AnsiCanvas::kUnsetIndex16) fg_hist[fi] += 1;
-                if (bi != AnsiCanvas::kUnsetIndex16) bg_hist[bi] += 1;
+                for (int cc = b.c0; cc <= b.c1; ++cc)
+                {
+                    char32_t cp = 0;
+                    AnsiCanvas::ColourIndex16 fi = AnsiCanvas::kUnsetIndex16;
+                    AnsiCanvas::ColourIndex16 bi = AnsiCanvas::kUnsetIndex16;
+                    if (!canvas.GetCompositeCellPublicIndices(rr, cc, cp, fi, bi))
+                        continue;
+                    if (fi != AnsiCanvas::kUnsetIndex16) fg_hist[fi] += 1;
+                    if (bi != AnsiCanvas::kUnsetIndex16) bg_hist[bi] += 1;
+                }
             }
+
+            auto build_cache = [&](const std::unordered_map<AnsiCanvas::ColourIndex16, int>& hist,
+                                   std::vector<DominantCacheEntry>& out) {
+                struct Pair { AnsiCanvas::ColourIndex16 idx; int count; };
+                std::vector<Pair> v;
+                v.reserve(hist.size());
+                for (const auto& kv : hist) v.push_back({kv.first, kv.second});
+                std::sort(v.begin(), v.end(), [](const Pair& a, const Pair& b) { return a.count > b.count; });
+                const int maxn = 16;
+                out.reserve((size_t)maxn);
+                for (int i = 0; i < (int)v.size() && i < maxn; ++i)
+                {
+                    const AnsiCanvas::Colour32 c32 = canvas.IndexToColour32Public(v[(size_t)i].idx);
+                    if (c32 == 0)
+                        continue;
+                    DominantCacheEntry e;
+                    e.idx = (int)v[(size_t)i].idx;
+                    e.rgba32 = (std::uint32_t)c32;
+                    out.push_back(e);
+                }
+            };
+
+            build_cache(fg_hist, dominant_cache_.fg);
+            build_cache(bg_hist, dominant_cache_.bg);
         }
 
-        auto emit_top = [&](const std::unordered_map<AnsiCanvas::ColourIndex16, int>& hist,
-                            Item::Kind kind,
-                            std::vector<Item>& out_lane) {
-            struct Pair { AnsiCanvas::ColourIndex16 idx; int count; };
-            std::vector<Pair> v;
-            v.reserve(hist.size());
-            for (const auto& kv : hist) v.push_back({kv.first, kv.second});
-            std::sort(v.begin(), v.end(), [](const Pair& a, const Pair& b) { return a.count > b.count; });
-            const int maxn = 16;
-            for (int i = 0; i < (int)v.size() && i < maxn; ++i)
+        auto emit_cached = [&](const std::vector<DominantCacheEntry>& cached,
+                               Item::Kind kind,
+                               std::vector<Item>& out_lane,
+                               std::unordered_set<std::uint32_t>& suggest_seen) {
+            for (const DominantCacheEntry& e : cached)
             {
-                const AnsiCanvas::Colour32 c32 = ctx.active_canvas->IndexToColour32Public(v[(size_t)i].idx);
-                if (c32 == 0)
+                if (e.rgba32 == 0)
                     continue;
+                if (suggest_seen.count(e.rgba32) != 0)
+                    continue;
+                suggest_seen.insert(e.rgba32);
                 Item it;
                 it.kind = kind;
-                it.id = "dom_" + std::to_string((int)kind) + "_" + std::to_string((int)v[(size_t)i].idx);
+                it.id = "dom_" + std::to_string((int)kind) + "_" + std::to_string(e.idx);
                 it.label = "Dominant";
-                it.detail = "idx " + std::to_string((int)v[(size_t)i].idx);
-                it.rgba32 = c32;
+                it.detail = "idx " + std::to_string(e.idx);
+                it.rgba32 = e.rgba32;
                 out_lane.push_back(std::move(it));
             }
         };
 
-        emit_top(fg_hist, Item::Kind::ColourFg, fg_lane_);
-        emit_top(bg_hist, Item::Kind::ColourBg, bg_lane_);
+        emit_cached(dominant_cache_.fg, Item::Kind::ColourFg, fg_lane_, fg_suggest_seen);
+        emit_cached(dominant_cache_.bg, Item::Kind::ColourBg, bg_lane_, bg_suggest_seen);
     }
 
     // Clamp lane indices.
@@ -625,7 +702,6 @@ void CommandPalette::rebuild_results(const RenderContext& ctx)
     // If the query is explicitly a colour query, we don't build the command results list.
     if (in_colour_mode)
     {
-        record_results((int)fg_lane_.size() + (int)bg_lane_.size());
         return;
     }
 
@@ -666,32 +742,47 @@ void CommandPalette::rebuild_results(const RenderContext& ctx)
         add_by_id(ctx.session.command_palette.mru_window_keys);
 
         // MRU colours as list items (basic; colour mode provides the richer swatch UI).
-        for (std::uint32_t c32 : ctx.session.command_palette.mru_fg_rgba32)
         {
-            Item it;
-            it.kind = Item::Kind::ColourFg;
-            it.id = "colour.fg." + std::to_string(c32);
-            it.label = "Set Foreground Colour";
-            it.detail = "MRU";
-            it.rgba32 = c32;
-            results_.push_back(std::move(it));
+            std::unordered_set<std::uint32_t> seen;
+            seen.reserve(ctx.session.command_palette.mru_fg_rgba32.size());
+            for (std::uint32_t c32 : ctx.session.command_palette.mru_fg_rgba32)
+            {
+                const std::uint32_t snapped = SnapRgba32ToActiveCanvasPalette(c32, ctx.active_canvas);
+                if (snapped == 0 || seen.count(snapped) != 0)
+                    continue;
+                seen.insert(snapped);
+                Item it;
+                it.kind = Item::Kind::ColourFg;
+                it.id = "colour.fg." + std::to_string(snapped);
+                it.label = "Set Foreground Colour";
+                it.detail = "MRU";
+                it.rgba32 = snapped;
+                results_.push_back(std::move(it));
+            }
         }
-        for (std::uint32_t c32 : ctx.session.command_palette.mru_bg_rgba32)
         {
-            Item it;
-            it.kind = Item::Kind::ColourBg;
-            it.id = "colour.bg." + std::to_string(c32);
-            it.label = "Set Background Colour";
-            it.detail = "MRU";
-            it.rgba32 = c32;
-            results_.push_back(std::move(it));
+            std::unordered_set<std::uint32_t> seen;
+            seen.reserve(ctx.session.command_palette.mru_bg_rgba32.size());
+            for (std::uint32_t c32 : ctx.session.command_palette.mru_bg_rgba32)
+            {
+                const std::uint32_t snapped = SnapRgba32ToActiveCanvasPalette(c32, ctx.active_canvas);
+                if (snapped == 0 || seen.count(snapped) != 0)
+                    continue;
+                seen.insert(snapped);
+                Item it;
+                it.kind = Item::Kind::ColourBg;
+                it.id = "colour.bg." + std::to_string(snapped);
+                it.label = "Set Background Colour";
+                it.detail = "MRU";
+                it.rgba32 = snapped;
+                results_.push_back(std::move(it));
+            }
         }
 
         if ((int)results_.size() > 0)
             selected_index_ = std::clamp(selected_index_, 0, (int)results_.size() - 1);
         else
             selected_index_ = 0;
-        record_results((int)results_.size());
         return;
     }
 
@@ -749,7 +840,6 @@ void CommandPalette::rebuild_results(const RenderContext& ctx)
     else
         selected_index_ = 0;
 
-    record_results((int)results_.size());
 }
 
 void CommandPalette::Render(const RenderContext& ctx)
@@ -814,6 +904,10 @@ void CommandPalette::Render(const RenderContext& ctx)
     bool keep_open = true;
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoSavedSettings |
+        // Disable Dear ImGui's native keyboard navigation within the palette. We implement our own
+        // focused behavior (query always active; arrows/Tab have palette-specific semantics).
+        ImGuiWindowFlags_NoNavInputs |
+        ImGuiWindowFlags_NoNavFocus |
         0;
 
     // Ensure the popup itself gets focus when opened so the query box can reliably capture typing.
@@ -856,15 +950,21 @@ void CommandPalette::Render(const RenderContext& ctx)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x, 0.0f));
         {
             const ImGuiIO& io = ImGui::GetIO();
+            const ImGuiID key_owner = ImGui::GetCurrentWindow()->ID;
+
             // Tab toggles the shared FG/BG focus (same semantics as the colour picker).
             // This affects where '#...' (without fg:/bg:) targets.
             if (ImGui::IsKeyPressed(ImGuiKey_Tab) && ctx.active_fb)
             {
+                // Prevent Tab from participating in ImGui's focus navigation.
+                ImGui::SetKeyOwner(ImGuiKey_Tab, key_owner, ImGuiInputFlags_LockThisFrame);
                 *ctx.active_fb = 1 - std::clamp(*ctx.active_fb, 0, 1);
                 rebuild_results(ctx);
             }
             if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
             {
+                // Arrow keys are palette-owned (do not move InputText cursor or ImGui nav focus).
+                ImGui::SetKeyOwner(ImGuiKey_LeftArrow, key_owner, ImGuiInputFlags_LockThisFrame);
                 if (io.KeyAlt)
                 {
                     if (!bg_lane_.empty())
@@ -881,6 +981,7 @@ void CommandPalette::Render(const RenderContext& ctx)
             }
             if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
             {
+                ImGui::SetKeyOwner(ImGuiKey_RightArrow, key_owner, ImGuiInputFlags_LockThisFrame);
                 if (io.KeyAlt)
                 {
                     if (!bg_lane_.empty())
@@ -894,6 +995,22 @@ void CommandPalette::Render(const RenderContext& ctx)
                     if (ctx.active_fb) *ctx.active_fb = 0;
                 }
                 colour_lane_interacted_ = true;
+            }
+
+            // Up/Down: results list navigation (when present). Handle BEFORE InputText so the arrows
+            // don't also move the text cursor / interact with ImGui nav.
+            if (!in_colour_mode)
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && !results_.empty())
+                {
+                    ImGui::SetKeyOwner(ImGuiKey_UpArrow, key_owner, ImGuiInputFlags_LockThisFrame);
+                    selected_index_ = std::max(0, selected_index_ - 1);
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !results_.empty())
+                {
+                    ImGui::SetKeyOwner(ImGuiKey_DownArrow, key_owner, ImGuiInputFlags_LockThisFrame);
+                    selected_index_ = std::min((int)results_.size() - 1, selected_index_ + 1);
+                }
             }
 
             auto render_lane = [&](const char* title, std::vector<Item>& lane_items, int& idx_ref) {
@@ -976,19 +1093,6 @@ void CommandPalette::Render(const RenderContext& ctx)
         // Restore normal spacing after the "BG strip → query" boundary is done.
         ImGui::PopStyleVar();
 
-        // Optional debug/telemetry window (spec-recommended).
-        if (ImGui::SmallButton(show_debug_window_ ? "Debug: ON" : "Debug: OFF"))
-            show_debug_window_ = !show_debug_window_;
-
-        // Keyboard navigation for the list.
-        if (!in_colour_mode)
-        {
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && !results_.empty())
-                selected_index_ = std::max(0, selected_index_ - 1);
-            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !results_.empty())
-                selected_index_ = std::min((int)results_.size() - 1, selected_index_ + 1);
-        }
-
         const bool pressed_enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
         const bool pressed_shift_enter = pressed_enter && ImGui::GetIO().KeyShift;
         const bool pressed_alt_enter = pressed_enter && ImGui::GetIO().KeyAlt;
@@ -1043,18 +1147,6 @@ void CommandPalette::Render(const RenderContext& ctx)
                     selected_index_ = i;
                 if (selected)
                 {
-                    dbg_last_selected_id_ = it.id;
-                    dbg_last_selected_kind_.clear();
-                    switch (it.kind)
-                    {
-                    case Item::Kind::Action: dbg_last_selected_kind_ = "action"; break;
-                    case Item::Kind::Tool: dbg_last_selected_kind_ = "tool"; break;
-                    case Item::Kind::ToolPreset: dbg_last_selected_kind_ = "tool_preset"; break;
-                    case Item::Kind::Window: dbg_last_selected_kind_ = "window"; break;
-                    case Item::Kind::ColourFg: dbg_last_selected_kind_ = "colour_fg"; break;
-                    case Item::Kind::ColourBg: dbg_last_selected_kind_ = "colour_bg"; break;
-                    default: break;
-                    }
                 }
 
                 if (it.disabled && !it.disabled_reason.empty() && ImGui::IsItemHovered())
@@ -1074,19 +1166,6 @@ void CommandPalette::Render(const RenderContext& ctx)
 
             bool executed = false;
             bool refocus_canvas_on_close = true;
-
-            dbg_last_executed_id_ = it.id;
-            dbg_last_executed_kind_.clear();
-            switch (it.kind)
-            {
-            case Item::Kind::Action: dbg_last_executed_kind_ = "action"; break;
-            case Item::Kind::Tool: dbg_last_executed_kind_ = "tool"; break;
-            case Item::Kind::ToolPreset: dbg_last_executed_kind_ = "tool_preset"; break;
-            case Item::Kind::Window: dbg_last_executed_kind_ = "window"; break;
-            case Item::Kind::ColourFg: dbg_last_executed_kind_ = "colour_fg"; break;
-            case Item::Kind::ColourBg: dbg_last_executed_kind_ = "colour_bg"; break;
-            default: break;
-            }
 
             if (it.kind == Item::Kind::Action)
             {
@@ -1203,7 +1282,6 @@ void CommandPalette::Render(const RenderContext& ctx)
                 executed = true;
             }
 
-            dbg_last_execute_success_ = executed;
             if (executed)
             {
                 if (ctx.session.command_palette.last_executed_item_id.empty() ||
@@ -1282,25 +1360,6 @@ void CommandPalette::Render(const RenderContext& ctx)
         }
 
         ImGui::EndPopup();
-
-        if (show_debug_window_)
-        {
-            if (ImGui::Begin("Command Palette Debug###CommandPaletteDebug", &show_debug_window_))
-            {
-                ImGui::Text("opens: %d  closes: %d", dbg_open_count_, dbg_close_count_);
-                ImGui::Text("time-to-first-result: %.2f ms", dbg_time_to_first_result_ms_);
-                ImGui::Text("last result count: %d", dbg_last_result_count_);
-                ImGui::Separator();
-                ImGui::Text("last selected: %s (%s)",
-                            dbg_last_selected_id_.empty() ? "<none>" : dbg_last_selected_id_.c_str(),
-                            dbg_last_selected_kind_.empty() ? "?" : dbg_last_selected_kind_.c_str());
-                ImGui::Text("last executed: %s (%s)  success=%s",
-                            dbg_last_executed_id_.empty() ? "<none>" : dbg_last_executed_id_.c_str(),
-                            dbg_last_executed_kind_.empty() ? "?" : dbg_last_executed_kind_.c_str(),
-                            dbg_last_execute_success_ ? "true" : "false");
-            }
-            ImGui::End();
-        }
         return;
     }
 

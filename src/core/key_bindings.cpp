@@ -231,7 +231,7 @@ static bool ActionFromJson(const json& ja, Action& out, std::string& err)
     // Canonicalize legacy action IDs on load so older user keybinding files keep working
     // without requiring legacy aliases in the shipped/default action list.
     if (out.id == "selection.delete")
-        out.id = "selection.clear";
+        out.id = "selection.delete_destructive";
     else if (out.id == "editor.delete_forward")
         out.id = "editor.delete_forward_shift";
     if (ja.contains("title") && ja["title"].is_string())
@@ -281,6 +281,101 @@ static json ActionToJson(const Action& a)
     return ja;
 }
 } // namespace
+
+// Migration helpers (key-bindings.json evolves across versions, but schema_version stays stable).
+static void MigrateSelectionDeleteBindings(std::vector<Action>& file_actions)
+{
+    // Older installs may have ended up with:
+    // - action id `selection.delete` (now canonicalized to `selection.delete_destructive`)
+    // - OR (worse) `selection.clear` bound to "Delete" due to earlier aliasing/mistakes.
+    //
+    // We want:
+    // - Backspace => selection.clear
+    // - Delete    => selection.delete_destructive
+    //
+    // This migration is intentionally conservative:
+    // - Only moves plain "Delete" chords from selection.clear -> selection.delete_destructive.
+    // - Does not touch Shift+Delete (that is `selection.shift_delete`).
+
+    auto find_action = [&](std::string_view id) -> Action* {
+        for (auto& a : file_actions)
+            if (a.id == id)
+                return &a;
+        return nullptr;
+    };
+
+    Action* clear_a = find_action("selection.clear");
+    if (!clear_a)
+        return;
+
+    auto is_plain_delete = [&](const KeyBinding& b) -> bool {
+        if (!b.enabled)
+            return false;
+        const std::string chord = ToLower(Trim(b.chord));
+        if (chord != "delete")
+            return false;
+        const std::string ctx = ToLower(Trim(b.context));
+        // Treat missing/empty context as selection here; KeyBindingFromJson defaults to "global"
+        // but a malformed/hand-edited file might still have empty context.
+        return ctx.empty() || ctx == "selection";
+    };
+
+    std::vector<KeyBinding> moved;
+    moved.reserve(clear_a->bindings.size());
+    std::vector<KeyBinding> kept;
+    kept.reserve(clear_a->bindings.size());
+
+    bool moved_any = false;
+    for (const auto& b : clear_a->bindings)
+    {
+        if (is_plain_delete(b))
+        {
+            moved.push_back(b);
+            moved_any = true;
+        }
+        else
+        {
+            kept.push_back(b);
+        }
+    }
+    if (!moved_any)
+        return;
+
+    // Ensure `selection.delete_destructive` exists in file actions so the moved binding can override defaults.
+    Action* del_a = find_action("selection.delete_destructive");
+    if (!del_a)
+    {
+        Action a;
+        a.id = "selection.delete_destructive";
+        file_actions.push_back(std::move(a));
+        del_a = &file_actions.back();
+    }
+
+    // Append moved bindings unless an identical binding already exists on delete_destructive.
+    auto has_equiv = [&](const KeyBinding& b) -> bool {
+        for (const auto& existing : del_a->bindings)
+            if (existing.chord == b.chord && existing.context == b.context && existing.platform == b.platform)
+                return true;
+        return false;
+    };
+    for (const auto& b : moved)
+        if (!has_equiv(b))
+            del_a->bindings.push_back(b);
+
+    clear_a->bindings = std::move(kept);
+
+    // If we removed the user's only binding for selection.clear, keep Backspace working by default.
+    // (If the user intentionally rebound clear to something else, they will still have that binding.)
+    if (clear_a->bindings.empty())
+    {
+        KeyBinding back;
+        back.enabled = true;
+        back.chord = "Backspace";
+        back.context = "selection";
+        back.platform = "any";
+        clear_a->bindings.push_back(std::move(back));
+    }
+}
 
 bool ParseChordString(const std::string& chord, ParsedChord& out, std::string& err)
 {
@@ -591,6 +686,9 @@ bool KeyBindingsEngine::LoadFromFile(const std::string& path, std::string& out_e
         file_actions.push_back(std::move(a));
     }
 
+    // Apply migrations on the loaded file action set before merging with defaults.
+    MigrateSelectionDeleteBindings(file_actions);
+
     actions_ = MergeDefaultsWithFile(base, file_actions);
     loaded_ = true;
     dirty_ = false;
@@ -751,7 +849,7 @@ Hotkeys KeyBindingsEngine::EvalCommonHotkeys(const EvalContext& ctx) const
     hk.paste = ActionPressed("edit.paste", ctx);
     hk.select_all = ActionPressed("edit.select_all", ctx);
     hk.cancel = ActionPressed("selection.clear_or_cancel", ctx);
-    hk.delete_selection = ActionPressed("selection.clear", ctx);
+    hk.delete_selection = ActionPressed("selection.clear", ctx) || ActionPressed("selection.delete_destructive", ctx);
     return hk;
 }
 
@@ -980,6 +1078,13 @@ std::vector<Action> DefaultActions()
         {
             .id="selection.clear", .title="Clear Selection", .category="Selection",
             .description="Clear (erase) selection contents (no shift).",
+            .bindings={
+                {.enabled=true, .chord="Backspace", .context="selection", .platform="any"},
+            }
+        },
+        {
+            .id="selection.delete_destructive", .title="Delete Selection (Destructive)", .category="Selection",
+            .description="Delete selection. If selection spans full row width or full column height, shift-delete; otherwise clear in place.",
             .bindings={
                 {.enabled=true, .chord="Delete", .context="selection", .platform="any"},
             }
