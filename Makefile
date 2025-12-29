@@ -47,8 +47,13 @@ PHOSPHOR_VERSION_STR ?= $(shell \
   fi)
 
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
+# NOTE: Some utility targets and headless test harnesses do not require Dear ImGui.
+# Avoid hard-failing the Makefile when building those.
+SKIP_IMGUI_CHECK := $(filter test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
+ifeq ($(SKIP_IMGUI_CHECK),)
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
+endif
 endif
 
 SOURCES  = \
@@ -274,6 +279,26 @@ $(PALETTE_VALIDATE_EXE): $(PALETTE_VALIDATE_SRCS)
 .PHONY: palette-validate
 palette-validate: $(PALETTE_VALIDATE_EXE)
 	@./$(PALETTE_VALIDATE_EXE) --assets assets
+
+# ---------------------------------------------------------------------------
+# Tests (headless)
+# ---------------------------------------------------------------------------
+TEST_EXE = phosphor_tests
+TEST_SRCS = \
+           tests/test_main.cpp \
+           tests/test_smoke.cpp
+
+TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(TEST_SRCS))
+
+# Build tests with debug-friendly flags and without requiring GUI sources.
+$(BUILD_DIR)/tests/%.o: CXXFLAGS += -O0 -Itests
+
+$(TEST_EXE): $(TEST_OBJS)
+	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+
+.PHONY: test
+test: $(TEST_EXE)
+	@./$(TEST_EXE)
 
 # Include generated dependency files if they exist.
 -include $(DEPS)

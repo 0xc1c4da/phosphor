@@ -65,6 +65,26 @@ public:
     static std::string BlockNameFor(uint32_t cp);
 
 private:
+    enum class NavRegion : std::uint8_t
+    {
+        TopBar = 0,
+        Grid,
+        Sidebar,
+    };
+
+    enum class TabStop : std::uint8_t
+    {
+        Block = 0,
+        Subpage,
+        Search,
+        Go,
+        Clear,
+        Grid,
+        CopyCharacter,
+        CopyUPlus,
+        Confusables,
+    };
+
     struct BlockInfo
     {
         uint32_t start = 0;
@@ -143,6 +163,17 @@ private:
     bool request_focus_selected_ = false; // keep ImGui keyboard-nav highlight synced to selection
     bool double_clicked_ = false;
     uint32_t double_clicked_cp_ = 0;
+
+    // Local picker focus model (region-based).
+    NavRegion nav_region_ = NavRegion::Grid;
+    bool request_focus_topbar_ = false;
+    bool request_focus_grid_ = false;
+    bool request_focus_sidebar_ = false;
+
+    // Explicit Tab/Shift+Tab focus order within the picker (independent of ImGui global nav settings).
+    TabStop tab_stop_ = TabStop::Grid;
+    bool request_tab_focus_ = false;
+    TabStop request_tab_stop_ = TabStop::Grid;
 
     // Omitted ranges (e.g. known missing glyph spans for the current font)
     std::vector<OmitRange> omit_ranges_;
