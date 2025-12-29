@@ -68,7 +68,7 @@ PHOSPHOR_VERSION_STR ?= $(shell \
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 # NOTE: Some utility targets and headless tools do not require Dear ImGui.
 # Avoid hard-failing the Makefile when building those.
-SKIP_IMGUI_CHECK := $(filter test mp-lab font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
+SKIP_IMGUI_CHECK := $(filter test mp-lab canvas-bridge-test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
 ifeq ($(SKIP_IMGUI_CHECK),)
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
@@ -336,6 +336,56 @@ $(TEST_EXE): $(TEST_OBJS)
 .PHONY: test
 test: $(TEST_EXE)
 	@./$(TEST_EXE)
+
+# ---------------------------------------------------------------------------
+# Canvas multiplayer bridge test (Phase 3; links AnsiCanvas + ImGui)
+# ---------------------------------------------------------------------------
+CANVAS_BRIDGE_TEST_EXE = phosphor_canvas_bridge_tests
+
+CANVAS_BRIDGE_TEST_SRCS = \
+           tests/test_main.cpp \
+           tests/test_canvas_multiplayer_bridge.cpp \
+           src/net/p2p/blake3_util.cpp \
+           src/net/p2p/canvas_tile_schema_v1.cpp \
+           src/net/p2p/tile_codec_v1.cpp \
+           src/net/p2p/automerge_adapter.cpp \
+           src/net/p2p/canvas_multiplayer_bridge.cpp \
+           src/core/canvas/canvas_core.cpp \
+           src/core/canvas/canvas_undo.cpp \
+           src/core/canvas/canvas_input.cpp \
+           src/core/canvas/canvas_selection.cpp \
+           src/core/canvas/canvas_layers.cpp \
+           src/core/canvas/canvas_render.cpp \
+           src/core/canvas/canvas_project.cpp \
+           src/core/encodings.cpp \
+           src/core/fonts.cpp \
+           src/fonts/textmode_font.cpp \
+           src/fonts/textmode_font_registry.cpp \
+           src/core/paths.cpp \
+           src/core/colour_system.cpp \
+           src/core/colour_ops.cpp \
+           src/core/xterm256_palette.cpp \
+           src/core/palette/palette.cpp \
+           src/core/palette/palette_catalog.cpp \
+           src/core/lut/lut_cache.cpp \
+           src/core/key_bindings.cpp \
+           src/io/formats/sauce.cpp \
+           src/io/session/session_state.cpp \
+           $(IMGUI_DIR)/imgui.cpp \
+           $(IMGUI_DIR)/imgui_draw.cpp \
+           $(IMGUI_DIR)/imgui_tables.cpp \
+           $(IMGUI_DIR)/imgui_widgets.cpp
+
+CANVAS_BRIDGE_TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CANVAS_BRIDGE_TEST_SRCS))
+
+$(BUILD_DIR)/tests/test_canvas_multiplayer_bridge.o: CXXFLAGS += -O1 -Itests
+
+$(CANVAS_BRIDGE_TEST_EXE): $(CANVAS_BRIDGE_TEST_OBJS)
+	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+
+.PHONY: canvas-bridge-test
+canvas-bridge-test: $(CANVAS_BRIDGE_TEST_EXE)
+	@./$(CANVAS_BRIDGE_TEST_EXE)
 
 # ---------------------------------------------------------------------------
 # Headless multiplayer lab (CLI)
