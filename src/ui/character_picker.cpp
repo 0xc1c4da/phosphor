@@ -124,6 +124,11 @@ void CharacterPicker::JumpToCodePoint(uint32_t cp)
     // Clear search so the view is deterministic (plane/block based).
     ClearSearch();
 
+    // Programmatic jumps are typically followed by keyboard navigation in the grid.
+    nav_region_ = NavRegion::Grid;
+    tab_stop_ = TabStop::Grid;
+    request_focus_grid_ = true;
+
     block_index_ = 0;
     subpage_index_ = static_cast<int>(cp / 0x10000u);
     subpage_index_ = std::clamp(subpage_index_, 0, 16);
@@ -147,6 +152,11 @@ void CharacterPicker::RestoreSelectedCodePoint(uint32_t cp)
     double_clicked_cp_ = 0;
 
     ClearSearch();
+
+    // Treat restores like programmatic jumps: keep keyboard focus deterministic.
+    nav_region_ = NavRegion::Grid;
+    tab_stop_ = TabStop::Grid;
+    request_focus_grid_ = true;
 
     block_index_ = 0;
     subpage_index_ = static_cast<int>(cp / 0x10000u);
@@ -830,6 +840,47 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
     if (focus_router)
         allow_keyboard_nav = window_focused && (focus_router->KeyboardTarget().kind == app::TargetKind::CharacterPicker);
 
+    // Picker-level keyboard shortcuts (focus/search/escape).
+    // Keep these independent of ImGui global nav settings and avoid interfering with text editing/popups.
+    if (allow_keyboard_nav &&
+        !ImGui::GetIO().WantTextInput &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        // Ctrl+F: focus search.
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_F, ImGuiInputFlags_RouteFocused))
+        {
+            nav_region_ = NavRegion::TopBar;
+            request_tab_stop_ = TabStop::Search;
+            request_tab_focus_ = true;
+        }
+
+        // Escape: clear search if active, otherwise return to grid; if already on grid, close window if possible.
+        if (ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused))
+        {
+            if (search_active_ || !search_query_.empty())
+            {
+                ClearSearch();
+                subpage_index_ = 0;
+                SyncRangeFromSelection();
+                ClampSelectionToCurrentView();
+                MarkSelectionChanged();
+                nav_region_ = NavRegion::Grid;
+                tab_stop_ = TabStop::Grid;
+                request_focus_grid_ = true;
+            }
+            else if (nav_region_ != NavRegion::Grid)
+            {
+                nav_region_ = NavRegion::Grid;
+                tab_stop_ = TabStop::Grid;
+                request_focus_grid_ = true;
+            }
+            else if (p_open)
+            {
+                *p_open = false;
+            }
+        }
+    }
+
     // Explicit Tab/Shift+Tab cycling inside the picker (avoids relying on ImGui nav global settings).
     // Do not interfere with text editing or popups.
     if (allow_keyboard_nav &&
@@ -1212,41 +1263,20 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
         ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
         ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
         ImGui::SetKeyOwner(ImGuiKey_Space, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Home, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_End, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_PageUp, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_PageDown, owner, ImGuiInputFlags_LockThisFrame);
     }
-
-    auto key_pressed = [&](ImGuiKey key, bool repeat) -> bool {
-        if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END)
-            return false;
-        const ImGuiIO& io = ImGui::GetIO();
-        const int idx_k = (int)key - (int)ImGuiKey_NamedKey_BEGIN;
-        if (idx_k < 0 || idx_k >= ImGuiKey_NamedKey_COUNT)
-            return false;
-        const ImGuiKeyData& kd = io.KeysData[idx_k];
-        const float t = kd.DownDuration;
-        const float t_prev = kd.DownDurationPrev;
-        if (t == 0.0f)
-            return true;
-        if (!repeat)
-            return false;
-        const float delay = io.KeyRepeatDelay;
-        const float rate = io.KeyRepeatRate;
-        if (rate <= 0.0f || t <= delay)
-            return false;
-        const float t0 = std::max(0.0f, t_prev - delay);
-        const float t1 = std::max(0.0f, t - delay);
-        const int n0 = (int)std::floor(t0 / rate);
-        const int n1 = (int)std::floor(t1 / rate);
-        return (n1 > n0);
-    };
 
     // While grid region is active: Enter/Space commits the selected codepoint (equivalent to double-click).
     if (grid_region_active && selected_cp_ != 0)
     {
-        const bool pressed_enter =
-            key_pressed(ImGuiKey_Enter, /*repeat=*/true) ||
-            key_pressed(ImGuiKey_KeypadEnter, /*repeat=*/true);
-        const bool pressed_space = key_pressed(ImGuiKey_Space, /*repeat=*/true);
-        if (pressed_enter || pressed_space)
+        const bool pressed =
+            ImGui::Shortcut(ImGuiKey_Enter, ImGuiInputFlags_RouteFocused) ||
+            ImGui::Shortcut(ImGuiKey_KeypadEnter, ImGuiInputFlags_RouteFocused) ||
+            ImGui::Shortcut(ImGuiKey_Space, ImGuiInputFlags_RouteFocused);
+        if (pressed)
         {
             double_clicked_ = true;
             double_clicked_cp_ = selected_cp_;
@@ -1275,8 +1305,14 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
         const bool right = keybinds->ActionPressed("nav.caret_right", kctx);
         const bool up    = keybinds->ActionPressed("nav.caret_up", kctx);
         const bool down  = keybinds->ActionPressed("nav.caret_down", kctx);
+        const bool home = keybinds->ActionPressed("nav.home", kctx);
+        const bool end  = keybinds->ActionPressed("nav.end", kctx);
+        const bool page_up   = keybinds->ActionPressed("nav.page_up", kctx);
+        const bool page_down = keybinds->ActionPressed("nav.page_down", kctx);
+        const bool doc_top    = keybinds->ActionPressed("nav.doc_top", kctx);
+        const bool doc_bottom = keybinds->ActionPressed("nav.doc_bottom", kctx);
 
-        if (!(left || right || up || down))
+        if (!(left || right || up || down || home || end || page_up || page_down || doc_top || doc_bottom))
             return;
 
         int idx = 0;
@@ -1295,6 +1331,14 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
         if (right) new_idx = std::min((int)cps.size() - 1, new_idx + 1);
         if (up)    new_idx = std::max(0, new_idx - kCols);
         if (down)  new_idx = std::min((int)cps.size() - 1, new_idx + kCols);
+        if (home)  new_idx = (new_idx / kCols) * kCols;
+        if (end)   new_idx = std::min((int)cps.size() - 1, (new_idx / kCols) * kCols + (kCols - 1));
+        // Page-up/down: jump by several rows (heuristic; deterministic across platforms).
+        constexpr int kPageRows = 8;
+        if (page_up)   new_idx = std::max(0, new_idx - kCols * kPageRows);
+        if (page_down) new_idx = std::min((int)cps.size() - 1, new_idx + kCols * kPageRows);
+        if (doc_top)    new_idx = 0;
+        if (doc_bottom) new_idx = std::max(0, (int)cps.size() - 1);
 
         if (new_idx != idx)
         {
@@ -1324,6 +1368,13 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
 
     // Focus anchor:
     // Make the grid region reachable via Tab/Shift+Tab and allow programmatic focus restore.
+    // If a programmatic selection change requested focus sync, prefer focusing the grid only when the grid is
+    // the current nav region (avoid stealing focus from sidebar interactions like confusables clicks).
+    if (request_focus_selected_ && nav_region_ == NavRegion::Grid)
+    {
+        request_focus_grid_ = true;
+        request_focus_selected_ = false;
+    }
     if (request_focus_grid_)
     {
         ImGui::SetKeyboardFocusHere();

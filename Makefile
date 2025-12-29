@@ -47,9 +47,9 @@ PHOSPHOR_VERSION_STR ?= $(shell \
   fi)
 
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
-# NOTE: Some utility targets and headless test harnesses do not require Dear ImGui.
+# NOTE: Some utility targets and headless tools do not require Dear ImGui.
 # Avoid hard-failing the Makefile when building those.
-SKIP_IMGUI_CHECK := $(filter test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
+SKIP_IMGUI_CHECK := $(filter test mp-lab font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
 ifeq ($(SKIP_IMGUI_CHECK),)
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
@@ -286,12 +286,24 @@ palette-validate: $(PALETTE_VALIDATE_EXE)
 TEST_EXE = phosphor_tests
 TEST_SRCS = \
            tests/test_main.cpp \
-           tests/test_smoke.cpp
+           tests/test_smoke.cpp \
+           tests/test_tile_codec.cpp \
+           tests/test_wire_frame.cpp \
+           tests/test_chunk_reassembly.cpp \
+           tests/test_automerge_sync.cpp \
+           src/net/p2p/blake3_util.cpp \
+           src/net/p2p/tile_codec_v1.cpp \
+           src/net/p2p/wire_frame_v1.cpp \
+           src/net/p2p/chunk_reassembly.cpp \
+           src/net/p2p/crypto_secp256k1.cpp \
+           src/net/p2p/automerge_adapter.cpp \
+           src/net/p2p/sim_transport.cpp
 
 TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(TEST_SRCS))
 
 # Build tests with debug-friendly flags and without requiring GUI sources.
-$(BUILD_DIR)/tests/%.o: CXXFLAGS += -O0 -Itests
+# Use -O1 to avoid glibc _FORTIFY_SOURCE warnings while still being reasonably debuggable.
+$(BUILD_DIR)/tests/%.o: CXXFLAGS += -O1 -Itests
 
 $(TEST_EXE): $(TEST_OBJS)
 	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
@@ -299,6 +311,27 @@ $(TEST_EXE): $(TEST_OBJS)
 .PHONY: test
 test: $(TEST_EXE)
 	@./$(TEST_EXE)
+
+# ---------------------------------------------------------------------------
+# Headless multiplayer lab (CLI)
+# ---------------------------------------------------------------------------
+MP_LAB_EXE = phosphor_mp_lab
+MP_LAB_SRCS = \
+           src/tools/phosphor_mp_lab.cpp \
+           src/net/p2p/blake3_util.cpp \
+           src/net/p2p/tile_codec_v1.cpp \
+           src/net/p2p/wire_frame_v1.cpp \
+           src/net/p2p/chunk_reassembly.cpp \
+           src/net/p2p/crypto_secp256k1.cpp \
+           src/net/p2p/automerge_adapter.cpp \
+           src/net/p2p/sim_transport.cpp
+
+$(MP_LAB_EXE): $(MP_LAB_SRCS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -O1 -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+
+.PHONY: mp-lab
+mp-lab: $(MP_LAB_EXE)
 
 # Include generated dependency files if they exist.
 -include $(DEPS)
