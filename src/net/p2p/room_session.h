@@ -39,6 +39,10 @@ struct RoomSessionConfig
     std::uint64_t hello_interval_ms = 2000;
     std::uint64_t sync_interval_ms = 200;
 
+    // Peer liveness TTL (ms). If we have not *observed* any valid message from a peer within this window,
+    // we mark it stale (handshake_ok=false). This is receiver-observed liveness, per the spec.
+    std::uint64_t peer_stale_ms = 10'000;
+
     // Hard upper bound for wire messages. If a sync payload exceeds this, it will be chunked.
     std::size_t max_wire_bytes = 256 * 1024;
 

@@ -168,4 +168,79 @@ PHOS_TEST(room_session_faulty_drop_converge)
     PHOS_REQUIRE(a.Doc().Equal(b.Doc()));
 }
 
+PHOS_TEST(room_session_faulty_partition_heal_converge)
+{
+    using namespace phos::p2p;
+
+    const std::string topic = "phos.room.partition";
+    std::uint64_t now_ms = 0;
+
+    FaultySimTransport t(FaultySimConfig{
+        .seed = 777,
+        .drop_prob = 0.0,
+        .dup_prob = 0.0,
+        .max_delay_ms = 0,
+    });
+
+    // Partition A<->B for the first 300ms.
+    t.AddPartition("peerA", "peerB", 0, 300);
+
+    RoomSession a(RoomSessionConfig{
+        .topic = topic,
+        .local_peer_id = "peerA",
+        .display_name = "alice",
+        .privkey32 = Rand32(),
+        .hello_interval_ms = 50,
+        .sync_interval_ms = 20,
+        .peer_stale_ms = 5000,
+    });
+    RoomSession b(RoomSessionConfig{
+        .topic = topic,
+        .local_peer_id = "peerB",
+        .display_name = "bob",
+        .privkey32 = Rand32(),
+        .hello_interval_ms = 50,
+        .sync_interval_ms = 20,
+        .peer_stale_ms = 5000,
+    });
+
+    std::string err;
+    PHOS_REQUIRE(a.Init(&err));
+    PHOS_REQUIRE(b.Init(&err));
+
+    t.RegisterPeer("peerA", [&](const SimMessage& m) {
+        if (m.topic == topic)
+            a.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
+    });
+    t.RegisterPeer("peerB", [&](const SimMessage& m) {
+        if (m.topic == topic)
+            b.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
+    });
+    t.Subscribe("peerA", topic);
+    t.Subscribe("peerB", topic);
+
+    // During partition, both peers make independent local commits.
+    PHOS_REQUIRE(a.Doc().RootPutInt("x", 1, &err));
+    PHOS_REQUIRE(a.Doc().Commit("set x=1", &err));
+    PHOS_REQUIRE(b.Doc().RootPutInt("y", 2, &err));
+    PHOS_REQUIRE(b.Doc().Commit("set y=2", &err));
+
+    // Drive sim long enough for partition to heal and sync to converge.
+    for (int step = 0; step < 2500; ++step)
+    {
+        a.Tick(now_ms);
+        b.Tick(now_ms);
+
+        for (auto& msg : a.TakeOutgoing())
+            t.Broadcast("peerA", topic, msg, now_ms);
+        for (auto& msg : b.TakeOutgoing())
+            t.Broadcast("peerB", topic, msg, now_ms);
+
+        t.Tick(now_ms);
+        now_ms += 10;
+    }
+
+    PHOS_REQUIRE(a.Doc().Equal(b.Doc()));
+}
+
 

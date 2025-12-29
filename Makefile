@@ -14,7 +14,7 @@ LDEPNG_DIR ?=
 # ---------------------------------------------------------------------------
 # Base version is tracked in a top-level VERSION file (SemVer, no leading "v").
 # Local builds prefer `git describe` for a richer string:
-#   v0.7.2-4-g1a2b3c4-dirty  ->  0.7.2-4-g1a2b3c4+dirty
+#   v0.7.2-4-g1a2b3c4-dirty  ->  0.7.2+4.g1a2b3c4.dirty
 # Nix builds (flake.nix) pass PHOSPHOR_VERSION_STR explicitly for reproducibility.
 PHOSPHOR_BASE_VERSION := $(strip $(shell cat VERSION 2>/dev/null))
 ifeq ($(PHOSPHOR_BASE_VERSION),)
@@ -22,29 +22,48 @@ PHOSPHOR_BASE_VERSION := 0.0.0
 endif
 
 PHOSPHOR_GIT_DESCRIBE_RAW := $(strip $(shell git describe --tags --match 'v[0-9]*' --dirty --always 2>/dev/null))
-# If git describes a SemVer-ish tag, use it (strip leading 'v').
-# If git falls back to a raw hash (no matching tags), prefix with base version.
+# SemVer v2 rules we enforce here:
+# - Pre-release stays after '-' (e.g. 0.1.0-alpha)
+# - Local build info goes after '+' with '.'-separated identifiers (e.g. +4.g1a2b3c4.dirty)
 PHOSPHOR_VERSION_STR ?= $(shell \
   raw='$(PHOSPHOR_GIT_DESCRIBE_RAW)'; \
   base='$(PHOSPHOR_BASE_VERSION)'; \
   if [ -z "$$raw" ]; then \
     printf '%s' "$$base"; \
-  else \
-    raw="$${raw#v}"; \
-    case "$$raw" in \
-      ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-dirty) \
-        if [ "$${raw#*-}" = "dirty" ]; then \
-          h="$${raw%-dirty}"; \
-          printf '%s-g%s+dirty' "$$base" "$$h"; \
-        else \
-          printf '%s-g%s' "$$base" "$$raw"; \
-        fi \
-        ;; \
-      (*) \
-        printf '%s' "$$raw" | sed 's/-dirty$$/+dirty/'; \
-        ;; \
+    exit 0; \
+  fi; \
+  dirty=0; \
+  case "$$raw" in (*-dirty) dirty=1; raw="$${raw%-dirty}";; esac; \
+  raw="$${raw#v}"; \
+  add_dirty() { \
+    ver="$$1"; \
+    case "$$ver" in \
+      (*+*) prefix="$${ver%%+*}"; cur="$${ver#*+}"; printf '%s+%s.dirty' "$$prefix" "$$cur";; \
+      (*)   printf '%s+dirty' "$$ver";; \
     esac; \
-  fi)
+  }; \
+  append_meta() { \
+    ver="$$1"; meta="$$2"; \
+    if [ "$$dirty" -eq 1 ]; then meta="$$meta.dirty"; fi; \
+    case "$$ver" in \
+      (*+*) prefix="$${ver%%+*}"; cur="$${ver#*+}"; printf '%s+%s.%s' "$$prefix" "$$cur" "$$meta";; \
+      (*)   printf '%s+%s' "$$ver" "$$meta";; \
+    esac; \
+  }; \
+  if echo "$$raw" | grep -Eq '^(.*)-([0-9]+)-g([0-9a-f]+)$$'; then \
+    tag="$${raw%-g*}"; \
+    n="$${tag##*-}"; \
+    tag="$${tag%-$$n}"; tag="$${tag%-}"; \
+    h="$${raw##*-g}"; \
+    append_meta "$$tag" "$$n.g$$h"; \
+    exit 0; \
+  fi; \
+  if echo "$$raw" | grep -Eq '^[0-9a-f]{7,}$$'; then \
+    append_meta "$$base" "g$$raw"; \
+    exit 0; \
+  fi; \
+  if [ "$$dirty" -eq 1 ]; then add_dirty "$$raw"; else printf '%s' "$$raw"; fi; \
+  exit 0)
 
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 # NOTE: Some utility targets and headless tools do not require Dear ImGui.

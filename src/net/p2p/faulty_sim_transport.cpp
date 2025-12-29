@@ -9,6 +9,20 @@ FaultySimTransport::FaultySimTransport(FaultySimConfig cfg) : m_cfg(std::move(cf
     m_rng = (m_cfg.seed == 0) ? 1 : m_cfg.seed;
 }
 
+void FaultySimTransport::AddPartition(std::string peer_a, std::string peer_b, std::uint64_t start_ms, std::uint64_t end_ms)
+{
+    if (peer_a.empty() || peer_b.empty())
+        return;
+    if (start_ms >= end_ms)
+        return;
+    Partition p;
+    p.a = std::move(peer_a);
+    p.b = std::move(peer_b);
+    p.start_ms = start_ms;
+    p.end_ms = end_ms;
+    m_partitions.push_back(std::move(p));
+}
+
 void FaultySimTransport::RegisterPeer(std::string peer_id, OnMessageFn on_msg)
 {
     m_peers[std::move(peer_id)].on_msg = std::move(on_msg);
@@ -58,6 +72,20 @@ void FaultySimTransport::Shuffle(std::vector<Pending>& v)
         const std::size_t j = static_cast<std::size_t>(NextU64() % i);
         std::swap(v[i - 1], v[j]);
     }
+}
+
+bool FaultySimTransport::IsPartitioned(std::string_view from_peer_id, std::string_view to_peer_id, std::uint64_t now_ms) const
+{
+    for (const auto& p : m_partitions)
+    {
+        if (now_ms < p.start_ms || now_ms >= p.end_ms)
+            continue;
+        const bool ab = (from_peer_id == p.a && to_peer_id == p.b);
+        const bool ba = (from_peer_id == p.b && to_peer_id == p.a);
+        if (ab || ba)
+            return true;
+    }
+    return false;
 }
 
 void FaultySimTransport::Broadcast(const std::string& from_peer_id, const std::string& topic,
@@ -122,6 +150,9 @@ void FaultySimTransport::Tick(std::uint64_t now_ms)
 
     for (auto& p : due)
     {
+        if (IsPartitioned(p.msg.from_peer_id, p.to_peer_id, now_ms))
+            continue;
+
         auto it = m_peers.find(p.to_peer_id);
         if (it == m_peers.end())
             continue;

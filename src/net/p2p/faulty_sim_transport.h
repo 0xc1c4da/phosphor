@@ -37,6 +37,13 @@ public:
     void RegisterPeer(std::string peer_id, OnMessageFn on_msg);
     void Subscribe(std::string peer_id, std::string topic);
 
+    // Deterministic partition rules (drop deliveries between two peers during a time window).
+    // Semantics:
+    // - If now_ms is in [start_ms, end_ms) for a rule, all deliveries A->B and B->A are dropped.
+    // - Rules are evaluated at delivery time (Tick), so delayed messages can be dropped if they
+    //   land within the window.
+    void AddPartition(std::string peer_a, std::string peer_b, std::uint64_t start_ms, std::uint64_t end_ms);
+
     // Schedule a broadcast to all subscribers (including sender).
     void Broadcast(const std::string& from_peer_id, const std::string& topic, const std::vector<std::uint8_t>& bytes,
                    std::uint64_t now_ms);
@@ -45,6 +52,14 @@ public:
     void Tick(std::uint64_t now_ms);
 
 private:
+    struct Partition
+    {
+        std::string a;
+        std::string b;
+        std::uint64_t start_ms = 0;
+        std::uint64_t end_ms = 0; // exclusive
+    };
+
     struct Peer
     {
         OnMessageFn on_msg;
@@ -65,12 +80,15 @@ private:
 
     std::unordered_map<std::string, Peer> m_peers;
     std::vector<Pending> m_pending;
+    std::vector<Partition> m_partitions;
 
     std::uint64_t NextU64();
     std::uint32_t NextU32();
     double Next01();
     std::uint32_t RandDelayMs();
     void Shuffle(std::vector<Pending>& v);
+
+    bool IsPartitioned(std::string_view from_peer_id, std::string_view to_peer_id, std::uint64_t now_ms) const;
 };
 } // namespace phos::p2p
 

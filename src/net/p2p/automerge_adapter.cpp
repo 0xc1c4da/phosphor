@@ -188,6 +188,13 @@ std::optional<std::vector<std::uint8_t>> AutomergeAdapter::GenerateSync(std::str
 
     AMresultFree(enc_r);
     AMresultFree(gen_r);
+
+    // Defensive: some upstream encoders may return an empty byte span for "no-op" messages.
+    // We never want to broadcast an empty sync payload because some automerge-c builds can panic
+    // on decoding empty input.
+    if (out_bytes.empty())
+        return std::nullopt;
+
     return out_bytes;
 }
 
@@ -202,6 +209,13 @@ bool AutomergeAdapter::ReceiveSync(std::string_view peer_key, std::span<const st
     SyncState& st = GetOrCreateSyncState(peer_key, err);
     if (!st.state)
         return false;
+
+    if (sync_bytes.empty())
+    {
+        if (err)
+            *err = "ReceiveSync: empty sync_bytes";
+        return false;
+    }
 
     AMresult* dec_r = AMsyncMessageDecode(sync_bytes.data(), sync_bytes.size());
     if (!ResultOk(dec_r))

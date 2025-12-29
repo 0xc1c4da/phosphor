@@ -235,6 +235,9 @@ void RoomSession::EnqueueHello(std::uint64_t now_ms)
 
 void RoomSession::EnqueueSyncToPeer(std::string_view peer_id, std::span<const std::uint8_t> sync_bytes, std::uint64_t now_ms)
 {
+    if (sync_bytes.empty())
+        return;
+
     // Conservative chunk payload sizing to stay under max_wire_bytes (header + meta + sig overhead).
     constexpr std::size_t kOverhead = 140;
     const std::size_t max_payload = (m_cfg.max_wire_bytes > kOverhead) ? (m_cfg.max_wire_bytes - kOverhead) : 1024;
@@ -401,7 +404,7 @@ void RoomSession::Tick(std::uint64_t now_ms)
     // Stale peer handling (simple: mark handshake_ok false if stale).
     for (auto& [pid, p] : m_peers)
     {
-        const bool stale = (p.last_seen_ms != 0) && (now_ms - p.last_seen_ms > 10'000);
+        const bool stale = (p.last_seen_ms != 0) && (now_ms - p.last_seen_ms > m_cfg.peer_stale_ms);
         if (stale)
             p.handshake_ok = false;
     }

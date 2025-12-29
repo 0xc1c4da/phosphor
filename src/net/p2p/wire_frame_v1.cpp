@@ -147,6 +147,20 @@ bool DecodeFrameV1(std::span<const std::uint8_t> bytes, ParsedFrameV1& out, std:
         h.enc = ReadU8(bytes, off);
         h.comp = ReadU8(bytes, off);
 
+        // Consistency checks: flags must match header suite selectors.
+        if ((h.enc != 0) != HasFlag(h.flags, PHOS_F_ENCRYPTED))
+        {
+            if (err)
+                *err = "DecodeFrameV1: enc/PHOS_F_ENCRYPTED mismatch";
+            return false;
+        }
+        if ((h.comp != 0) != HasFlag(h.flags, PHOS_F_COMPRESSED))
+        {
+            if (err)
+                *err = "DecodeFrameV1: comp/PHOS_F_COMPRESSED mismatch";
+            return false;
+        }
+
         auto room = ReadBytes(bytes, off, h.room_tag.size());
         std::memcpy(h.room_tag.data(), room.data(), h.room_tag.size());
 

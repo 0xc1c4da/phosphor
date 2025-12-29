@@ -74,4 +74,78 @@ PHOS_TEST(room_session_sim_three_peers_converge)
     PHOS_REQUIRE(a.Doc().Equal(c.Doc()));
 }
 
+PHOS_TEST(room_session_marks_peer_stale_after_ttl)
+{
+    using namespace phos::p2p;
+
+    const std::string topic = "phos.room.stale";
+    SimTransport t;
+    std::uint64_t now_ms = 0;
+
+    RoomSession a(RoomSessionConfig{
+        .topic = topic,
+        .local_peer_id = "peerA",
+        .display_name = "alice",
+        .privkey32 = Rand32(),
+        .hello_interval_ms = 20,
+        .sync_interval_ms = 10,
+        .peer_stale_ms = 100,
+    });
+    RoomSession b(RoomSessionConfig{
+        .topic = topic,
+        .local_peer_id = "peerB",
+        .display_name = "bob",
+        .privkey32 = Rand32(),
+        .hello_interval_ms = 20,
+        .sync_interval_ms = 10,
+        .peer_stale_ms = 100,
+    });
+
+    std::string err;
+    PHOS_REQUIRE(a.Init(&err));
+    PHOS_REQUIRE(b.Init(&err));
+
+    t.RegisterPeer("peerA", [&](const SimMessage& m) {
+        if (m.topic == topic)
+            a.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
+    });
+    t.RegisterPeer("peerB", [&](const SimMessage& m) {
+        if (m.topic == topic)
+            b.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
+    });
+    t.Subscribe("peerA", topic);
+    t.Subscribe("peerB", topic);
+
+    // Drive enough time for HELLO exchange to establish handshake.
+    for (int step = 0; step < 40; ++step)
+    {
+        a.Tick(now_ms);
+        b.Tick(now_ms);
+        for (auto& msg : a.TakeOutgoing())
+            t.Broadcast("peerA", topic, msg);
+        for (auto& msg : b.TakeOutgoing())
+            t.Broadcast("peerB", topic, msg);
+        now_ms += 10;
+    }
+
+    {
+        auto it = a.Peers().find("peerB");
+        PHOS_REQUIRE(it != a.Peers().end());
+        PHOS_REQUIRE(it->second.handshake_ok);
+    }
+
+    // Simulate peerB going silent: only tick+send from peerA.
+    for (int step = 0; step < 40; ++step)
+    {
+        a.Tick(now_ms);
+        for (auto& msg : a.TakeOutgoing())
+            t.Broadcast("peerA", topic, msg);
+        now_ms += 10;
+    }
+
+    auto it = a.Peers().find("peerB");
+    PHOS_REQUIRE(it != a.Peers().end());
+    PHOS_REQUIRE(!it->second.handshake_ok);
+}
+
 

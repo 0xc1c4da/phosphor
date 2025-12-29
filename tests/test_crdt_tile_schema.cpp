@@ -1,6 +1,7 @@
 #include "test_harness.h"
 
 #include "net/p2p/canvas_tile_schema_v1.h"
+#include "net/p2p/automerge_c_compat.h"
 #include "net/p2p/room_session.h"
 #include "net/p2p/sim_transport.h"
 #include "net/p2p/tile_codec_v1.h"
@@ -94,6 +95,76 @@ PHOS_TEST(crdt_tile_schema_two_peers_roundtrip_bytes)
         PHOS_REQUIRE(a.bg == b.bg);
         PHOS_REQUIRE(a.a == b.a);
     }
+}
+
+PHOS_TEST(crdt_tile_schema_missing_tile_returns_nullopt)
+{
+    using namespace phos::p2p;
+
+    RoomSession a(RoomSessionConfig{.topic = "phos.room.tiles.neg", .local_peer_id = "peerA", .display_name = "alice", .privkey32 = Rand32()});
+    std::string err;
+    PHOS_REQUIRE(a.Init(&err));
+
+    PHOS_REQUIRE(EnsureCanvasTileSchemaV1(a.Doc(), CanvasTileSchemaV1Config{.columns = 32, .rows = 32}, &err));
+    PHOS_REQUIRE(a.Doc().Commit("init schema", &err));
+
+    auto got = GetTileV1(a.Doc(), 0, 9, 9, &err);
+    PHOS_REQUIRE(!got.has_value());
+}
+
+PHOS_TEST(crdt_tile_schema_non_bytes_tile_returns_nullopt)
+{
+    using namespace phos::p2p;
+
+    RoomSession a(RoomSessionConfig{.topic = "phos.room.tiles.neg2", .local_peer_id = "peerA", .display_name = "alice", .privkey32 = Rand32()});
+    std::string err;
+    PHOS_REQUIRE(a.Init(&err));
+
+    PHOS_REQUIRE(EnsureCanvasTileSchemaV1(a.Doc(), CanvasTileSchemaV1Config{.columns = 32, .rows = 32}, &err));
+
+    // Directly write a non-bytes value at tiles["0,0"].
+    auto ByteSpanSV = [](std::string_view s) -> AMbyteSpan {
+        return AMbyteSpan{reinterpret_cast<const std::uint8_t*>(s.data()), s.size()};
+    };
+
+    AMdoc* d = a.Doc().Raw();
+    AMstack* stack = nullptr;
+
+    auto get_obj_from_map = [&](const AMobjId* parent, std::string_view key) -> const AMobjId* {
+        AMresult* get_r = AMmapGet(d, parent, ByteSpanSV(key), nullptr);
+        AMitem* get_it = AMstackItem(&stack, get_r, nullptr, nullptr);
+        if (!get_r || AMresultStatus(get_r) != AM_STATUS_OK || !get_it)
+            return nullptr;
+        if (AMitemValType(get_it) == AM_VAL_TYPE_VOID)
+            return nullptr;
+        return AMitemObjId(get_it);
+    };
+
+    const AMobjId* canvas = get_obj_from_map(AM_ROOT, "canvas");
+    PHOS_REQUIRE(canvas != nullptr);
+    const AMobjId* layers = get_obj_from_map(canvas, "layers");
+    PHOS_REQUIRE(layers != nullptr);
+
+    AMresult* layer_r = AMlistGet(d, layers, 0, nullptr);
+    AMitem* layer_it = AMstackItem(&stack, layer_r, nullptr, nullptr);
+    PHOS_REQUIRE(layer_r && AMresultStatus(layer_r) == AM_STATUS_OK && layer_it);
+    const AMobjId* layer0 = AMitemObjId(layer_it);
+    PHOS_REQUIRE(layer0 != nullptr);
+
+    const AMobjId* tiles = get_obj_from_map(layer0, "tiles");
+    PHOS_REQUIRE(tiles != nullptr);
+
+    AMresult* put_r = AMmapPutInt(d, tiles, ByteSpanSV("0,0"), 123);
+    AMstackItem(&stack, put_r, nullptr, nullptr);
+    PHOS_REQUIRE(put_r && AMresultStatus(put_r) == AM_STATUS_OK);
+    AMstackFree(&stack);
+
+    PHOS_REQUIRE(a.Doc().Commit("put non-bytes tile", &err));
+
+    err.clear();
+    auto got = GetTileV1(a.Doc(), 0, 0, 0, &err);
+    PHOS_REQUIRE(!got.has_value());
+    PHOS_REQUIRE(!err.empty());
 }
 
 
