@@ -476,7 +476,7 @@ de_DE {
       no_modifiers { "(keine Modifikatoren)" }
 
       conflicts_header { "Tastenkürzel-Konflikte" }
-      chord_hint { "z.B. Strg+Z" }
+      chord_hint { "z.B. {0}" }
       // NOTE: historical keys retained for stability; punctuation (":") is owned by code.
       report_conflicts_header { "Konflikte" }
       report_invalid_header { "Ungültige Akkorde" }
@@ -996,7 +996,7 @@ de_DE {
   // ---------------------------------------------------------------------------
   colour_palette {
     swatch_tooltip {
-      "Enter/LMB: aktiv setzen (FG/BG)\nShift+Enter/RMB: anderes setzen (BG/FG)"
+      "LMB: aktiv setzen (FG/BG)\nRMB: anderes setzen (BG/FG)"
     }
   }
 }

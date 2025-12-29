@@ -476,7 +476,7 @@ fi_FI {
       no_modifiers { "(ei muunnosnäppäimiä)" }
 
       conflicts_header { "Pikanäppäinristiriidat" }
-      chord_hint { "esim. Ctrl+Z" }
+      chord_hint { "esim. {0}" }
       // NOTE: historical keys retained for stability; punctuation (":") is owned by code.
       report_conflicts_header { "Ristiriidat" }
       report_invalid_header { "Virheelliset yhdistelmät" }
@@ -996,7 +996,7 @@ fi_FI {
   // ---------------------------------------------------------------------------
   colour_palette {
     swatch_tooltip {
-      "Enter/VMB: aseta aktiiviseksi (FG/BG)\nShift+Enter/OMB: aseta toiseksi (BG/FG)"
+      "VMB: aseta aktiiviseksi (FG/BG)\nOMB: aseta toiseksi (BG/FG)"
     }
   }
 }

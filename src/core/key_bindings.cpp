@@ -67,6 +67,22 @@ static bool PlatformAllowed(Platform need, Platform have)
     return need == Platform::Any || need == have;
 }
 
+static std::string JoinChords(const std::vector<std::string>& chords)
+{
+    std::string out;
+    for (size_t i = 0; i < chords.size(); ++i)
+    {
+        if (i) out += " / ";
+        out += chords[i];
+    }
+    return out;
+}
+
+static bool BindingPlatformOk(const KeyBinding& b, Platform runtime_platform)
+{
+    return PlatformAllowed(PlatformFromString(b.platform), runtime_platform);
+}
+
 static ImGuiKey KeyFromToken(const std::string& token_lower, bool& out_any_enter, bool& out_implied_shift)
 {
     out_any_enter = false;
@@ -541,6 +557,96 @@ Platform RuntimePlatform()
 #endif
 }
 
+std::string ChordTextSummaryForAction(const std::vector<Action>& actions,
+                                      std::string_view action_id,
+                                      Platform runtime_platform,
+                                      size_t max_chords)
+{
+    if (action_id.empty() || max_chords == 0)
+        return {};
+
+    std::vector<std::string> chords;
+    chords.reserve(std::min<size_t>(max_chords, 4));
+    std::unordered_set<std::string> seen;
+
+    for (const Action& a : actions)
+    {
+        if (a.id != action_id)
+            continue;
+
+        for (const KeyBinding& b : a.bindings)
+        {
+            if (!b.enabled || b.chord.empty())
+                continue;
+            if (!PlatformAllowed(PlatformFromString(b.platform), runtime_platform))
+                continue;
+
+            if (seen.insert(b.chord).second)
+            {
+                chords.push_back(b.chord);
+                if (chords.size() >= max_chords)
+                    break;
+            }
+        }
+        break;
+    }
+
+    if (chords.empty())
+        return {};
+    return JoinChords(chords);
+}
+
+std::string BestChordForAction(const std::vector<Action>& actions,
+                               std::string_view action_id,
+                               std::string_view preferred_context,
+                               Platform runtime_platform)
+{
+    if (action_id.empty())
+        return {};
+
+    auto pick_ctx = [&](const Action& a, std::string_view ctx) -> std::string
+    {
+        if (ctx.empty())
+            return {};
+        for (const auto& b : a.bindings)
+        {
+            if (!b.enabled) continue;
+            if (b.chord.empty()) continue;
+            if (!BindingPlatformOk(b, runtime_platform)) continue;
+            if (b.context == ctx)
+                return b.chord;
+        }
+        return {};
+    };
+
+    for (const auto& a : actions)
+    {
+        if (a.id != action_id)
+            continue;
+
+        // preferred context
+        {
+            std::string s = pick_ctx(a, preferred_context);
+            if (!s.empty()) return s;
+        }
+        // global
+        {
+            std::string s = pick_ctx(a, "global");
+            if (!s.empty()) return s;
+        }
+        // any
+        for (const auto& b : a.bindings)
+        {
+            if (!b.enabled) continue;
+            if (b.chord.empty()) continue;
+            if (BindingPlatformOk(b, runtime_platform))
+                return b.chord;
+        }
+        return {};
+    }
+    return {};
+}
+
 KeyBindingsEngine::KeyBindingsEngine()
 {
     SetDefaults(DefaultActions());
@@ -744,7 +850,7 @@ bool KeyBindingsEngine::SaveToFile(const std::string& path, std::string& out_err
     json j;
     j["schema_version"] = 1;
     j["name"] = "Phosphor Key Bindings";
-    j["description"] = "Action->key mapping for Phosphor. Chords are human-readable strings (e.g. Ctrl+Z).";
+    j["description"] = "Action->key mapping for Phosphor. Chords are human-readable strings.";
     j["notes"] = json::array({
         "This file is intended to be edited in-app via File > Settings > Key Bindings.",
         "Fields are forward-compatible: unknown fields should be preserved by future loaders.",
@@ -891,6 +997,20 @@ Hotkeys KeyBindingsEngine::EvalCommonHotkeys(const EvalContext& ctx) const
     hk.cancel = ActionPressed("selection.clear_or_cancel", ctx);
     hk.delete_selection = ActionPressed("selection.clear", ctx) || ActionPressed("selection.delete_destructive", ctx);
     return hk;
+}
+
+std::string KeyBindingsEngine::ChordTextSummaryForAction(std::string_view action_id,
+                                                        Platform runtime_platform,
+                                                        size_t max_chords) const
+{
+    return kb::ChordTextSummaryForAction(actions_, action_id, runtime_platform, max_chords);
+}
+
+std::string KeyBindingsEngine::BestChordForAction(std::string_view action_id,
+                                                  std::string_view preferred_context,
+                                                  Platform runtime_platform) const
+{
+    return kb::BestChordForAction(actions_, action_id, preferred_context, runtime_platform);
 }
 
 std::vector<Action> DefaultActions()

@@ -1394,8 +1394,16 @@ void SettingsWindow::RenderTab_KeyBindings()
                 // Chord input was too wide; keep it compact so inline buttons are always visible.
                 ImGui::SetNextItemWidth(160.0f);
                 const std::string prev_chord = b.chord;
+                const kb::Platform runtime_plat = kb::RuntimePlatform();
+                const std::string undo_example =
+                    keybinds_
+                        ? keybinds_->ChordTextSummaryForAction("edit.undo", runtime_plat, /*max_chords=*/1)
+                        : kb::ChordTextSummaryForAction(kb::DefaultActions(), "edit.undo", runtime_plat, /*max_chords=*/1);
+                const std::string chord_hint =
+                    PHOS_TRF("settings_window.key_bindings_tab.chord_hint",
+                             ::phos::i18n::Arg::Str(undo_example.empty() ? PHOS_TR("common.unknown") : undo_example));
                 if (ImGui::InputTextWithHint("##chord",
-                                             PHOS_TR("settings_window.key_bindings_tab.chord_hint").c_str(),
+                                             chord_hint.c_str(),
                                              &b.chord))
                 {
                     (void)prev_chord;

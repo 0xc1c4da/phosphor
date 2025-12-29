@@ -110,49 +110,7 @@ std::string ShortcutForAction(const kb::KeyBindingsEngine& keybinds,
                               std::string_view action_id,
                               std::string_view preferred_context)
 {
-    const kb::Platform plat = kb::RuntimePlatform();
-    const auto& actions = keybinds.Actions();
-    for (const auto& a : actions)
-    {
-        if (a.id != action_id)
-            continue;
-
-        auto plat_ok = [&](const kb::KeyBinding& b) -> bool
-        {
-            if (b.platform == "any") return true;
-            if (plat == kb::Platform::Windows) return b.platform == "windows";
-            if (plat == kb::Platform::Linux) return b.platform == "linux";
-            if (plat == kb::Platform::MacOS) return b.platform == "macos";
-            return false;
-        };
-
-        auto pick = [&](std::string_view ctx) -> std::string
-        {
-            for (const auto& b : a.bindings)
-            {
-                if (!b.enabled) continue;
-                if (b.chord.empty()) continue;
-                if (!plat_ok(b)) continue;
-                if (b.context == ctx)
-                    return b.chord;
-            }
-            return {};
-        };
-
-        std::string s = pick(preferred_context);
-        if (!s.empty()) return s;
-        s = pick("global");
-        if (!s.empty()) return s;
-        for (const auto& b : a.bindings)
-        {
-            if (!b.enabled) continue;
-            if (b.chord.empty()) continue;
-            if (plat_ok(b))
-                return b.chord;
-        }
-        return {};
-    }
-    return {};
+    return keybinds.BestChordForAction(action_id, preferred_context, kb::RuntimePlatform());
 }
 
 static int RequestedTopMenu(kb::KeyBindingsEngine& keybinds)

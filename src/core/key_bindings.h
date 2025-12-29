@@ -142,6 +142,24 @@ public:
     // Convenience: common editing hotkeys used by selection tools.
     Hotkeys EvalCommonHotkeys(const EvalContext& ctx) const;
 
+    // UI helper: returns a human-readable summary of enabled chord(s) for an action
+    // on the given runtime platform, joined with " / " (e.g. "Ctrl+S / Cmd+S").
+    // Returns empty string if no enabled chords exist.
+    std::string ChordTextSummaryForAction(std::string_view action_id,
+                                          Platform runtime_platform,
+                                          size_t max_chords = 3) const;
+
+    // UI helper: returns the "best" single chord for an action, preferring:
+    // - an enabled binding matching `preferred_context`
+    // - then an enabled binding in "global"
+    // - then any enabled binding
+    // filtered by `runtime_platform`.
+    //
+    // Returns empty string if no enabled chord exists.
+    std::string BestChordForAction(std::string_view action_id,
+                                   std::string_view preferred_context,
+                                   Platform runtime_platform) const;
+
 private:
     struct RuntimeBinding
     {
@@ -179,6 +197,21 @@ private:
     mutable std::unordered_map<std::string, size_t> action_index_by_id_;
     mutable std::vector<RuntimeAction> runtime_actions_;
 };
+
+// UI helper for callers that only have an action list (e.g. fall back to DefaultActions()).
+// Filters enabled bindings by runtime platform and returns a joined string like "Ctrl+Z / Cmd+Z".
+// Returns empty string if no enabled chords exist.
+std::string ChordTextSummaryForAction(const std::vector<Action>& actions,
+                                      std::string_view action_id,
+                                      Platform runtime_platform,
+                                      size_t max_chords = 3);
+
+// UI helper: returns the "best" single chord for an action on the given platform.
+// See KeyBindingsEngine::BestChordForAction() for selection rules.
+std::string BestChordForAction(const std::vector<Action>& actions,
+                               std::string_view action_id,
+                               std::string_view preferred_context,
+                               Platform runtime_platform);
 
 // Built-in default actions (seeded from references/hotkeys.md, plus editor-specific defaults).
 std::vector<Action> DefaultActions();

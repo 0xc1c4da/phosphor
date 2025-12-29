@@ -79,7 +79,7 @@ static std::string MakeUniqueTitleForToolAndSlot(const std::vector<tool_params::
     base.erase(0, base.find_first_not_of(" \t\r\n"));
     base.erase(base.find_last_not_of(" \t\r\n") + 1);
     if (base.empty())
-        base = "Preset";
+        base = " ";
 
     auto exists = [&](const std::string& t) -> bool {
         for (int i = 0; i < (int)presets.size(); ++i)
@@ -578,49 +578,14 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                 const std::string action_id = "tool.preset.slot." + std::to_string(s);
                 const kb::Platform runtime_plat = kb::RuntimePlatform();
 
-                // Look up the *enabled* bindings for this action and current platform.
-                // We display the chord strings directly (they are already human-readable).
+                // Use the key bindings engine if available; otherwise fall back to built-in defaults.
+                std::string out;
                 if (keybinds)
-                {
-                    std::unordered_set<std::string> seen;
-                    std::vector<std::string> chords;
-                    for (const kb::Action& a : keybinds->Actions())
-                    {
-                        if (a.id != action_id)
-                            continue;
-                        for (const kb::KeyBinding& b : a.bindings)
-                        {
-                            if (!b.enabled || b.chord.empty())
-                                continue;
+                    out = keybinds->ChordTextSummaryForAction(action_id, runtime_plat);
+                else
+                    out = kb::ChordTextSummaryForAction(kb::DefaultActions(), action_id, runtime_plat);
 
-                            const std::string p = b.platform;
-                            const bool plat_ok =
-                                (p == "any") ||
-                                (p == "windows" && runtime_plat == kb::Platform::Windows) ||
-                                (p == "linux" && runtime_plat == kb::Platform::Linux) ||
-                                (p == "macos" && runtime_plat == kb::Platform::MacOS);
-                            if (!plat_ok)
-                                continue;
-
-                            if (seen.insert(b.chord).second)
-                                chords.push_back(b.chord);
-                        }
-                        break;
-                    }
-                    if (!chords.empty())
-                    {
-                        std::string out;
-                        for (size_t i = 0; i < chords.size(); ++i)
-                        {
-                            if (i) out += " / ";
-                            out += chords[i];
-                        }
-                        return out;
-                    }
-                }
-
-                // Fallback (matches default key-bindings.json in-repo today).
-                return "Ctrl+Alt+" + std::to_string(s);
+                return out.empty() ? PHOS_TR("common.unknown") : out;
             };
 
             ImGui::TextDisabled("%s", binding_hint_for_slot(slot).c_str());
@@ -667,7 +632,6 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                         tool_params::ToolParamPreset p;
                         p.tool_id = tool_id;
                         p.slot = slot;
-                        p.title = MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, "Preset " + std::to_string(slot));
                         p.title = MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, "Preset " + std::to_string(slot));
                         p.values = capture_current();
                         if (!p.values.empty())

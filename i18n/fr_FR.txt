@@ -476,7 +476,7 @@ fr_FR {
       no_modifiers { "(no modifiers)" }
 
       conflicts_header { "Keybinding Conflicts" }
-      chord_hint { "e.g. Ctrl+Z" }
+      chord_hint { "e.g. {0}" }
       // NOTE: historical keys retained for stability; punctuation (":") is owned by code.
       report_conflicts_header { "Conflicts" }
       report_invalid_header { "Invalid chords" }
@@ -996,7 +996,7 @@ fr_FR {
   // ---------------------------------------------------------------------------
   colour_palette {
     swatch_tooltip {
-      "Enter/LMB: set active (FG/BG)\nShift+Enter/RMB: set other (BG/FG)"
+      "LMB: set active (FG/BG)\nRMB: set other (BG/FG)"
     }
   }
 }

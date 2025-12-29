@@ -116,7 +116,6 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
 
             if (!fg_sc.empty() || !bg_sc.empty())
             {
-                ImGui::TextUnformatted(("Index " + idx + " shortcuts").c_str());
                 if (!fg_sc.empty())
                     ImGui::TextDisabled("FG: %s", fg_sc.c_str());
                 if (!bg_sc.empty())
