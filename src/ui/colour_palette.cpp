@@ -1,9 +1,11 @@
 #include "ui/colour_palette.h"
 
+#include "app/app_ui.h"
 #include "core/i18n.h"
 #include "imgui.h"
 
 #include <cmath>
+#include <string>
 
 static inline float ClampF(float v, float lo, float hi)
 {
@@ -16,7 +18,9 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
                                                          const ImVec4& colour,
                                                          const ImVec2& size,
                                                          bool mark_foreground,
-                                                         bool mark_background)
+                                                         bool mark_background,
+                                                         const kb::KeyBindingsEngine* keybinds,
+                                                         int palette_index)
 {
     ColourPaletteSwatchAction out;
 
@@ -98,8 +102,32 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) || ImGui::IsItemFocused())
     {
-        // Keep this tooltip simple; the surrounding UI can provide the full legend.
-        ImGui::SetTooltip("%s", PHOS_TR("colour_palette.swatch_tooltip").c_str());
+        ImGui::BeginTooltip();
+
+        // If this palette represents the 16 indexed colours, show direct-jump shortcuts
+        // (Ctrl+[0-9], Ctrl+Shift+[0-5], Alt+[0-9], Alt+Shift+[0-5]) dynamically from keybindings.
+        if (keybinds && palette_index >= 0 && palette_index < 16)
+        {
+            const std::string idx = std::to_string(palette_index);
+            const std::string fg_action = std::string("colour.fg.set_") + idx;
+            const std::string bg_action = std::string("colour.bg.set_") + idx;
+            const std::string fg_sc = appui::ShortcutForAction(*keybinds, fg_action, "editor");
+            const std::string bg_sc = appui::ShortcutForAction(*keybinds, bg_action, "editor");
+
+            if (!fg_sc.empty() || !bg_sc.empty())
+            {
+                ImGui::TextUnformatted(("Index " + idx + " shortcuts").c_str());
+                if (!fg_sc.empty())
+                    ImGui::TextDisabled("FG: %s", fg_sc.c_str());
+                if (!bg_sc.empty())
+                    ImGui::TextDisabled("BG: %s", bg_sc.c_str());
+                ImGui::Separator();
+            }
+        }
+
+        // Keep the interaction legend simple; the surrounding UI can provide the full details.
+        ImGui::TextUnformatted(PHOS_TR("colour_palette.swatch_tooltip").c_str());
+        ImGui::EndTooltip();
     }
 
     return out;

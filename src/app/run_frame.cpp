@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -87,6 +88,109 @@ namespace app
 namespace
 {
 using nlohmann::json;
+
+// Forward decl: used by ApplyImGuiFocusOrderOnce(), defined further down in this file.
+static std::string CanvasWindowImGuiId(const CanvasWindow& canvas);
+
+static std::string ExtractImGuiWindowStableName(const char* window_name)
+{
+    // ImGui ID scheme: "visible###id" => ID uses only "id".
+    // We store "id" so we can call ImGui::SetWindowFocus(id.c_str()) later.
+    if (!window_name || !*window_name)
+        return {};
+    const char* p = std::strstr(window_name, "###");
+    if (p)
+        return std::string(p + 3);
+    return std::string(window_name);
+}
+
+static void CaptureImGuiFocusOrder(SessionState& session)
+{
+    ImGuiContext* ctx = ImGui::GetCurrentContext();
+    if (!ctx)
+        return;
+    ImGuiContext& g = *ctx;
+
+    std::vector<std::string> next;
+    next.reserve((size_t)g.WindowsFocusOrder.Size);
+
+    constexpr size_t kMax = 256;
+    for (int i = 0; i < g.WindowsFocusOrder.Size && next.size() < kMax; ++i)
+    {
+        ImGuiWindow* w = g.WindowsFocusOrder[i];
+        if (!w)
+            continue;
+        // Persist only windows that participate in Ctrl+Tab windowing.
+        if (!ImGui::IsWindowNavFocusable(w))
+            continue;
+        const std::string name = ExtractImGuiWindowStableName(w->Name);
+        if (name.empty())
+            continue;
+        next.push_back(name);
+    }
+
+    // Avoid clobbering a previously loaded order with an empty capture (common on the first frame
+    // of a fresh session, where ImGui windows haven't been active in the previous frame yet).
+    if (!next.empty())
+        session.imgui_focus_order = std::move(next);
+}
+
+static void ApplyImGuiFocusOrderOnce(AppState& st,
+                                    SessionState& session_state,
+                                    const std::vector<std::unique_ptr<CanvasWindow>>& canvases,
+                                    int last_active_canvas_id,
+                                    std::string& pending_imgui_focus_window)
+{
+    if (st.applied_imgui_focus_order)
+        return;
+
+    // Apply after all windows exist (we run near end-of-frame).
+    // If the host already requested a focus this frame, we still apply the ordering seed,
+    // and let the pending focus win last.
+    const bool had_pending_focus = !pending_imgui_focus_window.empty();
+
+    const bool has_saved_order = !session_state.imgui_focus_order.empty();
+    const std::vector<std::string> order = has_saved_order ? session_state.imgui_focus_order : [&]() {
+        // Artist-friendly seed: ensure Ctrl+Tab from canvas visits:
+        // Character Palette -> Colour Picker -> Tool Palette (then whatever else).
+        //
+        // g.WindowsFocusOrder is oldest->newest. Ctrl+Tab from the active canvas (newest)
+        // walks backwards, so we want:
+        // Tool Palette (older), Colour Picker, Character Palette (newer), then Canvas (newest).
+        std::vector<std::string> v;
+        if (session_state.show_tool_palette_window)
+            v.push_back("Tool Palette");
+        if (session_state.show_colour_picker_window)
+            v.push_back("Colour Picker");
+        if (session_state.show_character_palette_window)
+            v.push_back("Character Palette");
+        return v;
+    }();
+
+    for (const std::string& name : order)
+    {
+        if (name.empty())
+            continue;
+        // Safe even if the window doesn't exist this frame.
+        ImGui::SetWindowFocus(name.c_str());
+    }
+
+    // End on the active canvas so startup doesn't steal focus away from drawing.
+    // (This still leaves the MRU list seeded behind it.)
+    if (!had_pending_focus && last_active_canvas_id >= 0)
+    {
+        for (const auto& cptr : canvases)
+        {
+            if (cptr && cptr->open && cptr->id == last_active_canvas_id)
+            {
+                pending_imgui_focus_window = "###" + CanvasWindowImGuiId(*cptr);
+                break;
+            }
+        }
+    }
+
+    st.applied_imgui_focus_order = true;
+}
 
 static std::string SanitizeImGuiId(std::string s)
 {
@@ -2008,7 +2112,7 @@ void RunFrame(AppState& st)
             const bool mark_fg = same_rgb(snapped, fg_colour);
             const bool mark_bg = same_rgb(snapped, bg_colour);
             const ColourPaletteSwatchAction a =
-                RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg);
+                RenderColourPaletteSwatchButton("##palette", saved_palette[n], button_size, mark_fg, mark_bg, &keybinds, n);
             if (a.set_primary)
             {
                 // Set the editor FG/BG to the snapped palette entry so downstream code
@@ -2131,6 +2235,7 @@ void RunFrame(AppState& st)
                                          session_state,
                                          &show_tool_presets_window,
                                          should_apply_placement("Tool Presets"),
+                                         st.services.keybinds,
                                          &focus_router);
     }
 
@@ -3325,10 +3430,17 @@ void RunFrame(AppState& st)
     // Enforce pinned z-order globally.
     ApplyImGuiWindowChromeGlobalZOrder(session_state);
 
+    // Restore/seed ImGui Ctrl+Tab focus ordering once (then let ImGui's normal recency ordering take over).
+    ApplyImGuiFocusOrderOnce(st, session_state, canvases, last_active_canvas_id, pending_imgui_focus_window);
+
     // Apply any deferred panel/window focus request after all windows have been rendered.
     // (E.g. "Focus Brush Palette" from the command palette.)
     if (!pending_imgui_focus_window.empty())
         ImGui::SetWindowFocus(pending_imgui_focus_window.c_str());
+
+    // Persist ImGui's Ctrl+Tab focus order (recency list) for next launch.
+    // Capture *after* pending focus is applied so the stored order matches user-visible behavior.
+    CaptureImGuiFocusOrder(session_state);
 
     // Autosave / crash recovery:
     // Periodically persist session.json + cached canvas projects so crashes restore recent work.

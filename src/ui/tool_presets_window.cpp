@@ -5,14 +5,17 @@
 #include "imgui_internal.h"
 
 #include "core/i18n.h"
+#include "core/key_bindings.h"
 #include "core/paths.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cfloat>
 #include <cmath>
+#include <unordered_set>
 
 ToolPresetsWindow::ToolPresetsWindow()
 {
@@ -70,7 +73,8 @@ bool ToolPresetsWindow::Save()
 static std::string MakeUniqueTitleForToolAndSlot(const std::vector<tool_params::ToolParamPreset>& presets,
                                                 const std::string& tool_id,
                                                 int slot,
-                                                std::string base)
+                                                std::string base,
+                                                int exclude_global_index = -1)
 {
     base.erase(0, base.find_first_not_of(" \t\r\n"));
     base.erase(base.find_last_not_of(" \t\r\n") + 1);
@@ -78,9 +82,14 @@ static std::string MakeUniqueTitleForToolAndSlot(const std::vector<tool_params::
         base = "Preset";
 
     auto exists = [&](const std::string& t) -> bool {
-        for (const auto& p : presets)
+        for (int i = 0; i < (int)presets.size(); ++i)
+        {
+            if (i == exclude_global_index)
+                continue;
+            const auto& p = presets[(size_t)i];
             if (p.tool_id == tool_id && p.slot == slot && p.title == t)
                 return true;
+        }
         return false;
     };
 
@@ -102,6 +111,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                                SessionState& session,
                                bool* p_open,
                                bool apply_placement_this_frame,
+                               const kb::KeyBindingsEngine* keybinds,
                                app::FocusRouter* focus_router)
 {
     const char* base_id = "Tool Presets";
@@ -154,6 +164,15 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
     }
 
     EnsureLoaded();
+
+    // Cancel any inline rename if the active tool changes (avoid committing to wrong target).
+    if (!inline_rename_tool_id_.empty() && inline_rename_tool_id_ != tool_id)
+    {
+        inline_rename_tool_id_.clear();
+        inline_rename_slot_ = -1;
+        inline_rename_buf_[0] = '\0';
+        inline_rename_request_focus_ = false;
+    }
 
     const std::string rename_popup =
         PHOS_TR("tool_presets_window.rename_modal_title") + "###tool_presets_rename_modal";
@@ -389,12 +408,13 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
 
     for (int slot = 1; slot <= 9; ++slot)
     {
-        const int gi = find_preset_index_for_slot(slot);
-        const bool has = (gi >= 0 && gi < (int)presets_.size());
+        int gi = find_preset_index_for_slot(slot);
+        bool has = (gi >= 0 && gi < (int)presets_.size());
 
         std::string label = std::to_string(slot);
         std::string title_txt = has ? presets_[(size_t)gi].title : PHOS_TR("common.empty");
         const bool is_selected = (!tool_id.empty() && selected_slot == slot);
+        bool editing = has && !tool_id.empty() && (inline_rename_tool_id_ == tool_id) && (inline_rename_slot_ == slot);
 
         // Compute variable width based on label + title.
         const float title_font_base = global_text_font_size;
@@ -426,7 +446,8 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         // Button (like ToolPalette: button + draw overlay text).
         if (is_selected)
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button("##preset_btn", ImVec2(btn_w, button_h)))
+        const bool clicked = ImGui::Button("##preset_btn", ImVec2(btn_w, button_h));
+        if (clicked && !editing)
         {
             // Always select the slot on click so the highlight matches user intent.
             if (!tool_id.empty() && (selected_slot_by_tool_.count(tool_id) == 0 || selected_slot_by_tool_[tool_id] != slot))
@@ -460,6 +481,16 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         if (is_selected)
             ImGui::PopStyleColor();
 
+        // Enter inline rename on double-click of an existing preset.
+        const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        if (has && !tool_id.empty() && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            inline_rename_tool_id_ = tool_id;
+            inline_rename_slot_ = slot;
+            std::snprintf(inline_rename_buf_, sizeof(inline_rename_buf_), "%s", title_txt.c_str());
+            inline_rename_request_focus_ = true;
+        }
+
         // Overlay: "N" + title (truncated visually by clip rect).
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 rmin = ImGui::GetItemRectMin();
@@ -475,12 +506,65 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         dl->AddText(font, global_text_font_size, label_pos,
                     ImGui::GetColorU32(ImGuiCol_TextDisabled),
                     label.c_str());
-        dl->AddText(font, title_font_size, title_pos,
-                    ImGui::GetColorU32(has ? ImGuiCol_Text : ImGuiCol_TextDisabled),
-                    title_txt.c_str(),
-                    /*text_end=*/nullptr,
-                    /*wrap_width=*/0.0f);
         dl->PopClipRect();
+
+        // If editing, draw an InputText over the title region; otherwise draw title text.
+        const ImVec2 cursor_after = ImGui::GetCursorScreenPos();
+        if (editing)
+        {
+            // Clamp editing to a still-valid preset index; otherwise cancel.
+            if (gi < 0 || gi >= (int)presets_.size())
+            {
+                inline_rename_tool_id_.clear();
+                inline_rename_slot_ = -1;
+                inline_rename_buf_[0] = '\0';
+                inline_rename_request_focus_ = false;
+            }
+            else
+            {
+                // Place the widget inside the button, aligned with the title start.
+                ImGui::SetCursorScreenPos(ImVec2(title_pos.x, rmin.y));
+                ImGui::SetNextItemWidth(std::max(10.0f, (rmax.x - right_pad) - title_pos.x));
+                if (inline_rename_request_focus_)
+                {
+                    ImGui::SetKeyboardFocusHere();
+                    inline_rename_request_focus_ = false;
+                }
+                const ImGuiInputTextFlags it_flags =
+                    ImGuiInputTextFlags_EnterReturnsTrue |
+                    ImGuiInputTextFlags_AutoSelectAll;
+                const bool enter = ImGui::InputText("##inline_rename", inline_rename_buf_, IM_ARRAYSIZE(inline_rename_buf_), it_flags);
+                const bool deactivate_commit = ImGui::IsItemDeactivatedAfterEdit();
+                if (enter || deactivate_commit)
+                {
+                    const std::string old_title = presets_[(size_t)gi].title;
+                    const std::string new_title =
+                        MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, std::string(inline_rename_buf_), /*exclude_global_index=*/gi);
+                    if (new_title != old_title)
+                    {
+                        presets_[(size_t)gi].title = new_title;
+                        dirty_ = true;
+                        (void)Save();
+                    }
+                    inline_rename_tool_id_.clear();
+                    inline_rename_slot_ = -1;
+                    inline_rename_buf_[0] = '\0';
+                    inline_rename_request_focus_ = false;
+                }
+                ImGui::SetCursorScreenPos(cursor_after);
+                ImGui::Dummy(ImVec2(0.0f, 0.0f));
+            }
+        }
+        else
+        {
+            dl->PushClipRect(rmin, rmax, true);
+            dl->AddText(font, title_font_size, title_pos,
+                        ImGui::GetColorU32(has ? ImGuiCol_Text : ImGuiCol_TextDisabled),
+                        title_txt.c_str(),
+                        /*text_end=*/nullptr,
+                        /*wrap_width=*/0.0f);
+            dl->PopClipRect();
+        }
 
         if (ImGui::IsItemHovered())
         {
@@ -489,9 +573,58 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                 ImGui::TextUnformatted(title_txt.c_str());
             else
                 ImGui::TextUnformatted(PHOS_TR("common.empty_parens").c_str());
-            if (has)
-                ImGui::TextDisabled("Ctrl+%d", slot);
-            else
+
+            auto binding_hint_for_slot = [&](int s) -> std::string {
+                const std::string action_id = "tool.preset.slot." + std::to_string(s);
+                const kb::Platform runtime_plat = kb::RuntimePlatform();
+
+                // Look up the *enabled* bindings for this action and current platform.
+                // We display the chord strings directly (they are already human-readable).
+                if (keybinds)
+                {
+                    std::unordered_set<std::string> seen;
+                    std::vector<std::string> chords;
+                    for (const kb::Action& a : keybinds->Actions())
+                    {
+                        if (a.id != action_id)
+                            continue;
+                        for (const kb::KeyBinding& b : a.bindings)
+                        {
+                            if (!b.enabled || b.chord.empty())
+                                continue;
+
+                            const std::string p = b.platform;
+                            const bool plat_ok =
+                                (p == "any") ||
+                                (p == "windows" && runtime_plat == kb::Platform::Windows) ||
+                                (p == "linux" && runtime_plat == kb::Platform::Linux) ||
+                                (p == "macos" && runtime_plat == kb::Platform::MacOS);
+                            if (!plat_ok)
+                                continue;
+
+                            if (seen.insert(b.chord).second)
+                                chords.push_back(b.chord);
+                        }
+                        break;
+                    }
+                    if (!chords.empty())
+                    {
+                        std::string out;
+                        for (size_t i = 0; i < chords.size(); ++i)
+                        {
+                            if (i) out += " / ";
+                            out += chords[i];
+                        }
+                        return out;
+                    }
+                }
+
+                // Fallback (matches default key-bindings.json in-repo today).
+                return "Ctrl+Alt+" + std::to_string(s);
+            };
+
+            ImGui::TextDisabled("%s", binding_hint_for_slot(slot).c_str());
+            if (!has)
                 ImGui::TextDisabled("%s", PHOS_TR("tool_presets_window.ctx_save_current_to_slot").c_str());
             ImGui::EndTooltip();
         }
@@ -535,6 +668,7 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                         p.tool_id = tool_id;
                         p.slot = slot;
                         p.title = MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, "Preset " + std::to_string(slot));
+                        p.title = MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, "Preset " + std::to_string(slot));
                         p.values = capture_current();
                         if (!p.values.empty())
                         {
@@ -572,7 +706,8 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                 if (!tool_id.empty())
                 {
                     const int slot = presets_[(size_t)rename_global_index_].slot;
-                    std::string new_title = MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, rename_new_title_);
+                    std::string new_title =
+                        MakeUniqueTitleForToolAndSlot(presets_, tool_id, slot, rename_new_title_, /*exclude_global_index=*/rename_global_index_);
                     presets_[(size_t)rename_global_index_].title = new_title;
                     dirty_ = true;
                     (void)Save();

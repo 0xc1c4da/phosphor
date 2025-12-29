@@ -326,6 +326,21 @@ static json ToJson(const SessionState& st)
     }
     j["imgui_window_chrome"] = std::move(chrome);
 
+    // ImGui Ctrl+Tab focus order (g.WindowsFocusOrder), stored as stable window IDs.
+    if (!st.imgui_focus_order.empty())
+    {
+        json order = json::array();
+        constexpr size_t kMax = 256;
+        for (size_t i = 0; i < st.imgui_focus_order.size() && i < kMax; ++i)
+        {
+            const std::string& s = st.imgui_focus_order[i];
+            if (!s.empty())
+                order.push_back(s);
+        }
+        if (!order.empty())
+            j["imgui_focus_order"] = std::move(order);
+    }
+
     // Textmode font sanity cache (broken FIGlet/TDF ids).
     {
         json fc;
@@ -738,6 +753,24 @@ static void FromJson(const json& j, SessionState& out)
             // Only store non-defaults to keep the map small.
             if (c.opacity != 1.0f || c.z_order != 0)
                 out.imgui_window_chrome[it.key()] = c;
+        }
+    }
+
+    // ImGui Ctrl+Tab focus order (g.WindowsFocusOrder)
+    out.imgui_focus_order.clear();
+    if (j.contains("imgui_focus_order") && j["imgui_focus_order"].is_array())
+    {
+        constexpr size_t kMax = 256;
+        for (const auto& je : j["imgui_focus_order"])
+        {
+            if (!je.is_string())
+                continue;
+            std::string s = je.get<std::string>();
+            if (s.empty())
+                continue;
+            out.imgui_focus_order.push_back(std::move(s));
+            if (out.imgui_focus_order.size() >= kMax)
+                break;
         }
     }
 

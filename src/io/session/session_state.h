@@ -208,6 +208,20 @@ struct SessionState
     bool show_settings_window = false;
     bool show_16colors_browser_window = false;
 
+    // ---------------------------------------------------------------------
+    // ImGui Ctrl+Tab window focus order (persisted)
+    // ---------------------------------------------------------------------
+    // We don't use ImGui's ini persistence, but we still want to preserve the
+    // *focus recency list* that drives Ctrl+Tab windowing (g.WindowsFocusOrder).
+    //
+    // Stored as a list of window identifiers compatible with ImGui::SetWindowFocus()
+    // / ImGui::FindWindowByName():
+    // - For windows using "title###id" naming, store the stable `id` part (after ###).
+    // - For windows without ###, store the full window name.
+    //
+    // Ordering is oldest -> newest (matches ImGui's internal focus-order list).
+    std::vector<std::string> imgui_focus_order;
+
     // UI skin/theme (ImGui style). Persisted in session.json.
     // Stable ids are defined in ui/skin.h (e.g. "moonlight", "cherry").
     std::string ui_theme = "cherry";

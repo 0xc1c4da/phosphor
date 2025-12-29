@@ -1,5 +1,6 @@
 #include "ui/character_set.h"
 
+#include "app/app_ui.h"
 #include "app/focus_router.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -20,6 +21,25 @@
 #include <fstream>
 
 using nlohmann::json;
+
+namespace
+{
+static void RenderActionTooltipWithShortcut(const kb::KeyBindingsEngine* keybinds,
+                                            const char* label_i18n_key,
+                                            std::string_view action_id,
+                                            std::string_view preferred_context)
+{
+    ImGui::BeginTooltip();
+    ImGui::TextUnformatted(PHOS_TR(label_i18n_key).c_str());
+    if (keybinds)
+    {
+        const std::string sc = appui::ShortcutForAction(*keybinds, action_id, preferred_context);
+        if (!sc.empty())
+            ImGui::TextDisabled("%s", sc.c_str());
+    }
+    ImGui::EndTooltip();
+}
+} // namespace
 
 CharacterSetWindow::CharacterSetWindow()
 {
@@ -467,9 +487,13 @@ void CharacterSetWindow::RenderTopBar(AnsiCanvas* active_canvas)
 
     if (ImGui::ArrowButton("##prev_set", ImGuiDir_Left) && set_count > 0)
         CycleActiveSet(-1);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        RenderActionTooltipWithShortcut(keybinds_, "character_sets.previous_set", "charset.prev_set", "editor");
     ImGui::SameLine();
     if (ImGui::ArrowButton("##next_set", ImGuiDir_Right) && set_count > 0)
         CycleActiveSet(1);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        RenderActionTooltipWithShortcut(keybinds_, "character_sets.next_set", "charset.next_set", "editor");
     ImGui::SameLine();
 
     // Combo with "Set N"
@@ -744,11 +768,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
                 CycleActiveSet(-1);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-        {
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(PHOS_TR("character_sets.previous_set").c_str());
-            ImGui::EndTooltip();
-        }
+            RenderActionTooltipWithShortcut(keybinds_, "character_sets.previous_set", "charset.prev_set", "editor");
 
         if (RenderImGuiWindowChromeTitleBarButton("##charset_next_set", ">", has_close, has_collapse,
                                                   /*out_rect_min=*/nullptr, /*out_rect_max=*/nullptr,
@@ -758,11 +778,7 @@ bool CharacterSetWindow::Render(const char* window_title, bool* p_open,
                 CycleActiveSet(1);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-        {
-            ImGui::BeginTooltip();
-            ImGui::TextUnformatted(PHOS_TR("character_sets.next_set").c_str());
-            ImGui::EndTooltip();
-        }
+            RenderActionTooltipWithShortcut(keybinds_, "character_sets.next_set", "charset.next_set", "editor");
 
         ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
         if (RenderImGuiWindowChromeTitleBarButton("##charset_kebab", "\xE2\x8B\xAE", has_close, has_collapse,

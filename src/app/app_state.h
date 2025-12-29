@@ -202,6 +202,10 @@ struct AppState
     bool quit_discard_dirty_file_backed = false;
 
     double autosave_last_s = 0.0;
+
+    // One-time UI startup behaviors (RunFrame-owned):
+    // - Restore/seed ImGui Ctrl+Tab window focus order after windows are created.
+    bool applied_imgui_focus_order = false;
 };
 
 

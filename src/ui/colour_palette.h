@@ -2,6 +2,8 @@
 
 #include "imgui.h"
 
+namespace kb { class KeyBindingsEngine; }
+
 // UI helper for rendering a colour swatch (palette grid cell) with:
 // - Left click / Enter: select "primary" (typically the active FG/BG)
 // - Right click / Shift+Enter: select "secondary" (the other of FG/BG)
@@ -16,6 +18,8 @@ ColourPaletteSwatchAction RenderColourPaletteSwatchButton(const char* label,
                                                          const ImVec4& colour,
                                                          const ImVec2& size,
                                                          bool mark_foreground,
-                                                         bool mark_background);
+                                                         bool mark_background,
+                                                         const kb::KeyBindingsEngine* keybinds = nullptr,
+                                                         int palette_index = -1);
 
 

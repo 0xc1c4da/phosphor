@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+namespace kb { class KeyBindingsEngine; }
 struct SessionState;
 class AnsiCanvas;
 namespace app { class FocusRouter; }
@@ -32,6 +33,9 @@ public:
                 SessionState* session = nullptr, bool apply_placement_this_frame = false,
                 AnsiCanvas* active_canvas = nullptr,
                 app::FocusRouter* focus_router = nullptr);
+
+    // Optional: attach keybinding engine for showing shortcuts in tooltips (non-owning).
+    void SetKeyBindingsEngine(kb::KeyBindingsEngine* engine) { keybinds_ = engine; }
 
     // Called by host when the external character picker/palette selection changes.
     // If "edit mode" is enabled and a slot is selected, this assigns the slot.
@@ -100,6 +104,9 @@ private:
 
     // Render context
     AnsiCanvas* active_canvas_ = nullptr;
+
+    // Optional: for tooltip shortcut display.
+    kb::KeyBindingsEngine* keybinds_ = nullptr;
 };
 
 

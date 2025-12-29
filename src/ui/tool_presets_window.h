@@ -10,6 +10,7 @@
 #include "ui/tool_params.h"
 
 namespace app { class FocusRouter; }
+namespace kb { class KeyBindingsEngine; }
 
 class ToolPresetsWindow
 {
@@ -27,6 +28,7 @@ public:
                 SessionState& session,
                 bool* p_open,
                 bool apply_placement_this_frame,
+                const kb::KeyBindingsEngine* keybinds = nullptr,
                 app::FocusRouter* focus_router = nullptr);
 
 private:
@@ -44,6 +46,12 @@ private:
     std::vector<tool_params::ToolParamPreset> presets_;
     // tool_id -> selected slot (1..9)
     std::unordered_map<std::string, int> selected_slot_by_tool_;
+
+    // Inline rename state (double-click a preset "chip").
+    std::string inline_rename_tool_id_;
+    int         inline_rename_slot_ = -1; // 1..9
+    char        inline_rename_buf_[128] = {0};
+    bool        inline_rename_request_focus_ = false;
 
     // Rename modal state
     bool rename_modal_open_ = false;

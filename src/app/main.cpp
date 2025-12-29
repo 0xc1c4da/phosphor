@@ -331,6 +331,8 @@ int main(int argc, char** argv)
     BrushPaletteWindow brush_palette;
     CommandPalette command_palette;
 
+    character_sets.SetKeyBindingsEngine(&keybinds);
+
     // Current brush glyph for tools (from picker/palette selection).
     std::uint32_t tool_brush_cp = character_picker.SelectedCodePoint();
     std::string tool_brush_utf8 = ansl::utf8::encode((char32_t)tool_brush_cp);
