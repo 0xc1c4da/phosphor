@@ -1,6 +1,7 @@
 #include "ui/character_picker.h"
 
 #include "app/focus_router.h"
+#include "core/key_bindings.h"
 #include "core/i18n.h"
 
 #include "imgui.h"
@@ -758,7 +759,8 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
 
 bool CharacterPicker::Render(const char* window_title, bool* p_open,
                              SessionState* session, bool apply_placement_this_frame,
-                             app::FocusRouter* focus_router)
+                             app::FocusRouter* focus_router,
+                             kb::KeyBindingsEngine* keybinds)
 {
     EnsureBlocksLoaded();
     // Unicode picker is Unicode-only: always render with the UI font (Unscii / ImGui default),
@@ -811,7 +813,10 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
 
     RenderTopBar();
     ImGui::Separator();
-    RenderGridAndSidePanel();
+    bool allow_keyboard_nav = window_focused;
+    if (focus_router)
+        allow_keyboard_nav = window_focused && (focus_router->KeyboardTarget().kind == app::TargetKind::CharacterPicker);
+    RenderGridAndSidePanel(keybinds, allow_keyboard_nav);
 
     ImGui::End();
     PopImGuiWindowChromeAlpha(alpha_pushed);
@@ -1031,27 +1036,66 @@ void CharacterPicker::RenderTopBar()
     }
 }
 
-void CharacterPicker::RenderGridAndSidePanel()
+void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bool allow_keyboard_nav)
 {
     UpdateConfusablesIfNeeded();
 
-    // Transitional key ownership:
-    // This window contains a keyboard-navigable grid (ImGui nav on Selectable/Table).
-    // Lock arrows/Enter/Escape to prevent legacy/non-owner-aware polling (e.g. canvas/tools)
-    // from observing the same key press in the same frame.
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        ImGui::GetActiveID() == 0 &&
-        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    // Keyboard navigation (keybindings-driven):
+    // Use the shared KeyBindingsEngine so user remaps (and repeat) apply consistently.
+    // Canvas/tools won't see these arrow intents because InputDispatcher gates them on FocusRouter
+    // (only canvases that own keyboard receive injected nav events).
+    auto maybe_nav = [&](const std::vector<uint32_t>& cps)
     {
-        const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
-        ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
-        ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockThisFrame);
-    }
+        if (!allow_keyboard_nav || !keybinds)
+            return;
+        if (cps.empty())
+            return;
+        // Don't navigate while a text widget/combo is active or a popup is open.
+        if (ImGui::GetActiveID() != 0)
+            return;
+        if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            return;
+
+        kb::EvalContext kctx;
+        kctx.global = true;
+        kctx.editor = true;      // nav.caret_* defaults are "editor" bindings
+        kctx.canvas = false;
+        kctx.selection = false;
+        kctx.platform = kb::RuntimePlatform();
+
+        const bool left  = keybinds->ActionPressed("nav.caret_left", kctx);
+        const bool right = keybinds->ActionPressed("nav.caret_right", kctx);
+        const bool up    = keybinds->ActionPressed("nav.caret_up", kctx);
+        const bool down  = keybinds->ActionPressed("nav.caret_down", kctx);
+
+        if (!(left || right || up || down))
+            return;
+
+        int idx = 0;
+        for (int i = 0; i < (int)cps.size(); ++i)
+        {
+            if (cps[(size_t)i] == selected_cp_)
+            {
+                idx = i;
+                break;
+            }
+        }
+
+        constexpr int kCols = 16;
+        int new_idx = idx;
+        if (left)  new_idx = std::max(0, new_idx - 1);
+        if (right) new_idx = std::min((int)cps.size() - 1, new_idx + 1);
+        if (up)    new_idx = std::max(0, new_idx - kCols);
+        if (down)  new_idx = std::min((int)cps.size() - 1, new_idx + kCols);
+
+        if (new_idx != idx)
+        {
+            selected_cp_ = cps[(size_t)new_idx];
+            confusables_for_cp_ = 0xFFFFFFFFu;
+            scroll_to_selected_ = true;
+            MarkSelectionChanged();
+        }
+    };
 
     // Split layout: left grid, right sidebar.
     const float sidebar_w = 360.0f;
@@ -1065,6 +1109,7 @@ void CharacterPicker::RenderGridAndSidePanel()
         auto cps = FilteredSearchCpsForCurrentBlock();
         if (!cps.empty() && std::find(cps.begin(), cps.end(), selected_cp_) == cps.end())
             selected_cp_ = cps.front();
+        maybe_nav(cps);
         RenderGrid(0, 0, &cps);
     }
     else
@@ -1076,6 +1121,7 @@ void CharacterPicker::RenderGridAndSidePanel()
         {
             if (std::find(visible_cps_cache_.begin(), visible_cps_cache_.end(), selected_cp_) == visible_cps_cache_.end())
                 selected_cp_ = visible_cps_cache_.front();
+            maybe_nav(visible_cps_cache_);
             RenderGrid(0, 0, &visible_cps_cache_);
         }
         else
@@ -1196,6 +1242,9 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
     // Give the table a fixed outer height so ScrollY works (fill remaining grid space).
     ImVec2 outer_size(0.0f, std::max(1.0f, ImGui::GetContentRegionAvail().y));
 
+    // We handle arrow-key navigation via KeyBindingsEngine (nav.caret_*) at the picker level.
+    // Disable ImGui nav for the table so it doesn't also move focus/selection on arrow presses.
+    ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
     if (ImGui::BeginTable("##unicode_table", total_cols, flags, outer_size))
     {
         const std::string row_col = PHOS_TR("character_picker.row_col") + "###charpick_row";
@@ -1283,25 +1332,6 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
                     }
                     ImGui::PopStyleVar();
 
-                    // Keep keyboard navigation highlight synchronized with selection:
-                    // - When user navigates with keyboard, ImGui changes the focused item; we mirror that to selection.
-                    // - When selection changes programmatically, we request focus on the selected cell so we don't get
-                    //   a second highlight stranded elsewhere.
-                    if (ImGui::IsItemFocused() && cp != selected_cp_)
-                    {
-                        selected_cp_ = cp;
-                        confusables_for_cp_ = 0xFFFFFFFFu;
-                        scroll_to_selected_ = true;
-                        MarkSelectionChanged();
-                    }
-                    if (request_focus_selected_ &&
-                        cp == selected_cp_ &&
-                        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-                    {
-                        ImGui::SetItemDefaultFocus();
-                        request_focus_selected_ = false;
-                    }
-
                     // Double-click inserts into the canvas caret (handled by app-level wiring).
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary) &&
                         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -1334,4 +1364,5 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
 
         ImGui::EndTable();
     }
+    ImGui::PopItemFlag();
 }

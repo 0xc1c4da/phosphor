@@ -1511,7 +1511,8 @@ void RunFrame(AppState& st)
         const char* name = "Unicode Character Picker";
         character_picker.Render(name, &show_character_picker_window,
                                 &session_state, should_apply_placement(name),
-                                &focus_router);
+                                &focus_router,
+                                st.services.keybinds);
     }
 
     // If the picker selection changed, update the palette's selected cell (replace or select).

@@ -9,6 +9,7 @@
 struct ImFont;
 struct SessionState;
 namespace app { class FocusRouter; }
+namespace kb { class KeyBindingsEngine; }
 
 // Dear ImGui Unicode Character Picker (Unicode 13 via ICU67).
 //
@@ -41,7 +42,8 @@ public:
     // Render the picker UI. Returns true if it is still open (for convenience in windowing).
     bool Render(const char* window_title, bool* p_open = nullptr,
                 SessionState* session = nullptr, bool apply_placement_this_frame = false,
-                app::FocusRouter* focus_router = nullptr);
+                app::FocusRouter* focus_router = nullptr,
+                kb::KeyBindingsEngine* keybinds = nullptr);
 
     // Get the currently selected code point (Unicode scalar where possible).
     uint32_t SelectedCodePoint() const { return selected_cp_; }
@@ -115,7 +117,7 @@ private:
 
     // ---------- UI ----------
     void RenderTopBar();
-    void RenderGridAndSidePanel();
+    void RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bool allow_keyboard_nav);
     void RenderGrid(uint32_t view_start, uint32_t view_end,
                     const std::vector<uint32_t>* explicit_cps /* if non-null, render these cps */);
 
