@@ -293,7 +293,9 @@ TEST_SRCS = \
            tests/test_automerge_sync.cpp \
            tests/test_room_session_sim.cpp \
            tests/test_room_session_faulty_transport.cpp \
+           tests/test_crdt_tile_schema.cpp \
            src/net/p2p/blake3_util.cpp \
+           src/net/p2p/canvas_tile_schema_v1.cpp \
            src/net/p2p/tile_codec_v1.cpp \
            src/net/p2p/wire_frame_v1.cpp \
            src/net/p2p/chunk_reassembly.cpp \
