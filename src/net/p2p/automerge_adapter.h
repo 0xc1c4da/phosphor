@@ -11,14 +11,10 @@
 #include <vector>
 
 // automerge-c headers
-#include <automerge-c/automerge.h>
+#include "automerge_c_compat.h"
 
 namespace phos::p2p
 {
-// NOTE: The installed automerge-c header in this environment does not declare AMresultFree(),
-// but the symbol exists in the library. Declare it here to manage lifetimes.
-extern "C" void AMresultFree(struct AMresult* result);
-
 struct AutomergeDoc
 {
     // The AMdoc pointer is owned by doc_result; do not free separately.
@@ -50,7 +46,7 @@ struct AutomergeDoc
     {
         if (doc_result)
         {
-            AMresultFree(doc_result);
+            ::AMresultFree(doc_result);
             doc_result = nullptr;
             doc = nullptr;
         }
@@ -94,7 +90,7 @@ private:
         ~SyncState()
         {
             if (state_result)
-                AMresultFree(state_result);
+                ::AMresultFree(state_result);
         }
         SyncState() = default;
         SyncState(const SyncState&) = delete;
@@ -109,7 +105,7 @@ private:
             if (this == &o)
                 return *this;
             if (state_result)
-                AMresultFree(state_result);
+                ::AMresultFree(state_result);
             state_result = o.state_result;
             state = o.state;
             o.state_result = nullptr;

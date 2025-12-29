@@ -291,13 +291,17 @@ TEST_SRCS = \
            tests/test_wire_frame.cpp \
            tests/test_chunk_reassembly.cpp \
            tests/test_automerge_sync.cpp \
+           tests/test_room_session_sim.cpp \
+           tests/test_room_session_faulty_transport.cpp \
            src/net/p2p/blake3_util.cpp \
            src/net/p2p/tile_codec_v1.cpp \
            src/net/p2p/wire_frame_v1.cpp \
            src/net/p2p/chunk_reassembly.cpp \
            src/net/p2p/crypto_secp256k1.cpp \
            src/net/p2p/automerge_adapter.cpp \
-           src/net/p2p/sim_transport.cpp
+           src/net/p2p/room_session.cpp \
+           src/net/p2p/sim_transport.cpp \
+           src/net/p2p/faulty_sim_transport.cpp
 
 TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(TEST_SRCS))
 
@@ -324,6 +328,7 @@ MP_LAB_SRCS = \
            src/net/p2p/chunk_reassembly.cpp \
            src/net/p2p/crypto_secp256k1.cpp \
            src/net/p2p/automerge_adapter.cpp \
+           src/net/p2p/room_session.cpp \
            src/net/p2p/sim_transport.cpp
 
 $(MP_LAB_EXE): $(MP_LAB_SRCS)

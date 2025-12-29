@@ -77,12 +77,7 @@ private:
         Block = 0,
         Subpage,
         Search,
-        Go,
-        Clear,
         Grid,
-        CopyCharacter,
-        CopyUPlus,
-        Confusables,
     };
 
     struct BlockInfo

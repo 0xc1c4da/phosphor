@@ -170,7 +170,9 @@ bool RenderImGuiWindowChromeTitleBarButton(const char* id,
 
     bool hovered = false;
     bool held = false;
-    const bool clicked = ImGui::ButtonBehavior(bb, iid, &hovered, &held, ImGuiButtonFlags_None);
+    // UX robustness: treat title-bar buttons as "pressed on click" (mouse-down) so they work even if
+    // mouse-up is consumed by focus transitions or popup-close routing elsewhere in the app.
+    const bool clicked = ImGui::ButtonBehavior(bb, iid, &hovered, &held, ImGuiButtonFlags_PressedOnClick);
 
     if (out_rect_min) *out_rect_min = bb.Min;
     if (out_rect_max) *out_rect_max = bb.Max;

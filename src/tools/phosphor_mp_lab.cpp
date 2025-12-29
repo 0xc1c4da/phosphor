@@ -14,9 +14,13 @@
 #include "net/p2p/automerge_adapter.h"
 #include "net/p2p/blake3_util.h"
 #include "net/p2p/crypto_secp256k1.h"
+#include "net/p2p/room_session.h"
 #include "net/p2p/sim_transport.h"
 #include "net/p2p/wire_frame_v1.h"
 
+// Work around missing standard includes in the nix-provided `simplep2p.hpp`.
+#include <algorithm>
+#include <map>
 #include <simplep2p.hpp>
 
 #include <atomic>
@@ -24,12 +28,20 @@
 #include <csignal>
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
+
+// `simplep2p.hpp` declares this static member but (in the version packaged in
+// nix) does not provide a definition. Provide it here so the mp-lab binary links.
+namespace p2p
+{
+std::map<P2PNetwork, Network*> Network::networks;
+} // namespace p2p
 
 namespace
 {
@@ -395,56 +407,63 @@ int main(int argc, char** argv)
     if (mode == "sim")
     {
         SimTransport t;
-        Node a, b;
+
+        RoomSession a(RoomSessionConfig{
+            .topic = topic,
+            .local_peer_id = "peerA",
+            .display_name = "alice",
+            .privkey32 = Rand32(),
+        });
+        RoomSession b(RoomSessionConfig{
+            .topic = topic,
+            .local_peer_id = "peerB",
+            .display_name = "bob",
+            .privkey32 = Rand32(),
+        });
+
         std::string err;
-        if (!a.Init(topic, "peerA", "alice", &err) || !b.Init(topic, "peerB", "bob", &err))
+        if (!a.Init(&err) || !b.Init(&err))
         {
             std::cout << "init failed: " << err << "\n";
             return 1;
         }
 
+        std::uint64_t now_ms = 0;
+
         t.RegisterPeer("peerA", [&](const SimMessage& m) {
-            ParsedFrameV1 f;
-            std::string e;
-            if (!DecodeFrameV1(m.bytes, f, &e))
+            if (m.topic != topic)
                 return;
-            if (!a.VerifyFrame(f, m.from_peer_id, &e))
-                return;
-            a.OnFrame(m.from_peer_id, f);
+            a.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
         });
         t.RegisterPeer("peerB", [&](const SimMessage& m) {
-            ParsedFrameV1 f;
-            std::string e;
-            if (!DecodeFrameV1(m.bytes, f, &e))
+            if (m.topic != topic)
                 return;
-            if (!b.VerifyFrame(f, m.from_peer_id, &e))
-                return;
-            b.OnFrame(m.from_peer_id, f);
+            b.OnIncomingBytes(m.from_peer_id, m.bytes, now_ms);
         });
         t.Subscribe("peerA", topic);
         t.Subscribe("peerB", topic);
 
-        // HELLO exchange.
-        t.Broadcast("peerA", topic, a.BuildHelloFrame());
-        t.Broadcast("peerB", topic, b.BuildHelloFrame());
-
         // Mutate A once then sync.
-        a.MutateOnce();
+        a.Doc().RootPutInt("x", 1, &err);
+        a.Doc().Commit("set x=1", &err);
 
-        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
-        while (std::chrono::steady_clock::now() < end)
+        const std::uint64_t end_ms = static_cast<std::uint64_t>(seconds) * 1000;
+        while (now_ms <= end_ms)
         {
-            // Drive sync (directed).
-            if (auto m = a.am.GenerateSync("peerB", &err))
-                t.Broadcast("peerA", topic, a.BuildSyncFrame("peerB", *m));
-            if (auto m = b.am.GenerateSync("peerA", &err))
-                t.Broadcast("peerB", topic, b.BuildSyncFrame("peerA", *m));
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            a.Tick(now_ms);
+            b.Tick(now_ms);
+
+            for (auto& msg : a.TakeOutgoing())
+                t.Broadcast("peerA", topic, msg);
+            for (auto& msg : b.TakeOutgoing())
+                t.Broadcast("peerB", topic, msg);
+
+            now_ms += 10;
         }
 
-        const bool eq = a.am.Equal(b.am);
-        std::cout << "[sim] converged=" << (eq ? "yes" : "no") << " peersA=" << a.peers.size()
-                  << " peersB=" << b.peers.size() << "\n";
+        const bool eq = a.Doc().Equal(b.Doc());
+        std::cout << "[sim] converged=" << (eq ? "yes" : "no") << " peersA=" << a.Peers().size()
+                  << " peersB=" << b.Peers().size() << "\n";
         return eq ? 0 : 1;
     }
 
@@ -453,22 +472,31 @@ int main(int argc, char** argv)
         static std::atomic<bool> running{true};
         std::signal(SIGINT, [](int) { running = false; });
 
-        p2p::Network net(p2p::default_listen_address, p2p::default_discovery_topic, p2p::Key{}, std::chrono::seconds(30),
-                         false, false);
+        p2p::Network net(p2p::default_listen_address, p2p::default_discovery_topic, p2p::Key{}, nullptr,
+                         std::chrono::seconds(30), false, false);
         const auto my_peer_id = std::string(net.local_id());
-
-        Node node;
+        RoomSession session(RoomSessionConfig{
+            .topic = topic,
+            .local_peer_id = my_peer_id,
+            .display_name = name,
+            .privkey32 = Rand32(),
+        });
         std::string err;
-        if (!node.Init(topic, my_peer_id, name, &err))
+        if (!session.Init(&err))
         {
             std::cout << "init failed: " << err << "\n";
             return 1;
         }
 
         const auto room = net.subscribe_to_topic(topic);
-        std::cout << "[p2p] my_peer_id=" << node.peer_id << " topic=" << room.name() << " user_tag=" << node.user_tag << "\n";
+        std::cout << "[p2p] my_peer_id=" << session.LocalPeerId() << " topic=" << room.name()
+                  << " user_tag=" << session.MyUserTag() << "\n";
 
-        net.on_message.connect([&](p2p::Network& n, p2p::Message& msg) {
+        // simplep2p callbacks can fire on worker threads. Copy bytes immediately and enqueue.
+        std::mutex inbox_mu;
+        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> inbox;
+
+        net.on_message.connect([&](p2p::Network&, p2p::Message& msg) {
             // copy immediately (simplep2p frees memory after callback returns)
             const std::string from = std::string(msg.sender());
             const auto data = msg.data();
@@ -476,50 +504,42 @@ int main(int argc, char** argv)
             bytes.reserve(data.size());
             for (auto b : data)
                 bytes.push_back(static_cast<std::uint8_t>(b));
-
-            ParsedFrameV1 f;
-            std::string e;
-            if (!DecodeFrameV1(bytes, f, &e))
-                return;
-            // Fast directed filtering: accept broadcast (to_tag=0) or to us.
-            const auto my_to_tag = ToTagFromPeerId(node.peer_id);
-            if (f.hdr.to_tag != 0 && f.hdr.to_tag != my_to_tag)
-                return;
-
-            if (!node.VerifyFrame(f, from, &e))
-                return;
-            node.OnFrame(from, f);
+            {
+                std::lock_guard<std::mutex> lk(inbox_mu);
+                inbox.emplace_back(from, std::move(bytes));
+            }
         });
 
-        // Periodically broadcast HELLO and sync.
-        auto last_hello = std::chrono::steady_clock::now() - std::chrono::seconds(10);
         auto last_tick = std::chrono::steady_clock::now();
 
         while (running)
         {
             const auto now = std::chrono::steady_clock::now();
-            if (now - last_hello > std::chrono::seconds(2))
             {
-                auto frame = node.BuildHelloFrame();
-                net.broadcast_message(std::span<std::byte>((std::byte*)frame.data(), frame.size()), room);
-                last_hello = now;
+                // Drain inbox and feed to session on this (main) thread.
+                std::vector<std::pair<std::string, std::vector<std::uint8_t>>> local;
+                {
+                    std::lock_guard<std::mutex> lk(inbox_mu);
+                    local.swap(inbox);
+                }
+                const std::uint64_t now_ms = NowMs();
+                for (auto& [from, bytes] : local)
+                    session.OnIncomingBytes(from, bytes, now_ms);
             }
 
             if (host && now - last_tick > std::chrono::seconds(1))
             {
-                node.MutateOnce();
+                // Mutate doc occasionally to ensure we exercise sync on real transport.
+                session.Doc().RootPutInt("x", static_cast<std::int64_t>(NowMs()), &err);
+                session.Doc().Commit("tick", &err);
                 last_tick = now;
             }
 
-            // Drive sync to known peers (best-effort).
-            for (const auto& [pid, _] : node.peers)
-            {
-                if (auto sm = node.am.GenerateSync(pid, &err))
-                {
-                    auto frame = node.BuildSyncFrame(pid, *sm);
-                    net.broadcast_message(std::span<std::byte>((std::byte*)frame.data(), frame.size()), room);
-                }
-            }
+            // Drive periodic HELLO + SYNC (RoomSession decides what to send).
+            const std::uint64_t now_ms = NowMs();
+            session.Tick(now_ms);
+            for (auto& frame : session.TakeOutgoing())
+                net.broadcast_message(std::span<std::byte>((std::byte*)frame.data(), frame.size()), room);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }

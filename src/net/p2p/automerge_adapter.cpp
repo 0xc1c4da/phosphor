@@ -1,7 +1,5 @@
 #include "automerge_adapter.h"
 
-#include <automerge-c/utils/stack.h>
-
 #include <cstring>
 
 namespace phos::p2p
@@ -17,14 +15,11 @@ inline bool ResultOk(AMresult* r) { return r != nullptr && AMresultStatus(r) == 
 
 inline std::string ResultErrorStr(AMresult* r)
 {
-    // AMresultError exists in the library but is not declared in the generated header here.
-    // Declare locally.
-    extern "C" AMbyteSpan AMresultError(const AMresult* result);
     if (!r)
         return "null result";
     if (AMresultStatus(r) == AM_STATUS_OK)
         return {};
-    const AMbyteSpan s = AMresultError(r);
+    const AMbyteSpan s = ::AMresultError(r);
     return std::string(reinterpret_cast<const char*>(s.src), s.count);
 }
 
@@ -123,13 +118,8 @@ AutomergeAdapter::SyncState& AutomergeAdapter::GetOrCreateSyncState(std::string_
     }
 
     AMitem* it0 = AMresultItem(st_r);
-    const AMsyncState* st_const = nullptr;
-    // There's no AMitemToSyncState helper in the header; get it via item value type?
-    // Instead: AMresultItem returns AMitem; use AMitemToSyncState? Not available.
-    // Workaround: AMresultItems + AMitemToSyncState isn't exposed; we rely on automerge-c internal layout via AMitemToSyncState?
-    // Not available in this header version, so we treat AMsyncState as opaque pointer stored in AMitem; fetch via AMitemToSyncState symbol.
-    extern "C" bool AMitemToSyncState(const AMitem* item, const AMsyncState** value);
-    if (!it0 || !AMitemToSyncState(it0, &st_const) || !st_const)
+    AMsyncState* st_ptr = nullptr;
+    if (!it0 || !AMitemToSyncState(it0, &st_ptr) || !st_ptr)
     {
         if (err)
             *err = "GetOrCreateSyncState: failed to extract sync state";
@@ -139,7 +129,7 @@ AutomergeAdapter::SyncState& AutomergeAdapter::GetOrCreateSyncState(std::string_
 
     SyncState st;
     st.state_result = st_r;
-    st.state = const_cast<AMsyncState*>(st_const);
+    st.state = st_ptr;
     return m_sync.emplace(std::string(peer_key), std::move(st)).first->second;
 }
 

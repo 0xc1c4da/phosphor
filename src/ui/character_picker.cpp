@@ -836,6 +836,110 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
         RenderImGuiWindowChromeMenu(session, window_title);
     }
 
+    // Title-bar ⋮ popup: holds the former right sidebar (Selected + Copy + Confusables).
+    // This keeps the main picker UI grid-focused and reduces horizontal clutter.
+    {
+        ImVec2 kebab_min(0.0f, 0.0f), kebab_max(0.0f, 0.0f);
+        const bool has_close = (p_open != nullptr);
+        const bool has_collapse = (flags & ImGuiWindowFlags_NoCollapse) == 0;
+        if (RenderImGuiWindowChromeTitleBarButton("##charpick_kebab", "\xE2\x8B\xAE", has_close, has_collapse,
+                                                  &kebab_min, &kebab_max,
+                                                  /*button_index_from_right=*/0))
+        {
+            ImGui::OpenPopup("##charpick_sidebar");
+        }
+
+        if (ImGui::IsPopupOpen("##charpick_sidebar"))
+            ImGui::SetNextWindowPos(ImVec2(kebab_min.x, kebab_max.y), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(380.0f, 0.0f), ImVec2(720.0f, 720.0f));
+        if (ImGui::BeginPopup("##charpick_sidebar"))
+        {
+            // Former sidebar contents:
+            // Selected info + copy buttons + confusables list.
+            ImGui::TextUnformatted(PHOS_TR("character_picker.selected").c_str());
+            ImGui::Separator();
+
+            const std::string hex = CodePointHex(selected_cp_);
+            const std::string glyph = GlyphUtf8(selected_cp_);
+            const std::string nm = CharName(selected_cp_);
+            const std::string blk = BlockNameFor(selected_cp_);
+
+            ImGui::TextUnformatted(hex.c_str());
+            if (!glyph.empty())
+            {
+                const std::string s = PHOS_TRF("character_picker.glyph_prefix", phos::i18n::Arg::Str(glyph));
+                ImGui::TextUnformatted(s.c_str());
+            }
+            if (!nm.empty())
+            {
+                const std::string s = PHOS_TRF("character_picker.name_prefix", phos::i18n::Arg::Str(nm));
+                ImGui::TextWrapped("%s", s.c_str());
+            }
+            {
+                const std::string s = PHOS_TRF("character_picker.block_prefix", phos::i18n::Arg::Str(blk));
+                ImGui::TextWrapped("%s", s.c_str());
+            }
+
+            if (ImGui::Button(PHOS_TR("character_picker.copy_character").c_str()) && !glyph.empty())
+                ImGui::SetClipboardText(glyph.c_str());
+            ImGui::SameLine();
+            if (ImGui::Button(PHOS_TR("character_picker.copy_u_plus").c_str()))
+                ImGui::SetClipboardText(hex.c_str());
+
+            ImGui::Separator();
+
+            ImGui::TextUnformatted(PHOS_TR("character_picker.confusables_header").c_str());
+            ImGui::SameLine();
+            {
+                const std::string s = PHOS_TRF("character_picker.limit_fmt", phos::i18n::Arg::I64((long long)confusables_limit_));
+                ImGui::TextDisabled("%s", s.c_str());
+            }
+
+            // Scrollable list so the popup stays a reasonable size.
+            ImGui::BeginChild("##charpick_conf_scroll", ImVec2(0.0f, 360.0f), false, ImGuiWindowFlags_None);
+            if (confusable_cps_.empty())
+            {
+                ImGui::TextDisabled("%s", PHOS_TR("character_picker.no_confusables").c_str());
+            }
+            else
+            {
+                for (size_t i = 0; i < confusable_cps_.size(); ++i)
+                {
+                    const uint32_t cp = confusable_cps_[i];
+                    const std::string g = GlyphUtf8(cp);
+                    const std::string h = CodePointHex(cp);
+                    const std::string n = CharName(cp);
+
+                    std::string label = h;
+                    if (!g.empty())
+                        label += "  " + g;
+                    if (!n.empty())
+                        label += "  " + n;
+
+                    if (ImGui::Selectable(label.c_str(), false))
+                    {
+                        selected_cp_ = cp;
+                        confusables_for_cp_ = 0xFFFFFFFFu;
+                        // Keep the view consistent with the clicked cp when browsing "All Unicode".
+                        if (block_index_ == 0)
+                        {
+                            subpage_index_ = static_cast<int>(cp / 0x10000u);
+                            SyncRangeFromSelection();
+                            scroll_to_selected_ = true;
+                        }
+                        MarkSelectionChanged();
+                    }
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::Separator();
+            if (ImGui::Button(PHOS_TR("common.close").c_str()))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
+
     bool allow_keyboard_nav = window_focused;
     if (focus_router)
         allow_keyboard_nav = window_focused && (focus_router->KeyboardTarget().kind == app::TargetKind::CharacterPicker);
@@ -897,12 +1001,7 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
                     TabStop::Block,
                     TabStop::Subpage,
                     TabStop::Search,
-                    TabStop::Go,
-                    TabStop::Clear,
                     TabStop::Grid,
-                    TabStop::CopyCharacter,
-                    TabStop::CopyUPlus,
-                    TabStop::Confusables,
                 };
                 constexpr int n = (int)(sizeof(order) / sizeof(order[0]));
                 int idx = 0;
@@ -922,20 +1021,12 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
                 case TabStop::Block:
                 case TabStop::Subpage:
                 case TabStop::Search:
-                case TabStop::Go:
-                case TabStop::Clear:
                     nav_region_ = NavRegion::TopBar;
                     request_focus_topbar_ = true;
                     break;
                 case TabStop::Grid:
                     nav_region_ = NavRegion::Grid;
                     request_focus_grid_ = true;
-                    break;
-                case TabStop::CopyCharacter:
-                case TabStop::CopyUPlus:
-                case TabStop::Confusables:
-                    nav_region_ = NavRegion::Sidebar;
-                    request_focus_sidebar_ = true;
                     break;
             }
         }
@@ -1172,11 +1263,12 @@ void CharacterPicker::RenderTopBar()
         }
     }
 
-    ImGui::SameLine();
-
-    // Search
+    // Search row (no Go/Clear buttons; press Enter to search, Esc clears when active).
     {
-        ImGui::SetNextItemWidth(340.0f);
+        // Put search on its own line under the dropdowns.
+        ImGui::Spacing();
+        const float w = std::max(240.0f, ImGui::GetContentRegionAvail().x);
+        ImGui::SetNextItemWidth(w);
         const std::string search_lbl = PHOS_TR("common.search") + "###charpick_search";
         const std::string hint = PHOS_TR("character_picker.search_hint");
         if (request_tab_focus_ && request_tab_stop_ == TabStop::Search)
@@ -1199,45 +1291,16 @@ void CharacterPicker::RenderTopBar()
         if (ImGui::IsItemFocused() || ImGui::IsItemActive())
             tab_stop_ = TabStop::Search;
 
-        ImGui::SameLine();
-        if (request_tab_focus_ && request_tab_stop_ == TabStop::Go)
+        // If the user deletes the query text to empty without pressing Enter, auto-exit search mode
+        // so the picker never gets "stuck" showing stale results.
+        if (search_active_ && TrimCopy(search_query_).empty())
         {
-            ImGui::SetKeyboardFocusHere();
-            request_tab_focus_ = false;
-        }
-        if (ImGui::Button(PHOS_TR("common.go").c_str()))
-        {
-            nav_region_ = NavRegion::TopBar;
-            search_dirty_ = true;
-            PerformSearch();
-            subpage_index_ = 0;
-            SyncRangeFromSelection();
-            ClampSelectionToCurrentView();
-        }
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            nav_region_ = NavRegion::TopBar;
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            tab_stop_ = TabStop::Go;
-
-        ImGui::SameLine();
-        if (request_tab_focus_ && request_tab_stop_ == TabStop::Clear)
-        {
-            ImGui::SetKeyboardFocusHere();
-            request_tab_focus_ = false;
-        }
-        if (ImGui::Button(PHOS_TR("common.clear").c_str()))
-        {
-            nav_region_ = NavRegion::TopBar;
             ClearSearch();
             subpage_index_ = 0;
             SyncRangeFromSelection();
             ClampSelectionToCurrentView();
             MarkSelectionChanged();
         }
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            nav_region_ = NavRegion::TopBar;
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            tab_stop_ = TabStop::Clear;
     }
 }
 
@@ -1349,27 +1412,25 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
         }
     };
 
-    // Split layout: left grid, right sidebar.
-    const float sidebar_w = 360.0f;
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float grid_w = std::max(200.0f, avail.x - sidebar_w - ImGui::GetStyle().ItemSpacing.x);
+    // Single layout: render directly in the main window (no full-height child window).
+    // Full-height child windows can cover the window resize grip and make the window feel "stuck".
 
-    ImGui::BeginChild("##picker_grid", ImVec2(grid_w, 0.0f), true, ImGuiWindowFlags_None);
-
-    // Visual cue: when the grid region is the active keyboard surface, draw a highlight border.
+    // Visual cue: when the grid region is the active keyboard surface, draw a highlight border
+    // around the remaining content region.
     if (allow_keyboard_nav && nav_region_ == NavRegion::Grid)
     {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImU32 col = ImGui::GetColorU32(ImGuiCol_NavHighlight);
-        const ImVec2 p0 = ImGui::GetWindowPos();
-        const ImVec2 p1(p0.x + ImGui::GetWindowSize().x, p0.y + ImGui::GetWindowSize().y);
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 p1(p0.x + std::max(1.0f, avail.x), p0.y + std::max(1.0f, avail.y));
         dl->AddRect(p0, p1, col, 0.0f, 0, 2.0f);
     }
 
     // Focus anchor:
     // Make the grid region reachable via Tab/Shift+Tab and allow programmatic focus restore.
     // If a programmatic selection change requested focus sync, prefer focusing the grid only when the grid is
-    // the current nav region (avoid stealing focus from sidebar interactions like confusables clicks).
+    // the current nav region.
     if (request_focus_selected_ && nav_region_ == NavRegion::Grid)
     {
         request_focus_grid_ = true;
@@ -1387,11 +1448,10 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
     }
     ImGui::InvisibleButton("##grid_focus_anchor", ImVec2(1.0f, 1.0f), ImGuiButtonFlags_EnableNav);
     if (ImGui::IsItemFocused() || ImGui::IsItemActive())
+    {
         nav_region_ = NavRegion::Grid;
-    if (ImGui::IsItemFocused() || ImGui::IsItemActive())
         tab_stop_ = TabStop::Grid;
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        nav_region_ = NavRegion::Grid;
+    }
 
     if (search_active_)
     {
@@ -1420,165 +1480,17 @@ void CharacterPicker::RenderGridAndSidePanel(kb::KeyBindingsEngine* keybinds, bo
         }
     }
 
-    ImGui::EndChild();
-
-    ImGui::SameLine();
-
-    ImGui::BeginChild("##picker_sidebar", ImVec2(0.0f, 0.0f), true, ImGuiWindowFlags_None);
-
-    // Visual cue: when the sidebar region is active, draw a highlight border.
-    if (allow_keyboard_nav && nav_region_ == NavRegion::Sidebar)
+    // Mouse affordance: clicking anywhere in the grid/table area should activate the grid region,
+    // even if the click didn't land on the 1x1 focus anchor.
+    if (allow_keyboard_nav &&
+        !want_text_input &&
+        !any_popup_open &&
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImU32 col = ImGui::GetColorU32(ImGuiCol_NavHighlight);
-        const ImVec2 p0 = ImGui::GetWindowPos();
-        const ImVec2 p1(p0.x + ImGui::GetWindowSize().x, p0.y + ImGui::GetWindowSize().y);
-        dl->AddRect(p0, p1, col, 0.0f, 0, 2.0f);
+        nav_region_ = NavRegion::Grid;
+        tab_stop_ = TabStop::Grid;
     }
-
-    // Focus anchor for the sidebar region (Tab/Shift+Tab + programmatic restore).
-    if (request_focus_sidebar_)
-    {
-        ImGui::SetKeyboardFocusHere();
-        request_focus_sidebar_ = false;
-    }
-    if (request_tab_focus_ && request_tab_stop_ == TabStop::CopyCharacter)
-    {
-        ImGui::SetKeyboardFocusHere();
-        // do not clear request_tab_focus_ here; first real widget below will consume it.
-    }
-    ImGui::InvisibleButton("##sidebar_focus_anchor", ImVec2(1.0f, 1.0f), ImGuiButtonFlags_EnableNav);
-    if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-        nav_region_ = NavRegion::Sidebar;
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        nav_region_ = NavRegion::Sidebar;
-
-    // Selected info + copy
-    {
-        const std::string hex = CodePointHex(selected_cp_);
-        const std::string glyph = GlyphUtf8(selected_cp_);
-        const std::string nm = CharName(selected_cp_);
-        const std::string blk = BlockNameFor(selected_cp_);
-
-        ImGui::TextUnformatted(PHOS_TR("character_picker.selected").c_str());
-        ImGui::Separator();
-        ImGui::TextUnformatted(hex.c_str());
-        if (!glyph.empty())
-        {
-            const std::string s = PHOS_TRF("character_picker.glyph_prefix", phos::i18n::Arg::Str(glyph));
-            ImGui::TextUnformatted(s.c_str());
-        }
-        if (!nm.empty())
-        {
-            const std::string s = PHOS_TRF("character_picker.name_prefix", phos::i18n::Arg::Str(nm));
-            ImGui::TextWrapped("%s", s.c_str());
-        }
-        {
-            const std::string s = PHOS_TRF("character_picker.block_prefix", phos::i18n::Arg::Str(blk));
-            ImGui::TextWrapped("%s", s.c_str());
-        }
-
-        if (request_tab_focus_ && request_tab_stop_ == TabStop::CopyCharacter)
-        {
-            ImGui::SetKeyboardFocusHere();
-            request_tab_focus_ = false;
-        }
-        if (ImGui::Button(PHOS_TR("character_picker.copy_character").c_str()) && !glyph.empty())
-        {
-            nav_region_ = NavRegion::Sidebar;
-            ImGui::SetClipboardText(glyph.c_str());
-        }
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            nav_region_ = NavRegion::Sidebar;
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            tab_stop_ = TabStop::CopyCharacter;
-        ImGui::SameLine();
-        if (request_tab_focus_ && request_tab_stop_ == TabStop::CopyUPlus)
-        {
-            ImGui::SetKeyboardFocusHere();
-            request_tab_focus_ = false;
-        }
-        if (ImGui::Button(PHOS_TR("character_picker.copy_u_plus").c_str()))
-        {
-            nav_region_ = NavRegion::Sidebar;
-            ImGui::SetClipboardText(hex.c_str());
-        }
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            nav_region_ = NavRegion::Sidebar;
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-            tab_stop_ = TabStop::CopyUPlus;
-    }
-
-    ImGui::Separator();
-
-    // Confusables list
-    ImGui::TextUnformatted(PHOS_TR("character_picker.confusables_header").c_str());
-    ImGui::SameLine();
-    {
-        const std::string s = PHOS_TRF("character_picker.limit_fmt", phos::i18n::Arg::I64((long long)confusables_limit_));
-        ImGui::TextDisabled("%s", s.c_str());
-    }
-
-    const bool conf_visible =
-        ImGui::BeginChild("##confusables", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_None);
-    if (conf_visible)
-    {
-        // Tab stop for the confusables list region (focusable even if the list is empty).
-        if (request_tab_focus_ && request_tab_stop_ == TabStop::Confusables)
-        {
-            ImGui::SetKeyboardFocusHere();
-            request_tab_focus_ = false;
-        }
-        ImGui::InvisibleButton("##confusables_focus_anchor", ImVec2(1.0f, 1.0f), ImGuiButtonFlags_EnableNav);
-        if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-        {
-            nav_region_ = NavRegion::Sidebar;
-            tab_stop_ = TabStop::Confusables;
-        }
-
-        if (confusable_cps_.empty())
-        {
-            ImGui::TextDisabled("%s", PHOS_TR("character_picker.no_confusables").c_str());
-        }
-        else
-        {
-            for (size_t i = 0; i < confusable_cps_.size(); ++i)
-            {
-                const uint32_t cp = confusable_cps_[i];
-                const std::string g = GlyphUtf8(cp);
-                const std::string h = CodePointHex(cp);
-                const std::string n = CharName(cp);
-
-                std::string label = h;
-                if (!g.empty())
-                    label += "  " + g;
-                if (!n.empty())
-                    label += "  " + n;
-
-                if (ImGui::Selectable(label.c_str(), false))
-                {
-                    nav_region_ = NavRegion::Sidebar;
-                    selected_cp_ = cp;
-                    confusables_for_cp_ = 0xFFFFFFFFu;
-                    // Try to keep block selection consistent with the clicked cp.
-                    // If currently in a specific block, leave it; otherwise, jump plane.
-                    if (block_index_ == 0)
-                    {
-                        subpage_index_ = static_cast<int>(cp / 0x10000u);
-                        SyncRangeFromSelection();
-                    }
-                    MarkSelectionChanged();
-                }
-                if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-                    nav_region_ = NavRegion::Sidebar;
-                if (ImGui::IsItemFocused() || ImGui::IsItemActive())
-                    tab_stop_ = TabStop::Confusables;
-            }
-        }
-    }
-    ImGui::EndChild();
-
-    ImGui::EndChild();
 }
 
 void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
@@ -1681,7 +1593,9 @@ void CharacterPicker::RenderGrid(uint32_t view_start, uint32_t view_end,
                         glyph = " ";
 
                     ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
-                    if (ImGui::Selectable(glyph.c_str(), is_sel, ImGuiSelectableFlags_None,
+                    // UX robustness: SelectOnClick (mouse-down) so selection works even if mouse-up is
+                    // consumed by other layers (e.g. focus transitions / popup close policies).
+                    if (ImGui::Selectable(glyph.c_str(), is_sel, ImGuiSelectableFlags_SelectOnClick,
                                           ImVec2(cell_w, cell_w)))
                     {
                         nav_region_ = NavRegion::Grid;
