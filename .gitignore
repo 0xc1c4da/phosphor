@@ -14,3 +14,5 @@ phosphor-tui
 !dist/**
 i18n_validate
 palette_validate
+phosphor_mp_lab
+phosphor_tests
