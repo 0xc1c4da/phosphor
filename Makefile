@@ -68,7 +68,7 @@ PHOSPHOR_VERSION_STR ?= $(shell \
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 # NOTE: Some utility targets and headless tools do not require Dear ImGui.
 # Avoid hard-failing the Makefile when building those.
-SKIP_IMGUI_CHECK := $(filter test mp-lab canvas-bridge-test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
+SKIP_IMGUI_CHECK := $(filter test mp-lab p2p-smoke canvas-bridge-test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
 ifeq ($(SKIP_IMGUI_CHECK),)
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
@@ -408,6 +408,10 @@ $(MP_LAB_EXE): $(MP_LAB_SRCS)
 
 .PHONY: mp-lab
 mp-lab: $(MP_LAB_EXE)
+
+.PHONY: p2p-smoke
+p2p-smoke: mp-lab
+	@./scripts/p2p_smoke.sh
 
 # Include generated dependency files if they exist.
 -include $(DEPS)
