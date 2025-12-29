@@ -60,6 +60,8 @@ SOURCES  = \
            src/app/tool_preset_apply.cpp \
            src/app/clipboard_utils.cpp \
            src/app/workspace_persist.cpp \
+           src/app/focus_router.cpp \
+           src/app/input_dispatcher.cpp \
            src/app/run_frame.cpp \
            src/app/canvas_preview_texture.cpp \
            src/app/bitmap_glyph_atlas_texture.cpp \

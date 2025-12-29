@@ -5,6 +5,7 @@
 
 class ImageToChafaDialog;
 struct SessionState;
+namespace app { class FocusRouter; }
 
 // Simple representation of an imported image window (pixel buffer + metadata).
 // The pixels are stored as RGBA8, row-major, width * height * 4 bytes.
@@ -25,6 +26,7 @@ struct ImageWindow
 // - `title` is the ImGui window name (must be unique if multiple instances are open).
 // - `persist_key` is the stable key used for session placement persistence.
 bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& image, ImageToChafaDialog& dialog,
-                       SessionState* session = nullptr, bool apply_placement_this_frame = false);
+                       SessionState* session = nullptr, bool apply_placement_this_frame = false,
+                       app::FocusRouter* focus_router = nullptr);
 
 

@@ -2,8 +2,10 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 
@@ -125,7 +127,8 @@ static void RenderImageWindowContents(const ImageWindow& image, ImageToChafaDial
 }
 
 bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& image, ImageToChafaDialog& dialog,
-                       SessionState* session, bool apply_placement_this_frame)
+                       SessionState* session, bool apply_placement_this_frame,
+                       app::FocusRouter* focus_router)
 {
     std::string title_local;
     if (!title || !*title)
@@ -164,6 +167,16 @@ bool RenderImageWindow(const char* title, const char* persist_key, ImageWindow& 
     {
         ApplyImGuiWindowChromeZOrder(session, title);
         RenderImGuiWindowChromeMenu(session, title);
+    }
+
+    // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::ImageWindow, root_id, window_focused);
     }
 
     // Scalable preview (context menu is on the preview region).

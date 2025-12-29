@@ -1,8 +1,10 @@
 #include "ui/character_picker.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -755,7 +757,8 @@ void CharacterPicker::ComputeConfusables(uint32_t base_cp, int limit)
 // -------------------- UI --------------------
 
 bool CharacterPicker::Render(const char* window_title, bool* p_open,
-                             SessionState* session, bool apply_placement_this_frame)
+                             SessionState* session, bool apply_placement_this_frame,
+                             app::FocusRouter* focus_router)
 {
     EnsureBlocksLoaded();
     // Unicode picker is Unicode-only: always render with the UI font (Unscii / ImGui default),
@@ -783,6 +786,20 @@ bool CharacterPicker::Render(const char* window_title, bool* p_open,
         if (font_pushed)
             ImGui::PopFont();
         return (p_open == nullptr) ? true : *p_open;
+    }
+    const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::CharacterPicker, root_id, window_focused);
+
+        // Ctrl+Tab / docking focus can land the window without a valid NavId.
+        // Ensure the selected cell is immediately keyboard-navigable when the router targets this window.
+        const app::Target kb = focus_router->KeyboardTarget();
+        if (kb.kind == app::TargetKind::CharacterPicker && window_focused)
+            request_focus_selected_ = true;
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, window_title);
@@ -1017,6 +1034,24 @@ void CharacterPicker::RenderTopBar()
 void CharacterPicker::RenderGridAndSidePanel()
 {
     UpdateConfusablesIfNeeded();
+
+    // Transitional key ownership:
+    // This window contains a keyboard-navigable grid (ImGui nav on Selectable/Table).
+    // Lock arrows/Enter/Escape to prevent legacy/non-owner-aware polling (e.g. canvas/tools)
+    // from observing the same key press in the same frame.
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::GetActiveID() == 0 &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
+        ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockThisFrame);
+    }
 
     // Split layout: left grid, right sidebar.
     const float sidebar_w = 360.0f;

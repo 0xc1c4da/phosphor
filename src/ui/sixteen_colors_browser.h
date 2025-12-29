@@ -17,6 +17,7 @@
 #include <vector>
 
 struct SessionState;
+namespace app { class FocusRouter; }
 
 // Minimal 16colo.rs browser window:
 // - Browse/search packs via https://api.16colo.rs
@@ -43,7 +44,8 @@ public:
     ~SixteenColorsBrowserWindow();
 
     void Render(const char* title, bool* p_open, const Callbacks& cb,
-                SessionState* session = nullptr, bool apply_placement_this_frame = false);
+                SessionState* session = nullptr, bool apply_placement_this_frame = false,
+                app::FocusRouter* focus_router = nullptr);
 
 private:
     enum class BrowseMode

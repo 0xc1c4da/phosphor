@@ -24,7 +24,7 @@
 // Forward declarations from Dear ImGui
 struct ImVec2;
 struct ImDrawList;
-struct ImGuiInputTextCallbackData;
+// (ImGuiInputTextCallbackData was used by the legacy hidden InputText path; now removed.)
 
 namespace kb { class KeyBindingsEngine; }
 
@@ -265,6 +265,15 @@ public:
     // Request a scroll position in *canvas pixel space* (child window scroll).
     // Applied on next Render() call.
     void RequestScrollPixels(float scroll_x, float scroll_y);
+
+    // Request a zoom change to be applied during next Render() call.
+    // Unlike SetZoom(), these are processed at the same phase as mouse-wheel zoom,
+    // allowing proper origin compensation to eliminate jitter.
+    //
+    // RequestZoomFactor: multiply current zoom by `factor` (e.g. 1.10 for zoom in, 1/1.10 for zoom out)
+    // RequestZoomAbsolute: set zoom to a specific value (e.g. 1.0 for 100%)
+    void RequestZoomFactor(float factor);
+    void RequestZoomAbsolute(float zoom);
 
     struct ViewState
     {
@@ -798,10 +807,12 @@ public:
         m_suppress_tool_mouse_until_release = false;
         m_cursor_valid = false;
         m_focus_gained = false;
+        ClearImeComposition();
     }
     // Requests keyboard focus to the canvas grid on the next Render().
     // This is intended for "return focus to last active canvas" flows (e.g. closing a popup).
     void RequestFocus();
+
     // Returns true exactly once when this canvas gains focus via a click inside the grid.
     bool TakeFocusGained()
     {
@@ -835,8 +846,50 @@ public:
         bool escape = false;
     };
 
+    // Host-driven key routing (Phase 3 follow-through):
+    // The host computes and injects per-frame key events based on FocusRouter targets.
+    // Tools/scripts consume them via TakeKeyEvents() during the tool runner keyboard phase.
+    void SetKeyEventsForFrame(const KeyEvents& keys) { m_key_events = keys; }
+
+    // Host-driven focus routing:
+    // Whether this canvas is the host/router-selected keyboard target for the current frame.
+    // This drives purely-visual affordances (caret visibility + caret-follow), independent of
+    // mouse-driven grid focus (m_has_focus).
+    void SetKeyboardTargetForFrame(bool focused) { m_keyboard_target_for_frame = focused; }
+
     // Moves queued typed codepoints into `out` (clearing the internal queue).
     void TakeTypedCodepoints(std::vector<char32_t>& out);
+    // Host text-input routing (Phase 4 scaffolding):
+    // Queue UTF-8 bytes as typed codepoints for tools/scripts to consume.
+    void QueueTypedUtf8(std::string_view utf8);
+    // ---------------------------------------------------------------------
+    // IME composition (pre-edit) support (Option B: true IME in canvas).
+    //
+    // SDL emits pre-edit updates via SDL_EVENT_TEXT_EDITING (composition string + cursor/selection),
+    // and committed text via SDL_EVENT_TEXT_INPUT. The host routes these to the canvas when
+    // FocusRouter::TextTarget() == CanvasGrid(canvas_id).
+    //
+    // Important:
+    // - Composition text is NOT committed to the document; it is only rendered as an overlay.
+    // - Committed text still flows through QueueTypedUtf8() -> typed queue -> tools.
+    // - When composition is active, the host should avoid injecting navigation/edit keys to the
+    //   canvas tool pipeline (IME consumes those keys).
+    // ---------------------------------------------------------------------
+    bool HasImeComposition() const { return m_ime.active; }
+    // Update composition string and cursor/selection (codepoint offsets).
+    // Passing an empty string clears composition.
+    void SetImeCompositionUtf8(std::string_view utf8, int cursor, int selection_len);
+    void ClearImeComposition();
+
+    // Host-facing helper: compute a SDL_SetTextInputArea()-compatible rectangle anchored at the caret.
+    // Coordinates are in ImGui "screen space" (expected to match SDL window coordinates in this app).
+    // Returns false if view state is unavailable.
+    bool GetImeTextInputAreaPx(int& out_x, int& out_y, int& out_w, int& out_h, int& out_cursor_x) const;
+
+    // Host-driven routing: whether this canvas is the router-selected text target for the current frame.
+    // This drives IME overlay rendering. (KeyboardTargetForFrame is separate and already exists.)
+    void SetTextTargetForFrame(bool focused) { m_text_target_for_frame = focused; }
+    bool IsTextTargetForFrame() const { return m_text_target_for_frame; }
     // Returns and clears the last captured key events.
     KeyEvents TakeKeyEvents();
 
@@ -1154,10 +1207,13 @@ private:
 
     // Whether this canvas currently has keyboard focus.
     bool m_has_focus = false;
+    // Transient: host-selected visual keyboard focus for this frame (caret rendering + follow).
+    bool m_keyboard_target_for_frame = false;
     // Transient: set during Render() when focus becomes true due to a click in the grid.
     bool m_focus_gained = false;
     // Transient: set by host to request focus on next Render().
     bool m_focus_requested = false;
+
     // Transient: when focus is gained by clicking an inactive canvas, suppress tool-visible mouse-down
     // state until all mouse buttons are released. This prevents accidental paint-on-focus.
     bool m_suppress_tool_mouse_until_release = false;
@@ -1217,6 +1273,13 @@ private:
     float m_scroll_request_x = 0.0f;
     float m_scroll_request_y = 0.0f;
 
+    // Deferred zoom request (applied during next Render() at the same phase as wheel zoom).
+    // This allows keyboard/menu zoom to use current-frame scroll and apply origin compensation,
+    // eliminating the "overshoot then snap back" jitter caused by stale ViewState data.
+    enum class ZoomRequestKind : std::uint8_t { None = 0, Factor, Absolute };
+    ZoomRequestKind m_zoom_request_kind = ZoomRequestKind::None;
+    float m_zoom_request_value = 1.0f;
+
     // Mouse capture independent of ImGui ActiveId: once the user clicks on the canvas,
     // we keep updating cursor cell coords while the button is held (enables click+drag tools).
     bool m_mouse_capture = false;
@@ -1234,6 +1297,26 @@ private:
     std::vector<char32_t> m_typed_queue;
     KeyEvents             m_key_events;
     kb::KeyBindingsEngine* m_keybinds = nullptr; // not owned
+
+    // IME composition state (pre-edit stream). This is only meaningful while the canvas is the
+    // current text target, and is rendered as an overlay at the caret.
+    struct ImeCompositionState
+    {
+        bool active = false;
+        std::string utf8;               // raw UTF-8 composition string
+        std::vector<char32_t> cps;      // decoded codepoints (best-effort)
+        int cursor = 0;                // codepoint offset
+        int selection_len = 0;         // codepoints selected from cursor
+    };
+    ImeCompositionState m_ime;
+    bool m_text_target_for_frame = false;
+
+    // Overlay rendering for IME composition (called from Render()).
+    void DrawImeCompositionOverlay(ImDrawList* draw_list,
+                                   const ImVec2& origin,
+                                   float cell_w,
+                                   float cell_h,
+                                   float font_size);
 
     // Optional atlas provider for bitmap-font rendering (app-owned).
     IBitmapGlyphAtlasProvider* m_bitmap_atlas_provider = nullptr;
@@ -1352,9 +1435,6 @@ private:
     void     EnsureUndoCaptureIsSnapshot();
     void     CaptureUndoPageIfNeeded(int layer_index, int row);
 
-    void HandleCharInputWidget(const char* id);
-    static int TextInputCallback(ImGuiInputTextCallbackData* data);
-    void CaptureKeyEvents();
     void HandleMouseInteraction(const ImVec2& origin, float cell_w, float cell_h);
     void DrawVisibleCells(ImDrawList* draw_list,
                           const ImVec2& origin,

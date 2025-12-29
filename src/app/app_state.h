@@ -9,6 +9,9 @@
 
 #include "imgui.h"
 
+#include "app/focus_router.h"
+#include "app/input_dispatcher.h"
+
 // Forward declarations (we mostly store pointers/references in AppState).
 struct SDL_Window;
 struct ImGui_ImplVulkanH_Window;
@@ -162,6 +165,21 @@ struct AppState
         bool* show_16colors_browser_window = nullptr;
         bool* window_fullscreen = nullptr;
     } toggles;
+
+    struct InputRouting
+    {
+        // Persistent router/dispatcher state (must persist across frames).
+        app::FocusRouter focus_router;
+        app::InputDispatcher input_dispatcher;
+
+        // Last computed targets (debuggable frame-to-frame state).
+        app::Target last_keyboard_target;
+        app::Target last_text_target;
+
+        // SDL text input management (host-owned, transitional until the hidden InputText is removed).
+        bool sdl_text_input_desired = false;
+        bool sdl_text_input_active = false;
+    } input;
 
     // Graceful shutdown hook (e.g. Ctrl+C in terminal)
     std::function<bool()> interrupt_requested;

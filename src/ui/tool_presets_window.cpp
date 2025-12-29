@@ -1,6 +1,8 @@
 #include "ui/tool_presets_window.h"
 
+#include "app/focus_router.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include "core/i18n.h"
 #include "core/paths.h"
@@ -99,7 +101,8 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
                                AnslScriptEngine& tool_engine,
                                SessionState& session,
                                bool* p_open,
-                               bool apply_placement_this_frame)
+                               bool apply_placement_this_frame,
+                               app::FocusRouter* focus_router)
 {
     const char* base_id = "Tool Presets";
     // Show tool label in the visible title, but keep a stable window ID for persistence.
@@ -121,10 +124,34 @@ bool ToolPresetsWindow::Render(const ToolSpec* active_tool,
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return (p_open == nullptr) ? true : *p_open;
     }
+    const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::ToolPresets, root_id, window_focused);
+    }
 
     CaptureImGuiWindowPlacement(session, base_id);
     ApplyImGuiWindowChromeZOrder(&session, base_id);
     RenderImGuiWindowChromeMenu(&session, base_id);
+
+    // Transitional key ownership: this window is keyboard-navigable via ImGui nav.
+    // Lock arrows/Enter/Escape when focused and not editing a widget so keys don't leak into the canvas.
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::GetActiveID() == 0 &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
+        ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockThisFrame);
+    }
 
     EnsureLoaded();
 

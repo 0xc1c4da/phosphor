@@ -13,6 +13,7 @@
 
 class AnsiCanvas;
 struct SessionState;
+namespace app { class FocusRouter; }
 
 struct LayerManagerCanvasRef
 {
@@ -28,7 +29,8 @@ public:
                 AnsiCanvas* active_canvas,
                 SessionState* session = nullptr,
                 bool apply_placement_this_frame = false,
-                bool allow_thumbnail_refresh = false);
+                bool allow_thumbnail_refresh = false,
+                app::FocusRouter* focus_router = nullptr);
 
 private:
     char rename_buf_[256] = {0};

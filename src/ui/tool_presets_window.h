@@ -9,6 +9,8 @@
 #include "ui/tool_palette.h"
 #include "ui/tool_params.h"
 
+namespace app { class FocusRouter; }
+
 class ToolPresetsWindow
 {
 public:
@@ -24,7 +26,8 @@ public:
                 AnslScriptEngine& tool_engine,
                 SessionState& session,
                 bool* p_open,
-                bool apply_placement_this_frame);
+                bool apply_placement_this_frame,
+                app::FocusRouter* focus_router = nullptr);
 
 private:
     void EnsureLoaded();

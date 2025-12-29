@@ -147,6 +147,46 @@ static bool ModExactMatch(const Mods& m, const ImGuiIO& io)
     return true;
 }
 
+static const ImGuiKeyData* GetKeyDataByKey(const ImGuiIO& io, ImGuiKey key)
+{
+    if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END)
+        return nullptr;
+    const int idx = (int)key - (int)ImGuiKey_NamedKey_BEGIN;
+    if (idx < 0 || idx >= ImGuiKey_NamedKey_COUNT)
+        return nullptr;
+    return &io.KeysData[idx];
+}
+
+static bool IsKeyPressedCompat(const ImGuiIO& io, ImGuiKey key, bool repeat)
+{
+    // Ownership-aware alternative to ImGui::IsKeyPressed() that reads ImGui's per-key timing state.
+    const ImGuiKeyData* kd = GetKeyDataByKey(io, key);
+    if (!kd)
+        return false;
+
+    const float t = kd->DownDuration;
+    const float t_prev = kd->DownDurationPrev;
+    if (t == 0.0f)
+        return true; // just pressed this frame
+    if (!repeat)
+        return false;
+
+    // Typematic repeat (match ImGui's semantics closely enough for keybindings):
+    // count repeats that occurred between t_prev and t.
+    const float delay = io.KeyRepeatDelay;
+    const float rate = io.KeyRepeatRate;
+    if (rate <= 0.0f)
+        return false;
+    if (t <= delay)
+        return false;
+
+    const float t0 = std::max(0.0f, t_prev - delay);
+    const float t1 = std::max(0.0f, t - delay);
+    const int n0 = (int)std::floor(t0 / rate);
+    const int n1 = (int)std::floor(t1 / rate);
+    return (n1 > n0);
+}
+
 static bool IsChordPressed(const ParsedChord& chord, const ImGuiIO& io, bool repeat)
 {
     if (chord.key == ImGuiKey_None)
@@ -154,8 +194,8 @@ static bool IsChordPressed(const ParsedChord& chord, const ImGuiIO& io, bool rep
     if (!ModExactMatch(chord.mods, io))
         return false;
     if (chord.any_enter)
-        return ImGui::IsKeyPressed(ImGuiKey_Enter, repeat) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, repeat);
-    return ImGui::IsKeyPressed(chord.key, repeat);
+        return IsKeyPressedCompat(io, ImGuiKey_Enter, repeat) || IsKeyPressedCompat(io, ImGuiKey_KeypadEnter, repeat);
+    return IsKeyPressedCompat(io, chord.key, repeat);
 }
 
 static bool KeyBindingToJson(const KeyBinding& b, json& out)

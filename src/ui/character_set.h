@@ -6,6 +6,7 @@
 
 struct SessionState;
 class AnsiCanvas;
+namespace app { class FocusRouter; }
 
 // Character Sets (F-key brush presets) UI.
 //
@@ -29,7 +30,8 @@ public:
     // Render the window. Returns true if it remains open.
     bool Render(const char* window_title, bool* p_open = nullptr,
                 SessionState* session = nullptr, bool apply_placement_this_frame = false,
-                AnsiCanvas* active_canvas = nullptr);
+                AnsiCanvas* active_canvas = nullptr,
+                app::FocusRouter* focus_router = nullptr);
 
     // Called by host when the external character picker/palette selection changes.
     // If "edit mode" is enabled and a slot is selected, this assigns the slot.

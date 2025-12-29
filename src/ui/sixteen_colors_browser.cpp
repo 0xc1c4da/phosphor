@@ -1,7 +1,9 @@
 #include "ui/sixteen_colors_browser.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include "io/formats/ansi.h"
@@ -487,7 +489,8 @@ bool SixteenColorsBrowserWindow::DequeueResult(DownloadResult& out)
 }
 
 void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const Callbacks& cb,
-                                       SessionState* session, bool apply_placement_this_frame)
+                                       SessionState* session, bool apply_placement_this_frame,
+                                       app::FocusRouter* focus_router)
 {
     if (!p_open || !*p_open)
         return;
@@ -514,6 +517,16 @@ void SixteenColorsBrowserWindow::Render(const char* title, bool* p_open, const C
     {
         ApplyImGuiWindowChromeZOrder(session, win_name);
         RenderImGuiWindowChromeMenu(session, win_name);
+    }
+
+    // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::SixteenColoursBrowser, root_id, window_focused);
     }
 
     // Drain download results (thumbs + raw opens).

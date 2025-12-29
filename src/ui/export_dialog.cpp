@@ -1,6 +1,8 @@
 #include "ui/export_dialog.h"
 
+#include "app/focus_router.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "core/i18n.h"
 #include "io/file_dialog_tags.h"
 #include "io/io_manager.h"
@@ -126,7 +128,8 @@ void ExportDialog::Render(const char* title,
                           IoManager& io,
                           AnsiCanvas* focused_canvas,
                           SessionState* session,
-                          bool apply_placement_this_frame)
+                          bool apply_placement_this_frame,
+                          app::FocusRouter* focus_router)
 {
     if (!open_)
         return;
@@ -179,6 +182,16 @@ void ExportDialog::Render(const char* title,
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
+    }
+
+    // FocusRouter participation: register this window as a stable router target.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, title);

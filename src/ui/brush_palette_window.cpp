@@ -1,6 +1,8 @@
 #include "ui/brush_palette_window.h"
 
+#include "app/focus_router.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include "ansl/ansl_native.h"
 #include "core/glyph_resolve.h"
@@ -688,7 +690,8 @@ bool BrushPaletteWindow::Render(const char* window_title,
                                 bool* p_open,
                                 AnsiCanvas* active_canvas,
                                 SessionState* session,
-                                bool apply_placement_this_frame)
+                                bool apply_placement_this_frame,
+                                app::FocusRouter* focus_router)
 {
     if (!window_title)
         window_title = "Brush Palette";
@@ -701,11 +704,36 @@ bool BrushPaletteWindow::Render(const char* window_title,
     const bool alpha_pushed = session ? PushImGuiWindowChromeAlpha(session, window_title) : false;
 
     const bool open = ImGui::Begin(window_title, p_open, flags);
+    const bool window_focused = open && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (open && focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::BrushPalette, root_id, window_focused);
+    }
     if (session)
     {
         CaptureImGuiWindowPlacement(*session, window_title);
         ApplyImGuiWindowChromeZOrder(session, window_title);
         RenderImGuiWindowChromeMenu(session, window_title);
+    }
+
+    // Transitional key ownership: this window is keyboard-navigable via ImGui nav.
+    // Lock arrows/Enter/Escape when focused and not editing a widget so keys don't leak into the canvas.
+    if (open &&
+        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::GetActiveID() == 0 &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
+        ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockThisFrame);
     }
 
     // Title-bar ⋮ settings popup (in addition to the in-window collapsing header).

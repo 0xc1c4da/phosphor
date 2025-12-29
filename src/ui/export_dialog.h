@@ -13,6 +13,7 @@ struct SdlFileDialogResult;
 struct SDL_Window;
 struct SessionState;
 class AnsiCanvas;
+namespace app { class FocusRouter; }
 
 class ExportDialog
 {
@@ -58,7 +59,8 @@ public:
                 IoManager& io,
                 AnsiCanvas* focused_canvas,
                 SessionState* session,
-                bool apply_placement_this_frame);
+                bool apply_placement_this_frame,
+                app::FocusRouter* focus_router = nullptr);
 
     // Handle completed native file dialogs for export, run exporters, and report errors via IoManager.
     // Returns true if the dialog result was consumed by this export dialog.

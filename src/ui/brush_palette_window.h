@@ -7,6 +7,7 @@
 
 class AnsiCanvas;
 struct SessionState;
+namespace app { class FocusRouter; }
 
 // Brush Palette window:
 // - In-memory gallery of multi-cell brushes ("stamps")
@@ -38,7 +39,8 @@ public:
                 bool* p_open = nullptr,
                 AnsiCanvas* active_canvas = nullptr,
                 SessionState* session = nullptr,
-                bool apply_placement_this_frame = false);
+                bool apply_placement_this_frame = false,
+                app::FocusRouter* focus_router = nullptr);
 
 private:
     void RenderTopBar(AnsiCanvas* active_canvas, SessionState* session);

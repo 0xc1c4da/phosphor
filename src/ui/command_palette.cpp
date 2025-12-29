@@ -27,6 +27,41 @@
 
 namespace
 {
+
+static const ImGuiKeyData* GetKeyDataByKey(const ImGuiIO& io, ImGuiKey key)
+{
+    if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END)
+        return nullptr;
+    const int idx = (int)key - (int)ImGuiKey_NamedKey_BEGIN;
+    if (idx < 0 || idx >= ImGuiKey_NamedKey_COUNT)
+        return nullptr;
+    return &io.KeysData[idx];
+}
+
+static bool IsKeyPressedCompat(const ImGuiIO& io, ImGuiKey key, bool repeat)
+{
+    const ImGuiKeyData* kd = GetKeyDataByKey(io, key);
+    if (!kd)
+        return false;
+    const float t = kd->DownDuration;
+    const float t_prev = kd->DownDurationPrev;
+    if (t == 0.0f)
+        return true;
+    if (!repeat)
+        return false;
+    const float delay = io.KeyRepeatDelay;
+    const float rate = io.KeyRepeatRate;
+    if (rate <= 0.0f)
+        return false;
+    if (t <= delay)
+        return false;
+    const float t0 = std::max(0.0f, t_prev - delay);
+    const float t1 = std::max(0.0f, t - delay);
+    const int n0 = (int)std::floor(t0 / rate);
+    const int n1 = (int)std::floor(t1 / rate);
+    return (n1 > n0);
+}
+
 static inline float ClampF(float v, float lo, float hi)
 {
     if (v < lo) return lo;
@@ -955,7 +990,8 @@ void CommandPalette::Render(const RenderContext& ctx)
         }
 
         // Close on Esc.
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+        const ImGuiIO& io = ImGui::GetIO();
+        if (IsKeyPressedCompat(io, ImGuiKey_Escape, /*repeat=*/false))
         {
             // Prevent Esc from also reaching canvas/tool key handlers this frame.
             ImGui::SetKeyOwner(ImGuiKey_Escape, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
@@ -974,19 +1010,19 @@ void CommandPalette::Render(const RenderContext& ctx)
         // (We keep this active through the query line so BG sits flush to the input.)
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x, 0.0f));
         {
-            const ImGuiIO& io = ImGui::GetIO();
+            // (io captured above)
             const ImGuiID key_owner = ImGui::GetCurrentWindow()->ID;
 
             // Tab toggles the shared FG/BG focus (same semantics as the colour picker).
             // This affects where '#...' (without fg:/bg:) targets.
-            if (ImGui::IsKeyPressed(ImGuiKey_Tab) && ctx.active_fb)
+            if (IsKeyPressedCompat(io, ImGuiKey_Tab, /*repeat=*/false) && ctx.active_fb)
             {
                 // Prevent Tab from participating in ImGui's focus navigation.
                 ImGui::SetKeyOwner(ImGuiKey_Tab, key_owner, ImGuiInputFlags_LockThisFrame);
                 *ctx.active_fb = 1 - std::clamp(*ctx.active_fb, 0, 1);
                 rebuild_results(ctx);
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+            if (IsKeyPressedCompat(io, ImGuiKey_LeftArrow, /*repeat=*/true))
             {
                 // Arrow keys are palette-owned (do not move InputText cursor or ImGui nav focus).
                 ImGui::SetKeyOwner(ImGuiKey_LeftArrow, key_owner, ImGuiInputFlags_LockThisFrame);
@@ -1004,7 +1040,7 @@ void CommandPalette::Render(const RenderContext& ctx)
                 }
                 colour_lane_interacted_ = true;
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+            if (IsKeyPressedCompat(io, ImGuiKey_RightArrow, /*repeat=*/true))
             {
                 ImGui::SetKeyOwner(ImGuiKey_RightArrow, key_owner, ImGuiInputFlags_LockThisFrame);
                 if (io.KeyAlt)
@@ -1026,12 +1062,12 @@ void CommandPalette::Render(const RenderContext& ctx)
             // don't also move the text cursor / interact with ImGui nav.
             if (!in_colour_mode)
             {
-                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && !results_.empty())
+                if (IsKeyPressedCompat(io, ImGuiKey_UpArrow, /*repeat=*/true) && !results_.empty())
                 {
                     ImGui::SetKeyOwner(ImGuiKey_UpArrow, key_owner, ImGuiInputFlags_LockThisFrame);
                     selected_index_ = std::max(0, selected_index_ - 1);
                 }
-                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && !results_.empty())
+                if (IsKeyPressedCompat(io, ImGuiKey_DownArrow, /*repeat=*/true) && !results_.empty())
                 {
                     ImGui::SetKeyOwner(ImGuiKey_DownArrow, key_owner, ImGuiInputFlags_LockThisFrame);
                     selected_index_ = std::min((int)results_.size() - 1, selected_index_ + 1);
@@ -1118,7 +1154,9 @@ void CommandPalette::Render(const RenderContext& ctx)
         // Restore normal spacing after the "BG strip → query" boundary is done.
         ImGui::PopStyleVar();
 
-        const bool pressed_enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+        const bool pressed_enter =
+            IsKeyPressedCompat(io, ImGuiKey_Enter, /*repeat=*/true) ||
+            IsKeyPressedCompat(io, ImGuiKey_KeypadEnter, /*repeat=*/true);
         const bool pressed_shift_enter = pressed_enter && ImGui::GetIO().KeyShift;
         const bool pressed_alt_enter = pressed_enter && ImGui::GetIO().KeyAlt;
         // IMPORTANT: When the command palette consumes Enter/Escape, we must prevent the same key press

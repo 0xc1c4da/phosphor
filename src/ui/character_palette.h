@@ -10,6 +10,7 @@
 class CharacterPicker;
 class AnsiCanvas;
 struct SessionState;
+namespace app { class FocusRouter; }
 
 // Character Palette component for utf8-art-editor.
 //
@@ -46,7 +47,8 @@ public:
     // Render the palette editor window. Returns true if it remains open.
     bool Render(const char* window_title, bool* p_open = nullptr,
                 SessionState* session = nullptr, bool apply_placement_this_frame = false,
-                AnsiCanvas* active_canvas = nullptr);
+                AnsiCanvas* active_canvas = nullptr,
+                app::FocusRouter* focus_router = nullptr);
 
     // Load/save palettes file.
     bool LoadFromFile(const char* path, std::string& error);

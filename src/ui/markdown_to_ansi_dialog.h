@@ -17,6 +17,8 @@
 #include <thread>
 #include <vector>
 
+namespace app { class FocusRouter; }
+
 class MarkdownToAnsiDialog
 {
 public:
@@ -29,7 +31,7 @@ public:
     void Open(Payload payload);
 
     // Render the attached preview + settings windows (call every frame). No-op when closed.
-    void Render(struct SessionState* session, bool apply_placement_this_frame);
+    void Render(struct SessionState* session, bool apply_placement_this_frame, app::FocusRouter* focus_router = nullptr);
 
     // If the user pressed OK since last call, moves the resulting canvas into `out`.
     bool TakeAccepted(AnsiCanvas& out);

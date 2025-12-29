@@ -1,6 +1,8 @@
 #include "ui/settings.h"
 
+#include "app/focus_router.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "core/colour_system.h"
 #include "core/encodings.h"
 #include "core/i18n.h"
@@ -160,7 +162,7 @@ static std::string BuildChordString(const ImGuiIO& io, ImGuiKey key)
     return out;
 }
 
-static bool IsToolPresetSlotActionId(std::string_view action_id)
+[[maybe_unused]] static bool IsToolPresetSlotActionId(std::string_view action_id)
 {
     return action_id.rfind("tool.preset.slot.", 0) == 0;
 }
@@ -623,7 +625,8 @@ void SettingsWindow::RenderTab_General()
     }
 }
 
-void SettingsWindow::Render(const char* persist_key, SessionState* session, bool apply_placement_this_frame)
+void SettingsWindow::Render(const char* persist_key, SessionState* session, bool apply_placement_this_frame,
+                            app::FocusRouter* focus_router)
 {
     if (!open_)
         return;
@@ -661,6 +664,14 @@ void SettingsWindow::Render(const char* persist_key, SessionState* session, bool
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
+    }
+    const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::Settings, root_id, window_focused);
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, persist_key);
@@ -811,6 +822,7 @@ void SettingsWindow::RenderTab_KeyBindings()
                                ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGuiIO& io = ImGui::GetIO();
+        const ImGuiID owner_id = ImGui::GetCurrentWindow() ? ImGui::GetCurrentWindow()->ID : 0;
         if (ImGui::IsWindowAppearing())
             capture_error_.clear();
 
@@ -836,15 +848,48 @@ void SettingsWindow::RenderTab_KeyBindings()
         bool commit = false;
         std::string committed_chord;
 
+        auto key_pressed = [&](ImGuiKey key, bool repeat) -> bool {
+            if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END)
+                return false;
+            const int idx_k = (int)key - (int)ImGuiKey_NamedKey_BEGIN;
+            if (idx_k < 0 || idx_k >= ImGuiKey_NamedKey_COUNT)
+                return false;
+            const ImGuiKeyData& kd = io.KeysData[idx_k];
+            const float t = kd.DownDuration;
+            const float t_prev = kd.DownDurationPrev;
+            if (t == 0.0f)
+                return true;
+            if (!repeat)
+                return false;
+            const float delay = io.KeyRepeatDelay;
+            const float rate = io.KeyRepeatRate;
+            if (rate <= 0.0f || t <= delay)
+                return false;
+            const float t0 = std::max(0.0f, t_prev - delay);
+            const float t1 = std::max(0.0f, t - delay);
+            const int n0 = (int)std::floor(t0 / rate);
+            const int n1 = (int)std::floor(t1 / rate);
+            return (n1 > n0);
+        };
+
         // Cancel
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        if (key_pressed(ImGuiKey_Escape, /*repeat=*/false))
         {
+            if (owner_id)
+                ImGui::SetKeyOwner(ImGuiKey_Escape, owner_id, ImGuiInputFlags_LockThisFrame);
             close = true;
         }
 
         // Clear (and close)
-        if (ImGui::IsKeyPressed(ImGuiKey_Backspace, false) || ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+        if (key_pressed(ImGuiKey_Backspace, /*repeat=*/false) || key_pressed(ImGuiKey_Delete, /*repeat=*/false))
         {
+            if (owner_id)
+            {
+                if (key_pressed(ImGuiKey_Backspace, /*repeat=*/false))
+                    ImGui::SetKeyOwner(ImGuiKey_Backspace, owner_id, ImGuiInputFlags_LockThisFrame);
+                if (key_pressed(ImGuiKey_Delete, /*repeat=*/false))
+                    ImGui::SetKeyOwner(ImGuiKey_Delete, owner_id, ImGuiInputFlags_LockThisFrame);
+            }
             commit = true;
             committed_chord.clear();
             close = true;
@@ -855,10 +900,15 @@ void SettingsWindow::RenderTab_KeyBindings()
         {
             for (ImGuiKey key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key = (ImGuiKey)(key + 1))
             {
-                if (!ImGui::IsKeyPressed(key, false))
+                if (!key_pressed(key, /*repeat=*/false))
                     continue;
                 if (IsModifierKey(key))
                     continue;
+
+                // If you handle it, you own it: lock captured keys so legacy polling paths
+                // (canvas/tools) can't see the same press in this frame.
+                if (owner_id)
+                    ImGui::SetKeyOwner(key, owner_id, ImGuiInputFlags_LockThisFrame);
 
                 const std::string chord = BuildChordString(io, key);
                 auto& actions = keybinds_->ActionsMutable();

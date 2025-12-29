@@ -6,6 +6,7 @@
 #include "core/key_bindings.h"
 
 struct SessionState;
+namespace app { class FocusRouter; }
 
 // Tool Palette:
 // - scans assets/tools/*.lua
@@ -63,7 +64,8 @@ public:
                 bool* p_open,
                 SessionState* session = nullptr,
                 bool apply_placement_this_frame = false,
-                const kb::KeyBindingsEngine* keybinds = nullptr);
+                const kb::KeyBindingsEngine* keybinds = nullptr,
+                app::FocusRouter* focus_router = nullptr);
 
     int GetActiveToolIndex() const { return active_index_; }
     const ToolSpec* GetActiveTool() const;

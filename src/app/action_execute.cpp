@@ -525,17 +525,19 @@ bool ExecuteActionId(std::string_view action_id, const ActionExecContext& ctx)
         }
         if (action_id == "view.zoom_in")
         {
-            ctx.focused_canvas->SetZoom(ctx.focused_canvas->GetZoom() * 1.10f);
+            // Use deferred zoom request API so zoom + scroll adjustment happens inside
+            // AnsiCanvas::Render() with proper origin compensation (eliminates jitter).
+            ctx.focused_canvas->RequestZoomFactor(1.10f);
             return true;
         }
         if (action_id == "view.zoom_out")
         {
-            ctx.focused_canvas->SetZoom(ctx.focused_canvas->GetZoom() / 1.10f);
+            ctx.focused_canvas->RequestZoomFactor(1.0f / 1.10f);
             return true;
         }
         if (action_id == "view.zoom_reset" || action_id == "view.actual_size")
         {
-            ctx.focused_canvas->SetZoom(1.0f);
+            ctx.focused_canvas->RequestZoomAbsolute(1.0f);
             return true;
         }
         if (action_id == "view.toggle_scroll_with_cursor")

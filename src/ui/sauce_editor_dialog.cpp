@@ -1,11 +1,13 @@
 #include "ui/sauce_editor_dialog.h"
 
+#include "app/focus_router.h"
 #include "core/fonts.h"
 #include "core/i18n.h"
 #include "io/formats/sauce.h"
 #include "ui/ImGuiDatePicker.hpp"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <algorithm>
@@ -229,7 +231,7 @@ void SauceEditorDialog::ClampAndSanitizeForSauce(AnsiCanvas::ProjectState::Sauce
     }
 }
 
-void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
+void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id, app::FocusRouter* focus_router)
 {
     if (!m_open || !popup_id || !*popup_id)
         return;
@@ -244,6 +246,16 @@ void SauceEditorDialog::Render(AnsiCanvas& canvas, const char* popup_id)
     bool open = true;
     if (!ImGui::BeginPopupModal(popup_id, &open, flags))
         return;
+
+    // FocusRouter participation: register the active modal popup as a stable router target.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
+    }
 
     if (!open)
     {

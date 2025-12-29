@@ -1,5 +1,6 @@
 #include "ui/tool_palette.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 
 #include "imgui.h"
@@ -656,7 +657,8 @@ bool ToolPalette::Render(const char* title,
                          bool* p_open,
                          SessionState* session,
                          bool apply_placement_this_frame,
-                         const kb::KeyBindingsEngine* keybinds)
+                         const kb::KeyBindingsEngine* keybinds,
+                         app::FocusRouter* focus_router)
 {
     bool changed_this_frame = false;
     if (session)
@@ -683,6 +685,16 @@ bool ToolPalette::Render(const char* title,
     {
         ApplyImGuiWindowChromeZOrder(session, title);
         RenderImGuiWindowChromeMenu(session, title);
+    }
+
+    // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::ToolPalette, root_id, window_focused);
     }
 
     // Title-bar ⋮ popup for tool-palette actions/info.

@@ -5,6 +5,8 @@
 #include <ctime>
 #include <string>
 
+namespace app { class FocusRouter; }
+
 // ImGui modal for editing SAUCE metadata associated with a canvas.
 // Stored on the canvas as AnsiCanvas::ProjectState::SauceMeta (persisted via .phos/session).
 class SauceEditorDialog
@@ -14,7 +16,7 @@ public:
     void OpenFromCanvas(const AnsiCanvas& canvas);
 
     // Render the dialog if open. Uses a per-canvas popup id to avoid collisions.
-    void Render(AnsiCanvas& canvas, const char* popup_id);
+    void Render(AnsiCanvas& canvas, const char* popup_id, app::FocusRouter* focus_router = nullptr);
 
 private:
     bool m_open = false;

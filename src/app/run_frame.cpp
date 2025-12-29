@@ -11,8 +11,10 @@
 #include <unordered_set>
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_keyboard.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 
@@ -20,6 +22,8 @@
 #include "app/app_ui.h"
 #include "app/action_execute.h"
 #include "app/action_route_execute.h"
+#include "app/focus_router.h"
+#include "app/input_dispatcher.h"
 #include "app/tool_preset_apply.h"
 #include "app/workspace.h"
 #include "app/workspace_persist.h"
@@ -325,6 +329,23 @@ void RunFrame(AppState& st)
         }
     };
 
+    // Input routing (FocusRouter + InputDispatcher + SDL text input state)
+    AppState::InputRouting& input = st.input;
+    InputDispatcher& input_dispatcher = input.input_dispatcher;
+
+    // Ensure SDL text input is in the desired state before polling events (affects whether SDL queues
+    // SDL_EVENT_TEXT_INPUT for this frame).
+    {
+        if (input.sdl_text_input_desired != input.sdl_text_input_active)
+        {
+            if (input.sdl_text_input_desired)
+                SDL_StartTextInput(window);
+            else
+                SDL_StopTextInput(window);
+            input.sdl_text_input_active = input.sdl_text_input_desired;
+        }
+    }
+
     // Idle throttling helpers
     auto now_s = []() -> double { return (double)SDL_GetTicks() / 1000.0; };
     if (st.last_input_s <= 0.0)
@@ -366,6 +387,9 @@ void RunFrame(AppState& st)
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP:
         case SDL_EVENT_TEXT_INPUT:
+#if defined(SDL_EVENT_TEXT_EDITING)
+        case SDL_EVENT_TEXT_EDITING:
+#endif
         case SDL_EVENT_MOUSE_MOTION:
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -391,7 +415,13 @@ void RunFrame(AppState& st)
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_KEY_UP)
             layer_thumbnails_refresh_release = true;
 
-        ImGui_ImplSDL3_ProcessEvent(&event);
+        // Phase 4 follow-through:
+        // SDL_EVENT_TEXT_INPUT / SDL_EVENT_TEXT_EDITING are buffered here and routed later using the
+        // *current* TextTarget (via InputDispatcher).
+        if (!input_dispatcher.OnSdlEventText(event))
+        {
+            ImGui_ImplSDL3_ProcessEvent(&event);
+        }
         if (event.type == SDL_EVENT_QUIT)
             st.done = true;
         if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
@@ -410,6 +440,8 @@ void RunFrame(AppState& st)
 
     if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
     {
+        // Discard buffered text events so they can't be delivered later on un-minimize.
+        input_dispatcher.DiscardBufferedText();
         SDL_Delay(10);
         return;
     }
@@ -431,6 +463,16 @@ void RunFrame(AppState& st)
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     st.frame_counter++;
+
+    // Re-assert SDL text input state after ImGui backend NewFrame() (backend may start/stop text input
+    // based on io.WantTextInput; we are transitioning to host-owned text input routing).
+    {
+        if (input.sdl_text_input_desired)
+            SDL_StartTextInput(window);
+        else
+            SDL_StopTextInput(window);
+        input.sdl_text_input_active = input.sdl_text_input_desired;
+    }
 
     // Quit confirmation: convert immediate quit requests into a modal if there are dirty canvases.
     if (st.done && any_dirty_canvas())
@@ -1038,62 +1080,63 @@ void RunFrame(AppState& st)
 
     // Export dialog (tabbed).
     export_dialog.Render("Export", window, file_dialogs, io_manager, active_canvas,
-                         &session_state, should_apply_placement("Export"));
+                         &session_state, should_apply_placement("Export"),
+                         &st.input.focus_router);
 
-    // Keybinding evaluation: compute pressed action ids once for the current focused-canvas context.
-    // Consumers (palette open, charset/tool/preset hotkeys, and tool routing) should use this list.
-    //
     // IMPORTANT: the command palette must be able to open and steal focus BEFORE any other
     // keybinding/canvas consumers run, otherwise the opening keystroke (and subsequent keys) can
     // leak through to the canvas/tool stack.
+    //
+    // Phase 3 follow-up (router hardening): do NOT compute a shared pressed-action list from
+    // `focused_canvas` (grid focus can drift behind UI focus). Instead, query only the early-frame
+    // actions we need using an Active-Document-derived context.
     bool any_popup =
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
-    kb::EvalContext kctx;
-    kctx.global = true;
-    kctx.editor = (focused_canvas != nullptr);
-    kctx.canvas = (focused_canvas != nullptr);
-    kctx.selection = (focused_canvas != nullptr && focused_canvas->HasSelection());
-    kctx.platform = kb::RuntimePlatform();
-    std::vector<std::string_view> pressed_action_ids;
-    if (!any_popup)
-        keybinds.CollectPressedActions(kctx, pressed_action_ids, 64);
+    const bool want_text_input = ImGui::GetIO().WantTextInput;
+    const bool any_open_canvas = [&]() -> bool {
+        for (const auto& cptr : canvases)
+            if (cptr && cptr->open)
+                return true;
+        return false;
+    }();
+    kb::EvalContext early_ctx;
+    early_ctx.global = true;
+    early_ctx.editor = any_open_canvas;
+    early_ctx.canvas = any_open_canvas;
+    early_ctx.selection = (active_canvas != nullptr && active_canvas->HasSelection());
+    early_ctx.platform = kb::RuntimePlatform();
 
     // Deferred panel/window focus request (typically set by the command palette).
     // Must be applied later in the frame after the target window has been created.
     std::string pending_imgui_focus_window;
 
-    // Command palette open (gated by popup state).
-    {
-        if (!any_popup && !command_palette.IsOpen())
-        {
-            for (const std::string_view id : pressed_action_ids)
+    // Phase 3/4 convergence: centralize early-frame host keyboard policy in InputDispatcher
+    // so palette-open keystrokes can't leak into downstream consumers.
+    input_dispatcher.DispatchEarlyFrame(
+        early_ctx,
+        keybinds,
+        any_popup,
+        want_text_input,
+        command_palette.IsOpen(),
+        /*open_command_palette=*/[](bool colour_mode, void* user) {
+            CommandPalette* p = (CommandPalette*)user;
+            if (!p)
+                return;
+            p->Open(colour_mode ? CommandPalette::Mode::Colour : CommandPalette::Mode::Default);
+        },
+        &command_palette,
+        /*clear_all_canvas_focus=*/[](void* user) {
+            auto* canvases_ptr = (std::vector<std::unique_ptr<CanvasWindow>>*)user;
+            if (!canvases_ptr)
+                return;
+            for (auto& cptr : *canvases_ptr)
             {
-                if (id == "ui.command_palette.open")
-                {
-                    command_palette.Open(CommandPalette::Mode::Default);
-                    // Drop focus on ALL canvases so none can keep consuming input behind the palette.
-                    for (auto& cptr : canvases)
-                    {
-                        if (!cptr || !cptr->open)
-                            continue;
-                        cptr->canvas.ClearFocus();
-                    }
-                    break;
-                }
-                if (id == "ui.colour_palette.open")
-                {
-                    command_palette.Open(CommandPalette::Mode::Colour);
-                    for (auto& cptr : canvases)
-                    {
-                        if (!cptr || !cptr->open)
-                            continue;
-                        cptr->canvas.ClearFocus();
-                    }
-                    break;
-                }
+                if (!cptr || !cptr->open)
+                    continue;
+                cptr->canvas.ClearFocus();
             }
-        }
-    }
+        },
+        &canvases);
 
     // Command palette render (popup overlay). Rendering here ensures the popup is "open"
     // for the rest of the frame, so any_popup gating works reliably.
@@ -1127,6 +1170,9 @@ void RunFrame(AppState& st)
                 if (cptr->id == last_active_canvas_id)
                 {
                     cptr->canvas.RequestFocus();
+                    // Ensure the canvas window itself becomes focused; actual focus is applied later
+                    // in the frame after all windows have been created.
+                    pending_imgui_focus_window = "###" + CanvasWindowImGuiId(*cptr);
                     break;
                 }
             }
@@ -1182,27 +1228,101 @@ void RunFrame(AppState& st)
     any_popup =
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
-    // Canvas focus cycling (host-owned actions).
-    // These depend on workspace state + canvas window IDs, so we handle them here (not in app::ExecuteActionId()).
-    if (!any_popup)
+    // FocusRouter (Phase 1->2 transition):
+    // - provides KeyboardTarget/TextTarget queries for gating canvas/tools
+    FocusRouter& focus_router = input.focus_router;
+    std::vector<int> open_canvas_ids_for_router;
+    open_canvas_ids_for_router.reserve(canvases.size());
+    for (const auto& cptr : canvases)
+        if (cptr && cptr->open)
+            open_canvas_ids_for_router.push_back(cptr->id);
+    focus_router.BeginFrame(last_active_canvas_id, any_popup, open_canvas_ids_for_router);
+
+    // Flush buffered SDL text input now that we have a current-frame TextTarget (Phase 3/4 convergence).
+    // Delegate routing policy to InputDispatcher; provide a lookup function for open canvases.
     {
-        auto find_open_index_by_id = [&](int id) -> int {
-            if (id > 0)
+        struct FindCanvasCtx
+        {
+            std::vector<std::unique_ptr<CanvasWindow>>* canvases = nullptr;
+        } ctx;
+        ctx.canvases = &canvases;
+
+        auto find_canvas_by_id = [](int canvas_id, void* user) -> AnsiCanvas*
+        {
+            FindCanvasCtx* c = (FindCanvasCtx*)user;
+            if (!c || !c->canvases || canvas_id < 0)
+                return nullptr;
+            for (auto& ptr : *c->canvases)
             {
-                for (size_t i = 0; i < canvases.size(); ++i)
-                {
-                    if (canvases[i] && canvases[i]->open && canvases[i]->id == id)
-                        return (int)i;
-                }
+                if (!ptr || !ptr->open)
+                    continue;
+                if (ptr->id == canvas_id)
+                    return &ptr->canvas;
             }
-            for (size_t i = 0; i < canvases.size(); ++i)
-                if (canvases[i] && canvases[i]->open)
-                    return (int)i;
-            return -1;
+            return nullptr;
         };
 
-        auto focus_next_prev = [&](int dir) {
-            const int cur = find_open_index_by_id(last_active_canvas_id);
+        input_dispatcher.FlushBufferedText(window,
+                                           input.last_text_target, // last frame
+                                           focus_router,
+                                           find_canvas_by_id,
+                                           &ctx);
+    }
+
+    // ImGui nav cursor policy (FocusRouter-owned):
+    // When a canvas grid is the keyboard target, we render our own caret and route keyboard intent
+    // host-side. ImGui's nav highlight within the same window (e.g. status bar widgets) is then
+    // distracting and can appear during windowing (Ctrl+Tab) even though the canvas is the true target.
+    //
+    // Note: this only affects the *visibility* of the nav cursor; we also avoid exposing nav-focusable
+    // items in the canvas status bar when the canvas owns keyboard (see canvas_render.cpp).
+    {
+        const TargetKind kb_kind = focus_router.KeyboardTarget().kind;
+        if (kb_kind == TargetKind::CanvasGrid || kb_kind == TargetKind::CharacterPaletteGrid)
+            ImGui::SetNavCursorVisible(false);
+    }
+
+    // InputDispatcher (Phase 3 scaffolding): compute keybinding intent only for the current
+    // FocusRouter keyboard target (avoids stale focused_canvas context leaking into tools).
+    input_dispatcher.BeginFrame(focus_router, any_popup);
+
+    // Phase 3/4 convergence: centralize host keyboard policy in InputDispatcher, executing
+    // host-only behaviors via callbacks where workspace/window state is required.
+    {
+        struct FocusCycleCtx
+        {
+            std::vector<std::unique_ptr<CanvasWindow>>* canvases = nullptr;
+            int* last_active_canvas_id = nullptr;
+            std::string* pending_imgui_focus_window = nullptr;
+        } ctx;
+        ctx.canvases = &canvases;
+        ctx.last_active_canvas_id = &last_active_canvas_id;
+        ctx.pending_imgui_focus_window = &pending_imgui_focus_window;
+
+        auto focus_next_prev = [](int dir, void* user)
+        {
+            FocusCycleCtx* c = (FocusCycleCtx*)user;
+            if (!c || !c->canvases || !c->last_active_canvas_id || !c->pending_imgui_focus_window)
+                return;
+
+            auto& canvases = *c->canvases;
+
+            auto find_open_index_by_id = [&](int id) -> int {
+                if (id > 0)
+                {
+                    for (size_t i = 0; i < canvases.size(); ++i)
+                    {
+                        if (canvases[i] && canvases[i]->open && canvases[i]->id == id)
+                            return (int)i;
+                    }
+                }
+                for (size_t i = 0; i < canvases.size(); ++i)
+                    if (canvases[i] && canvases[i]->open)
+                        return (int)i;
+                return -1;
+            };
+
+            const int cur = find_open_index_by_id(*c->last_active_canvas_id);
             if (cur < 0 || canvases.empty())
                 return;
 
@@ -1219,42 +1339,62 @@ void RunFrame(AppState& st)
                         cptr->canvas.ClearFocus();
 
                 CanvasWindow& target = *canvases[(size_t)idx];
-                last_active_canvas_id = target.id;
+                *c->last_active_canvas_id = target.id;
                 target.canvas.RequestFocus();
 
                 // Focus by stable ImGui window ID (ignore visible title).
-                pending_imgui_focus_window = "###" + CanvasWindowImGuiId(target);
+                *c->pending_imgui_focus_window = "###" + CanvasWindowImGuiId(target);
                 break;
             }
         };
 
-        for (const std::string_view id : pressed_action_ids)
-        {
-            if (id == "ui.focus_next_canvas")
-            {
-                focus_next_prev(+1);
-                break;
-            }
-            if (id == "ui.focus_prev_canvas")
-            {
-                focus_next_prev(-1);
-                break;
-            }
-        }
+        input_dispatcher.DispatchFrame(early_ctx,
+                                       keybinds,
+                                       want_text_input,
+                                       focus_next_prev,
+                                       &ctx);
     }
 
-    // Host keybindings should not run while a popup is open (including the command palette).
-    if (!any_popup)
+    // Host keybindings should not run while a popup is open (including the command palette),
+    // or while the user is typing into an ImGui text-edit widget.
+    if (!any_popup && !ImGui::GetIO().WantTextInput)
     {
-        appui::HandleKeybindings(window, keybinds, session_state,
-                                 io_manager, file_dialogs, export_dialog,
-                                 tool_palette, st.tools.compile_tool_script, st.tools.sync_tool_stack,
-                                 focused_canvas, focused_canvas_window,
-                                 active_canvas, active_canvas_window,
-                                 st.done, window_fullscreen, show_minimap_window,
-                                 show_settings_window, settings_window,
-                                 fg_colour, bg_colour,
-                                 create_new_canvas);
+        // Use FocusRouter's keyboard target to decide which canvas (if any) should receive
+        // editor/canvas-scoped shortcuts. This avoids stale grid-focus driving host actions
+        // while another ImGui window is the actual keyboard target.
+        AnsiCanvas* kb_focused_canvas = nullptr;
+        CanvasWindow* kb_focused_canvas_window = nullptr;
+        {
+            const Target kb = focus_router.KeyboardTarget();
+            if (kb.kind == TargetKind::CanvasGrid && kb.canvas_id >= 0)
+            {
+                for (auto& cptr : canvases)
+                {
+                    if (!cptr || !cptr->open)
+                        continue;
+                    if (cptr->id == kb.canvas_id)
+                    {
+                        kb_focused_canvas = &cptr->canvas;
+                        kb_focused_canvas_window = cptr.get();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Only run the keybinding poller when a canvas is the keyboard target.
+        if (kb_focused_canvas)
+        {
+            appui::HandleKeybindings(window, keybinds, session_state,
+                                     io_manager, file_dialogs, export_dialog,
+                                     tool_palette, st.tools.compile_tool_script, st.tools.sync_tool_stack,
+                                     kb_focused_canvas, kb_focused_canvas_window,
+                                     active_canvas, active_canvas_window,
+                                     st.done, window_fullscreen, show_minimap_window,
+                                     show_settings_window, settings_window,
+                                     fg_colour, bg_colour,
+                                     create_new_canvas);
+        }
     }
 
     // Optional: keep the ImGui demo available for reference
@@ -1266,7 +1406,8 @@ void RunFrame(AppState& st)
     {
         const char* name = "Unicode Character Picker";
         character_picker.Render(name, &show_character_picker_window,
-                                &session_state, should_apply_placement(name));
+                                &session_state, should_apply_placement(name),
+                                &focus_router);
     }
 
     // If the picker selection changed, update the palette's selected cell (replace or select).
@@ -1290,7 +1431,8 @@ void RunFrame(AppState& st)
         const char* name = "Character Palette";
         character_palette.Render(name, &show_character_palette_window,
                                  &session_state, should_apply_placement(name),
-                                 active_canvas);
+                                 active_canvas,
+                                 &focus_router);
     }
 
     // If the user clicked a glyph in the palette:
@@ -1338,7 +1480,8 @@ void RunFrame(AppState& st)
         const char* name = "Character Sets";
         character_sets.Render(name, &show_character_sets_window,
                               &session_state, should_apply_placement(name),
-                              active_canvas);
+                              active_canvas,
+                              &focus_router);
     }
 
     // If the user clicked a slot in the character sets:
@@ -1433,84 +1576,89 @@ void RunFrame(AppState& st)
     //
     // This block intentionally consumes the already-collected `pressed_action_ids` list so we don't
     // need additional per-action ActionPressed() queries.
-    if (focused_canvas && !any_popup)
+    if (!any_popup)
     {
-        auto parse_positive_int = [](std::string_view s, int& out) -> bool {
-            out = 0;
-            if (s.empty())
-                return false;
-            for (char c : s)
-            {
-                if (c < '0' || c > '9')
-                    return false;
-                out = out * 10 + (c - '0');
-            }
-            return true;
-        };
-
-        bool tool_switched_this_frame = false;
-        for (const std::string_view action_id : pressed_action_ids)
+        const Target kb_target = focus_router.KeyboardTarget();
+        if (kb_target.kind == TargetKind::CanvasGrid && kb_target.canvas_id >= 0)
         {
-            // Hotkeys for character sets: charset.insert.f1..f12
-            if (action_id.starts_with("charset.insert.f"))
+            AnsiCanvas* target_canvas = nullptr;
+            for (auto& cwptr : canvases)
             {
-                int slot = 0;
-                if (parse_positive_int(action_id.substr(std::string_view("charset.insert.f").size()), slot) &&
-                    slot >= 1 && slot <= 12)
+                if (!cwptr || !cwptr->open)
+                    continue;
+                if (cwptr->id == kb_target.canvas_id)
                 {
-                    const int i = slot - 1;
-                    character_sets.SelectSlot(i);
-                    const uint32_t cp = character_sets.GetSlotCodePoint(i);
-                    insert_cp_into_canvas(focused_canvas, cp, /*advance_caret=*/false);
+                    target_canvas = &cwptr->canvas;
+                    break;
                 }
-                continue;
             }
+            if (target_canvas)
+            {
+                std::vector<app::InputDispatcher::CanvasHotkeyAction> hotkey_actions;
+                input_dispatcher.CollectCanvasHotkeyActions(kb_target.canvas_id,
+                                                            *target_canvas,
+                                                            keybinds,
+                                                            hotkey_actions,
+                                                            64);
 
-            // Character set navigation (disabled by default in key-bindings due to chord conflicts).
-            if (action_id == "charset.prev_set")
-            {
-                character_sets.CycleActiveSet(-1);
-                continue;
-            }
-            if (action_id == "charset.next_set")
-            {
-                character_sets.CycleActiveSet(1);
-                continue;
-            }
-
-            // Tool activation via keybindings: `tool.activate.<tool_id>` actions (registered by tools).
-            if (!tool_switched_this_frame && action_id.starts_with("tool.activate."))
-            {
-                const std::string_view tid = action_id.substr(std::string_view("tool.activate.").size());
-                // Best-effort validate tool id exists.
-                bool tool_exists = false;
-                for (const ToolSpec& t : tool_palette.GetTools())
+                bool tool_switched_this_frame = false;
+                for (const auto& a : hotkey_actions)
                 {
-                    if (t.id == tid)
+                    if (a.kind == app::InputDispatcher::CanvasHotkeyAction::Kind::CharsetInsertSlot)
                     {
-                        tool_exists = true;
-                        break;
+                        const int slot = a.value;
+                        const int i = slot - 1;
+                        character_sets.SelectSlot(i);
+                        const uint32_t cp = character_sets.GetSlotCodePoint(i);
+                        insert_cp_into_canvas(target_canvas, cp, /*advance_caret=*/false);
+                        continue;
+                    }
+
+                    // Character set navigation (disabled by default in key-bindings due to chord conflicts).
+                    if (a.kind == app::InputDispatcher::CanvasHotkeyAction::Kind::CharsetPrevSet)
+                    {
+                        character_sets.CycleActiveSet(-1);
+                        continue;
+                    }
+                    if (a.kind == app::InputDispatcher::CanvasHotkeyAction::Kind::CharsetNextSet)
+                    {
+                        character_sets.CycleActiveSet(1);
+                        continue;
+                    }
+
+                    // Tool activation via keybindings: `tool.activate.<tool_id>` actions (registered by tools).
+                    if (!tool_switched_this_frame &&
+                        a.kind == app::InputDispatcher::CanvasHotkeyAction::Kind::ToolActivate &&
+                        !a.tool_id.empty())
+                    {
+                        const std::string_view tid = a.tool_id;
+                        // Best-effort validate tool id exists.
+                        bool tool_exists = false;
+                        for (const ToolSpec& t : tool_palette.GetTools())
+                        {
+                            if (t.id == tid)
+                            {
+                                tool_exists = true;
+                                break;
+                            }
+                        }
+                        if (tool_exists)
+                        {
+                            activate_tool_by_id_with_param_persistence(tid);
+                            tool_switched_this_frame = true;
+                        }
+                        continue;
+                    }
+
+                    // Tool preset slots: `tool.preset.slot.1..9` apply the Nth preset for the active tool.
+                    if (a.kind == app::InputDispatcher::CanvasHotkeyAction::Kind::ToolPresetSlot)
+                    {
+                        const int d = a.value;
+                        if (app::ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state))
+                            tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, d);
+                        continue;
                     }
                 }
-                if (tool_exists)
-                {
-                    activate_tool_by_id_with_param_persistence(tid);
-                    tool_switched_this_frame = true;
-                }
-                continue;
-            }
-
-            // Tool preset slots: `tool.preset.slot.1..9` apply the Nth preset for the active tool.
-            if (action_id.starts_with("tool.preset.slot."))
-            {
-                int d = 0;
-                if (parse_positive_int(action_id.substr(std::string_view("tool.preset.slot.").size()), d) &&
-                    d >= 1 && d <= 9)
-                {
-                    if (app::ApplyToolPresetDigit(s_compiled_tool_id, d, tool_engine, session_state))
-                        tool_presets_window.NotifySelectedSlot(s_compiled_tool_id, d);
-                }
-                continue;
             }
         }
     }
@@ -1550,6 +1698,15 @@ void RunFrame(AppState& st)
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
+
+        // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+        {
+            ImGuiWindow* w = ImGui::GetCurrentWindow();
+            ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+            const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+            const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            focus_router.NoteWindowTarget(TargetKind::ColourPicker, root_id, window_focused);
+        }
 
         static int                 last_palette_index = -1;
         static std::vector<ImVec4> saved_palette;
@@ -1882,7 +2039,7 @@ void RunFrame(AppState& st)
         const char* name = "Tool Palette";
         const bool tool_palette_changed =
             tool_palette.Render(name, &show_tool_palette_window,
-                                &session_state, should_apply_placement(name), &keybinds);
+                                &session_state, should_apply_placement(name), &keybinds, &focus_router);
         (void)tool_palette_changed;
 
         if (tool_palette.TakeReloadRequested())
@@ -1961,7 +2118,8 @@ void RunFrame(AppState& st)
                                         s_compiled_tool_id,
                                         tool_engine,
                                         session_state,
-                                        should_apply_placement("Tool Parameters"));
+                                        should_apply_placement("Tool Parameters"),
+                                        &focus_router);
     }
 
     // Tool Presets window (slots 1..9 for active tool).
@@ -1972,7 +2130,8 @@ void RunFrame(AppState& st)
                                          tool_engine,
                                          session_state,
                                          &show_tool_presets_window,
-                                         should_apply_placement("Tool Presets"));
+                                         should_apply_placement("Tool Presets"),
+                                         &focus_router);
     }
 
     // Render each canvas window
@@ -2221,6 +2380,16 @@ void RunFrame(AppState& st)
         ApplyImGuiWindowChromeZOrder(&session_state, title.c_str());
         RenderImGuiWindowChromeMenu(&session_state, title.c_str());
 
+        // New canvas / newly-opened canvas UX:
+        // If this window is appearing for the first time and it is the active canvas,
+        // ensure the grid caret is visible immediately (without requiring an initial click).
+        if (ImGui::IsWindowAppearing() && canvas.id == last_active_canvas_id)
+        {
+            canvas.canvas.RequestFocus();
+            // Ensure the window itself gets focused after all windows have been created this frame.
+            pending_imgui_focus_window = "###" + canvas_window_id;
+        }
+
         // Title-bar ⛶ button: Reset Zoom (1:1).
         {
             ImVec2 rect_min(0.0f, 0.0f), rect_max(0.0f, 0.0f);
@@ -2258,7 +2427,10 @@ void RunFrame(AppState& st)
             }
         }
 
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router.NoteCanvasWindow(canvas.id, (std::uint32_t)ImGui::GetCurrentWindow()->ID, window_focused);
+
+        if (window_focused)
             last_active_canvas_id = canvas.id;
 
         {
@@ -2281,20 +2453,25 @@ void RunFrame(AppState& st)
             if (!tool_engine.HasRenderFunction())
                 return;
 
-            // Prevent UI popups (notably the command palette) from leaking keyboard/mouse intent
-            // into the canvas/tools. We still drain the canvas' queued key/typed events during
-            // the keyboard phase so those inputs don't apply on the next frame after the popup closes
-            // (e.g. Enter used to confirm a command palette item inserting a character).
-            if (any_popup)
+            const bool allow_keyboard = focus_router.CanvasOwnsKeyboard(canvas.id);
+            const bool allow_text = focus_router.CanvasOwnsText(canvas.id);
+
+            // Prevent non-target canvases (and popups) from leaking keyboard/text intent into tools.
+            // Still drain queued events in phase 0 so they don't "apply later" after focus changes.
+            if (phase == 0)
             {
-                if (phase == 0)
+                if (!allow_text)
                 {
                     std::vector<char32_t> discard_typed;
                     c.TakeTypedCodepoints(discard_typed);
+                }
+                if (!allow_keyboard)
+                {
                     (void)c.TakeKeyEvents();
                 }
-                return;
             }
+            if (!allow_keyboard && !allow_text)
+                return;
 
             if (auto id = cs.Palettes().Resolve(c.GetPaletteRef()))
                 pal = *id;
@@ -2313,7 +2490,7 @@ void RunFrame(AppState& st)
             ctx.time = ImGui::GetTime() * 1000.0;
             ctx.metrics_aspect = c.GetLastCellAspect();
             ctx.phase = phase;
-            ctx.focused = c.HasFocus();
+            ctx.focused = allow_keyboard;
             {
                 auto to_idx_pal = [&](const ImVec4& col) -> int {
                     const int r = (int)std::lround(col.x * 255.0f);
@@ -2421,27 +2598,43 @@ void RunFrame(AppState& st)
             ctx.actions_pressed = nullptr;
             if (phase == 0)
             {
-                c.TakeTypedCodepoints(typed);
-                ctx.typed = &typed;
+                if (allow_text)
+                {
+                    c.TakeTypedCodepoints(typed);
+                    ctx.typed = &typed;
+                }
+                else
+                {
+                    std::vector<char32_t> discard_typed;
+                    c.TakeTypedCodepoints(discard_typed);
+                    ctx.typed = nullptr;
+                }
 
-                const auto keys = c.TakeKeyEvents();
-                ctx.key_left = keys.left;
-                ctx.key_right = keys.right;
-                ctx.key_up = keys.up;
-                ctx.key_down = keys.down;
-                ctx.key_home = keys.home;
-                ctx.key_end = keys.end;
-                ctx.key_doc_top = keys.doc_top;
-                ctx.key_doc_bottom = keys.doc_bottom;
-                ctx.key_backspace = keys.backspace;
-                ctx.key_delete = keys.del;
-                ctx.key_enter = keys.enter;
+                if (allow_keyboard)
+                {
+                    const auto keys = c.TakeKeyEvents();
+                    ctx.key_left = keys.left;
+                    ctx.key_right = keys.right;
+                    ctx.key_up = keys.up;
+                    ctx.key_down = keys.down;
+                    ctx.key_home = keys.home;
+                    ctx.key_end = keys.end;
+                    ctx.key_doc_top = keys.doc_top;
+                    ctx.key_doc_bottom = keys.doc_bottom;
+                    ctx.key_backspace = keys.backspace;
+                    ctx.key_delete = keys.del;
+                    ctx.key_enter = keys.enter;
 
-                ctx.key_c = keys.c;
-                ctx.key_v = keys.v;
-                ctx.key_x = keys.x;
-                ctx.key_a = keys.a;
-                ctx.key_escape = keys.escape;
+                    ctx.key_c = keys.c;
+                    ctx.key_v = keys.v;
+                    ctx.key_x = keys.x;
+                    ctx.key_a = keys.a;
+                    ctx.key_escape = keys.escape;
+                }
+                else
+                {
+                    (void)c.TakeKeyEvents();
+                }
 
                 ImGuiIO& io = ImGui::GetIO();
                 ctx.mod_ctrl = io.KeyCtrl;
@@ -2494,9 +2687,13 @@ void RunFrame(AppState& st)
                 kb::Hotkeys hk_to_tool;
                 pressed_actions.clear();
                 bool request_switch_to_select_tool = false;
-                if (!any_popup && c.HasFocus())
+                if (!any_popup && allow_keyboard)
                 {
-                    for (const std::string_view action_id : pressed_action_ids)
+                    std::vector<std::string_view> pressed_action_ids_for_canvas;
+                    input_dispatcher.CollectPressedActionsForCanvas(canvas.id, c, keybinds,
+                                                                   pressed_action_ids_for_canvas, 64);
+
+                    for (const std::string_view action_id : pressed_action_ids_for_canvas)
                     {
                         const app::RoutedActionRouteResult rr = app::RouteRoutedActionIdForKeybinding(action_id, routed_ctx);
                         if (rr.request_switch_to_select_tool)
@@ -2529,7 +2726,7 @@ void RunFrame(AppState& st)
                 {
                     activate_tool_by_id_with_param_persistence("01-select");
                 }
-                if (!any_popup && c.HasFocus())
+                if (!any_popup && allow_keyboard)
                     ctx.actions_pressed = &pressed_actions;
             }
 
@@ -2721,6 +2918,20 @@ void RunFrame(AppState& st)
             }
         };
 
+        // Host-driven focus/key routing (Phase 3 follow-through):
+        // - Clear per-frame key events for all canvases, then inject the current frame's keys
+        //   only for the router-selected keyboard target canvas.
+        // - Drive caret visibility using the router keyboard target (not click-driven m_has_focus).
+        const bool canvas_is_keyboard_target = (!any_popup && focus_router.CanvasOwnsKeyboard(canvas.id));
+        const bool canvas_is_text_target = (!any_popup && focus_router.CanvasOwnsText(canvas.id));
+        canvas.canvas.SetKeyboardTargetForFrame(canvas_is_keyboard_target);
+        canvas.canvas.SetTextTargetForFrame(canvas_is_text_target);
+        canvas.canvas.SetKeyEventsForFrame(AnsiCanvas::KeyEvents{});
+        if (canvas_is_keyboard_target)
+        {
+            input_dispatcher.InjectCanvasKeyEventsForFrame(canvas.id, canvas.canvas, keybinds);
+        }
+
         const bool bg_before = canvas.canvas.IsCanvasBackgroundWhite();
         canvas.canvas.Render(id_buf, tool_runner);
         const bool bg_after = canvas.canvas.IsCanvasBackgroundWhite();
@@ -2748,7 +2959,38 @@ void RunFrame(AppState& st)
 
         const std::string sauce_popup_id =
             PHOS_TR("sauce_editor.title") + "###sauce_" + std::to_string(canvas.id);
-        canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id.c_str());
+        canvas.sauce_dialog.Render(canvas.canvas, sauce_popup_id.c_str(), &focus_router);
+
+        // IME candidate window anchoring: when this canvas is the text target, place the native
+        // IME UI near the caret/composition region.
+        if (canvas_is_text_target)
+        {
+            int x = 0, y = 0, w = 0, h = 0, cursor_x = 0;
+            if (canvas.canvas.GetImeTextInputAreaPx(x, y, w, h, cursor_x))
+            {
+                // SDL expects coordinates in the target window's local coordinate space.
+                // Our caret geometry is tracked in ImGui "screen" coordinates, so subtract the
+                // viewport origin to get window-local coordinates (important for multi-viewport/docking).
+                SDL_Window* ime_window = window;
+                int vx = 0, vy = 0;
+                if (ImGuiWindow* iw = ImGui::GetCurrentWindow())
+                {
+                    if (ImGuiViewport* vp = iw->Viewport)
+                    {
+                        vx = (int)std::floor(vp->Pos.x + 0.5f);
+                        vy = (int)std::floor(vp->Pos.y + 0.5f);
+                        if (vp->PlatformHandle)
+                            ime_window = (SDL_Window*)vp->PlatformHandle;
+                    }
+                }
+                SDL_Rect r;
+                r.x = x - vx;
+                r.y = y - vy;
+                r.w = w;
+                r.h = h;
+                (void)SDL_SetTextInputArea(ime_window, &r, cursor_x);
+            }
+        }
 
         ImGui::End();
         ImGui::PopStyleVar();
@@ -2861,7 +3103,8 @@ void RunFrame(AppState& st)
         const char* name = "Brush Palette";
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         brush_palette.Render(name, &show_brush_palette_window, ui_active_canvas,
-                             &session_state, should_apply_placement(name));
+                             &session_state, should_apply_placement(name),
+                             &focus_router);
 
         // UX: selecting/creating a brush implies "I want to stamp now", so auto-switch
         // to the Brush tool unless it's already active.
@@ -2878,7 +3121,8 @@ void RunFrame(AppState& st)
         const char* name = "Layer Manager";
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
         layer_manager.Render(name, &show_layer_manager_window, ui_active_canvas,
-                             &session_state, should_apply_placement(name), layer_thumbnails_refresh_release);
+                             &session_state, should_apply_placement(name), layer_thumbnails_refresh_release,
+                             &focus_router);
     }
 
     // ANSL Editor window
@@ -2894,6 +3138,15 @@ void RunFrame(AppState& st)
         CaptureImGuiWindowPlacement(session_state, name);
         ApplyImGuiWindowChromeZOrder(&session_state, name);
         RenderImGuiWindowChromeMenu(&session_state, name);
+
+        // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+        {
+            ImGuiWindow* w = ImGui::GetCurrentWindow();
+            ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+            const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+            const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            focus_router.NoteWindowTarget(TargetKind::AnslEditor, root_id, window_focused);
+        }
         AnsiCanvas* ui_active_canvas = ResolveUiActiveCanvas(canvases, last_active_canvas_id);
 
         // ANSL contract: ctx.fg/ctx.bg are indices in the *active canvas palette* (not xterm indices).
@@ -2947,7 +3200,8 @@ void RunFrame(AppState& st)
         const std::string persist_key = "image:" + img_path;
 
         RenderImageWindow(title.c_str(), persist_key.c_str(), img, image_to_chafa_dialog,
-                          &session_state, should_apply_placement(persist_key.c_str()));
+                          &session_state, should_apply_placement(persist_key.c_str()),
+                          &focus_router);
     }
 
     // Minimap window
@@ -2960,7 +3214,7 @@ void RunFrame(AppState& st)
         preview_texture.Update(ui_active_canvas, 768, ImGui::GetTime());
         const CanvasPreviewTextureView pv_view = preview_texture.View();
         minimap_window.Render(name, &show_minimap_window, ui_active_canvas, &pv_view,
-                              &session_state, should_apply_placement(name));
+                              &session_state, should_apply_placement(name), &focus_router, &keybinds);
     }
 
     // 16colo.rs browser window.
@@ -2992,7 +3246,7 @@ void RunFrame(AppState& st)
             images.push_back(std::move(img));
         };
         sixteen_browser.Render(name, &show_16colors_browser_window, cbs,
-                               &session_state, should_apply_placement(name));
+                               &session_state, should_apply_placement(name), &focus_router);
     }
 
     // Settings window
@@ -3015,13 +3269,14 @@ void RunFrame(AppState& st)
             session_state.lut_cache_budget_bytes = bytes;
             phos::colour::GetColourSystem().Luts().SetBudgetBytes(bytes);
         });
-        settings_window.Render(name, &session_state, should_apply_placement(name));
+        settings_window.Render(name, &session_state, should_apply_placement(name), &focus_router);
         show_settings_window = settings_window.IsOpen();
     }
 
     // Chafa conversion UI
     image_to_chafa_dialog.Render(&session_state,
-                                 should_apply_placement("chafa_preview"));
+                                 should_apply_placement("chafa_preview"),
+                                 &focus_router);
     {
         AnsiCanvas converted;
         if (image_to_chafa_dialog.TakeAccepted(converted))
@@ -3040,7 +3295,8 @@ void RunFrame(AppState& st)
 
     // Markdown import UI
     markdown_to_ansi_dialog.Render(&session_state,
-                                   should_apply_placement("md_preview"));
+                                   should_apply_placement("md_preview"),
+                                   &focus_router);
     {
         const std::string src_path = markdown_to_ansi_dialog.SourcePath();
         AnsiCanvas imported;
@@ -3136,6 +3392,14 @@ void RunFrame(AppState& st)
     }
 
     // Rendering
+    // Persist last targets for debug/telemetry and compute desired SDL text-input state for the
+    // next frame's event polling.
+    input.last_keyboard_target = focus_router.KeyboardTarget();
+    input.last_text_target = focus_router.TextTarget();
+    input.sdl_text_input_desired =
+        (input.last_text_target.kind == TargetKind::CanvasGrid ||
+         input.last_text_target.kind == TargetKind::ImGuiTextInput);
+
     ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
     const bool is_minimized =

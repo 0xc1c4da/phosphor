@@ -11,6 +11,7 @@
 
 // Tool Parameters window:
 // - Renders ANSL tool params UI (settings.params -> ctx.params)
+namespace app { class FocusRouter; }
 class ToolParametersWindow
 {
 public:
@@ -21,7 +22,8 @@ public:
                 const std::string& compiled_tool_id,
                 AnslScriptEngine& tool_engine,
                 SessionState& session,
-                bool apply_placement_this_frame);
+                bool apply_placement_this_frame,
+                app::FocusRouter* focus_router = nullptr);
 };
 
 

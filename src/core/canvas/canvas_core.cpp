@@ -54,8 +54,12 @@ bool AnsiCanvas::GetCaretScreenPos(ImVec2& out) const
     if (col < 0 || row < 0)
         return false;
 
-    const float x = m_last_view.origin_x + (float)col * m_last_view.cell_w - m_last_view.scroll_x;
-    const float y = m_last_view.origin_y + (float)row * m_last_view.cell_h - m_last_view.scroll_y;
+    // NOTE: `m_last_view.origin_{x,y}` is captured from `ImGui::GetItemRectMin()` and already
+    // reflects child-window scrolling (ImGui cursor positions are scroll-adjusted).
+    // Do NOT subtract `scroll_x/scroll_y` again, or the resulting screen position will drift
+    // toward the top-left as zoom/scroll increases (e.g. command palette anchoring).
+    const float x = m_last_view.origin_x + (float)col * m_last_view.cell_w;
+    const float y = m_last_view.origin_y + (float)row * m_last_view.cell_h;
     out = ImVec2(x, y);
     return true;
 }
@@ -148,6 +152,18 @@ void AnsiCanvas::RequestScrollPixels(float scroll_x, float scroll_y)
     m_scroll_request_valid = true;
     m_scroll_request_x = scroll_x;
     m_scroll_request_y = scroll_y;
+}
+
+void AnsiCanvas::RequestZoomFactor(float factor)
+{
+    m_zoom_request_kind = ZoomRequestKind::Factor;
+    m_zoom_request_value = factor;
+}
+
+void AnsiCanvas::RequestZoomAbsolute(float zoom)
+{
+    m_zoom_request_kind = ZoomRequestKind::Absolute;
+    m_zoom_request_value = zoom;
 }
 
 bool AnsiCanvas::GetCompositeCellPublic(int row, int col, char32_t& out_cp, Colour32& out_fg, Colour32& out_bg) const

@@ -2,8 +2,10 @@
 
 #include "ui/markdown_to_ansi_dialog.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "ui/imgui_window_chrome.h"
@@ -202,7 +204,7 @@ void MarkdownToAnsiDialog::PollPreviewResult()
     error_.clear();
 }
 
-void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_this_frame)
+void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_this_frame, app::FocusRouter* focus_router)
 {
     if (!open_)
         return;
@@ -251,6 +253,15 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
         return;
     }
     {
+        if (focus_router)
+        {
+            ImGuiWindow* w = ImGui::GetCurrentWindow();
+            ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+            const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+            const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
+        }
+
         if (session)
         {
             CaptureImGuiWindowPlacement(*session, preview_key);
@@ -328,6 +339,15 @@ void MarkdownToAnsiDialog::Render(SessionState* session, bool apply_placement_th
         ImGui::End();
         open_ = settings_open;
         return;
+    }
+
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
     }
 
     open_ = settings_open;

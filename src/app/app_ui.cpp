@@ -160,23 +160,23 @@ static int RequestedTopMenu(kb::KeyBindingsEngine& keybinds)
     // Menu keyboard navigation:
     // - Alt+F / Alt+E / Alt+V / Alt+W open the respective top-level menu.
     // - We intentionally do NOT use F10, because F1..F12 (including F10) are reserved for character sets.
+    //
+    // Transitional focus/input safety:
+    // If the user is typing into an ImGui text widget, do NOT allow menu-open chords to fire.
+    // (This aligns with the "WantTextInput dominance" rule in the focus/router refactor docs.)
+    if (ImGui::GetIO().WantTextInput)
+        return 0;
+
     int requested_top_menu = 0; // 1=File, 2=Edit, 3=View, 4=Window
     kb::EvalContext mctx;
     mctx.global = true;
     mctx.platform = kb::RuntimePlatform();
 
-    std::vector<std::string_view> pressed_action_ids;
-    keybinds.CollectPressedActions(mctx, pressed_action_ids, 64);
-
-    auto contains = [&](std::string_view id) -> bool {
-        return std::find(pressed_action_ids.begin(), pressed_action_ids.end(), id) != pressed_action_ids.end();
-    };
-
     // Preserve existing priority/override behavior: later checks override earlier ones.
-    if (contains("menu.open.file")) requested_top_menu = 1;
-    if (contains("menu.open.edit")) requested_top_menu = 2;
-    if (contains("menu.open.view")) requested_top_menu = 3;
-    if (contains("menu.open.window")) requested_top_menu = 4;
+    if (keybinds.ActionPressed("menu.open.file", mctx)) requested_top_menu = 1;
+    if (keybinds.ActionPressed("menu.open.edit", mctx)) requested_top_menu = 2;
+    if (keybinds.ActionPressed("menu.open.view", mctx)) requested_top_menu = 3;
+    if (keybinds.ActionPressed("menu.open.window", mctx)) requested_top_menu = 4;
     return requested_top_menu;
 }
 

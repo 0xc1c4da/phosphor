@@ -1,11 +1,13 @@
 #include "ui/layer_manager.h"
 
+#include "app/focus_router.h"
 #include "core/canvas.h"
 #include "core/colour_system.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
 #include "core/i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 
@@ -369,7 +371,8 @@ void LayerManager::Render(const char* title,
                           AnsiCanvas* active_canvas,
                           SessionState* session,
                           bool apply_placement_this_frame,
-                          bool allow_thumbnail_refresh)
+                          bool allow_thumbnail_refresh,
+                          app::FocusRouter* focus_router)
 {
     if (!p_open || !*p_open)
         return;
@@ -390,12 +393,38 @@ void LayerManager::Render(const char* title,
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return;
     }
+    const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::LayerManager, root_id, window_focused);
+    }
     if (session)
         CaptureImGuiWindowPlacement(*session, title);
     if (session)
     {
         ApplyImGuiWindowChromeZOrder(session, title);
         RenderImGuiWindowChromeMenu(session, title);
+    }
+
+    // Transitional key ownership:
+    // This window is navigable via ImGui (selectables/buttons). When focused and not actively editing
+    // a text widget, lock common navigation/activation keys so legacy/non-owner-aware polling (canvas)
+    // can't observe them in the same frame.
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::GetActiveID() == 0 &&
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+    {
+        const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
+        ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Enter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, owner, ImGuiInputFlags_LockThisFrame);
+        ImGui::SetKeyOwner(ImGuiKey_Escape, owner, ImGuiInputFlags_LockThisFrame);
     }
 
     if (!active_canvas)

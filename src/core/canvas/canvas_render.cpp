@@ -587,7 +587,7 @@ void AnsiCanvas::DrawVisibleCells(ImDrawList* draw_list,
 
     // Caret outline overlay pass:
     // Draw AFTER all cells so adjacent cell fills/glyphs cannot paint over the 1px border.
-    if (m_has_focus &&
+    if (m_keyboard_target_for_frame &&
         caret_row >= start_row && caret_row < end_row &&
         caret_col >= start_col && caret_col < end_col)
     {
@@ -1067,6 +1067,19 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGui::PushID(id);
         bool status_editing = false;
 
+        // FocusRouter-driven nav policy:
+        // When the host says this canvas is the keyboard target for the frame, we want keyboard
+        // navigation keys to act on the canvas/tool stack, not to roam across incidental ImGui
+        // widgets in the status bar (Cols/Rows/Caret/bg/SAUCE/etc).
+        //
+        // By marking the status bar widgets as "NoNav" in this mode, we prevent ImGui from
+        // selecting them as NavId during windowing (Ctrl+Tab) and from drawing the nav cursor
+        // highlight over them. When the user clicks into an InputText, the router will switch
+        // away from CanvasGrid target (text-widget dominance), so this flag will not apply.
+        const bool status_bar_no_nav = m_keyboard_target_for_frame;
+        if (status_bar_no_nav)
+            ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+
         // With the canvas window rendered full-bleed (zero WindowPadding), add a tiny
         // amount of breathing room for the status line only.
         const ImGuiStyle& style_status = ImGui::GetStyle();
@@ -1324,25 +1337,11 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
             ImGui::Dummy(ImVec2(0.0f, status_pad_y));
 
         ImGui::PopID();
+        if (status_bar_no_nav)
+            ImGui::PopItemFlag();
     }
 
-    // Hidden input widget to reliably receive UTF-8 text events from SDL3.
-    //
-    // IMPORTANT: this must NOT live inside the scrollable canvas child. If it does,
-    // forcing keyboard focus to it (SetKeyboardFocusHere) will cause ImGui to scroll
-    // the child to reveal the focused item, which feels like the canvas "jumps" to
-    // the top when you click/paint while scrolled.
-    //
-    // Also IMPORTANT: do not let this widget alter layout or become visible (caret '|').
-    // We render it off-screen and restore cursor pos so the canvas placement is unchanged.
-    if (!m_status_bar_editing)
-    {
-        const ImVec2 saved = ImGui::GetCursorPos();
-        const float line_h = ImGui::GetFrameHeightWithSpacing();
-        ImGui::SetCursorPos(ImVec2(-10000.0f, saved.y - line_h));
-        HandleCharInputWidget(id);
-        ImGui::SetCursorPos(saved);
-    }
+    // NOTE: Typed text input is now routed host-side via SDL_EVENT_TEXT_INPUT to QueueTypedUtf8().
 
     // Layer GUI lives in the LayerManager component (see layer_manager.*).
 
@@ -1352,14 +1351,18 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         ImGuiWindowFlags_HorizontalScrollbar |
         ImGuiWindowFlags_NoNavInputs |
         ImGuiWindowFlags_NoNavFocus;
-    // During zoom changes, force scrollbars to remain present so the viewport (InnerClipRect)
-    // dimensions stay stable. This avoids a common flicker source where the vertical scrollbar
-    // toggles on/off across rounding thresholds.
-    if (zoom_stabilizing)
-    {
-        child_flags |= ImGuiWindowFlags_AlwaysVerticalScrollbar;
-        child_flags |= ImGuiWindowFlags_AlwaysHorizontalScrollbar;
-    }
+    // Pixel-perfect zoom stability:
+    // Always reserve scrollbar space so the viewport (InnerClipRect) dimensions do NOT jump
+    // when content crosses the "needs scrollbar" threshold.
+    //
+    // If the viewport width/height changes while we are computing zoom anchoring, we can end up
+    // requesting scroll positions that clamp differently next frame ("overshoot then snap back"),
+    // and the minimap viewport rectangle will visibly jitter as its size changes.
+    //
+    // Keeping scrollbars always present makes view_w/view_h stable across zoom steps.
+    (void)zoom_stabilizing;
+    child_flags |= ImGuiWindowFlags_AlwaysVerticalScrollbar;
+    child_flags |= ImGuiWindowFlags_AlwaysHorizontalScrollbar;
     // Canvas "paper" background is independent of the UI theme, so also override the
     // child window background (covers areas outside the grid, e.g. when the canvas is small).
     const ImVec4 canvas_bg = m_canvas_bg_white ? ImVec4(1, 1, 1, 1) : ImVec4(0, 0, 0, 1);
@@ -1382,7 +1385,10 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // correct "origin" for mouse anchoring is GetItemRectMin() (the actual canvas item rect),
     // not GetCursorScreenPos() (which can drift with child scrolling/scrollbars).
     bool  wheel_zoom_this_frame = false;
-    float wheel_zoom_ratio = 1.0f; // ratio between snapped scales (new/old)
+    // Ratio between pixel-rounded cell sizes (new/old). This must match the renderer's rounding,
+    // otherwise zoom anchoring "overshoots then snaps back" by ~1px when scaling crosses rounding thresholds.
+    float wheel_zoom_ratio_x = 1.0f;
+    float wheel_zoom_ratio_y = 1.0f;
     float wheel_pre_scroll_x = 0.0f;
     float wheel_pre_scroll_y = 0.0f;
     ImVec2 wheel_mouse_pos(0.0f, 0.0f);
@@ -1401,11 +1407,55 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
             const float factor = (io.MouseWheel > 0.0f) ? 1.10f : (1.0f / 1.10f);
             SetZoom(old_zoom * factor);
 
-            const float new_zoom = m_zoom;
-            const float new_scale = SnappedScaleForZoom(new_zoom, base_cell_w);
-            wheel_zoom_ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+            const float new_scale = SnappedScaleForZoom(m_zoom, base_cell_w);
+            // Compute ratio in *pixel space* using the same rounding as scaled_cell_w/h.
+            const float old_cell_w_px = std::max(1.0f, std::floor(base_cell_w * old_scale + 0.5f));
+            const float old_cell_h_px = std::max(1.0f, std::floor(base_cell_h * old_scale + 0.5f));
+            const float new_cell_w_px = std::max(1.0f, std::floor(base_cell_w * new_scale + 0.5f));
+            const float new_cell_h_px = std::max(1.0f, std::floor(base_cell_h * new_scale + 0.5f));
+            wheel_zoom_ratio_x = (old_cell_w_px > 0.0f) ? (new_cell_w_px / old_cell_w_px) : 1.0f;
+            wheel_zoom_ratio_y = (old_cell_h_px > 0.0f) ? (new_cell_h_px / old_cell_h_px) : 1.0f;
             wheel_zoom_this_frame = true;
         }
+    }
+
+    // Deferred zoom request (from keyboard/menu actions).
+    // Processed at the same phase as wheel zoom so we can use current-frame scroll and
+    // apply proper origin compensation to eliminate jitter.
+    bool  request_zoom_this_frame = false;
+    float request_zoom_ratio_x = 1.0f;
+    float request_zoom_ratio_y = 1.0f;
+    float request_pre_scroll_x = 0.0f;
+    float request_pre_scroll_y = 0.0f;
+    if (m_zoom_request_kind != ZoomRequestKind::None)
+    {
+        const float old_zoom = m_zoom;
+        const float old_scale = SnappedScaleForZoom(old_zoom, base_cell_w);
+
+        request_pre_scroll_x = ImGui::GetScrollX();
+        request_pre_scroll_y = ImGui::GetScrollY();
+
+        // Apply the requested zoom change.
+        if (m_zoom_request_kind == ZoomRequestKind::Factor)
+            SetZoom(old_zoom * m_zoom_request_value);
+        else // ZoomRequestKind::Absolute
+            SetZoom(m_zoom_request_value);
+
+        const float new_zoom = m_zoom;
+        const float new_scale = SnappedScaleForZoom(new_zoom, base_cell_w);
+
+        // Compute ratio in *pixel space* using the same rounding as scaled_cell_w/h.
+        const float old_cell_w_px = std::max(1.0f, std::floor(base_cell_w * old_scale + 0.5f));
+        const float old_cell_h_px = std::max(1.0f, std::floor(base_cell_h * old_scale + 0.5f));
+        const float new_cell_w_px = std::max(1.0f, std::floor(base_cell_w * new_scale + 0.5f));
+        const float new_cell_h_px = std::max(1.0f, std::floor(base_cell_h * new_scale + 0.5f));
+        request_zoom_ratio_x = (old_cell_w_px > 0.0f) ? (new_cell_w_px / old_cell_w_px) : 1.0f;
+        request_zoom_ratio_y = (old_cell_h_px > 0.0f) ? (new_cell_h_px / old_cell_h_px) : 1.0f;
+        request_zoom_this_frame = true;
+
+        // Clear the request (consumed).
+        m_zoom_request_kind = ZoomRequestKind::None;
+        m_zoom_request_value = 1.0f;
     }
 
     // Explicit zoom (no auto-fit), with snapping.
@@ -1436,7 +1486,6 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // so we snapshot at most once per drag and commit the undo step on mouse release.
     if (!m_undo_capture_active)
         BeginUndoCapture();
-    CaptureKeyEvents();
     const int caret_start_row = m_caret_row;
     const int caret_start_col = m_caret_col;
     const bool had_typed_input = !m_typed_queue.empty();
@@ -1477,6 +1526,17 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         if (sx > max_x) sx = max_x;
         if (sy > max_y) sy = max_y;
 
+        // Pixel-perfect scroll semantics:
+        // Scroll positions are expressed in canvas pixel space. Since the canvas grid is rendered
+        // on integer pixel boundaries (scaled_cell_w/h are rounded), we also keep scroll snapped
+        // to integer pixels to avoid subpixel drift that reads as "jitter" when zoom snapping is active.
+        sx = std::floor(sx + 0.5f);
+        sy = std::floor(sy + 0.5f);
+        if (sx < 0.0f) sx = 0.0f;
+        if (sy < 0.0f) sy = 0.0f;
+        if (sx > max_x) sx = max_x;
+        if (sy > max_y) sy = max_y;
+
         ImGui::SetScrollX(sx);
         ImGui::SetScrollY(sy);
 
@@ -1496,7 +1556,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     // stays stable in *canvas pixel space*.
     //
     // This must happen AFTER InvisibleButton() so we can use GetItemRectMin() as the true origin.
-    if (wheel_zoom_this_frame && wheel_zoom_ratio > 0.0f)
+    if (wheel_zoom_this_frame && wheel_zoom_ratio_x > 0.0f && wheel_zoom_ratio_y > 0.0f)
     {
         ImGuiWindow* w = ImGui::GetCurrentWindow();
         const ImRect clip = w ? w->InnerClipRect : ImRect(0, 0, 0, 0);
@@ -1513,8 +1573,10 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         // Choose anchor point:
         // - prefer the real mouse position if it's inside the visible canvas viewport
         // - otherwise fall back to viewport center (more robust when wheel comes from scrollbars)
-        float local_x = (wheel_mouse_pos.x - origin.x);
-        float local_y = (wheel_mouse_pos.y - origin.y);
+        // IMPORTANT: work in viewport-local coordinates (InnerClipRect), not canvas-item coordinates.
+        // Mixing these spaces (origin vs clip.Min) causes subtle per-step drift when scroll changes.
+        float local_x = (wheel_mouse_pos.x - clip.Min.x);
+        float local_y = (wheel_mouse_pos.y - clip.Min.y);
         const bool mouse_in_view =
             (wheel_mouse_pos.x >= clip.Min.x && wheel_mouse_pos.x <= clip.Max.x &&
              wheel_mouse_pos.y >= clip.Min.y && wheel_mouse_pos.y <= clip.Max.y);
@@ -1529,12 +1591,21 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         const float world_x = wheel_pre_scroll_x + local_x;
         const float world_y = wheel_pre_scroll_y + local_y;
 
-        float new_scroll_x = world_x * wheel_zoom_ratio - local_x;
-        float new_scroll_y = world_y * wheel_zoom_ratio - local_y;
+        float new_scroll_x = world_x * wheel_zoom_ratio_x - local_x;
+        float new_scroll_y = world_y * wheel_zoom_ratio_y - local_y;
 
         // Clamp to scrollable bounds for the new canvas size.
         const float max_x = std::max(0.0f, canvas_size.x - view_w);
         const float max_y = std::max(0.0f, canvas_size.y - view_h);
+        if (new_scroll_x < 0.0f) new_scroll_x = 0.0f;
+        if (new_scroll_y < 0.0f) new_scroll_y = 0.0f;
+        if (new_scroll_x > max_x) new_scroll_x = max_x;
+        if (new_scroll_y > max_y) new_scroll_y = max_y;
+
+        // Pixel-perfect: keep scroll on integer pixels to prevent fractional drift (jitter)
+        // across snapped zoom steps.
+        new_scroll_x = std::floor(new_scroll_x + 0.5f);
+        new_scroll_y = std::floor(new_scroll_y + 0.5f);
         if (new_scroll_x < 0.0f) new_scroll_x = 0.0f;
         if (new_scroll_y < 0.0f) new_scroll_y = 0.0f;
         if (new_scroll_x > max_x) new_scroll_x = max_x;
@@ -1552,7 +1623,57 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
         origin.x = std::floor(origin.x);
         origin.y = std::floor(origin.y);
 
-        suppress_caret_autoscroll = true; // avoid “fight” between zoom anchoring and caret-follow
+        suppress_caret_autoscroll = true; // avoid "fight" between zoom anchoring and caret-follow
+    }
+
+    // If we zoomed this frame via a deferred zoom request (keyboard/menu), correct scroll so the
+    // viewport center stays stable (keyboard zoom doesn't have a cursor position to anchor).
+    if (request_zoom_this_frame && request_zoom_ratio_x > 0.0f && request_zoom_ratio_y > 0.0f)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        const ImRect clip = w ? w->InnerClipRect : ImRect(0, 0, 0, 0);
+        const float view_w = clip.GetWidth();
+        const float view_h = clip.GetHeight();
+
+        const float scroll_before_x = ImGui::GetScrollX();
+        const float scroll_before_y = ImGui::GetScrollY();
+
+        // Keyboard zoom focuses viewport center (stable feel without a cursor position).
+        const float focus_x = request_pre_scroll_x + view_w * 0.5f;
+        const float focus_y = request_pre_scroll_y + view_h * 0.5f;
+
+        float new_scroll_x = focus_x * request_zoom_ratio_x - view_w * 0.5f;
+        float new_scroll_y = focus_y * request_zoom_ratio_y - view_h * 0.5f;
+
+        // Clamp to scrollable bounds for the new canvas size.
+        const float max_x = std::max(0.0f, canvas_size.x - view_w);
+        const float max_y = std::max(0.0f, canvas_size.y - view_h);
+        if (new_scroll_x < 0.0f) new_scroll_x = 0.0f;
+        if (new_scroll_y < 0.0f) new_scroll_y = 0.0f;
+        if (new_scroll_x > max_x) new_scroll_x = max_x;
+        if (new_scroll_y > max_y) new_scroll_y = max_y;
+
+        // Pixel-perfect: keep scroll on integer pixels to prevent fractional drift (jitter).
+        new_scroll_x = std::floor(new_scroll_x + 0.5f);
+        new_scroll_y = std::floor(new_scroll_y + 0.5f);
+        if (new_scroll_x < 0.0f) new_scroll_x = 0.0f;
+        if (new_scroll_y < 0.0f) new_scroll_y = 0.0f;
+        if (new_scroll_x > max_x) new_scroll_x = max_x;
+        if (new_scroll_y > max_y) new_scroll_y = max_y;
+
+        ImGui::SetScrollX(new_scroll_x);
+        ImGui::SetScrollY(new_scroll_y);
+
+        // Compensate origin for the scroll we just applied so drawing uses the correct
+        // screen-space origin for this same frame.
+        const float dx = new_scroll_x - scroll_before_x;
+        const float dy = new_scroll_y - scroll_before_y;
+        origin.x -= dx;
+        origin.y -= dy;
+        origin.x = std::floor(origin.x);
+        origin.y = std::floor(origin.y);
+
+        suppress_caret_autoscroll = true; // avoid "fight" between zoom anchoring and caret-follow
     }
 
     // Base canvas background is NOT theme-driven; it's a fixed black/white fill so
@@ -1616,7 +1737,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     const bool caret_moved = (m_caret_row != caret_start_row) || (m_caret_col != caret_start_col);
     const bool mouse_painting = m_cursor_valid && (m_cursor_left_down || m_cursor_right_down);
     const bool should_follow_caret = had_key_input || had_typed_input || (caret_moved && mouse_painting);
-    if (m_has_focus && m_follow_caret && !suppress_caret_autoscroll && should_follow_caret)
+    if (m_keyboard_target_for_frame && m_follow_caret && !suppress_caret_autoscroll && should_follow_caret)
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const ImRect clip_rect = window ? window->InnerClipRect : ImRect(0, 0, 0, 0);
@@ -1647,6 +1768,7 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
     DrawActiveLayerBoundsOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h);
     DrawToolBrushPreviewOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, canvas_size);
     DrawSelectionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
+    DrawImeCompositionOverlay(draw_list, origin, scaled_cell_w, scaled_cell_h, scaled_font_size);
 
     // Capture last viewport metrics for minimap/preview. Do this at the very end so any
     // caret auto-scroll or scroll requests are reflected.
@@ -1673,6 +1795,96 @@ void AnsiCanvas::Render(const char* id, const std::function<void(AnsiCanvas& can
 
     ImGui::EndChild();
     ImGui::PopStyleColor();
+}
+
+void AnsiCanvas::DrawImeCompositionOverlay(ImDrawList* draw_list,
+                                          const ImVec2& origin,
+                                          float cell_w,
+                                          float cell_h,
+                                          float font_size)
+{
+    if (!draw_list)
+        return;
+    if (!m_text_target_for_frame)
+        return;
+    if (!m_ime.active || m_ime.cps.empty())
+        return;
+    if (!(cell_w > 0.0f) || !(cell_h > 0.0f))
+        return;
+
+    ImFont* font = ImGui::GetFont();
+    if (!font)
+        return;
+
+    // Overlay styling: readable regardless of theme/canvas bg, and respects global window alpha.
+    const ImU32 base_fg_raw = m_canvas_bg_white ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255);
+    const ImU32 comp_bg_raw = m_canvas_bg_white ? IM_COL32(0, 120, 255, 60) : IM_COL32(0, 120, 255, 80);
+    const ImU32 sel_bg_raw  = m_canvas_bg_white ? IM_COL32(255, 200, 0, 90) : IM_COL32(255, 200, 0, 110);
+    const ImU32 underline_raw = m_canvas_bg_white ? IM_COL32(0, 0, 0, 200) : IM_COL32(255, 255, 255, 220);
+
+    const ImU32 base_fg = ApplyCurrentStyleAlpha(base_fg_raw);
+    const ImU32 comp_bg = ApplyCurrentStyleAlpha(comp_bg_raw);
+    const ImU32 sel_bg  = ApplyCurrentStyleAlpha(sel_bg_raw);
+    const ImU32 underline_col = ApplyCurrentStyleAlpha(underline_raw);
+
+    const int start_col = std::max(0, m_caret_col);
+    const int start_row = std::max(0, m_caret_row);
+    const int cols = std::max(1, m_columns);
+
+    const int cursor = std::clamp(m_ime.cursor, 0, (int)m_ime.cps.size());
+    const int sel_len = std::clamp(m_ime.selection_len, 0, (int)m_ime.cps.size() - cursor);
+    const int sel0 = cursor;
+    const int sel1 = cursor + sel_len; // exclusive
+
+    for (int i = 0; i < (int)m_ime.cps.size(); ++i)
+    {
+        const int col = start_col + (i % cols);
+        const int row = start_row + (i / cols);
+        if (col < 0 || col >= m_columns || row < 0)
+            continue;
+        if (row >= m_rows)
+            break; // don't force growth for pre-edit
+
+        const ImVec2 cell_min(origin.x + (float)col * cell_w,
+                              origin.y + (float)row * cell_h);
+        const ImVec2 cell_max(origin.x + (float)(col + 1) * cell_w,
+                              origin.y + (float)(row + 1) * cell_h);
+
+        // Background highlight (composition region, stronger for selection).
+        const bool in_sel = (i >= sel0 && i < sel1);
+        draw_list->AddRectFilled(cell_min, cell_max, in_sel ? sel_bg : comp_bg);
+
+        // Underline for "this is pre-edit".
+        const float uy = std::floor(cell_max.y) - 1.0f;
+        draw_list->AddLine(ImVec2(cell_min.x, uy), ImVec2(cell_max.x, uy), underline_col, 2.0f);
+
+        // Render the composition glyph in this cell using Dear ImGui font as a robust fallback.
+        // (Overlay only; committed glyphs still go through the canvas' glyph pipeline.)
+        char buf[5] = {0, 0, 0, 0, 0};
+        EncodeUtf8(m_ime.cps[(size_t)i], buf);
+        const ImVec2 pad(1.0f, 0.0f);
+        draw_list->PushClipRect(cell_min, cell_max, true);
+        draw_list->AddText(font, font_size, ImVec2(cell_min.x + pad.x, cell_min.y + pad.y), base_fg, buf, nullptr);
+        draw_list->PopClipRect();
+    }
+
+    // Draw a thin composition caret inside the overlay when there's no selection.
+    if (sel_len == 0)
+    {
+        const int caret_i = std::clamp(cursor, 0, (int)m_ime.cps.size());
+        const int col = start_col + (caret_i % cols);
+        const int row = start_row + (caret_i / cols);
+        if (col >= 0 && col < m_columns && row >= 0 && row < m_rows)
+        {
+            const float x0 = origin.x + (float)col * cell_w;
+            const float y0 = origin.y + (float)row * cell_h;
+            const float y1 = y0 + cell_h;
+            draw_list->AddLine(ImVec2(std::floor(x0) + 0.5f, y0),
+                               ImVec2(std::floor(x0) + 0.5f, y1),
+                               base_fg,
+                               2.0f);
+        }
+    }
 }
 
 void AnsiCanvas::DrawMirrorAxisOverlay(ImDrawList* draw_list,

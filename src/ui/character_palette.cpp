@@ -1,6 +1,8 @@
 #include "ui/character_palette.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
+#include "app/focus_router.h"
 #include "core/canvas.h"
 #include "core/fonts.h"
 #include "core/glyph_resolve.h"
@@ -556,7 +558,8 @@ void CharacterPalette::CollectCandidateGlyphIds(std::vector<phos::GlyphId>& out,
 
 bool CharacterPalette::Render(const char* window_title, bool* p_open,
                               SessionState* session, bool apply_placement_this_frame,
-                              AnsiCanvas* active_canvas)
+                              AnsiCanvas* active_canvas,
+                              app::FocusRouter* focus_router)
 {
     EnsureLoaded();
     active_canvas_ = active_canvas;
@@ -618,6 +621,28 @@ bool CharacterPalette::Render(const char* window_title, bool* p_open,
         ImGui::End();
         PopImGuiWindowChromeAlpha(alpha_pushed);
         return (p_open == nullptr) ? true : *p_open;
+    }
+    if (focus_router)
+    {
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        focus_router->NoteWindowTarget(app::TargetKind::CharacterPaletteGrid, root_id, window_focused);
+
+        // Ctrl+Tab/window-focus can bring this window to the front without creating a NavId inside it.
+        // Without a NavId, arrow keys won't navigate the grid until the user clicks.
+        //
+        // When FocusRouter says this surface is the keyboard target, proactively "seed" nav focus
+        // to the currently selected cell (done in RenderGrid via SetFocusID on the selected item).
+        if (window_focused && focus_router->KeyboardTarget().kind == app::TargetKind::CharacterPaletteGrid)
+        {
+            ImGuiContext& g = *GImGui;
+            const bool nav_in_this_root =
+                (g.NavWindow && g.NavWindow->RootWindow && root && g.NavWindow->RootWindow == root);
+            if (!nav_in_this_root || g.NavId == 0)
+                request_focus_selected_ = true;
+        }
     }
     if (session)
         CaptureImGuiWindowPlacement(*session, window_title);
@@ -945,6 +970,11 @@ void CharacterPalette::RenderGrid()
         (active_canvas_ && active_canvas_->HasEmbeddedFont() && active_canvas_->GetEmbeddedFont() &&
          active_canvas_->GetEmbeddedFont()->glyph_count > 0);
 
+    // NOTE:
+    // This grid relies on ImGui nav (EnableNav) for arrow/Enter movement/activation.
+    // Pre-emptively locking nav keys via SetKeyOwner() can interfere with ImGui's own nav routing.
+    // Canvas-side polling is now gated host-side, so we don't need to lock keys here.
+
     // Determine total items based on source.
     int total_items = 0;
     std::vector<Glyph>* glyphs_ptr = nullptr;
@@ -1151,13 +1181,88 @@ void CharacterPalette::RenderGrid()
         if (focused)
             dl->AddRect(p0, p1, col_nav, 0.0f, 0, 2.0f);
 
+        // Keyboard activation: treat Enter/Space on the focused cell like a "commit" (same behavior
+        // as mouse double-click: insert into the canvas via the host wiring).
+        if (focused)
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+            auto key_pressed = [&](ImGuiKey key, bool repeat) -> bool {
+                if (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_NamedKey_END)
+                    return false;
+                const int idx_k = (int)key - (int)ImGuiKey_NamedKey_BEGIN;
+                if (idx_k < 0 || idx_k >= ImGuiKey_NamedKey_COUNT)
+                    return false;
+                const ImGuiKeyData& kd = io.KeysData[idx_k];
+                const float t = kd.DownDuration;
+                const float t_prev = kd.DownDurationPrev;
+                if (t == 0.0f)
+                    return true;
+                if (!repeat)
+                    return false;
+                const float delay = io.KeyRepeatDelay;
+                const float rate = io.KeyRepeatRate;
+                if (rate <= 0.0f || t <= delay)
+                    return false;
+                const float t0 = std::max(0.0f, t_prev - delay);
+                const float t1 = std::max(0.0f, t - delay);
+                const int n0 = (int)std::floor(t0 / rate);
+                const int n1 = (int)std::floor(t1 / rate);
+                return (n1 > n0);
+            };
+
+            const bool pressed_enter =
+                key_pressed(ImGuiKey_Enter, /*repeat=*/true) ||
+                key_pressed(ImGuiKey_KeypadEnter, /*repeat=*/true);
+            const bool pressed_space = key_pressed(ImGuiKey_Space, /*repeat=*/true);
+            if (pressed_enter || pressed_space)
+            {
+                // If you handle it, you own it: prevent Enter/Space activation from leaking into
+                // any remaining non-owner-aware polling paths in the same frame.
+                const ImGuiID key_owner = ImGui::GetCurrentWindow()->ID;
+                if (pressed_enter)
+                {
+                    ImGui::SetKeyOwner(ImGuiKey_Enter, key_owner, ImGuiInputFlags_LockThisFrame);
+                    ImGui::SetKeyOwner(ImGuiKey_KeypadEnter, key_owner, ImGuiInputFlags_LockThisFrame);
+                }
+                if (pressed_space)
+                {
+                    ImGui::SetKeyOwner(ImGuiKey_Space, key_owner, ImGuiInputFlags_LockThisFrame);
+                }
+
+                if (source_ == Source::EmbeddedFont && has_embedded)
+                {
+                    user_double_clicked_ = true;
+                    user_double_clicked_glyph_ = GlyphToken::EmbeddedIndex((uint32_t)idx);
+                }
+                else if (source_ == Source::BitmapFontIndices)
+                {
+                    user_double_clicked_ = true;
+                    user_double_clicked_glyph_ = GlyphToken::BitmapIndex((uint32_t)idx);
+                }
+                else if (glyphs_ptr)
+                {
+                    const uint32_t cp = (*glyphs_ptr)[(size_t)idx].first_cp;
+                    if (cp != 0)
+                    {
+                        user_double_clicked_ = true;
+                        user_double_clicked_glyph_ = GlyphToken::Unicode(cp);
+                    }
+                }
+            }
+        }
+
         // If selection changed programmatically (or via mouse), request nav focus on selected cell
         // so we don't end up with a second caret elsewhere.
         if (request_focus_selected_ &&
             idx == selected_cell_ &&
             ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
         {
-            ImGui::SetItemDefaultFocus();
+            // Set actual nav focus immediately (works even when the window is focused via Ctrl+Tab).
+            // This seeds a valid NavId so arrow-key navigation works without requiring a click.
+            ImGuiContext& g = *GImGui;
+            const ImGuiID id = g.LastItemData.ID;
+            if (id != 0)
+                ImGui::SetFocusID(id, ImGui::GetCurrentWindow());
             request_focus_selected_ = false;
         }
 

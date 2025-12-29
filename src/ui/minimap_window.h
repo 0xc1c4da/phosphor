@@ -13,6 +13,8 @@
 class AnsiCanvas;
 struct SessionState;
 struct CanvasPreviewTextureView;
+namespace kb { class KeyBindingsEngine; }
+namespace app { class FocusRouter; }
 
 class MinimapWindow
 {
@@ -22,7 +24,9 @@ public:
     // Render the minimap window. Returns true if it was drawn (visible).
     bool Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                 const CanvasPreviewTextureView* minimap_texture,
-                SessionState* session = nullptr, bool apply_placement_this_frame = false);
+                SessionState* session = nullptr, bool apply_placement_this_frame = false,
+                app::FocusRouter* focus_router = nullptr,
+                kb::KeyBindingsEngine* keybinds = nullptr);
 
 private:
     // Drag interaction state.

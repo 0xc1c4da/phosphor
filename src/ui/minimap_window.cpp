@@ -1,10 +1,13 @@
 #include "ui/minimap_window.h"
 
 #include "app/canvas_preview_texture.h"
+#include "app/focus_router.h"
 #include "core/canvas.h"
 #include "core/colour_system.h"
+#include "core/key_bindings.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "ui/imgui_window_chrome.h"
 
@@ -18,7 +21,9 @@ static bool PointInRect(const ImVec2& p, const ImVec2& a, const ImVec2& b)
 
 bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
                            const CanvasPreviewTextureView* minimap_texture,
-                           SessionState* session, bool apply_placement_this_frame)
+                           SessionState* session, bool apply_placement_this_frame,
+                           app::FocusRouter* focus_router,
+                           kb::KeyBindingsEngine* keybinds)
 {
     if (!p_open || !*p_open)
         return false;
@@ -45,6 +50,16 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
     {
         ApplyImGuiWindowChromeZOrder(session, win_name);
         RenderImGuiWindowChromeMenu(session, win_name);
+    }
+
+    // FocusRouter participation: register this window as a stable keyboard target via its root window ID.
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::Minimap, root_id, window_focused);
     }
 
     const AnsiCanvas::ViewState vs = canvas ? canvas->GetLastViewState() : AnsiCanvas::ViewState{};
@@ -211,6 +226,104 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
 
     dl->PopClipRect();
 
+    // Keyboard navigation (only when minimap owns keyboard via FocusRouter):
+    // - Arrow keys: pan viewport
+    // - Keybind actions: view.scroll_* and view.zoom_* (in/out/reset)
+    //
+    // Note: We keep this local to the minimap so arrows don't interfere with the canvas grid
+    // when the minimap is not the current keyboard target.
+    const bool allow_keyboard = [&]() -> bool {
+        if (!canvas || !focus_router)
+            return false;
+        const app::Target kb_target = focus_router->KeyboardTarget();
+        if (kb_target.kind != app::TargetKind::Minimap)
+            return false;
+        // Conservative gate: if ImGui is in a text-input mode, don't steal keys.
+        if (ImGui::GetIO().WantTextInput)
+            return false;
+        return true;
+    }();
+
+    auto action_pressed = [&](std::string_view action_id) -> bool {
+        if (!keybinds)
+            return false;
+        kb::EvalContext kctx;
+        kctx.global = true;
+        kctx.editor = true;
+        // Minimap manipulates the canvas view, so treat this as a "canvas" context for bindings.
+        kctx.canvas = true;
+        kctx.selection = canvas ? canvas->HasSelection() : false;
+        kctx.platform = kb::RuntimePlatform();
+        return keybinds->ActionPressed(action_id, kctx);
+    };
+
+    auto pan_pixels = [&](float dx, float dy) {
+        if (!canvas || !vs.valid)
+            return;
+        canvas->RequestScrollPixels(vs.scroll_x + dx, vs.scroll_y + dy);
+    };
+
+    // Use deferred zoom request API so zoom + scroll adjustment happens inside
+    // AnsiCanvas::Render() with proper origin compensation (eliminates jitter).
+    auto zoom_factor = [&](float factor) {
+        if (!canvas)
+            return;
+        canvas->RequestZoomFactor(factor);
+    };
+
+    auto zoom_reset = [&]() {
+        if (!canvas)
+            return;
+        canvas->RequestZoomAbsolute(1.0f);
+    };
+
+    if (allow_keyboard && vs.valid)
+    {
+        // Key ownership (transitional): minimap consumes arrows for panning, so lock them for the frame
+        // to prevent leakage into non-owner-aware polling paths.
+        {
+            const ImGuiID owner = ImGui::GetCurrentWindow()->ID;
+            ImGui::SetKeyOwner(ImGuiKey_LeftArrow, owner, ImGuiInputFlags_LockThisFrame);
+            ImGui::SetKeyOwner(ImGuiKey_RightArrow, owner, ImGuiInputFlags_LockThisFrame);
+            ImGui::SetKeyOwner(ImGuiKey_UpArrow, owner, ImGuiInputFlags_LockThisFrame);
+            ImGui::SetKeyOwner(ImGuiKey_DownArrow, owner, ImGuiInputFlags_LockThisFrame);
+        }
+
+        ImGuiIO& io = ImGui::GetIO();
+        const float base_step_x = (vs.base_cell_w > 0.0f) ? vs.base_cell_w : 8.0f;
+        const float base_step_y = (vs.base_cell_h > 0.0f) ? vs.base_cell_h : 16.0f;
+        const float mult = io.KeyShift ? 10.0f : 1.0f;
+        const float step_x = base_step_x * mult;
+        const float step_y = base_step_y * mult;
+
+        // Arrow-key panning (repeat while held).
+        if (ImGui::Shortcut(ImGuiKey_LeftArrow, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_Repeat))
+            pan_pixels(-step_x, 0.0f);
+        if (ImGui::Shortcut(ImGuiKey_RightArrow, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_Repeat))
+            pan_pixels(step_x, 0.0f);
+        if (ImGui::Shortcut(ImGuiKey_UpArrow, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_Repeat))
+            pan_pixels(0.0f, -step_y);
+        if (ImGui::Shortcut(ImGuiKey_DownArrow, ImGuiInputFlags_RouteFocused | ImGuiInputFlags_Repeat))
+            pan_pixels(0.0f, step_y);
+
+        // Configurable keybind actions (if present/enabled).
+        if (action_pressed("view.scroll_left"))
+            pan_pixels(-step_x, 0.0f);
+        if (action_pressed("view.scroll_right"))
+            pan_pixels(step_x, 0.0f);
+        if (action_pressed("view.scroll_up"))
+            pan_pixels(0.0f, -step_y);
+        if (action_pressed("view.scroll_down"))
+            pan_pixels(0.0f, step_y);
+
+        if (action_pressed("view.zoom_in"))
+            zoom_factor(1.10f);
+        if (action_pressed("view.zoom_out"))
+            zoom_factor(1.0f / 1.10f);
+        if (action_pressed("view.zoom_reset"))
+            zoom_reset();
+    }
+
     // Interaction: wheel zoom (over minimap) -> canvas zoom.
     if (hovered && canvas && vs.valid && vs.canvas_w > 0.0f && vs.canvas_h > 0.0f)
     {
@@ -231,7 +344,13 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
 
             const float new_zoom = canvas->GetZoom();
             const float new_scale = canvas->SnappedScaleForZoom(new_zoom, base_cell_w);
-            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+            // Use pixel-cell ratio (not raw scale ratio) to match renderer rounding and avoid 1px drift/jitter.
+            const float old_cell_w_px = (vs.cell_w > 0.0f) ? vs.cell_w : std::max(1.0f, std::floor(base_cell_w * old_scale + 0.5f));
+            const float old_cell_h_px = (vs.cell_h > 0.0f) ? vs.cell_h : std::max(1.0f, std::floor(((vs.base_cell_h > 0.0f) ? vs.base_cell_h : 16.0f) * old_scale + 0.5f));
+            const float new_cell_w_px = std::max(1.0f, std::floor(base_cell_w * new_scale + 0.5f));
+            const float new_cell_h_px = std::max(1.0f, std::floor(((vs.base_cell_h > 0.0f) ? vs.base_cell_h : 16.0f) * new_scale + 0.5f));
+            const float ratio_x = (old_cell_w_px > 0.0f) ? (new_cell_w_px / old_cell_w_px) : 1.0f;
+            const float ratio_y = (old_cell_h_px > 0.0f) ? (new_cell_h_px / old_cell_h_px) : 1.0f;
 
             // Pick focus point in old canvas pixel space.
             const ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -248,8 +367,8 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
             }
 
             // Recenter viewport so the focused world point stays in view after zoom.
-            const float new_scroll_x = focus_world_x * ratio - vs.view_w * 0.5f;
-            const float new_scroll_y = focus_world_y * ratio - vs.view_h * 0.5f;
+            const float new_scroll_x = focus_world_x * ratio_x - vs.view_w * 0.5f;
+            const float new_scroll_y = focus_world_y * ratio_y - vs.view_h * 0.5f;
             canvas->RequestScrollPixels(new_scroll_x, new_scroll_y);
         }
     }
@@ -285,10 +404,15 @@ bool MinimapWindow::Render(const char* title, bool* p_open, AnsiCanvas* canvas,
 
             canvas->SetZoom(1.0f);
             const float new_scale = canvas->SnappedScaleForZoom(canvas->GetZoom(), base_cell_w);
-            const float ratio = (old_scale > 0.0f) ? (new_scale / old_scale) : 1.0f;
+            const float old_cell_w_px = (vs.cell_w > 0.0f) ? vs.cell_w : std::max(1.0f, std::floor(base_cell_w * old_scale + 0.5f));
+            const float old_cell_h_px = (vs.cell_h > 0.0f) ? vs.cell_h : std::max(1.0f, std::floor(((vs.base_cell_h > 0.0f) ? vs.base_cell_h : 16.0f) * old_scale + 0.5f));
+            const float new_cell_w_px = std::max(1.0f, std::floor(base_cell_w * new_scale + 0.5f));
+            const float new_cell_h_px = std::max(1.0f, std::floor(((vs.base_cell_h > 0.0f) ? vs.base_cell_h : 16.0f) * new_scale + 0.5f));
+            const float ratio_x = (old_cell_w_px > 0.0f) ? (new_cell_w_px / old_cell_w_px) : 1.0f;
+            const float ratio_y = (old_cell_h_px > 0.0f) ? (new_cell_h_px / old_cell_h_px) : 1.0f;
 
-            canvas->RequestScrollPixels(focus_world_x * ratio - vs.view_w * 0.5f,
-                                        focus_world_y * ratio - vs.view_h * 0.5f);
+            canvas->RequestScrollPixels(focus_world_x * ratio_x - vs.view_w * 0.5f,
+                                        focus_world_y * ratio_y - vs.view_h * 0.5f);
         }
         else
         {

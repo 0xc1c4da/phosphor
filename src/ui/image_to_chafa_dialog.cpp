@@ -2,8 +2,10 @@
 
 #include "ui/image_to_chafa_dialog.h"
 
+#include "app/focus_router.h"
 #include "core/i18n.h"
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "io/session/imgui_persistence.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "ui/imgui_window_chrome.h"
@@ -183,7 +185,7 @@ void ImageToChafaDialog::PollPreviewResult()
     error_.clear();
 }
 
-void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this_frame)
+void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this_frame, app::FocusRouter* focus_router)
 {
     if (!open_)
         return;
@@ -233,6 +235,15 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
         return;
     }
     {
+        if (focus_router)
+        {
+            ImGuiWindow* w = ImGui::GetCurrentWindow();
+            ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+            const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+            const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
+        }
+
         if (session)
         {
             CaptureImGuiWindowPlacement(*session, preview_key);
@@ -312,6 +323,15 @@ void ImageToChafaDialog::Render(SessionState* session, bool apply_placement_this
         ImGui::End();
         open_ = settings_open;
         return;
+    }
+
+    if (focus_router)
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGuiWindow* root = (w && w->RootWindow) ? w->RootWindow : w;
+        const std::uint32_t root_id = root ? (std::uint32_t)root->ID : 0u;
+        const bool window_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        focus_router->NoteWindowTarget(app::TargetKind::Dialog, root_id, window_focused);
     }
 
     // Closing the settings window closes the whole conversion UI.
