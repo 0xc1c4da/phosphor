@@ -22,6 +22,24 @@ namespace
 {
 namespace fs = std::filesystem;
 
+static int FindAnsiPresetIndex(formats::ansi::PresetId id)
+{
+    const auto& presets = formats::ansi::Presets();
+    for (size_t i = 0; i < presets.size(); ++i)
+        if (presets[i].id == id)
+            return (int)i;
+    return 0;
+}
+
+static int FindTextPresetIndex(formats::plaintext::PresetId id)
+{
+    const auto& presets = formats::plaintext::Presets();
+    for (size_t i = 0; i < presets.size(); ++i)
+        if (presets[i].id == id)
+            return (int)i;
+    return 0;
+}
+
 static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
 {
     std::string out;
@@ -31,25 +49,6 @@ static std::string JoinExtsForDialog(const std::vector<std::string_view>& exts)
         out.append(exts[i].begin(), exts[i].end());
     }
     return out;
-}
-
-static std::string JoinExtsForLabel(const std::vector<std::string_view>& exts)
-{
-    std::string out;
-    for (size_t i = 0; i < exts.size(); ++i)
-    {
-        if (i) out.push_back(';');
-        out.append("*.");
-        out.append(exts[i].begin(), exts[i].end());
-    }
-    return out;
-}
-
-static std::string MakeFilterLabel(std::string_view base, const std::vector<std::string_view>& exts)
-{
-    if (exts.empty())
-        return std::string(base);
-    return std::string(base) + " (" + JoinExtsForLabel(exts) + ")";
 }
 
 static bool IsUri(const std::string& s)
@@ -141,9 +140,15 @@ void ExportDialog::Render(const char* title,
 
         // Load reasonable defaults from presets.
         if (const auto* p = formats::ansi::FindPreset(formats::ansi::PresetId::ModernUtf8_256))
+        {
             ansi_opt_ = p->export_;
+            ansi_preset_idx_ = FindAnsiPresetIndex(p->id);
+        }
         if (const auto* p = formats::plaintext::FindPreset(formats::plaintext::PresetId::PlainUtf8))
+        {
             text_opt_ = p->export_;
+            text_preset_idx_ = FindTextPresetIndex(p->id);
+        }
 
         ansi_override_default_fg_ = (ansi_opt_.default_fg != 0);
         ansi_override_default_bg_ = (ansi_opt_.default_bg != 0);

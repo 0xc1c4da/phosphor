@@ -22,7 +22,6 @@
           };
         };
 
-        simplep2p = pkgs.callPackage ./nix/simplep2p.nix { };
         automerge-c = pkgs.callPackage ./nix/automerge-c.nix { };
 
         # VERSION should be a clean SemVer string, but trim defensively to avoid
@@ -71,7 +70,6 @@
           libblake3
           libsixel
           secp256k1
-          simplep2p
           automerge-c
         ];
 
@@ -129,8 +127,6 @@
       {
         packages = {
           phosphor = phosphor;
-          simplep2p = simplep2p;
-          automerge-c = automerge-c;
           default = phosphor;
         };
 

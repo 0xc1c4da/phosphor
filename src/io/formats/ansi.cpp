@@ -2499,6 +2499,8 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
             }
         }
 
+        bool printed_last_col = false;
+
         int x = 0;
         while (x <= x_end)
         {
@@ -2583,11 +2585,30 @@ bool ExportCanvasToBytes(const AnsiCanvas& canvas,
                 Utf8Append(cp, out_bytes);
             }
 
+            if (x == cols - 1)
+                printed_last_col = true;
             x++;
         }
 
         // End of row.
-        emit_newline();
+        //
+        // Interop nuance:
+        // - Many ANSI art editors implement terminal-style auto-wrap when the cursor passes the last column.
+        // - Some also treat LF (and/or CR) as an explicit line break.
+        // If we output a *full-width* row (0..cols-1) and then also emit LF/CRLF, those importers
+        // will advance twice, producing a blank line between each row.
+        //
+        // Therefore:
+        // - If the row ended at the last column and we did not use cursor-forward compression
+        //   (which would prevent wrap-based advancement), rely on auto-wrap instead of emitting a newline.
+        // - Otherwise, emit a newline separator *between* rows.
+        if (y + 1 < rows)
+        {
+            // If enabled and we printed something in the last column, terminal-style auto-wrap will
+            // typically advance to the next row already; don't also emit an explicit newline.
+            if (!(options.suppress_newline_after_full_width_row && printed_last_col))
+                emit_newline();
+        }
     }
 
     if (options.final_reset)
@@ -2664,14 +2685,18 @@ const std::vector<Preset>& Presets()
             Preset p;
             p.id = PresetId::SceneClassic;
             p.name = "Scene Classic (CP437 + ANSI16)";
-            p.description = "Classic ANSI art interchange: CP437 bytes, 16-colour SGR, CRLF, optional SAUCE.";
+            p.description = "Classic ANSI art interchange: CP437 bytes, 16-colour SGR, LF, optional SAUCE.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.colour_mode = ExportOptions::ColourMode::Ansi16;
             p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.icecolours = true;
-            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = true;
             p.export_.preserve_line_length = true;
+            // Keep output conservative for widest editor compatibility.
+            p.export_.compress = false;
+            p.export_.use_cursor_forward = false;
             p.export_.write_sauce = true;
             p.export_.sauce_write_options.include_eof_byte = true;
             p.export_.sauce_write_options.include_comments = true;
@@ -2689,6 +2714,7 @@ const std::vector<Preset>& Presets()
             p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.xterm_240_safe = true;
             p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = false;
             p.export_.preserve_line_length = false;
             p.export_.write_sauce = false;
             v.push_back(p);
@@ -2704,6 +2730,7 @@ const std::vector<Preset>& Presets()
             p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.xterm_240_safe = false;
             p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = false;
             p.export_.preserve_line_length = false;
             p.export_.write_sauce = false;
             v.push_back(p);
@@ -2718,6 +2745,7 @@ const std::vector<Preset>& Presets()
             p.export_.colour_mode = ExportOptions::ColourMode::TrueColourSgr;
             p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = false;
             p.export_.preserve_line_length = false;
             p.export_.write_sauce = false;
             v.push_back(p);
@@ -2727,14 +2755,15 @@ const std::vector<Preset>& Presets()
             Preset p;
             p.id = PresetId::TruecolourPabloT_Cp437;
             p.name = "Pablo/Icy Truecolour (CP437 + ANSI16 fallback + ...t)";
-            p.description = "Scene-friendly: CP437 + ANSI16 baseline (bold/iCE), with Pablo/Icy `...t` RGB overlay when needed; CRLF; SAUCE on.";
+            p.description = "CP437 + ANSI16 baseline (bold/iCE), with Pablo/Icy `...t` RGB overlay when needed; LF; SAUCE on.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.colour_mode = ExportOptions::ColourMode::TrueColourPabloT;
             p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.pablo_t_with_ansi16_fallback = true;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
             p.export_.icecolours = true;
-            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = true;
             p.export_.preserve_line_length = true;
             p.export_.write_sauce = true;
             p.export_.sauce_write_options.include_eof_byte = true;
@@ -2752,6 +2781,7 @@ const std::vector<Preset>& Presets()
             p.export_.colour_mode = ExportOptions::ColourMode::Xterm256;
             p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
             p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = false;
             p.export_.preserve_line_length = true; // Durdraw tends to be fixed-grid-ish per export.
             p.export_.write_sauce = false;
             p.export_.compress = false; // Durdraw emits attributes per cell; we won't mimic that here, but disable our compression.
@@ -2762,12 +2792,13 @@ const std::vector<Preset>& Presets()
             Preset p;
             p.id = PresetId::Moebius_Classic;
             p.name = "Moebius (Classic)";
-            p.description = "Moebius classic: CP437 + ANSI16 + CRLF + SAUCE (+^Z).";
+            p.description = "Moebius classic: CP437 + ANSI16 + LF + SAUCE (+^Z).";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.colour_mode = ExportOptions::ColourMode::Ansi16;
             p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
-            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = true;
             p.export_.write_sauce = true;
             p.export_.sauce_write_options.include_eof_byte = true;
             v.push_back(p);
@@ -2777,15 +2808,18 @@ const std::vector<Preset>& Presets()
             Preset p;
             p.id = PresetId::PabloDraw_Classic;
             p.name = "PabloDraw (Classic)";
-            p.description = "PabloDraw-friendly: CP437 + ANSI16; allow cursor-forward compression on safe spaces; CRLF; optional SAUCE.";
+            p.description = "PabloDraw-friendly: CP437 + ANSI16; allow cursor-forward compression on safe spaces; LF; optional SAUCE.";
             p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
             p.export_.colour_mode = ExportOptions::ColourMode::Ansi16;
             p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
             p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
-            p.export_.newline = ExportOptions::Newline::CRLF;
+            p.export_.newline = ExportOptions::Newline::LF;
+            p.export_.suppress_newline_after_full_width_row = true;
             p.export_.preserve_line_length = false;
-            p.export_.compress = true;
-            p.export_.use_cursor_forward = true;
+            // NOTE: Many editors already implement terminal-style auto-wrap at the file's width.
+            // Cursor-forward compression makes wrap-based line progression ambiguous, so keep this off.
+            p.export_.compress = false;
+            p.export_.use_cursor_forward = false;
             p.export_.write_sauce = true;
             v.push_back(p);
         }
@@ -2793,16 +2827,25 @@ const std::vector<Preset>& Presets()
         {
             Preset p;
             p.id = PresetId::IcyDraw_Modern;
-            p.name = "Icy Draw (Modern)";
-            p.description = "Icy-style modern output: UTF-8 (BOM) + xterm256 or truecolour; LF; SAUCE optional.";
-            p.export_.text_encoding = ExportOptions::TextEncoding::Utf8Bom;
-            p.export_.colour_mode = ExportOptions::ColourMode::Xterm256;
-            p.export_.attribute_mode = ExportOptions::AttributeMode::Modern;
+            // Empirically, Icy Draw (icy_engine) is happiest with CP437 + ANSI16 baseline,
+            // and understands the Pablo/Icy `...t` RGB overlay for truecolour.
+            p.name = "Icy Draw (CP437 + ...t truecolour)";
+            p.description = "Icy Draw-friendly: CP437 + ANSI16 baseline (bold/iCE), with `...t` RGB overlay; LF; SAUCE on (+^Z).";
+            p.export_.text_encoding = ExportOptions::TextEncoding::Cp437;
+            p.export_.colour_mode = ExportOptions::ColourMode::TrueColourPabloT;
+            p.export_.attribute_mode = ExportOptions::AttributeMode::ClassicDos;
+            p.export_.pablo_t_with_ansi16_fallback = true;
+            p.export_.ansi16_bright = ExportOptions::Ansi16Bright::BoldAndIceBlink;
+            p.export_.icecolours = true;
             p.export_.newline = ExportOptions::Newline::LF;
-            p.export_.preserve_line_length = false;
-            p.export_.compress = true;
-            p.export_.use_cursor_forward = true;
-            p.export_.write_sauce = false;
+            p.export_.suppress_newline_after_full_width_row = true;
+            p.export_.preserve_line_length = true;
+            p.export_.compress = false;
+            p.export_.use_cursor_forward = false;
+            p.export_.write_sauce = true;
+            p.export_.sauce_write_options.include_eof_byte = true;
+            p.export_.sauce_write_options.include_comments = true;
+            p.export_.sauce_write_options.encode_cp437 = true;
             v.push_back(p);
         }
 

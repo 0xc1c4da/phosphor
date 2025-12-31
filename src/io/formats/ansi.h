@@ -180,10 +180,21 @@ struct ExportOptions
     // Newline policy (row separation).
     enum class Newline
     {
-        CRLF = 0, // scene-friendly
-        LF,       // terminal-friendly
+        CRLF = 0, // legacy DOS/Windows style (some importers mis-handle this and double-advance rows)
+        LF,       // modern/portable (recommended for interoperability)
     };
     Newline newline = Newline::LF;
+
+    // Some ANSI art editors implement terminal-style auto-wrap at the document width and also treat
+    // explicit newline bytes as row breaks. If we output full-width rows *and* emit newline bytes,
+    // those importers may double-advance and insert blank rows.
+    //
+    // When enabled, the exporter will suppress emitting a newline after a row if it actually printed
+    // a glyph in the last column (so auto-wrap will advance the row).
+    //
+    // IMPORTANT: For terminal-friendly output you typically want explicit newlines, so this should
+    // remain false for terminal presets.
+    bool suppress_newline_after_full_width_row = false;
 
     // Screen preparation emitted before content.
     enum class ScreenPrep

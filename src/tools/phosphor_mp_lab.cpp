@@ -362,11 +362,9 @@ void PrintUsage()
     std::cout << "phosphor_mp_lab usage:\n"
                  "  --mode sim|p2p         (default: sim)\n"
                  "  --topic <topic>        (default: phos.room.debug)\n"
-                 "  --discovery <topic>    (p2p mode discovery topic, default: simplep2p default)\n"
-                 "  --listen <multiaddr>   (p2p mode listen address, default: simplep2p default)\n"
                  "  --name <name>          (default: anon)\n"
                  "  --host                 (in p2p mode: periodically mutates doc)\n"
-                 "  --seconds <n>          (sim duration; in p2p mode: run for n seconds then exit)\n"
+                 "  --seconds <n>          (sim mode duration, default 1)\n"
                  "\n";
 }
 
@@ -376,8 +374,6 @@ int main(int argc, char** argv)
 {
     std::string mode = "sim";
     std::string topic = "phos.room.debug";
-    std::string discovery = std::string(p2p::default_discovery_topic);
-    std::string listen = std::string(p2p::default_listen_address);
     std::string name = "anon";
     bool host = false;
     int seconds = 1;
@@ -389,10 +385,6 @@ int main(int argc, char** argv)
             mode = argv[++i];
         else if (a == "--topic" && i + 1 < argc)
             topic = argv[++i];
-        else if (a == "--discovery" && i + 1 < argc)
-            discovery = argv[++i];
-        else if (a == "--listen" && i + 1 < argc)
-            listen = argv[++i];
         else if (a == "--name" && i + 1 < argc)
             name = argv[++i];
         else if (a == "--seconds" && i + 1 < argc)
@@ -480,10 +472,8 @@ int main(int argc, char** argv)
         static std::atomic<bool> running{true};
         std::signal(SIGINT, [](int) { running = false; });
 
-        // simplep2p currently panics (in Go) if peer discovery times out without finding any peers.
-        // Use a very large timeout so "run solo / no peers yet" does not crash the process.
-        p2p::Network net(listen, discovery, p2p::Key{}, nullptr,
-                         std::chrono::seconds(3600), false, false);
+        p2p::Network net(p2p::default_listen_address, p2p::default_discovery_topic, p2p::Key{}, nullptr,
+                         std::chrono::seconds(30), false, false);
         const auto my_peer_id = std::string(net.local_id());
         RoomSession session(RoomSessionConfig{
             .topic = topic,
@@ -507,10 +497,6 @@ int main(int argc, char** argv)
         std::vector<std::pair<std::string, std::vector<std::uint8_t>>> inbox;
 
         net.on_message.connect([&](p2p::Network&, p2p::Message& msg) {
-            // Per spec: drop self-echo / local messages to avoid feedback loops.
-            if (msg.is_local(net))
-                return;
-
             // copy immediately (simplep2p frees memory after callback returns)
             const std::string from = std::string(msg.sender());
             const auto data = msg.data();
@@ -525,13 +511,9 @@ int main(int argc, char** argv)
         });
 
         auto last_tick = std::chrono::steady_clock::now();
-        const auto started = std::chrono::steady_clock::now();
 
         while (running)
         {
-            if (seconds > 0 && (std::chrono::steady_clock::now() - started) > std::chrono::seconds(seconds))
-                break;
-
             const auto now = std::chrono::steady_clock::now();
             {
                 // Drain inbox and feed to session on this (main) thread.
@@ -560,22 +542,6 @@ int main(int argc, char** argv)
                 net.broadcast_message(std::span<std::byte>((std::byte*)frame.data(), frame.size()), room);
 
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
-
-        // Print a stable digest of the final doc state so a parent harness can compare peers.
-        std::vector<std::uint8_t> saved;
-        if (session.Doc().Save(saved, &err))
-        {
-            const auto h = Blake3_32(std::span<const std::uint8_t>(saved.data(), saved.size()));
-            static constexpr char kHex[] = "0123456789abcdef";
-            std::string hex;
-            hex.resize(h.size() * 2);
-            for (std::size_t i = 0; i < h.size(); ++i)
-            {
-                hex[i * 2 + 0] = kHex[(h[i] >> 4) & 0xFu];
-                hex[i * 2 + 1] = kHex[(h[i] >> 0) & 0xFu];
-            }
-            std::cout << "[p2p] peers=" << session.Peers().size() << " save_blake3=" << hex << "\n";
         }
 
         net.shutdown();

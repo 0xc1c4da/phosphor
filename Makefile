@@ -68,7 +68,7 @@ PHOSPHOR_VERSION_STR ?= $(shell \
 # Make it obvious when vendor/ is removed and IMGUI_DIR isn't set.
 # NOTE: Some utility targets and headless tools do not require Dear ImGui.
 # Avoid hard-failing the Makefile when building those.
-SKIP_IMGUI_CHECK := $(filter test mp-lab p2p-smoke canvas-bridge-test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
+SKIP_IMGUI_CHECK := $(filter test mp-lab canvas-bridge-test font-sanity i18n-validate palette-validate clean,$(MAKECMDGOALS))
 ifeq ($(SKIP_IMGUI_CHECK),)
 ifeq ($(wildcard $(IMGUI_DIR)/imgui.h),)
 $(error IMGUI_DIR '$(IMGUI_DIR)' does not contain imgui.h. Set IMGUI_DIR=/path/to/imgui (or use `nix develop` which sets it automatically).)
@@ -208,8 +208,8 @@ DEPS     = $(OBJS:.o=.d)
 # SDL3 + Vulkan + Chafa + nlohmann_json + zstd flags provided by the Nix dev shell (see flake.nix).
 # LuaJIT and ICU67 headers and libraries are also made available via the dev shell.
 # TODO: add libsixel
-CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json icu-uc icu-i18n luajit libzstd libcurl md4c libblake3 libsecp256k1 simplep2p automerge-c)
-LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl md4c libblake3 libsecp256k1 simplep2p automerge-c) -ldl
+CXXFLAGS += $(shell pkg-config --cflags sdl3 vulkan chafa nlohmann_json icu-uc icu-i18n luajit libzstd libcurl md4c libblake3 libsecp256k1 automerge-c)
+LIBS     = $(shell pkg-config --libs sdl3 vulkan chafa icu-uc icu-i18n luajit libzstd libcurl md4c libblake3 libsecp256k1 automerge-c) -ldl
 
 # Optional, provided by the Nix dev shell (see flake.nix).
 # libnoise in nixpkgs is static-only, so we link it explicitly via these env vars.
@@ -331,7 +331,7 @@ TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(TEST_SRCS))
 $(BUILD_DIR)/tests/%.o: CXXFLAGS += -O1 -Itests
 
 $(TEST_EXE): $(TEST_OBJS)
-	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 automerge-c libzstd)
 
 .PHONY: test
 test: $(TEST_EXE)
@@ -381,7 +381,7 @@ CANVAS_BRIDGE_TEST_OBJS = $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(CANVAS_BRIDGE_TEST
 $(BUILD_DIR)/tests/test_canvas_multiplayer_bridge.o: CXXFLAGS += -O1 -Itests
 
 $(CANVAS_BRIDGE_TEST_EXE): $(CANVAS_BRIDGE_TEST_OBJS)
-	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+	$(CXX) -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 automerge-c libzstd)
 
 .PHONY: canvas-bridge-test
 canvas-bridge-test: $(CANVAS_BRIDGE_TEST_EXE)
@@ -404,14 +404,10 @@ MP_LAB_SRCS = \
 
 $(MP_LAB_EXE): $(MP_LAB_SRCS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -O1 -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 simplep2p automerge-c libzstd)
+	$(CXX) $(CXXFLAGS) -O1 -o $@ $^ $(shell pkg-config --libs libblake3 libsecp256k1 automerge-c libzstd)
 
 .PHONY: mp-lab
 mp-lab: $(MP_LAB_EXE)
-
-.PHONY: p2p-smoke
-p2p-smoke: mp-lab
-	@./scripts/p2p_smoke.sh
 
 # Include generated dependency files if they exist.
 -include $(DEPS)

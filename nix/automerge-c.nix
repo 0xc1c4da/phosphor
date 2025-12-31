@@ -9,7 +9,7 @@
     fetchSubmodules = false;
   })
 , version ? "0.3.0"
-, cargoVendorHash ? "sha256-WI3Se3z1mvnR9dLxbx+a8sx3+AYgQOv0ZWn2SRtle0w="
+, cargoVendorHash ? "sha256-SvlIGsNsbz8pILtfQWLNlJ8UHJYmpWoB1zglu1P23oQ="
 }:
 
 let
